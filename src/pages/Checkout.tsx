@@ -14,6 +14,7 @@ const Checkout = () => {
   const { items, totalPrice, clearCart } = useCart();
   const navigate = useNavigate();
   const [placed, setPlaced] = useState(false);
+  const [placedOrder, setPlacedOrder] = useState<Order | null>(null);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
@@ -48,8 +49,19 @@ const Checkout = () => {
     localStorage.setItem("orders", JSON.stringify([...existingOrders, order]));
 
     console.log("Order placed:", order);
+    setPlacedOrder(order);
     setPlaced(true);
     clearCart();
+  };
+
+  const handleWhatsApp = () => {
+    if (!placedOrder) return;
+    const productList = placedOrder.items
+      .map((item) => `- ${item.productName} × ${item.quantity} = ₹${item.total}`)
+      .join("\n");
+    const message = `New Order:\n\nName: ${placedOrder.customerName}\nPhone: ${placedOrder.phone}\n\nProducts:\n${productList}\n\nTotal: ₹${placedOrder.totalAmount}\nPayment: ${placedOrder.paymentMethod === "cod" ? "COD" : "UPI"}\n\nAddress:\n${placedOrder.address}`;
+    const url = `https://wa.me/919168833977?text=${encodeURIComponent(message)}`;
+    window.open(url, "_blank");
   };
 
   if (placed) {
@@ -67,7 +79,10 @@ const Checkout = () => {
             <Clock className="h-4 w-4" />
             <span className="text-sm font-medium">Estimated delivery in 60 mins</span>
           </div>
-          <Button onClick={() => navigate("/")} variant="outline" className="mt-4">
+          <Button onClick={handleWhatsApp} className="mt-4 bg-[#25D366] hover:bg-[#1da851] text-white">
+            Send Order on WhatsApp
+          </Button>
+          <Button onClick={() => navigate("/")} variant="outline" className="mt-2">
             Continue Shopping
           </Button>
         </motion.div>
