@@ -54,6 +54,16 @@ const Checkout = () => {
     clearCart();
   };
 
+  const handleWhatsApp = () => {
+    if (!placedOrder) return;
+    const productList = placedOrder.items
+      .map((item) => `- ${item.productName} × ${item.quantity} = ₹${item.total}`)
+      .join("\n");
+    const message = `New Order:\n\nName: ${placedOrder.customerName}\nPhone: ${placedOrder.phone}\n\nProducts:\n${productList}\n\nTotal: ₹${placedOrder.totalAmount}\nPayment: ${placedOrder.paymentMethod === "cod" ? "COD" : "UPI"}\n\nAddress:\n${placedOrder.address}`;
+    const url = `https://wa.me/919168833977?text=${encodeURIComponent(message)}`;
+    window.open(url, "_blank");
+  };
+
   if (placed) {
     return (
       <div className="min-h-screen bg-background">
@@ -69,7 +79,10 @@ const Checkout = () => {
             <Clock className="h-4 w-4" />
             <span className="text-sm font-medium">Estimated delivery in 60 mins</span>
           </div>
-          <Button onClick={() => navigate("/")} variant="outline" className="mt-4">
+          <Button onClick={handleWhatsApp} className="mt-4 bg-[#25D366] hover:bg-[#1da851] text-white">
+            Send Order on WhatsApp
+          </Button>
+          <Button onClick={() => navigate("/")} variant="outline" className="mt-2">
             Continue Shopping
           </Button>
         </motion.div>
