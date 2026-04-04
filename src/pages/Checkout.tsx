@@ -61,7 +61,7 @@ const Checkout = () => {
       .join("\n");
     const message = `New Order:\n\nName: ${placedOrder.customerName}\nPhone: ${placedOrder.phone}\n\nProducts:\n${productList}\n\nTotal: ₹${placedOrder.totalAmount}\nPayment: ${placedOrder.paymentMethod === "cod" ? "COD" : "UPI"}\n\nAddress:\n${placedOrder.address}`;
     const url = `https://wa.me/919168833977?text=${encodeURIComponent(message)}`;
-    window.open(url, "_blank");
+    window.location.href = url;
   };
 
   if (placed) {
@@ -109,22 +109,55 @@ const Checkout = () => {
         <form onSubmit={handlePlace} className="space-y-4">
           <div className="bg-card rounded-lg border p-4 space-y-3">
             <h2 className="text-sm font-semibold text-foreground">Delivery Address</h2>
-            <Input placeholder="Full Name" required className="bg-background" value={name} onChange={(e) => setName(e.target.value)} />
-            <Input placeholder="Phone Number" type="tel" required className="bg-background" value={phone} onChange={(e) => setPhone(e.target.value)} />
-            <Input placeholder="Address Line 1" required className="bg-background" value={address} onChange={(e) => setAddress(e.target.value)} />
-            <Input placeholder="City, Pincode" required className="bg-background" value={city} onChange={(e) => setCity(e.target.value)} />
+            <Input
+              placeholder="Full Name"
+              required
+              className="bg-background"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+            <Input
+              placeholder="Phone Number"
+              type="tel"
+              required
+              className="bg-background"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+            />
+            <Input
+              placeholder="Address Line 1"
+              required
+              className="bg-background"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+            />
+            <Input
+              placeholder="City, Pincode"
+              required
+              className="bg-background"
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+            />
           </div>
 
           <div className="bg-card rounded-lg border p-4 space-y-3">
             <h2 className="text-sm font-semibold text-foreground">Payment Method</h2>
-            <RadioGroup value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as "cod" | "online")} className="space-y-2">
+            <RadioGroup
+              value={paymentMethod}
+              onValueChange={(v) => setPaymentMethod(v as "cod" | "online")}
+              className="space-y-2"
+            >
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="cod" id="cod" />
-                <Label htmlFor="cod" className="text-sm text-foreground">Cash on Delivery</Label>
+                <Label htmlFor="cod" className="text-sm text-foreground">
+                  Cash on Delivery
+                </Label>
               </div>
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="online" id="online" />
-                <Label htmlFor="online" className="text-sm text-foreground">Online Payment</Label>
+                <Label htmlFor="online" className="text-sm text-foreground">
+                  Online Payment
+                </Label>
               </div>
             </RadioGroup>
           </div>
@@ -141,9 +174,7 @@ const Checkout = () => {
             ))}
             <div className="border-t pt-2 mt-2 flex justify-between text-sm">
               <span className="text-muted-foreground">Delivery</span>
-              <span className="font-medium text-foreground">
-                {deliveryFee === 0 ? "FREE" : `₹${deliveryFee}`}
-              </span>
+              <span className="font-medium text-foreground">{deliveryFee === 0 ? "FREE" : `₹${deliveryFee}`}</span>
             </div>
             <div className="flex justify-between font-bold text-foreground">
               <span>Total</span>
