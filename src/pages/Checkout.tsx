@@ -5,17 +5,49 @@ import Header from "@/components/Header";
 import { useCart } from "@/context/CartContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
 import { motion, AnimatePresence } from "framer-motion";
+import { Order } from "@/types/order";
 
 const Checkout = () => {
   const { items, totalPrice, clearCart } = useCart();
   const navigate = useNavigate();
   const [placed, setPlaced] = useState(false);
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
+  const [city, setCity] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"cod" | "online">("cod");
 
   const deliveryFee = totalPrice > 2000 ? 0 : 49;
 
   const handlePlace = (e: React.FormEvent) => {
     e.preventDefault();
+
+    const order: Order = {
+      id: crypto.randomUUID(),
+      customerName: name,
+      phone,
+      address: `${address}, ${city}`,
+      items: items.map(({ product, quantity }) => ({
+        productId: product.id,
+        productName: product.name,
+        quantity,
+        unitPrice: product.price,
+        total: product.price * quantity,
+      })),
+      totalAmount: totalPrice + deliveryFee,
+      paymentMethod,
+      status: "pending",
+      timestamp: new Date().toISOString(),
+    };
+
+    // Store order locally (can be sent to backend later)
+    const existingOrders = JSON.parse(localStorage.getItem("orders") || "[]");
+    localStorage.setItem("orders", JSON.stringify([...existingOrders, order]));
+
+    console.log("Order placed:", order);
     setPlaced(true);
     clearCart();
   };
