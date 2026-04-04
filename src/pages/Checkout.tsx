@@ -49,6 +49,7 @@ const Checkout = () => {
     localStorage.setItem("orders", JSON.stringify([...existingOrders, order]));
 
     console.log("Order placed:", order);
+    setPlacedOrder(order);
     setPlaced(true);
     clearCart();
   };
