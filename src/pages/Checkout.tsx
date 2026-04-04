@@ -14,6 +14,7 @@ const Checkout = () => {
   const { items, totalPrice, clearCart } = useCart();
   const navigate = useNavigate();
   const [placed, setPlaced] = useState(false);
+  const [placedOrder, setPlacedOrder] = useState<Order | null>(null);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
