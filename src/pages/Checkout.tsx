@@ -5,17 +5,49 @@ import Header from "@/components/Header";
 import { useCart } from "@/context/CartContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
 import { motion, AnimatePresence } from "framer-motion";
+import { Order } from "@/types/order";
 
 const Checkout = () => {
   const { items, totalPrice, clearCart } = useCart();
   const navigate = useNavigate();
   const [placed, setPlaced] = useState(false);
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
+  const [city, setCity] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"cod" | "online">("cod");
 
   const deliveryFee = totalPrice > 2000 ? 0 : 49;
 
   const handlePlace = (e: React.FormEvent) => {
     e.preventDefault();
+
+    const order: Order = {
+      id: crypto.randomUUID(),
+      customerName: name,
+      phone,
+      address: `${address}, ${city}`,
+      items: items.map(({ product, quantity }) => ({
+        productId: product.id,
+        productName: product.name,
+        quantity,
+        unitPrice: product.price,
+        total: product.price * quantity,
+      })),
+      totalAmount: totalPrice + deliveryFee,
+      paymentMethod,
+      status: "pending",
+      timestamp: new Date().toISOString(),
+    };
+
+    // Store order locally (can be sent to backend later)
+    const existingOrders = JSON.parse(localStorage.getItem("orders") || "[]");
+    localStorage.setItem("orders", JSON.stringify([...existingOrders, order]));
+
+    console.log("Order placed:", order);
     setPlaced(true);
     clearCart();
   };
@@ -62,10 +94,24 @@ const Checkout = () => {
         <form onSubmit={handlePlace} className="space-y-4">
           <div className="bg-card rounded-lg border p-4 space-y-3">
             <h2 className="text-sm font-semibold text-foreground">Delivery Address</h2>
-            <Input placeholder="Full Name" required className="bg-background" />
-            <Input placeholder="Phone Number" type="tel" required className="bg-background" />
-            <Input placeholder="Address Line 1" required className="bg-background" />
-            <Input placeholder="City, Pincode" required className="bg-background" />
+            <Input placeholder="Full Name" required className="bg-background" value={name} onChange={(e) => setName(e.target.value)} />
+            <Input placeholder="Phone Number" type="tel" required className="bg-background" value={phone} onChange={(e) => setPhone(e.target.value)} />
+            <Input placeholder="Address Line 1" required className="bg-background" value={address} onChange={(e) => setAddress(e.target.value)} />
+            <Input placeholder="City, Pincode" required className="bg-background" value={city} onChange={(e) => setCity(e.target.value)} />
+          </div>
+
+          <div className="bg-card rounded-lg border p-4 space-y-3">
+            <h2 className="text-sm font-semibold text-foreground">Payment Method</h2>
+            <RadioGroup value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as "cod" | "online")} className="space-y-2">
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="cod" id="cod" />
+                <Label htmlFor="cod" className="text-sm text-foreground">Cash on Delivery</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="online" id="online" />
+                <Label htmlFor="online" className="text-sm text-foreground">Online Payment</Label>
+              </div>
+            </RadioGroup>
           </div>
 
           <div className="bg-card rounded-lg border p-4 space-y-2">
