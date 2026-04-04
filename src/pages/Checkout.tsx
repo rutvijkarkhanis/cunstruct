@@ -94,10 +94,24 @@ const Checkout = () => {
         <form onSubmit={handlePlace} className="space-y-4">
           <div className="bg-card rounded-lg border p-4 space-y-3">
             <h2 className="text-sm font-semibold text-foreground">Delivery Address</h2>
-            <Input placeholder="Full Name" required className="bg-background" />
-            <Input placeholder="Phone Number" type="tel" required className="bg-background" />
-            <Input placeholder="Address Line 1" required className="bg-background" />
-            <Input placeholder="City, Pincode" required className="bg-background" />
+            <Input placeholder="Full Name" required className="bg-background" value={name} onChange={(e) => setName(e.target.value)} />
+            <Input placeholder="Phone Number" type="tel" required className="bg-background" value={phone} onChange={(e) => setPhone(e.target.value)} />
+            <Input placeholder="Address Line 1" required className="bg-background" value={address} onChange={(e) => setAddress(e.target.value)} />
+            <Input placeholder="City, Pincode" required className="bg-background" value={city} onChange={(e) => setCity(e.target.value)} />
+          </div>
+
+          <div className="bg-card rounded-lg border p-4 space-y-3">
+            <h2 className="text-sm font-semibold text-foreground">Payment Method</h2>
+            <RadioGroup value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as "cod" | "online")} className="space-y-2">
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="cod" id="cod" />
+                <Label htmlFor="cod" className="text-sm text-foreground">Cash on Delivery</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="online" id="online" />
+                <Label htmlFor="online" className="text-sm text-foreground">Online Payment</Label>
+              </div>
+            </RadioGroup>
           </div>
 
           <div className="bg-card rounded-lg border p-4 space-y-2">
