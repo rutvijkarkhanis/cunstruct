@@ -19,14 +19,14 @@ const ProductCard = ({ product }: { product: Product }) => {
       to={`/product/${product.id}`}
       className="group bg-card rounded-lg border overflow-hidden animate-slide-up"
     >
-      <div className="aspect-square overflow-hidden bg-muted flex items-center justify-center p-2">
+      <div className="h-32 sm:h-36 lg:h-40 overflow-hidden bg-muted flex items-center justify-center p-3">
         <img
           src={product.image}
           alt={product.name}
           loading="lazy"
           width={512}
           height={512}
-          className="w-full h-full object-contain"
+          className="max-h-full max-w-full object-contain"
         />
       </div>
       <div className="p-3">
