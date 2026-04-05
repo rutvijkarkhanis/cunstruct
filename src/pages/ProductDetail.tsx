@@ -35,14 +35,17 @@ const ProductDetail = () => {
           <ArrowLeft className="h-4 w-4" /> Back
         </Link>
 
-        <div className="bg-card rounded-lg border overflow-hidden">
-          <div className="bg-muted flex items-center justify-center p-6">
-            <div className="w-full max-w-xs sm:max-w-sm md:max-w-md mx-auto h-56 sm:h-64 md:h-72 flex items-center justify-center">
-              <img src={product.image} alt={product.name} className="max-h-full max-w-full object-contain" width={640} height={640} />
+        <div className="max-w-lg mx-auto">
+          {/* Image Container */}
+          <div className="bg-card rounded-xl border p-4 sm:p-6">
+            <div className="aspect-square max-h-64 sm:max-h-72 w-full flex items-center justify-center mx-auto">
+              <img src={product.image} alt={product.name} className="max-h-full max-w-[80%] object-contain" width={640} height={640} />
             </div>
           </div>
-          <div className="p-4 space-y-3">
-            <div className="flex items-center gap-2 bg-success/10 rounded-md px-2.5 py-1.5 w-fit">
+
+          {/* Product Info */}
+          <div className="mt-4 space-y-4">
+            <div className="flex items-center gap-2 bg-success/10 rounded-lg px-3 py-2 w-fit">
               <Clock className="h-3.5 w-3.5 text-success" />
               <span className="text-xs font-medium text-success">Delivery in 60 mins</span>
             </div>
@@ -65,26 +68,28 @@ const ProductDetail = () => {
 
             <p className="text-sm text-muted-foreground leading-relaxed">{product.description}</p>
 
-            <div className="pt-2 border-t">
+            {/* Price + Qty */}
+            <div className="pt-3 border-t space-y-4">
               <div className="flex items-end justify-between">
                 <div>
                   <span className="text-2xl font-bold text-foreground">₹{product.price}</span>
                   <span className="text-sm text-muted-foreground ml-1">/{product.unit}</span>
                 </div>
-                <div className="flex items-center gap-3 bg-secondary rounded-lg px-1">
-                  <button onClick={() => setQty(Math.max(1, qty - 1))} className="p-1.5">
+                <div className="flex items-center gap-3 bg-secondary rounded-xl px-2 py-1">
+                  <button onClick={() => setQty(Math.max(1, qty - 1))} className="p-1.5 active:scale-90 transition-transform">
                     <Minus className="h-4 w-4 text-foreground" />
                   </button>
                   <span className="text-sm font-semibold text-foreground w-6 text-center">{qty}</span>
-                  <button onClick={() => setQty(qty + 1)} className="p-1.5">
+                  <button onClick={() => setQty(qty + 1)} className="p-1.5 active:scale-90 transition-transform">
                     <Plus className="h-4 w-4 text-foreground" />
                   </button>
                 </div>
               </div>
-            </div>
 
-            <div className="flex gap-3 pt-2">
-              <Button onClick={handleAdd} className="flex-1 bg-primary text-primary-foreground h-12 text-base font-semibold">
+              <Button
+                onClick={handleAdd}
+                className="w-full max-w-sm mx-auto flex h-12 text-base font-semibold rounded-xl shadow-md hover:brightness-110 hover:scale-[1.02] active:scale-[0.98] transition-all"
+              >
                 <ShoppingCart className="h-5 w-5 mr-2" />
                 Add to Cart — ₹{product.price * qty}
               </Button>
