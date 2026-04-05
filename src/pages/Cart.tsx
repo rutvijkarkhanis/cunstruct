@@ -3,6 +3,8 @@ import { ArrowLeft, Minus, Plus, Trash2 } from "lucide-react";
 import Header from "@/components/Header";
 import { useCart } from "@/context/CartContext";
 import { Button } from "@/components/ui/button";
+import { getDeliveryInfo } from "@/lib/delivery";
+import DeliveryBadge from "@/components/DeliveryBadge";
 
 const Cart = () => {
   const { items, updateQuantity, removeFromCart, totalPrice } = useCart();
