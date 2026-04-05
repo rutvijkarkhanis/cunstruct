@@ -36,8 +36,10 @@ const ProductDetail = () => {
         </Link>
 
         <div className="bg-card rounded-lg border overflow-hidden">
-          <div className="aspect-square bg-muted flex items-center justify-center">
-            <img src={product.image} alt={product.name} className="w-24 h-24 opacity-30" width={640} height={640} />
+          <div className="bg-muted flex items-center justify-center p-6">
+            <div className="w-full max-w-xs sm:max-w-sm md:max-w-md mx-auto h-56 sm:h-64 md:h-72 flex items-center justify-center">
+              <img src={product.image} alt={product.name} className="max-h-full max-w-full object-contain" width={640} height={640} />
+            </div>
           </div>
           <div className="p-4 space-y-3">
             <div className="flex items-center gap-2 bg-success/10 rounded-md px-2.5 py-1.5 w-fit">
