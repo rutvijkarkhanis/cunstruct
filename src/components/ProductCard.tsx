@@ -19,14 +19,14 @@ const ProductCard = ({ product }: { product: Product }) => {
       to={`/product/${product.id}`}
       className="group bg-card rounded-lg border overflow-hidden animate-slide-up"
     >
-      <div className="aspect-square overflow-hidden bg-muted">
+      <div className="aspect-[4/3] overflow-hidden bg-muted flex items-center justify-center">
         <img
           src={product.image}
           alt={product.name}
           loading="lazy"
           width={320}
-          height={320}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+          height={240}
+          className="w-16 h-16 opacity-30"
         />
       </div>
       <div className="p-3">
@@ -38,6 +38,7 @@ const ProductCard = ({ product }: { product: Product }) => {
         <h3 className="text-sm font-semibold text-foreground mt-0.5 line-clamp-2 leading-snug">
           {product.name}
         </h3>
+        <span className="text-xs text-muted-foreground">{product.weight}kg</span>
         <div className="flex items-center justify-between mt-2">
           <div>
             <span className="text-base font-bold text-foreground">₹{product.price}</span>

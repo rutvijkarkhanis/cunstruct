@@ -1,4 +1,4 @@
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { ArrowLeft, Star, Clock, Minus, Plus, ShoppingCart } from "lucide-react";
 import { useState } from "react";
 import { products } from "@/data/products";
@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 
 const ProductDetail = () => {
   const { id } = useParams();
-  const navigate = useNavigate();
   const { addToCart } = useCart();
   const [qty, setQty] = useState(1);
 
@@ -37,8 +36,8 @@ const ProductDetail = () => {
         </Link>
 
         <div className="bg-card rounded-lg border overflow-hidden">
-          <div className="aspect-square bg-muted">
-            <img src={product.image} alt={product.name} className="w-full h-full object-cover" width={640} height={640} />
+          <div className="aspect-square bg-muted flex items-center justify-center">
+            <img src={product.image} alt={product.name} className="w-24 h-24 opacity-30" width={640} height={640} />
           </div>
           <div className="p-4 space-y-3">
             <div className="flex items-center gap-2 bg-success/10 rounded-md px-2.5 py-1.5 w-fit">
@@ -53,9 +52,13 @@ const ProductDetail = () => {
             )}
             <h1 className="text-xl font-bold text-foreground">{product.name}</h1>
 
-            <div className="flex items-center gap-1.5">
-              <Star className="h-4 w-4 fill-accent text-accent" />
-              <span className="text-sm font-medium text-foreground">{product.rating}</span>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <Star className="h-4 w-4 fill-accent text-accent" />
+                <span className="text-sm font-medium text-foreground">{product.rating}</span>
+              </div>
+              <span className="text-sm text-muted-foreground">•</span>
+              <span className="text-sm text-muted-foreground">{product.weight}kg</span>
             </div>
 
             <p className="text-sm text-muted-foreground leading-relaxed">{product.description}</p>

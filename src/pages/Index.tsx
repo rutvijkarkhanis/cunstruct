@@ -2,25 +2,10 @@ import { Link } from "react-router-dom";
 import { Clock, ChevronRight } from "lucide-react";
 import Header from "@/components/Header";
 import ProductCard from "@/components/ProductCard";
-import { products } from "@/data/products";
-import cementImg from "@/assets/cement.jpg";
-import steelImg from "@/assets/steel.jpg";
-import sandImg from "@/assets/sand.jpg";
-
-const categoryImages: Record<string, string> = {
-  cement: cementImg,
-  steel: steelImg,
-  sand: sandImg,
-};
-
-const categories = [
-  { id: "cement", name: "Cement", desc: "OPC, PPC & more" },
-  { id: "steel", name: "Steel", desc: "TMT bars & rebars" },
-  { id: "sand", name: "Sand", desc: "M-Sand, River sand" },
-];
+import { products, categories } from "@/data/products";
 
 const Index = () => {
-  const featured = products.slice(0, 4);
+  const featured = products.filter((p) => p.category !== "heavy-materials").slice(0, 4);
 
   return (
     <div className="min-h-screen bg-background">
@@ -46,25 +31,15 @@ const Index = () => {
       {/* Categories */}
       <div className="container py-4">
         <h2 className="text-base font-bold text-foreground mb-3">Shop by Category</h2>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           {categories.map((cat) => (
             <Link
               key={cat.id}
               to={`/products?category=${cat.id}`}
-              className="group bg-card rounded-lg border overflow-hidden"
+              className="bg-card rounded-lg border p-4 flex items-center gap-3 hover:border-primary/40 transition-colors"
             >
-              <div className="aspect-square overflow-hidden">
-                <img
-                  src={categoryImages[cat.id]}
-                  alt={cat.name}
-                  width={200}
-                  height={200}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                />
-              </div>
-              <div className="p-2 text-center">
-                <span className="text-sm font-semibold text-foreground">{cat.name}</span>
-              </div>
+              <span className="text-2xl">{cat.icon}</span>
+              <span className="text-sm font-semibold text-foreground">{cat.name}</span>
             </Link>
           ))}
         </div>
