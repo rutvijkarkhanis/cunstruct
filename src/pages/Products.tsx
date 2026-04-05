@@ -2,10 +2,10 @@ import { Link, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Clock } from "lucide-react";
 import Header from "@/components/Header";
 import ProductCard from "@/components/ProductCard";
-import { products } from "@/data/products";
+import { products, categories } from "@/data/products";
 
 const Products = () => {
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const category = params.get("category");
 
   const filtered = category
@@ -13,7 +13,7 @@ const Products = () => {
     : products;
 
   const title = category
-    ? category.charAt(0).toUpperCase() + category.slice(1)
+    ? categories.find((c) => c.id === category)?.name ?? "Products"
     : "All Products";
 
   return (
@@ -25,6 +25,29 @@ const Products = () => {
             <ArrowLeft className="h-5 w-5 text-foreground" />
           </Link>
           <h1 className="text-xl font-bold text-foreground">{title}</h1>
+        </div>
+
+        {/* Category chips */}
+        <div className="flex gap-2 overflow-x-auto pb-3 -mx-4 px-4 scrollbar-none">
+          <button
+            onClick={() => setParams({})}
+            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+              !category ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground border-border"
+            }`}
+          >
+            All
+          </button>
+          {categories.map((cat) => (
+            <button
+              key={cat.id}
+              onClick={() => setParams({ category: cat.id })}
+              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                category === cat.id ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground border-border"
+              }`}
+            >
+              {cat.icon} {cat.name}
+            </button>
+          ))}
         </div>
 
         <div className="flex items-center gap-2 mb-4 bg-success/10 rounded-lg px-3 py-2">
