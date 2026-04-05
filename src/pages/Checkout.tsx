@@ -7,8 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { Order } from "@/types/order";
+import { getDeliveryInfo } from "@/lib/delivery";
+import DeliveryBadge from "@/components/DeliveryBadge";
 
 const Checkout = () => {
   const { items, totalPrice, clearCart } = useCart();
@@ -21,7 +23,8 @@ const Checkout = () => {
   const [city, setCity] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"cod" | "online">("cod");
 
-  const deliveryFee = totalPrice > 2000 ? 0 : 49;
+  const delivery = getDeliveryInfo(items, totalPrice);
+  const deliveryFee = delivery.fee;
 
   const handlePlace = (e: React.FormEvent) => {
     e.preventDefault();
@@ -182,10 +185,7 @@ const Checkout = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 bg-success/10 rounded-lg px-3 py-2">
-            <Clock className="h-4 w-4 text-success" />
-            <span className="text-sm font-medium text-success">Delivery in 60 mins</span>
-          </div>
+          <DeliveryBadge delivery={delivery} />
 
           <div className="fixed bottom-0 left-0 right-0 bg-card border-t p-4">
             <div className="container">

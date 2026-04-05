@@ -6,6 +6,7 @@ import { useCart } from "@/context/CartContext";
 import { toast } from "sonner";
 import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
+import { getEstimatedDelivery } from "@/lib/delivery";
 
 const ProductDetail = () => {
   const { id } = useParams();
@@ -45,10 +46,17 @@ const ProductDetail = () => {
 
           {/* Product Info */}
           <div className="mt-4 space-y-4">
-            <div className="flex items-center gap-2 bg-success/10 rounded-lg px-3 py-2 w-fit">
-              <Clock className="h-3.5 w-3.5 text-success" />
-              <span className="text-xs font-medium text-success">Delivery in 60 mins</span>
-            </div>
+            {(() => {
+              const est = getEstimatedDelivery(product.category, product.weight * qty);
+              return (
+                <div className="flex items-center gap-2 bg-success/10 rounded-lg px-3 py-2 w-fit">
+                  <Clock className="h-3.5 w-3.5 text-success" />
+                  <span className="text-xs font-medium text-success">
+                    Delivery in {est.eta} · ₹{est.fee}
+                  </span>
+                </div>
+              );
+            })()}
 
             {product.brand && (
               <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
