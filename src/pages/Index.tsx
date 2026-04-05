@@ -31,7 +31,7 @@ const Index = () => {
       {/* Categories */}
       <div className="container py-4">
         <h2 className="text-base font-bold text-foreground mb-3">Shop by Category</h2>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {categories.map((cat) => (
             <Link
               key={cat.id}
@@ -53,7 +53,7 @@ const Index = () => {
             View All <ChevronRight className="h-3.5 w-3.5" />
           </Link>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
           {featured.map((p) => (
             <ProductCard key={p.id} product={p} />
           ))}
