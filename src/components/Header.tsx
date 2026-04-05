@@ -9,7 +9,7 @@ const Header = () => {
     <header className="sticky top-0 z-50 bg-card/95 backdrop-blur-sm border-b">
       <div className="container flex items-center justify-between h-14">
         <Link to="/" className="text-lg font-bold tracking-tight text-foreground">
-          BuildKart
+          Cunstruct
         </Link>
         <Link to="/cart" className="relative p-2 -mr-2">
           <ShoppingCart className="h-5 w-5 text-foreground" />
