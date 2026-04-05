@@ -70,11 +70,23 @@ const Cart = () => {
         </div>
       </div>
 
+      {/* Delivery info */}
+      <div className="container mt-4">
+        <DeliveryBadge delivery={getDeliveryInfo(items, totalPrice)} />
+      </div>
+
       <div className="fixed bottom-0 left-0 right-0 bg-card border-t p-4 safe-area-bottom">
         <div className="container flex items-center justify-between">
           <div>
             <span className="text-sm text-muted-foreground">Total</span>
-            <p className="text-xl font-bold text-foreground">₹{totalPrice}</p>
+            <p className="text-xl font-bold text-foreground">
+              ₹{totalPrice + getDeliveryInfo(items, totalPrice).fee}
+            </p>
+            {getDeliveryInfo(items, totalPrice).fee > 0 && (
+              <span className="text-xs text-muted-foreground">
+                incl. ₹{getDeliveryInfo(items, totalPrice).fee} delivery
+              </span>
+            )}
           </div>
           <Button
             onClick={() => navigate("/checkout")}
