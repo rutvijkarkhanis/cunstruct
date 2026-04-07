@@ -13,4 +13,6 @@ export type Product = {
   selling_price: number;
   image_url: string;
   category: string | null;
+  weight: number | null;
+  delivery_type: string | null;
 };

@@ -3,10 +3,14 @@ import { ArrowLeft, Minus, Plus, Trash2 } from "lucide-react";
 import Header from "@/components/Header";
 import { useCart } from "@/context/CartContext";
 import { Button } from "@/components/ui/button";
+import DeliveryBadge from "@/components/DeliveryBadge";
+import { getDeliveryInfo } from "@/lib/delivery";
 
 const Cart = () => {
   const { items, updateQuantity, removeFromCart, totalPrice } = useCart();
   const navigate = useNavigate();
+  const delivery = getDeliveryInfo(items, totalPrice);
+  const grandTotal = totalPrice + delivery.fee;
 
   if (items.length === 0) {
     return (
@@ -65,13 +69,17 @@ const Cart = () => {
             </div>
           ))}
         </div>
+
+        <div className="mt-4">
+          <DeliveryBadge delivery={delivery} />
+        </div>
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 bg-card border-t p-4 safe-area-bottom">
         <div className="container flex items-center justify-between">
           <div>
-            <span className="text-sm text-muted-foreground">Total</span>
-            <p className="text-xl font-bold text-foreground">₹{totalPrice}</p>
+            <span className="text-sm text-muted-foreground">Total (incl. delivery)</span>
+            <p className="text-xl font-bold text-foreground">₹{grandTotal}</p>
           </div>
           <Button
             onClick={() => navigate("/checkout")}
