@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Clock, ChevronRight, Loader2 } from "lucide-react";
 import Header from "@/components/Header";
@@ -5,9 +6,10 @@ import GroupedProductCard, { groupProducts } from "@/components/GroupedProductCa
 import { useSupabaseProducts, useSupabaseCategories } from "@/hooks/useSupabaseProducts";
 
 const Index = () => {
-  const { data: products, isLoading } = useSupabaseProducts();
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const { data: products, isLoading } = useSupabaseProducts(selectedCategory);
   const { data: categories } = useSupabaseCategories();
-  const groups = products ? groupProducts(products).slice(0, 4) : [];
+  const groups = products ? groupProducts(products) : [];
 
   return (
     <div className="min-h-screen bg-background">
@@ -30,26 +32,39 @@ const Index = () => {
         </div>
       </div>
 
-      {/* Categories */}
-      <div className="container py-4">
-        <h2 className="text-base font-bold text-foreground mb-3">Shop by Category</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      {/* Category chips */}
+      <div className="container py-3">
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+          <button
+            onClick={() => setSelectedCategory(null)}
+            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+              !selectedCategory ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground border-border"
+            }`}
+          >
+            All
+          </button>
           {categories?.map((cat) => (
-            <Link
+            <button
               key={cat}
-              to={`/products?category=${cat}`}
-              className="bg-card rounded-lg border p-4 flex items-center gap-3 hover:border-primary/40 transition-colors"
+              onClick={() => setSelectedCategory(cat)}
+              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors capitalize ${
+                selectedCategory === cat ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground border-border"
+              }`}
             >
-              <span className="text-sm font-semibold text-foreground capitalize">{cat.replace(/-/g, " ")}</span>
-            </Link>
+              {cat.replace(/-/g, " ")}
+            </button>
           ))}
         </div>
       </div>
 
-      {/* Featured */}
+      {/* Products */}
       <div className="container py-2 pb-8">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-base font-bold text-foreground">Popular Products</h2>
+          <h2 className="text-base font-bold text-foreground">
+            {selectedCategory
+              ? selectedCategory.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+              : "All Products"}
+          </h2>
           <Link to="/products" className="text-xs font-medium text-accent flex items-center gap-0.5">
             View All <ChevronRight className="h-3.5 w-3.5" />
           </Link>
@@ -58,6 +73,8 @@ const Index = () => {
           <div className="flex justify-center py-10">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
+        ) : groups.length === 0 ? (
+          <p className="text-center py-10 text-muted-foreground">No products found.</p>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
             {groups.map((g) => (
