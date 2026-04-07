@@ -1,7 +1,7 @@
 import { Link, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Clock, Loader2 } from "lucide-react";
 import Header from "@/components/Header";
-import ProductCard from "@/components/ProductCard";
+import GroupedProductCard, { groupProducts } from "@/components/GroupedProductCard";
 import { useSupabaseProducts, useSupabaseCategories } from "@/hooks/useSupabaseProducts";
 
 const Products = () => {
@@ -13,6 +13,8 @@ const Products = () => {
   const title = category
     ? category.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
     : "All Products";
+
+  const groups = products ? groupProducts(products) : [];
 
   return (
     <div className="min-h-screen bg-background">
@@ -65,13 +67,13 @@ const Products = () => {
           </div>
         )}
 
-        {products && products.length === 0 && !isLoading && (
+        {!isLoading && groups.length === 0 && !error && (
           <p className="text-center py-20 text-muted-foreground">No products found.</p>
         )}
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-          {products?.map((product) => (
-            <ProductCard key={product.id} product={product} />
+          {groups.map((group) => (
+            <GroupedProductCard key={group.groupName} group={group} />
           ))}
         </div>
       </div>
