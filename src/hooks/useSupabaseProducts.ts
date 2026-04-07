@@ -7,7 +7,7 @@ export function useSupabaseProducts(category?: string | null) {
     queryFn: async () => {
       let query = supabase
         .from("product")
-        .select("id, name, brand, selling_price, image_url, category");
+        .select("id, name, brand, group_name, selling_price, image_url, category");
 
       if (category) {
         query = query.eq("category", category);
@@ -27,7 +27,7 @@ export function useSupabaseProduct(id: string | undefined) {
       if (!id) return null;
       const { data, error } = await supabase
         .from("product")
-        .select("id, name, brand, selling_price, image_url, category")
+        .select("id, name, brand, group_name, selling_price, image_url, category")
         .eq("id", id)
         .single();
 

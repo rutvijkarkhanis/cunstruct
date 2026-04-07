@@ -1,13 +1,13 @@
 import { Link } from "react-router-dom";
 import { Clock, ChevronRight, Loader2 } from "lucide-react";
 import Header from "@/components/Header";
-import ProductCard from "@/components/ProductCard";
+import GroupedProductCard, { groupProducts } from "@/components/GroupedProductCard";
 import { useSupabaseProducts, useSupabaseCategories } from "@/hooks/useSupabaseProducts";
 
 const Index = () => {
   const { data: products, isLoading } = useSupabaseProducts();
   const { data: categories } = useSupabaseCategories();
-  const featured = products?.slice(0, 4) ?? [];
+  const groups = products ? groupProducts(products).slice(0, 4) : [];
 
   return (
     <div className="min-h-screen bg-background">
@@ -60,8 +60,8 @@ const Index = () => {
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-            {featured.map((p) => (
-              <ProductCard key={p.id} product={p} />
+            {groups.map((g) => (
+              <GroupedProductCard key={g.groupName} group={g} />
             ))}
           </div>
         )}
