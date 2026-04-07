@@ -9,8 +9,6 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { motion } from "framer-motion";
 import { Order } from "@/types/order";
-import { getDeliveryInfo } from "@/lib/delivery";
-import DeliveryBadge from "@/components/DeliveryBadge";
 
 const Checkout = () => {
   const { items, totalPrice, clearCart } = useCart();
@@ -22,9 +20,6 @@ const Checkout = () => {
   const [address, setAddress] = useState("");
   const [city, setCity] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"cod" | "online">("cod");
-
-  const delivery = getDeliveryInfo(items, totalPrice);
-  const deliveryFee = delivery.fee;
 
   const handlePlace = (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,20 +33,18 @@ const Checkout = () => {
         productId: product.id,
         productName: product.name,
         quantity,
-        unitPrice: product.price,
-        total: product.price * quantity,
+        unitPrice: product.selling_price,
+        total: product.selling_price * quantity,
       })),
-      totalAmount: totalPrice + deliveryFee,
+      totalAmount: totalPrice,
       paymentMethod,
       status: "pending",
       timestamp: new Date().toISOString(),
     };
 
-    // Store order locally (can be sent to backend later)
     const existingOrders = JSON.parse(localStorage.getItem("orders") || "[]");
     localStorage.setItem("orders", JSON.stringify([...existingOrders, order]));
 
-    console.log("Order placed:", order);
     setPlacedOrder(order);
     setPlaced(true);
     clearCart();
@@ -112,55 +105,22 @@ const Checkout = () => {
         <form onSubmit={handlePlace} className="space-y-4">
           <div className="bg-card rounded-lg border p-4 space-y-3">
             <h2 className="text-sm font-semibold text-foreground">Delivery Address</h2>
-            <Input
-              placeholder="Full Name"
-              required
-              className="bg-background"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-            <Input
-              placeholder="Phone Number"
-              type="tel"
-              required
-              className="bg-background"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-            />
-            <Input
-              placeholder="Address Line 1"
-              required
-              className="bg-background"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-            />
-            <Input
-              placeholder="City, Pincode"
-              required
-              className="bg-background"
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-            />
+            <Input placeholder="Full Name" required className="bg-background" value={name} onChange={(e) => setName(e.target.value)} />
+            <Input placeholder="Phone Number" type="tel" required className="bg-background" value={phone} onChange={(e) => setPhone(e.target.value)} />
+            <Input placeholder="Address Line 1" required className="bg-background" value={address} onChange={(e) => setAddress(e.target.value)} />
+            <Input placeholder="City, Pincode" required className="bg-background" value={city} onChange={(e) => setCity(e.target.value)} />
           </div>
 
           <div className="bg-card rounded-lg border p-4 space-y-3">
             <h2 className="text-sm font-semibold text-foreground">Payment Method</h2>
-            <RadioGroup
-              value={paymentMethod}
-              onValueChange={(v) => setPaymentMethod(v as "cod" | "online")}
-              className="space-y-2"
-            >
+            <RadioGroup value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as "cod" | "online")} className="space-y-2">
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="cod" id="cod" />
-                <Label htmlFor="cod" className="text-sm text-foreground">
-                  Cash on Delivery
-                </Label>
+                <Label htmlFor="cod" className="text-sm text-foreground">Cash on Delivery</Label>
               </div>
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="online" id="online" />
-                <Label htmlFor="online" className="text-sm text-foreground">
-                  Online Payment
-                </Label>
+                <Label htmlFor="online" className="text-sm text-foreground">Online Payment</Label>
               </div>
             </RadioGroup>
           </div>
@@ -169,31 +129,20 @@ const Checkout = () => {
             <h2 className="text-sm font-semibold text-foreground">Order Summary</h2>
             {items.map(({ product, quantity }) => (
               <div key={product.id} className="flex justify-between text-sm">
-                <span className="text-muted-foreground">
-                  {product.name} × {quantity}
-                </span>
-                <span className="font-medium text-foreground">₹{product.price * quantity}</span>
+                <span className="text-muted-foreground">{product.name} × {quantity}</span>
+                <span className="font-medium text-foreground">₹{product.selling_price * quantity}</span>
               </div>
             ))}
-            <div className="border-t pt-2 mt-2 flex justify-between text-sm">
-              <span className="text-muted-foreground">Delivery</span>
-              <span className="font-medium text-foreground">{deliveryFee === 0 ? "FREE" : `₹${deliveryFee}`}</span>
-            </div>
-            <div className="flex justify-between font-bold text-foreground">
+            <div className="border-t pt-2 mt-2 flex justify-between font-bold text-foreground">
               <span>Total</span>
-              <span>₹{totalPrice + deliveryFee}</span>
+              <span>₹{totalPrice}</span>
             </div>
           </div>
 
-          <DeliveryBadge delivery={delivery} />
-
           <div className="fixed bottom-0 left-0 right-0 bg-card border-t p-4">
             <div className="container">
-              <Button
-                type="submit"
-                className="w-full bg-accent text-accent-foreground h-12 text-base font-semibold hover:bg-accent/90"
-              >
-                Place Order — ₹{totalPrice + deliveryFee}
+              <Button type="submit" className="w-full bg-accent text-accent-foreground h-12 text-base font-semibold hover:bg-accent/90">
+                Place Order — ₹{totalPrice}
               </Button>
             </div>
           </div>

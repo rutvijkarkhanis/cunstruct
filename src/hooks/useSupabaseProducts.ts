@@ -1,16 +1,39 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase, SupabaseProduct } from "@/lib/supabase";
+import { supabase, Product } from "@/lib/supabase";
 
-export function useSupabaseProducts() {
-  return useQuery<SupabaseProduct[]>({
-    queryKey: ["supabase-products"],
+export function useSupabaseProducts(category?: string | null) {
+  return useQuery<Product[]>({
+    queryKey: ["supabase-products", category],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("product")
-        .select("id, name, image_url, selling_price, delivery_time");
+        .select("id, name, brand, selling_price, image_url, category");
 
+      if (category) {
+        query = query.eq("category", category);
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
       return data ?? [];
     },
+  });
+}
+
+export function useSupabaseProduct(id: string | undefined) {
+  return useQuery<Product | null>({
+    queryKey: ["supabase-product", id],
+    queryFn: async () => {
+      if (!id) return null;
+      const { data, error } = await supabase
+        .from("product")
+        .select("id, name, brand, selling_price, image_url, category")
+        .eq("id", id)
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!id,
   });
 }

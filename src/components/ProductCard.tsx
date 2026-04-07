@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Product } from "@/data/products";
+import { Product } from "@/lib/supabase";
 import { Plus } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { toast } from "sonner";
@@ -21,7 +21,7 @@ const ProductCard = ({ product }: { product: Product }) => {
     >
       <div className="h-32 sm:h-36 lg:h-40 overflow-hidden bg-muted flex items-center justify-center p-3">
         <img
-          src={product.image}
+          src={product.image_url}
           alt={product.name}
           loading="lazy"
           width={512}
@@ -38,12 +38,8 @@ const ProductCard = ({ product }: { product: Product }) => {
         <h3 className="text-sm font-semibold text-foreground mt-0.5 line-clamp-2 leading-snug">
           {product.name}
         </h3>
-        <span className="text-xs text-muted-foreground">{product.weight}kg</span>
         <div className="flex items-center justify-between mt-2">
-          <div>
-            <span className="text-base font-bold text-foreground">₹{product.price}</span>
-            <span className="text-xs text-muted-foreground ml-1">/{product.unit}</span>
-          </div>
+          <span className="text-base font-bold text-foreground">₹{product.selling_price}</span>
           <button
             onClick={handleAdd}
             className="h-8 w-8 rounded-full bg-primary flex items-center justify-center text-primary-foreground hover:bg-primary/90 transition-colors"
