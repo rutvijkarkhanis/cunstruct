@@ -1,16 +1,21 @@
 import { Link, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Clock } from "lucide-react";
+import { ArrowLeft, Clock, Loader2 } from "lucide-react";
 import Header from "@/components/Header";
 import ProductCard from "@/components/ProductCard";
-import { products, categories } from "@/data/products";
+import { useSupabaseProducts } from "@/hooks/useSupabaseProducts";
+
+const categories = [
+  { id: "adhesives-chemicals", name: "Adhesives & Chemicals", icon: "🧴" },
+  { id: "hardware-fasteners", name: "Hardware & Fasteners", icon: "🔩" },
+  { id: "tools-accessories", name: "Tools & Accessories", icon: "🔧" },
+  { id: "plumbing", name: "Plumbing", icon: "🚿" },
+  { id: "heavy-materials", name: "Heavy Materials", icon: "🏗️" },
+] as const;
 
 const Products = () => {
   const [params, setParams] = useSearchParams();
   const category = params.get("category");
-
-  const filtered = category
-    ? products.filter((p) => p.category === category)
-    : products;
+  const { data: products, isLoading, error } = useSupabaseProducts(category);
 
   const title = category
     ? categories.find((c) => c.id === category)?.name ?? "Products"
@@ -55,8 +60,24 @@ const Products = () => {
           <span className="text-sm font-medium text-success">Delivery in 60 mins</span>
         </div>
 
+        {isLoading && (
+          <div className="flex justify-center py-20">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
+        )}
+
+        {error && (
+          <div className="text-center py-20 text-destructive">
+            <p className="font-medium">Failed to load products</p>
+          </div>
+        )}
+
+        {products && products.length === 0 && !isLoading && (
+          <p className="text-center py-20 text-muted-foreground">No products found.</p>
+        )}
+
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-          {filtered.map((product) => (
+          {products?.map((product) => (
             <ProductCard key={product.id} product={product} />
           ))}
         </div>

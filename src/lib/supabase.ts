@@ -5,10 +5,11 @@ const SUPABASE_ANON_KEY = "sb_publishable_hjMIhO09DS62uJCvhgJoOQ_SY_CZepJ";
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-export type SupabaseProduct = {
-  id: string | number;
+export type Product = {
+  id: string;
   name: string;
-  image_url: string;
+  brand: string | null;
   selling_price: number;
-  delivery_time: string;
+  image_url: string;
+  category: string | null;
 };

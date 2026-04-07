@@ -3,8 +3,6 @@ import { ArrowLeft, Minus, Plus, Trash2 } from "lucide-react";
 import Header from "@/components/Header";
 import { useCart } from "@/context/CartContext";
 import { Button } from "@/components/ui/button";
-import { getDeliveryInfo } from "@/lib/delivery";
-import DeliveryBadge from "@/components/DeliveryBadge";
 
 const Cart = () => {
   const { items, updateQuantity, removeFromCart, totalPrice } = useCart();
@@ -39,7 +37,7 @@ const Cart = () => {
           {items.map(({ product, quantity }) => (
             <div key={product.id} className="bg-card rounded-lg border p-3 flex gap-3">
               <img
-                src={product.image}
+                src={product.image_url}
                 alt={product.name}
                 className="w-20 h-20 rounded-md object-cover"
                 loading="lazy"
@@ -48,9 +46,8 @@ const Cart = () => {
               />
               <div className="flex-1 min-w-0">
                 <h3 className="text-sm font-semibold text-foreground line-clamp-1">{product.name}</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">{product.unit}</p>
                 <div className="flex items-center justify-between mt-2">
-                  <span className="text-sm font-bold text-foreground">₹{product.price * quantity}</span>
+                  <span className="text-sm font-bold text-foreground">₹{product.selling_price * quantity}</span>
                   <div className="flex items-center gap-2">
                     <button onClick={() => updateQuantity(product.id, quantity - 1)} className="h-7 w-7 rounded-md bg-secondary flex items-center justify-center">
                       <Minus className="h-3 w-3 text-foreground" />
@@ -70,23 +67,11 @@ const Cart = () => {
         </div>
       </div>
 
-      {/* Delivery info */}
-      <div className="container mt-4">
-        <DeliveryBadge delivery={getDeliveryInfo(items, totalPrice)} />
-      </div>
-
       <div className="fixed bottom-0 left-0 right-0 bg-card border-t p-4 safe-area-bottom">
         <div className="container flex items-center justify-between">
           <div>
             <span className="text-sm text-muted-foreground">Total</span>
-            <p className="text-xl font-bold text-foreground">
-              ₹{totalPrice + getDeliveryInfo(items, totalPrice).fee}
-            </p>
-            {getDeliveryInfo(items, totalPrice).fee > 0 && (
-              <span className="text-xs text-muted-foreground">
-                incl. ₹{getDeliveryInfo(items, totalPrice).fee} delivery
-              </span>
-            )}
+            <p className="text-xl font-bold text-foreground">₹{totalPrice}</p>
           </div>
           <Button
             onClick={() => navigate("/checkout")}

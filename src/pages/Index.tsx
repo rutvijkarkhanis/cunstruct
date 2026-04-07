@@ -1,11 +1,20 @@
 import { Link } from "react-router-dom";
-import { Clock, ChevronRight } from "lucide-react";
+import { Clock, ChevronRight, Loader2 } from "lucide-react";
 import Header from "@/components/Header";
 import ProductCard from "@/components/ProductCard";
-import { products, categories } from "@/data/products";
+import { useSupabaseProducts } from "@/hooks/useSupabaseProducts";
+
+const categories = [
+  { id: "adhesives-chemicals", name: "Adhesives & Chemicals", icon: "🧴" },
+  { id: "hardware-fasteners", name: "Hardware & Fasteners", icon: "🔩" },
+  { id: "tools-accessories", name: "Tools & Accessories", icon: "🔧" },
+  { id: "plumbing", name: "Plumbing", icon: "🚿" },
+  { id: "heavy-materials", name: "Heavy Materials", icon: "🏗️" },
+] as const;
 
 const Index = () => {
-  const featured = products.filter((p) => p.category !== "heavy-materials").slice(0, 4);
+  const { data: products, isLoading } = useSupabaseProducts();
+  const featured = products?.slice(0, 4) ?? [];
 
   return (
     <div className="min-h-screen bg-background">
@@ -53,11 +62,17 @@ const Index = () => {
             View All <ChevronRight className="h-3.5 w-3.5" />
           </Link>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-          {featured.map((p) => (
-            <ProductCard key={p.id} product={p} />
-          ))}
-        </div>
+        {isLoading ? (
+          <div className="flex justify-center py-10">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+            {featured.map((p) => (
+              <ProductCard key={p.id} product={p} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
