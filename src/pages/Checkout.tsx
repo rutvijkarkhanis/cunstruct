@@ -5,8 +5,6 @@ import Header from "@/components/Header";
 import { useCart } from "@/context/CartContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Label } from "@/components/ui/label";
 import { motion } from "framer-motion";
 import { Order } from "@/types/order";
 import DeliveryBadge from "@/components/DeliveryBadge";
@@ -22,8 +20,7 @@ const Checkout = () => {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
-  const [city, setCity] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<"cod" | "online">("cod");
+  const [pincode, setPincode] = useState("");
 
   const handlePlace = (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,7 +29,7 @@ const Checkout = () => {
       id: crypto.randomUUID(),
       customerName: name,
       phone,
-      address: `${address}, ${city}`,
+      address: `${address}, Gurgaon - ${pincode}`,
       items: items.map(({ product, quantity }) => ({
         productId: product.id,
         productName: product.name,
@@ -41,7 +38,7 @@ const Checkout = () => {
         total: product.selling_price * quantity,
       })),
       totalAmount: grandTotal,
-      paymentMethod,
+      paymentMethod: "cod",
       status: "pending",
       timestamp: new Date().toISOString(),
     };
@@ -59,7 +56,7 @@ const Checkout = () => {
     const productList = placedOrder.items
       .map((item) => `- ${item.productName} × ${item.quantity} = ₹${item.total}`)
       .join("\n");
-    const message = `New Order:\n\nName: ${placedOrder.customerName}\nPhone: ${placedOrder.phone}\n\nProducts:\n${productList}\n\nTotal: ₹${placedOrder.totalAmount}\nPayment: ${placedOrder.paymentMethod === "cod" ? "COD" : "UPI"}\n\nAddress:\n${placedOrder.address}`;
+    const message = `New Order:\n\nName: ${placedOrder.customerName}\nPhone: ${placedOrder.phone}\n\nProducts:\n${productList}\n\nTotal: ₹${placedOrder.totalAmount}\nPayment: COD\n\nAddress:\n${placedOrder.address}`;
     const url = `https://wa.me/919168833977?text=${encodeURIComponent(message)}`;
     window.location.href = url;
   };
@@ -109,24 +106,61 @@ const Checkout = () => {
         <form onSubmit={handlePlace} className="space-y-4">
           <div className="bg-card rounded-lg border p-4 space-y-3">
             <h2 className="text-sm font-semibold text-foreground">Delivery Address</h2>
-            <Input placeholder="Full Name" required className="bg-background" value={name} onChange={(e) => setName(e.target.value)} />
-            <Input placeholder="Phone Number" type="tel" required className="bg-background" value={phone} onChange={(e) => setPhone(e.target.value)} />
-            <Input placeholder="Address Line 1" required className="bg-background" value={address} onChange={(e) => setAddress(e.target.value)} />
-            <Input placeholder="City, Pincode" required className="bg-background" value={city} onChange={(e) => setCity(e.target.value)} />
-          </div>
-
-          <div className="bg-card rounded-lg border p-4 space-y-3">
-            <h2 className="text-sm font-semibold text-foreground">Payment Method</h2>
-            <RadioGroup value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as "cod" | "online")} className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="cod" id="cod" />
-                <Label htmlFor="cod" className="text-sm text-foreground">Cash on Delivery</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="online" id="online" />
-                <Label htmlFor="online" className="text-sm text-foreground">Online Payment</Label>
-              </div>
-            </RadioGroup>
+            <Input
+              placeholder="Full Name"
+              required
+              className="bg-background"
+              value={name}
+              onChange={(e) => {
+                const val = e.target.value.replace(/[^a-zA-Z\s]/g, "");
+                setName(val);
+              }}
+              pattern="[a-zA-Z\s]+"
+              title="Name should contain only letters"
+            />
+            <Input
+              placeholder="Phone Number"
+              type="tel"
+              required
+              className="bg-background"
+              value={phone}
+              onChange={(e) => {
+                const val = e.target.value.replace(/[^0-9]/g, "");
+                if (val.length <= 10) setPhone(val);
+              }}
+              pattern="[0-9]{10}"
+              title="Enter a valid 10-digit phone number"
+              maxLength={10}
+              inputMode="numeric"
+            />
+            <Input
+              placeholder="Address Line (House No, Street, Locality)"
+              required
+              className="bg-background"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+            />
+            <div className="flex gap-3">
+              <Input
+                value="Gurgaon"
+                disabled
+                className="bg-muted text-muted-foreground flex-1"
+              />
+              <Input
+                placeholder="Pincode"
+                required
+                className="bg-background w-32"
+                value={pincode}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/[^0-9]/g, "");
+                  if (val.length <= 6) setPincode(val);
+                }}
+                pattern="[0-9]{6}"
+                title="Enter a valid 6-digit pincode"
+                maxLength={6}
+                inputMode="numeric"
+              />
+            </div>
           </div>
 
           <div className="bg-card rounded-lg border p-4 space-y-2">
