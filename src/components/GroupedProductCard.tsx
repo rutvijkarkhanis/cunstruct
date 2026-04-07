@@ -4,6 +4,7 @@ import { Plus } from "lucide-react";
 import { Product } from "@/lib/supabase";
 import { useCart } from "@/context/CartContext";
 import { toast } from "sonner";
+import { parseGroupName, extractVariantLabel } from "@/lib/productGroupUtils";
 
 export type ProductGroup = {
   groupName: string;
@@ -15,6 +16,7 @@ const GroupedProductCard = ({ group }: { group: ProductGroup }) => {
   const { addToCart } = useCart();
   const selected = group.products[selectedIdx];
   const hasVariants = group.products.length > 1;
+  const { brand, productName } = parseGroupName(group.groupName);
 
   const handleAdd = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -40,24 +42,22 @@ const GroupedProductCard = ({ group }: { group: ProductGroup }) => {
 
       <div className="p-3 flex flex-col flex-1">
         {/* Brand */}
-        {selected.brand && (
+        {brand && (
           <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-            {selected.brand}
+            {brand}
           </span>
         )}
 
-        {/* Group title */}
+        {/* Product name */}
         <h3 className="text-sm font-semibold text-foreground mt-0.5 line-clamp-2 leading-snug">
-          {group.groupName}
+          {productName}
         </h3>
 
         {/* Variant selector */}
         {hasVariants && (
           <div className="flex flex-wrap gap-1.5 mt-2">
             {group.products.map((p, i) => {
-              // Extract a short label: use name minus group_name prefix, or full name
-              const shortLabel =
-                p.name.replace(group.groupName, "").trim() || p.name;
+              const label = extractVariantLabel(p.name, productName);
               return (
                 <button
                   key={p.id}
@@ -72,9 +72,7 @@ const GroupedProductCard = ({ group }: { group: ProductGroup }) => {
                       : "bg-muted text-foreground border-border hover:border-primary/40"
                   }`}
                 >
-                  {shortLabel.length > 20
-                    ? `₹${p.selling_price}`
-                    : shortLabel}
+                  {label}
                 </button>
               );
             })}
@@ -104,7 +102,7 @@ export default GroupedProductCard;
 export function groupProducts(products: Product[]): ProductGroup[] {
   const map = new Map<string, Product[]>();
   for (const p of products) {
-    const key = p.group_name || p.name; // ungrouped products become their own group
+    const key = p.group_name || p.name;
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(p);
   }
