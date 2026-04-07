@@ -9,10 +9,14 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { motion } from "framer-motion";
 import { Order } from "@/types/order";
+import DeliveryBadge from "@/components/DeliveryBadge";
+import { getDeliveryInfo } from "@/lib/delivery";
 
 const Checkout = () => {
   const { items, totalPrice, clearCart } = useCart();
   const navigate = useNavigate();
+  const delivery = getDeliveryInfo(items, totalPrice);
+  const grandTotal = totalPrice + delivery.fee;
   const [placed, setPlaced] = useState(false);
   const [placedOrder, setPlacedOrder] = useState<Order | null>(null);
   const [name, setName] = useState("");
@@ -36,7 +40,7 @@ const Checkout = () => {
         unitPrice: product.selling_price,
         total: product.selling_price * quantity,
       })),
-      totalAmount: totalPrice,
+      totalAmount: grandTotal,
       paymentMethod,
       status: "pending",
       timestamp: new Date().toISOString(),
@@ -133,16 +137,30 @@ const Checkout = () => {
                 <span className="font-medium text-foreground">₹{product.selling_price * quantity}</span>
               </div>
             ))}
-            <div className="border-t pt-2 mt-2 flex justify-between font-bold text-foreground">
-              <span>Total</span>
-              <span>₹{totalPrice}</span>
+            <div className="border-t pt-2 mt-2 space-y-1">
+              <div className="flex justify-between text-sm text-muted-foreground">
+                <span>Subtotal</span>
+                <span>₹{totalPrice}</span>
+              </div>
+              <div className="flex justify-between text-sm text-muted-foreground">
+                <span>Delivery ({delivery.vehicle})</span>
+                <span>{delivery.isFree ? <span className="text-success font-medium">FREE</span> : `₹${delivery.fee}`}</span>
+              </div>
+              <div className="flex justify-between font-bold text-foreground pt-1 border-t">
+                <span>Total</span>
+                <span>₹{grandTotal}</span>
+              </div>
             </div>
+          </div>
+
+          <div className="mb-2">
+            <DeliveryBadge delivery={delivery} compact />
           </div>
 
           <div className="fixed bottom-0 left-0 right-0 bg-card border-t p-4">
             <div className="container">
               <Button type="submit" className="w-full bg-accent text-accent-foreground h-12 text-base font-semibold hover:bg-accent/90">
-                Place Order — ₹{totalPrice}
+                Place Order — ₹{grandTotal}
               </Button>
             </div>
           </div>
