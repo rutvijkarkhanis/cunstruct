@@ -11,16 +11,13 @@ export type DeliveryInfo = {
   isFree: boolean;
 };
 
-const HEAVY_CATEGORY = "heavy-materials";
-
 export function getDeliveryInfo(items: CartItem[], subtotal: number): DeliveryInfo {
-  const totalWeight = items.reduce((sum, i) => sum + i.product.weight * i.quantity, 0);
-  const hasHeavy = items.some((i) => i.product.category === HEAVY_CATEGORY);
+  const hasHeavy = items.some((i) => i.product.category === "heavy-materials");
 
   let type: DeliveryType;
-  if (hasHeavy || totalWeight > 200) {
+  if (hasHeavy) {
     type = "heavy";
-  } else if (totalWeight > 50) {
+  } else if (items.length > 10) {
     type = "medium";
   } else {
     type = "light";
@@ -45,13 +42,9 @@ export function getDeliveryInfo(items: CartItem[], subtotal: number): DeliveryIn
   };
 }
 
-/** Estimate delivery for a single product (1 qty) */
-export function getEstimatedDelivery(category: string, weight: number): { eta: string; fee: number } {
-  if (category === HEAVY_CATEGORY || weight > 200) {
+export function getEstimatedDelivery(category: string | null): { eta: string; fee: number } {
+  if (category === "heavy-materials") {
     return { eta: "2–4 hrs (Scheduled)", fee: 499 };
-  }
-  if (weight > 50) {
-    return { eta: "60–90 mins", fee: 199 };
   }
   return { eta: "60 mins", fee: 79 };
 }
