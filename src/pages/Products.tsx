@@ -2,23 +2,16 @@ import { Link, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Clock, Loader2 } from "lucide-react";
 import Header from "@/components/Header";
 import ProductCard from "@/components/ProductCard";
-import { useSupabaseProducts } from "@/hooks/useSupabaseProducts";
-
-const categories = [
-  { id: "adhesives-chemicals", name: "Adhesives & Chemicals", icon: "🧴" },
-  { id: "hardware-fasteners", name: "Hardware & Fasteners", icon: "🔩" },
-  { id: "tools-accessories", name: "Tools & Accessories", icon: "🔧" },
-  { id: "plumbing", name: "Plumbing", icon: "🚿" },
-  { id: "heavy-materials", name: "Heavy Materials", icon: "🏗️" },
-] as const;
+import { useSupabaseProducts, useSupabaseCategories } from "@/hooks/useSupabaseProducts";
 
 const Products = () => {
   const [params, setParams] = useSearchParams();
   const category = params.get("category");
   const { data: products, isLoading, error } = useSupabaseProducts(category);
+  const { data: categories } = useSupabaseCategories();
 
   const title = category
-    ? categories.find((c) => c.id === category)?.name ?? "Products"
+    ? category.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
     : "All Products";
 
   return (
@@ -42,15 +35,15 @@ const Products = () => {
           >
             All
           </button>
-          {categories.map((cat) => (
+          {categories?.map((cat) => (
             <button
-              key={cat.id}
-              onClick={() => setParams({ category: cat.id })}
-              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                category === cat.id ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground border-border"
+              key={cat}
+              onClick={() => setParams({ category: cat })}
+              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors capitalize ${
+                category === cat ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground border-border"
               }`}
             >
-              {cat.icon} {cat.name}
+              {cat.replace(/-/g, " ")}
             </button>
           ))}
         </div>
