@@ -1,17 +1,36 @@
 import { useParams, Link } from "react-router-dom";
 import { ArrowLeft, Minus, Plus, ShoppingCart, Loader2 } from "lucide-react";
-import { useState } from "react";
-import { useSupabaseProduct } from "@/hooks/useSupabaseProducts";
+import { useState, useEffect, useMemo } from "react";
+import { useSupabaseProducts } from "@/hooks/useSupabaseProducts";
 import { useCart } from "@/context/CartContext";
 import { toast } from "sonner";
 import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
+import { parseGroupName, extractVariantLabel } from "@/lib/productGroupUtils";
 
 const ProductDetail = () => {
   const { id } = useParams();
   const { addToCart } = useCart();
   const [qty, setQty] = useState(1);
-  const { data: product, isLoading } = useSupabaseProduct(id);
+  const { data: allProducts, isLoading } = useSupabaseProducts();
+
+  // Find clicked product and its group siblings
+  const { group, selectedIdx: initialIdx } = useMemo(() => {
+    if (!allProducts || !id) return { group: [], selectedIdx: 0 };
+    const clicked = allProducts.find((p) => p.id === id);
+    if (!clicked) return { group: [], selectedIdx: 0 };
+    const groupName = clicked.group_name || clicked.name;
+    const siblings = allProducts.filter(
+      (p) => (p.group_name || p.name) === groupName
+    );
+    const idx = siblings.findIndex((p) => p.id === id);
+    return { group: siblings, selectedIdx: idx >= 0 ? idx : 0 };
+  }, [allProducts, id]);
+
+  const [selectedIdx, setSelectedIdx] = useState(initialIdx);
+  useEffect(() => setSelectedIdx(initialIdx), [initialIdx]);
+
+  const product = group[selectedIdx];
 
   if (isLoading) {
     return (
@@ -29,6 +48,10 @@ const ProductDetail = () => {
     );
   }
 
+  const groupName = product.group_name || product.name;
+  const { brand, productName } = parseGroupName(groupName);
+  const hasVariants = group.length > 1;
+
   const handleAdd = () => {
     addToCart(product, qty);
     toast.success(`${qty}x ${product.name} added to cart`);
@@ -43,23 +66,45 @@ const ProductDetail = () => {
         </Link>
 
         <div className="max-w-lg mx-auto">
-          {/* Image Container */}
+          {/* Image */}
           <div className="bg-card rounded-xl border p-4 sm:p-6">
             <div className="aspect-square max-h-64 sm:max-h-72 w-full flex items-center justify-center mx-auto">
-              <img src={product.image_url} alt={product.name} className="max-h-full max-w-[80%] object-contain" width={640} height={640} />
+              <img src={product.image_url} alt={product.name} className="max-h-full max-w-[80%] object-contain" />
             </div>
           </div>
 
-          {/* Product Info */}
-          <div className="mt-4 space-y-4">
-            {product.brand && (
+          {/* Info */}
+          <div className="mt-4 space-y-3">
+            {brand && (
               <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                {product.brand}
+                {brand}
               </span>
             )}
-            <h1 className="text-xl font-bold text-foreground">{product.name}</h1>
+            <h1 className="text-xl font-bold text-foreground">{productName}</h1>
 
-            {/* Price + Qty */}
+            {/* Variant selector */}
+            {hasVariants && (
+              <div className="flex flex-wrap gap-2">
+                {group.map((p, i) => {
+                  const label = extractVariantLabel(p.name, productName);
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => setSelectedIdx(i)}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                        i === selectedIdx
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-secondary text-foreground border-border hover:border-primary/40"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Price + Qty + Add */}
             <div className="pt-3 border-t space-y-4">
               <div className="flex items-end justify-between">
                 <span className="text-2xl font-bold text-foreground">₹{product.selling_price}</span>
