@@ -37,3 +37,18 @@ export function useSupabaseProduct(id: string | undefined) {
     enabled: !!id,
   });
 }
+
+export function useSupabaseCategories() {
+  return useQuery<string[]>({
+    queryKey: ["supabase-categories"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("product")
+        .select("category");
+
+      if (error) throw error;
+      const unique = [...new Set((data ?? []).map((d) => d.category).filter(Boolean))] as string[];
+      return unique.sort();
+    },
+  });
+}

@@ -2,18 +2,11 @@ import { Link } from "react-router-dom";
 import { Clock, ChevronRight, Loader2 } from "lucide-react";
 import Header from "@/components/Header";
 import ProductCard from "@/components/ProductCard";
-import { useSupabaseProducts } from "@/hooks/useSupabaseProducts";
-
-const categories = [
-  { id: "adhesives-chemicals", name: "Adhesives & Chemicals", icon: "🧴" },
-  { id: "hardware-fasteners", name: "Hardware & Fasteners", icon: "🔩" },
-  { id: "tools-accessories", name: "Tools & Accessories", icon: "🔧" },
-  { id: "plumbing", name: "Plumbing", icon: "🚿" },
-  { id: "heavy-materials", name: "Heavy Materials", icon: "🏗️" },
-] as const;
+import { useSupabaseProducts, useSupabaseCategories } from "@/hooks/useSupabaseProducts";
 
 const Index = () => {
   const { data: products, isLoading } = useSupabaseProducts();
+  const { data: categories } = useSupabaseCategories();
   const featured = products?.slice(0, 4) ?? [];
 
   return (
@@ -41,14 +34,13 @@ const Index = () => {
       <div className="container py-4">
         <h2 className="text-base font-bold text-foreground mb-3">Shop by Category</h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          {categories.map((cat) => (
+          {categories?.map((cat) => (
             <Link
-              key={cat.id}
-              to={`/products?category=${cat.id}`}
+              key={cat}
+              to={`/products?category=${cat}`}
               className="bg-card rounded-lg border p-4 flex items-center gap-3 hover:border-primary/40 transition-colors"
             >
-              <span className="text-2xl">{cat.icon}</span>
-              <span className="text-sm font-semibold text-foreground">{cat.name}</span>
+              <span className="text-sm font-semibold text-foreground capitalize">{cat.replace(/-/g, " ")}</span>
             </Link>
           ))}
         </div>
