@@ -93,10 +93,10 @@ const Checkout = () => {
             <Clock className="h-4 w-4" />
             <span className="text-sm font-medium">Estimated delivery in 60 mins</span>
           </div>
-          <Button onClick={handleWhatsApp} className="mt-4 bg-[#25D366] hover:bg-[#1da851] text-white">
-            Send Order on WhatsApp
+          <Button onClick={handleWhatsApp} className="mt-6 bg-[#25D366] hover:bg-[#1da851] text-white">
+            Get Order Status on WhatsApp
           </Button>
-          <Button onClick={() => navigate("/")} variant="outline" className="mt-2">
+          <Button onClick={() => navigate("/")} variant="outline" className="mt-4">
             Continue Shopping
           </Button>
         </motion.div>
