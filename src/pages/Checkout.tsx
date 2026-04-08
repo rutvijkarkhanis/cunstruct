@@ -46,6 +46,23 @@ const Checkout = () => {
     const existingOrders = JSON.parse(localStorage.getItem("orders") || "[]");
     localStorage.setItem("orders", JSON.stringify([...existingOrders, order]));
 
+    // Submit to Google Form silently
+    const orderNotes = order.items
+      .map((item) => `${item.productName} × ${item.quantity} = ₹${item.total}`)
+      .join("\n");
+    const notes = `${orderNotes}\n\nSubtotal: ₹${totalPrice}\nDelivery: ${delivery.isFree ? "FREE" : `₹${delivery.fee}`} (${delivery.vehicle})\nETA: ${delivery.eta}\nTotal: ₹${grandTotal}`;
+
+    const formData = new URLSearchParams();
+    formData.append("entry.1089409281", name);
+    formData.append("entry.1031025677", phone);
+    formData.append("entry.1743770567", `${address}, Gurgaon - ${pincode}`);
+    formData.append("entry.1901693875", notes);
+
+    fetch(
+      "https://docs.google.com/forms/d/e/1FAIpQLScdkVHwL26cUbQUc4jFalXe3KqEro_Ey8mZnG0pAy1oxt1ExQ/formResponse",
+      { method: "POST", body: formData, mode: "no-cors" }
+    ).catch(() => {});
+
     setPlacedOrder(order);
     setPlaced(true);
     clearCart();
