@@ -93,12 +93,14 @@ const Checkout = () => {
             <Clock className="h-4 w-4" />
             <span className="text-sm font-medium">Estimated delivery in 60 mins</span>
           </div>
-          <Button onClick={handleWhatsApp} className="mt-6 bg-[#25D366] hover:bg-[#1da851] text-white">
-            Get Order Status on WhatsApp
-          </Button>
-          <Button onClick={() => navigate("/")} variant="outline" className="mt-4">
-            Continue Shopping
-          </Button>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mt-8 w-full max-w-md mx-auto">
+            <Button onClick={handleWhatsApp} className="w-full sm:w-auto bg-[#25D366] hover:bg-[#1da851] text-white px-6 h-12 text-base font-semibold">
+              Get Order Status on WhatsApp
+            </Button>
+            <Button onClick={() => navigate("/")} variant="outline" className="w-full sm:w-auto px-6 h-12 text-base">
+              Continue Shopping
+            </Button>
+          </div>
         </motion.div>
       </div>
     );
