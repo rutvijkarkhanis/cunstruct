@@ -12,6 +12,7 @@ import Checkout from "./pages/Checkout.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import SearchResults from "./pages/SearchResults.tsx";
 import KitDetail from "./pages/KitDetail.tsx";
+import Kits from "./pages/Kits.tsx";
 
 
 const queryClient = new QueryClient();
@@ -31,6 +32,7 @@ const App = () => (
             <Route path="/checkout" element={<Checkout />} />
             <Route path="/search" element={<SearchResults />} />
             <Route path="/kit/:id" element={<KitDetail />} />
+            <Route path="/kits" element={<Kits />} />
 
             <Route path="*" element={<NotFound />} />
           </Routes>
