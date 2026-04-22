@@ -1,12 +1,10 @@
-import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Plus, Zap, Truck, Clock } from "lucide-react";
 import { Product } from "@/lib/supabase";
 import { useCart } from "@/context/CartContext";
 import { toast } from "sonner";
 import { extractVariantLabel } from "@/lib/productGroupUtils";
 import { deliveryTag } from "@/lib/sort";
-import { Zap, Truck, Clock } from "lucide-react";
 
 export type ProductGroup = {
   groupName: string;
@@ -14,7 +12,7 @@ export type ProductGroup = {
 };
 
 const GroupedProductCard = ({ group }: { group: ProductGroup }) => {
-  const [selectedIdx, setSelectedIdx] = useState(0);
+  const selectedIdx = 0;
   const navigate = useNavigate();
   const { addToCart } = useCart();
   const selected = group.products[selectedIdx];
