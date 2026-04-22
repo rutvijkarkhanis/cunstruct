@@ -13,6 +13,7 @@ import { resolveKits, suggestKitFor } from "@/lib/kits";
 const ProductDetail = () => {
   const { id } = useParams();
   const { addToCart } = useCart();
+  const navigate = useNavigate();
   const [qty, setQty] = useState(1);
   const { data: allProducts, isLoading } = useSupabaseProducts();
 
