@@ -2,17 +2,34 @@ import { Link, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Clock, Loader2 } from "lucide-react";
 import Header from "@/components/Header";
 import GroupedProductCard, { groupProducts } from "@/components/GroupedProductCard";
-import { useSupabaseProducts, useSupabaseCategories } from "@/hooks/useSupabaseProducts";
+import {
+  useSupabaseProducts,
+  useSupabaseCategories,
+  useSupabaseSubcategories,
+} from "@/hooks/useSupabaseProducts";
 
 const Products = () => {
   const [params, setParams] = useSearchParams();
-  const category = params.get("category");
-  const { data: products, isLoading, error } = useSupabaseProducts(category);
+  const mainCategory = params.get("category");
+  const subcategory = params.get("sub");
+  const activeFilter = subcategory ?? mainCategory;
+  const { data: products, isLoading, error } = useSupabaseProducts(activeFilter);
   const { data: categories } = useSupabaseCategories();
+  const { data: subcategories } = useSupabaseSubcategories(mainCategory);
 
-  const title = category ?? "All Products";
+  const title = subcategory ?? mainCategory ?? "All Products";
 
   const groups = products ? groupProducts(products) : [];
+
+  const setMain = (cat: string | null) => {
+    if (cat) setParams({ category: cat });
+    else setParams({});
+  };
+  const setSub = (sub: string | null) => {
+    if (!mainCategory) return;
+    if (sub) setParams({ category: mainCategory, sub });
+    else setParams({ category: mainCategory });
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -25,12 +42,12 @@ const Products = () => {
           <h1 className="text-xl font-bold text-foreground">{title}</h1>
         </div>
 
-        {/* Category chips */}
-        <div className="flex gap-2 overflow-x-auto pb-3 -mx-4 px-4 scrollbar-none">
+        {/* Main category chips */}
+        <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-none">
           <button
-            onClick={() => setParams({})}
+            onClick={() => setMain(null)}
             className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-              !category ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground border-border"
+              !mainCategory ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground border-border"
             }`}
           >
             All
@@ -38,15 +55,40 @@ const Products = () => {
           {categories?.map((cat) => (
             <button
               key={cat}
-              onClick={() => setParams({ category: cat })}
+              onClick={() => setMain(cat)}
               className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                category === cat ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground border-border"
+                mainCategory === cat ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground border-border"
               }`}
             >
               {cat}
             </button>
           ))}
         </div>
+
+        {/* Subcategory chips */}
+        {mainCategory && subcategories && subcategories.length > 0 && (
+          <div className="flex gap-2 overflow-x-auto pb-3 -mx-4 px-4 scrollbar-none">
+            <button
+              onClick={() => setSub(null)}
+              className={`shrink-0 px-3 py-1 rounded-full text-[11px] font-medium border transition-colors ${
+                !subcategory ? "bg-accent text-accent-foreground border-accent" : "bg-muted text-muted-foreground border-border"
+              }`}
+            >
+              All {mainCategory}
+            </button>
+            {subcategories.map((sub) => (
+              <button
+                key={sub}
+                onClick={() => setSub(sub)}
+                className={`shrink-0 px-3 py-1 rounded-full text-[11px] font-medium border transition-colors ${
+                  subcategory === sub ? "bg-accent text-accent-foreground border-accent" : "bg-muted text-muted-foreground border-border"
+                }`}
+              >
+                {sub}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="flex items-center gap-2 mb-4 bg-success/10 rounded-lg px-3 py-2">
           <Clock className="h-4 w-4 text-success" />
