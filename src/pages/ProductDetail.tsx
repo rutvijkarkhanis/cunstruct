@@ -1,4 +1,4 @@
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { Minus, Plus, ShoppingCart, Loader2 } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { useSupabaseProducts } from "@/hooks/useSupabaseProducts";
