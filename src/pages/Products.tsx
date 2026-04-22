@@ -10,9 +10,7 @@ const Products = () => {
   const { data: products, isLoading, error } = useSupabaseProducts(category);
   const { data: categories } = useSupabaseCategories();
 
-  const title = category
-    ? category.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
-    : "All Products";
+  const title = category ?? "All Products";
 
   const groups = products ? groupProducts(products) : [];
 
@@ -41,11 +39,11 @@ const Products = () => {
             <button
               key={cat}
               onClick={() => setParams({ category: cat })}
-              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors capitalize ${
+              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
                 category === cat ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground border-border"
               }`}
             >
-              {cat.replace(/-/g, " ")}
+              {cat}
             </button>
           ))}
         </div>
