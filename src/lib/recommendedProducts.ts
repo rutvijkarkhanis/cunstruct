@@ -51,6 +51,21 @@ export const RECOMMENDED_GROUPS: RecommendedGroup[] = [
     ],
   },
   {
+    title: "Lighting",
+    slots: [
+      { label: "LED Bulb", keywords: ["led bulb", "bulb"] },
+      { label: "LED Panel Light", keywords: ["led panel", "panel light"] },
+      { label: "Batten Light", keywords: ["batten light", "batten"] },
+    ],
+  },
+  {
+    title: "Fans",
+    slots: [
+      { label: "Ceiling Fan", keywords: ["ceiling fan"] },
+      { label: "Exhaust Fan", keywords: ["exhaust fan"] },
+    ],
+  },
+  {
     title: "Plumbing",
     slots: [
       { label: "Ball Valve", keywords: ["ball valve"] },
