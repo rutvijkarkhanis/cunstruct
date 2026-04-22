@@ -170,6 +170,18 @@ const ProductDetail = () => {
             </div>
           </div>
         </div>
+
+        {/* Similar Products */}
+        {similarGroups.length > 0 && (
+          <div className="mt-10 max-w-5xl mx-auto">
+            <h2 className="text-base font-bold text-foreground mb-3">Similar Products</h2>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+              {similarGroups.map((g) => (
+                <GroupedProductCard key={g.groupName} group={g} />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
