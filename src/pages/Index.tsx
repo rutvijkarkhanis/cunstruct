@@ -7,7 +7,7 @@ import {
   useSupabaseCategories,
 } from "@/hooks/useSupabaseProducts";
 import { resolveKits, ResolvedKit } from "@/lib/kits";
-import { resolveRecommendedProducts } from "@/lib/recommendedProducts";
+import { resolveRecommendedGroups } from "@/lib/recommendedProducts";
 import { useCart } from "@/context/CartContext";
 import { toast } from "sonner";
 import GroupedProductCard, { groupProducts } from "@/components/GroupedProductCard";
@@ -124,16 +124,11 @@ const Index = () => {
     [products, sort],
   );
 
-  // Fixed cross-sell list — only used when no category is selected.
-  const recommendedGroups = useMemo(() => {
-    if (!allProducts) return [];
-    const picked = resolveRecommendedProducts(allProducts);
-    // Wrap each as its own single-item group to reuse GroupedProductCard.
-    return picked.map((p) => ({
-      groupName: p.group_name?.trim() || p.name,
-      products: [p],
-    }));
-  }, [allProducts]);
+  // Fixed cross-sell list — grouped by category, only used when no category is selected.
+  const recommendedSections = useMemo(
+    () => (allProducts ? resolveRecommendedGroups(allProducts) : []),
+    [allProducts],
+  );
 
   const handleHeroSearch = (e: FormEvent) => {
     e.preventDefault();
@@ -305,12 +300,30 @@ const Index = () => {
           <div className="flex justify-center py-10">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
-        ) : recommendedGroups.length === 0 ? (
+        ) : recommendedSections.length === 0 ? (
           <p className="text-center py-10 text-muted-foreground">No products found.</p>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 mt-3">
-            {recommendedGroups.map((g) => (
-              <GroupedProductCard key={g.groupName} group={g} />
+          <div className="space-y-6 mt-3">
+            {recommendedSections.map((section, idx) => (
+              <div key={section.title}>
+                <div className="flex items-center gap-3 mb-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground shrink-0">
+                    {section.title}
+                  </h3>
+                  <div className="flex-1 h-px bg-border" />
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                  {section.products.map((p) => (
+                    <GroupedProductCard
+                      key={p.id}
+                      group={{
+                        groupName: p.group_name?.trim() || p.name,
+                        products: [p],
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         )}
