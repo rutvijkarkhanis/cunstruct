@@ -4,7 +4,7 @@ import { Plus } from "lucide-react";
 import { Product } from "@/lib/supabase";
 import { useCart } from "@/context/CartContext";
 import { toast } from "sonner";
-import { parseGroupName, extractVariantLabel } from "@/lib/productGroupUtils";
+import { extractVariantLabel } from "@/lib/productGroupUtils";
 
 export type ProductGroup = {
   groupName: string;
@@ -16,7 +16,8 @@ const GroupedProductCard = ({ group }: { group: ProductGroup }) => {
   const { addToCart } = useCart();
   const selected = group.products[selectedIdx];
   const hasVariants = group.products.length > 1;
-  const { brand, productName } = parseGroupName(group.groupName);
+  const brand = selected.brand ?? "";
+  const productName = group.groupName;
 
   const handleAdd = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -57,7 +58,7 @@ const GroupedProductCard = ({ group }: { group: ProductGroup }) => {
         {hasVariants && (
           <div className="flex flex-wrap gap-1.5 mt-2">
             {group.products.map((p, i) => {
-              const label = extractVariantLabel(p.name, productName);
+              const label = p.variant_name?.trim() || extractVariantLabel(p.name, productName);
               return (
                 <button
                   key={p.id}
@@ -98,11 +99,11 @@ const GroupedProductCard = ({ group }: { group: ProductGroup }) => {
 
 export default GroupedProductCard;
 
-/** Group a flat product list by group_name */
+/** Group a flat product list by group_name (falls back to name when null). */
 export function groupProducts(products: Product[]): ProductGroup[] {
   const map = new Map<string, Product[]>();
   for (const p of products) {
-    const key = p.group_name || p.name;
+    const key = p.group_name?.trim() || p.name;
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(p);
   }

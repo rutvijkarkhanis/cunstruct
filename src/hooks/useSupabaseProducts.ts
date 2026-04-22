@@ -1,16 +1,20 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase, Product } from "@/lib/supabase";
 
+const PRODUCT_COLS =
+  "id, name, brand, group_name, variant_name, selling_price, image_url, main_category, subcategory, weight, delivery_type";
+
 export function useSupabaseProducts(category?: string | null) {
   return useQuery<Product[]>({
     queryKey: ["supabase-products", category],
     queryFn: async () => {
-      let query = supabase
-        .from("product")
-        .select("id, name, brand, group_name, selling_price, image_url, category, weight, delivery_type");
+      let query = supabase.from("product").select(PRODUCT_COLS);
 
       if (category) {
-        query = query.eq("category", category);
+        // category arg can be a main_category or subcategory; match either
+        query = query.or(
+          `main_category.eq.${category},subcategory.eq.${category}`,
+        );
       }
 
       const { data, error } = await query;
@@ -27,7 +31,7 @@ export function useSupabaseProduct(id: string | undefined) {
       if (!id) return null;
       const { data, error } = await supabase
         .from("product")
-        .select("id, name, brand, group_name, selling_price, image_url, category, weight, delivery_type")
+        .select(PRODUCT_COLS)
         .eq("id", id)
         .single();
 
@@ -44,10 +48,12 @@ export function useSupabaseCategories() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("product")
-        .select("category");
+        .select("main_category");
 
       if (error) throw error;
-      const unique = [...new Set((data ?? []).map((d) => d.category).filter(Boolean))] as string[];
+      const unique = [
+        ...new Set((data ?? []).map((d) => d.main_category).filter(Boolean)),
+      ] as string[];
       return unique.sort();
     },
   });

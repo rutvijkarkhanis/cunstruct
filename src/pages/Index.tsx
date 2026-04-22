@@ -47,11 +47,11 @@ const Index = () => {
             <button
               key={cat}
               onClick={() => setSelectedCategory(cat)}
-              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors capitalize ${
+              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
                 selectedCategory === cat ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground border-border"
               }`}
             >
-              {cat.replace(/-/g, " ")}
+              {cat}
             </button>
           ))}
         </div>
@@ -61,9 +61,7 @@ const Index = () => {
       <div className="container py-2 pb-8">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-base font-bold text-foreground">
-            {selectedCategory
-              ? selectedCategory.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
-              : "All Products"}
+            {selectedCategory ?? "All Products"}
           </h2>
           <Link to="/products" className="text-xs font-medium text-accent flex items-center gap-0.5">
             View All <ChevronRight className="h-3.5 w-3.5" />

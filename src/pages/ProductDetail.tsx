@@ -6,7 +6,7 @@ import { useCart } from "@/context/CartContext";
 import { toast } from "sonner";
 import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
-import { parseGroupName, extractVariantLabel } from "@/lib/productGroupUtils";
+import { extractVariantLabel } from "@/lib/productGroupUtils";
 
 const ProductDetail = () => {
   const { id } = useParams();
@@ -48,8 +48,9 @@ const ProductDetail = () => {
     );
   }
 
-  const groupName = product.group_name || product.name;
-  const { brand, productName } = parseGroupName(groupName);
+  const groupName = product.group_name?.trim() || product.name;
+  const brand = product.brand ?? "";
+  const productName = groupName;
   const hasVariants = group.length > 1;
 
   const handleAdd = () => {
@@ -86,7 +87,7 @@ const ProductDetail = () => {
             {hasVariants && (
               <div className="flex flex-wrap gap-2">
                 {group.map((p, i) => {
-                  const label = extractVariantLabel(p.name, productName);
+                  const label = p.variant_name?.trim() || extractVariantLabel(p.name, productName);
                   return (
                     <button
                       key={p.id}

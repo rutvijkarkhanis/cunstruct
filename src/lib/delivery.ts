@@ -19,7 +19,9 @@ const config: Record<DeliveryType, { vehicle: string; fee: number; eta: string; 
 
 export function getDeliveryInfo(items: CartItem[], subtotal: number): DeliveryInfo {
   const hasHeavy = items.some(
-    (i) => i.product.category === "heavy-materials" || i.product.delivery_type === "heavy"
+    (i) =>
+      i.product.main_category === "Construction Materials & Finishes" ||
+      i.product.delivery_type === "heavy",
   );
 
   const totalWeight = items.reduce(
