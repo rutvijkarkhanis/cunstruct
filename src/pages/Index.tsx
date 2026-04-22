@@ -3,6 +3,9 @@ import { Link } from "react-router-dom";
 import { Clock, ChevronRight, Loader2 } from "lucide-react";
 import Header from "@/components/Header";
 import GroupedProductCard, { groupProducts } from "@/components/GroupedProductCard";
+import KitsSection from "@/components/KitsSection";
+import SortDropdown from "@/components/SortDropdown";
+import { sortGroups, SortOption } from "@/lib/sort";
 import {
   useSupabaseProducts,
   useSupabaseCategories,
@@ -12,11 +15,12 @@ import {
 const Index = () => {
   const [selectedMain, setSelectedMain] = useState<string | null>(null);
   const [selectedSub, setSelectedSub] = useState<string | null>(null);
+  const [sort, setSort] = useState<SortOption>("price_asc");
   const activeFilter = selectedSub ?? selectedMain;
   const { data: products, isLoading } = useSupabaseProducts(activeFilter);
   const { data: categories } = useSupabaseCategories();
   const { data: subcategories } = useSupabaseSubcategories(selectedMain);
-  const groups = products ? groupProducts(products) : [];
+  const groups = products ? sortGroups(groupProducts(products), sort) : [];
 
   const handleMainSelect = (cat: string | null) => {
     setSelectedMain(cat);
@@ -43,6 +47,9 @@ const Index = () => {
           </div>
         </div>
       </div>
+
+      {/* Job-Based Kits */}
+      <KitsSection />
 
       {/* Main category chips */}
       <div className="container py-3 space-y-2">
@@ -100,9 +107,12 @@ const Index = () => {
           <h2 className="text-base font-bold text-foreground">
             {selectedSub ?? selectedMain ?? "All Products"}
           </h2>
-          <Link to="/products" className="text-xs font-medium text-accent flex items-center gap-0.5">
-            View All <ChevronRight className="h-3.5 w-3.5" />
-          </Link>
+          <div className="flex items-center gap-2">
+            <SortDropdown value={sort} onChange={setSort} />
+            <Link to="/products" className="text-xs font-medium text-accent flex items-center gap-0.5">
+              View All <ChevronRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
         </div>
         {isLoading ? (
           <div className="flex justify-center py-10">

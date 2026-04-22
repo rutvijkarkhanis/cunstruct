@@ -10,6 +10,7 @@ import ProductDetail from "./pages/ProductDetail.tsx";
 import Cart from "./pages/Cart.tsx";
 import Checkout from "./pages/Checkout.tsx";
 import NotFound from "./pages/NotFound.tsx";
+import SearchResults from "./pages/SearchResults.tsx";
 
 
 const queryClient = new QueryClient();
@@ -27,6 +28,7 @@ const App = () => (
             <Route path="/product/:id" element={<ProductDetail />} />
             <Route path="/cart" element={<Cart />} />
             <Route path="/checkout" element={<Checkout />} />
+            <Route path="/search" element={<SearchResults />} />
             
             <Route path="*" element={<NotFound />} />
           </Routes>

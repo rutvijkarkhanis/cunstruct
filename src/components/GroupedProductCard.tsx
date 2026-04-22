@@ -1,10 +1,10 @@
-import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Plus, Zap, Truck, Clock } from "lucide-react";
 import { Product } from "@/lib/supabase";
 import { useCart } from "@/context/CartContext";
 import { toast } from "sonner";
 import { extractVariantLabel } from "@/lib/productGroupUtils";
+import { deliveryTag } from "@/lib/sort";
 
 export type ProductGroup = {
   groupName: string;
@@ -12,7 +12,7 @@ export type ProductGroup = {
 };
 
 const GroupedProductCard = ({ group }: { group: ProductGroup }) => {
-  const [selectedIdx, setSelectedIdx] = useState(0);
+  const selectedIdx = 0;
   const navigate = useNavigate();
   const { addToCart } = useCart();
   const selected = group.products[selectedIdx];
@@ -22,6 +22,17 @@ const GroupedProductCard = ({ group }: { group: ProductGroup }) => {
   const MAX_VISIBLE_VARIANTS = 2;
   const visibleVariants = group.products.slice(0, MAX_VISIBLE_VARIANTS);
   const hiddenCount = group.products.length - visibleVariants.length;
+  const minPrice = Math.min(...group.products.map((p) => p.selling_price ?? Infinity));
+  const startingPrice = isFinite(minPrice) ? minPrice : selected.selling_price;
+  const tag = deliveryTag(selected);
+  const tagIcon = tag.tone === "instant" ? Zap : tag.tone === "same" ? Truck : Clock;
+  const TagIcon = tagIcon;
+  const tagClass =
+    tag.tone === "instant"
+      ? "bg-success/10 text-success border-success/20"
+      : tag.tone === "same"
+        ? "bg-primary/10 text-primary border-primary/20"
+        : "bg-muted text-muted-foreground border-border";
 
   const handleAdd = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -50,9 +61,14 @@ const GroupedProductCard = ({ group }: { group: ProductGroup }) => {
       </div>
 
       <div className="p-3 flex flex-col flex-1">
+        {/* Delivery tag */}
+        <span className={`inline-flex items-center gap-1 self-start px-1.5 py-0.5 rounded text-[10px] font-semibold border ${tagClass}`}>
+          <TagIcon className="h-2.5 w-2.5" />
+          {tag.label}
+        </span>
         {/* Brand */}
         {brand && (
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide mt-1">
             {brand}
           </span>
         )}
@@ -64,31 +80,39 @@ const GroupedProductCard = ({ group }: { group: ProductGroup }) => {
 
         {/* Variant preview (max 2, +N more) */}
         {hasVariants && (
-          <div className="flex flex-wrap gap-1.5 mt-2">
-            {visibleVariants.map((p) => {
-              const label = p.variant_name?.trim() || extractVariantLabel(p.name, productName);
-              return (
-                <span
-                  key={p.id}
-                  className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-muted text-muted-foreground border border-border line-clamp-1"
-                >
-                  {label}
+          <>
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {visibleVariants.map((p) => {
+                const label = p.variant_name?.trim() || extractVariantLabel(p.name, productName);
+                return (
+                  <span
+                    key={p.id}
+                    className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-muted text-muted-foreground border border-border line-clamp-1"
+                  >
+                    {label}
+                  </span>
+                );
+              })}
+              {hiddenCount > 0 && (
+                <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-accent/10 text-accent border border-accent/20">
+                  +{hiddenCount} more
                 </span>
-              );
-            })}
-            {hiddenCount > 0 && (
-              <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-accent/10 text-accent border border-accent/20">
-                +{hiddenCount} more
-              </span>
-            )}
-          </div>
+              )}
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Available in {group.products.length} variants
+            </p>
+          </>
         )}
 
         {/* Price + Add */}
         <div className="flex items-center justify-between mt-auto pt-2">
-          <span className="text-base font-bold text-foreground">
-            ₹{selected.selling_price}
-          </span>
+          <div className="flex flex-col">
+            {hasVariants && (
+              <span className="text-[10px] text-muted-foreground leading-none">Starting at</span>
+            )}
+            <span className="text-base font-bold text-foreground">₹{startingPrice}</span>
+          </div>
           <button
             onClick={handleAdd}
             className="h-8 w-8 rounded-full bg-primary flex items-center justify-center text-primary-foreground hover:bg-primary/90 transition-colors"
