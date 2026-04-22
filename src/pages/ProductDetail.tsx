@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { extractVariantLabel } from "@/lib/productGroupUtils";
+import GroupedProductCard, { groupProducts } from "@/components/GroupedProductCard";
 
 const ProductDetail = () => {
   const { id } = useParams();
@@ -31,6 +32,20 @@ const ProductDetail = () => {
   useEffect(() => setSelectedIdx(initialIdx), [initialIdx]);
 
   const product = group[selectedIdx];
+
+  // Similar products: same subcategory, different group
+  const similarGroups = useMemo(() => {
+    if (!allProducts || !product) return [];
+    const currentGroupName = product.group_name || product.name;
+    const sameSub = allProducts.filter(
+      (p) =>
+        p.subcategory &&
+        product.subcategory &&
+        p.subcategory === product.subcategory &&
+        (p.group_name || p.name) !== currentGroupName,
+    );
+    return groupProducts(sameSub).slice(0, 6);
+  }, [allProducts, product]);
 
   if (isLoading) {
     return (
@@ -62,9 +77,34 @@ const ProductDetail = () => {
     <div className="min-h-screen bg-background">
       <Header />
       <div className="container py-4">
-        <Link to={-1 as any} className="inline-flex items-center gap-2 text-sm text-muted-foreground mb-4">
-          <ArrowLeft className="h-4 w-4" /> Back
-        </Link>
+        {/* Breadcrumb */}
+        <nav className="flex items-center gap-1.5 text-xs text-muted-foreground mb-3 flex-wrap">
+          <Link to="/" className="hover:text-foreground">Home</Link>
+          {product.main_category && (
+            <>
+              <span>/</span>
+              <Link
+                to={`/products?category=${encodeURIComponent(product.main_category)}`}
+                className="hover:text-foreground"
+              >
+                {product.main_category}
+              </Link>
+            </>
+          )}
+          {product.subcategory && (
+            <>
+              <span>/</span>
+              <Link
+                to={`/products?category=${encodeURIComponent(product.main_category ?? "")}&sub=${encodeURIComponent(product.subcategory)}`}
+                className="hover:text-foreground"
+              >
+                {product.subcategory}
+              </Link>
+            </>
+          )}
+          <span>/</span>
+          <span className="text-foreground line-clamp-1">{productName}</span>
+        </nav>
 
         <div className="max-w-lg mx-auto">
           {/* Image */}
