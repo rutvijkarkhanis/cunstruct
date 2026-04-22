@@ -1,7 +1,10 @@
 import { Link, useSearchParams } from "react-router-dom";
+import { useState } from "react";
 import { ArrowLeft, Clock, Loader2 } from "lucide-react";
 import Header from "@/components/Header";
 import GroupedProductCard, { groupProducts } from "@/components/GroupedProductCard";
+import SortDropdown from "@/components/SortDropdown";
+import { sortGroups, SortOption } from "@/lib/sort";
 import {
   useSupabaseProducts,
   useSupabaseCategories,
@@ -13,13 +16,14 @@ const Products = () => {
   const mainCategory = params.get("category");
   const subcategory = params.get("sub");
   const activeFilter = subcategory ?? mainCategory;
+  const [sort, setSort] = useState<SortOption>("price_asc");
   const { data: products, isLoading, error } = useSupabaseProducts(activeFilter);
   const { data: categories } = useSupabaseCategories();
   const { data: subcategories } = useSupabaseSubcategories(mainCategory);
 
   const title = subcategory ?? mainCategory ?? "All Products";
 
-  const groups = products ? groupProducts(products) : [];
+  const groups = products ? sortGroups(groupProducts(products), sort) : [];
 
   const setMain = (cat: string | null) => {
     if (cat) setParams({ category: cat });
@@ -93,6 +97,11 @@ const Products = () => {
         <div className="flex items-center gap-2 mb-4 bg-success/10 rounded-lg px-3 py-2">
           <Clock className="h-4 w-4 text-success" />
           <span className="text-sm font-medium text-success">Delivery in 60 mins</span>
+        </div>
+
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs text-muted-foreground">{groups.length} products</p>
+          <SortDropdown value={sort} onChange={setSort} />
         </div>
 
         {isLoading && (
