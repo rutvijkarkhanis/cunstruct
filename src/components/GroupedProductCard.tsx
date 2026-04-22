@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { Product } from "@/lib/supabase";
 import { useCart } from "@/context/CartContext";
@@ -13,15 +13,23 @@ export type ProductGroup = {
 
 const GroupedProductCard = ({ group }: { group: ProductGroup }) => {
   const [selectedIdx, setSelectedIdx] = useState(0);
+  const navigate = useNavigate();
   const { addToCart } = useCart();
   const selected = group.products[selectedIdx];
   const hasVariants = group.products.length > 1;
   const brand = selected.brand ?? "";
   const productName = group.groupName;
+  const MAX_VISIBLE_VARIANTS = 2;
+  const visibleVariants = group.products.slice(0, MAX_VISIBLE_VARIANTS);
+  const hiddenCount = group.products.length - visibleVariants.length;
 
   const handleAdd = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    if (hasVariants) {
+      navigate(`/product/${selected.id}`);
+      return;
+    }
     addToCart(selected);
     toast.success(`${selected.name} added to cart`);
   };
@@ -54,29 +62,25 @@ const GroupedProductCard = ({ group }: { group: ProductGroup }) => {
           {productName}
         </h3>
 
-        {/* Variant selector */}
+        {/* Variant preview (max 2, +N more) */}
         {hasVariants && (
           <div className="flex flex-wrap gap-1.5 mt-2">
-            {group.products.map((p, i) => {
+            {visibleVariants.map((p) => {
               const label = p.variant_name?.trim() || extractVariantLabel(p.name, productName);
               return (
-                <button
+                <span
                   key={p.id}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setSelectedIdx(i);
-                  }}
-                  className={`px-2 py-1 rounded-md text-xs font-medium border transition-colors ${
-                    i === selectedIdx
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-muted text-foreground border-border hover:border-primary/40"
-                  }`}
+                  className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-muted text-muted-foreground border border-border line-clamp-1"
                 >
                   {label}
-                </button>
+                </span>
               );
             })}
+            {hiddenCount > 0 && (
+              <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-accent/10 text-accent border border-accent/20">
+                +{hiddenCount} more
+              </span>
+            )}
           </div>
         )}
 

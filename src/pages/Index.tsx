@@ -3,13 +3,25 @@ import { Link } from "react-router-dom";
 import { Clock, ChevronRight, Loader2 } from "lucide-react";
 import Header from "@/components/Header";
 import GroupedProductCard, { groupProducts } from "@/components/GroupedProductCard";
-import { useSupabaseProducts, useSupabaseCategories } from "@/hooks/useSupabaseProducts";
+import {
+  useSupabaseProducts,
+  useSupabaseCategories,
+  useSupabaseSubcategories,
+} from "@/hooks/useSupabaseProducts";
 
 const Index = () => {
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const { data: products, isLoading } = useSupabaseProducts(selectedCategory);
+  const [selectedMain, setSelectedMain] = useState<string | null>(null);
+  const [selectedSub, setSelectedSub] = useState<string | null>(null);
+  const activeFilter = selectedSub ?? selectedMain;
+  const { data: products, isLoading } = useSupabaseProducts(activeFilter);
   const { data: categories } = useSupabaseCategories();
+  const { data: subcategories } = useSupabaseSubcategories(selectedMain);
   const groups = products ? groupProducts(products) : [];
+
+  const handleMainSelect = (cat: string | null) => {
+    setSelectedMain(cat);
+    setSelectedSub(null);
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -32,13 +44,13 @@ const Index = () => {
         </div>
       </div>
 
-      {/* Category chips */}
-      <div className="container py-3">
+      {/* Main category chips */}
+      <div className="container py-3 space-y-2">
         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
           <button
-            onClick={() => setSelectedCategory(null)}
+            onClick={() => handleMainSelect(null)}
             className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-              !selectedCategory ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground border-border"
+              !selectedMain ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground border-border"
             }`}
           >
             All
@@ -46,22 +58,47 @@ const Index = () => {
           {categories?.map((cat) => (
             <button
               key={cat}
-              onClick={() => setSelectedCategory(cat)}
+              onClick={() => handleMainSelect(cat)}
               className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                selectedCategory === cat ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground border-border"
+                selectedMain === cat ? "bg-primary text-primary-foreground border-primary" : "bg-card text-foreground border-border"
               }`}
             >
               {cat}
             </button>
           ))}
         </div>
+
+        {/* Subcategory chips (only when main is selected and subs exist) */}
+        {selectedMain && subcategories && subcategories.length > 0 && (
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+            <button
+              onClick={() => setSelectedSub(null)}
+              className={`shrink-0 px-3 py-1 rounded-full text-[11px] font-medium border transition-colors ${
+                !selectedSub ? "bg-accent text-accent-foreground border-accent" : "bg-muted text-muted-foreground border-border"
+              }`}
+            >
+              All {selectedMain}
+            </button>
+            {subcategories.map((sub) => (
+              <button
+                key={sub}
+                onClick={() => setSelectedSub(sub)}
+                className={`shrink-0 px-3 py-1 rounded-full text-[11px] font-medium border transition-colors ${
+                  selectedSub === sub ? "bg-accent text-accent-foreground border-accent" : "bg-muted text-muted-foreground border-border"
+                }`}
+              >
+                {sub}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Products */}
       <div className="container py-2 pb-8">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-base font-bold text-foreground">
-            {selectedCategory ?? "All Products"}
+            {selectedSub ?? selectedMain ?? "All Products"}
           </h2>
           <Link to="/products" className="text-xs font-medium text-accent flex items-center gap-0.5">
             View All <ChevronRight className="h-3.5 w-3.5" />
