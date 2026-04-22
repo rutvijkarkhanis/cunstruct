@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Search, X } from "lucide-react";
+import { Search, X, Package } from "lucide-react";
 import { useSupabaseProducts } from "@/hooks/useSupabaseProducts";
 import { groupProducts } from "@/components/GroupedProductCard";
+import { resolveKits } from "@/lib/kits";
 
 function useDebounced<T>(value: T, ms = 300): T {
   const [v, setV] = useState(value);
@@ -44,8 +45,9 @@ const SearchBar = () => {
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
 
-  const { groups, suggestedCats } = useMemo(() => {
-    if (!products || !debounced.trim()) return { groups: [], suggestedCats: [] as string[] };
+  const { groups, kits, suggestedCats } = useMemo(() => {
+    if (!products || !debounced.trim())
+      return { groups: [], kits: [] as ReturnType<typeof resolveKits>, suggestedCats: [] as string[] };
     const term = debounced.trim().toLowerCase();
     const matches = products.filter((p) => {
       const hay = `${p.name ?? ""} ${p.group_name ?? ""} ${p.brand ?? ""} ${p.main_category ?? ""} ${p.subcategory ?? ""}`.toLowerCase();
@@ -58,10 +60,20 @@ const SearchBar = () => {
       return af - bf;
     });
     const groups = groupProducts(matches).slice(0, 5);
+    const allKits = resolveKits(products);
+    const kits = allKits
+      .filter((k) => {
+        const hay = `${k.def.name} ${k.def.slots.map((s) => s.label).join(" ")}`.toLowerCase();
+        if (hay.includes(term)) return true;
+        return k.products.some((p) =>
+          `${p.name ?? ""} ${p.group_name ?? ""} ${p.subcategory ?? ""}`.toLowerCase().includes(term),
+        );
+      })
+      .slice(0, 3);
     const cats = Array.from(
       new Set(products.map((p) => p.subcategory).filter(Boolean) as string[]),
     ).slice(0, 5);
-    return { groups, suggestedCats: cats };
+    return { groups, kits, suggestedCats: cats };
   }, [products, debounced]);
 
   const submit = (e: React.FormEvent) => {
@@ -103,7 +115,7 @@ const SearchBar = () => {
 
       {open && debounced.trim() && (
         <div className="absolute left-0 right-0 top-full mt-1 bg-card border rounded-lg shadow-lg z-50 overflow-hidden">
-          {groups.length === 0 ? (
+          {groups.length === 0 && kits.length === 0 ? (
             <div className="p-3 text-sm">
               <p className="text-muted-foreground mb-2">No results found</p>
               {suggestedCats.length > 0 && (
@@ -122,7 +134,31 @@ const SearchBar = () => {
               )}
             </div>
           ) : (
-            <ul className="divide-y">
+            <ul className="divide-y max-h-[70vh] overflow-y-auto">
+              {kits.map((k) => (
+                <li key={`kit-${k.def.id}`}>
+                  <Link
+                    to={`/kit/${k.def.id}`}
+                    onClick={() => setOpen(false)}
+                    className="flex items-center gap-3 p-2 hover:bg-muted/50 transition-colors"
+                  >
+                    <div className="h-10 w-10 rounded bg-accent/10 text-accent flex items-center justify-center shrink-0">
+                      <Package className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-foreground line-clamp-1">
+                        {highlight(k.def.name, debounced)}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground line-clamp-1">
+                        Kit · {k.products.length} items
+                      </p>
+                    </div>
+                    <span className="text-sm font-bold text-foreground shrink-0">
+                      ₹{k.totalPrice.toLocaleString("en-IN")}
+                    </span>
+                  </Link>
+                </li>
+              ))}
               {groups.map((g) => {
                 const top = g.products[0];
                 const min = Math.min(...g.products.map((p) => p.selling_price ?? Infinity));

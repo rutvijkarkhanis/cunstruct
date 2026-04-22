@@ -1,4 +1,4 @@
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { Minus, Plus, ShoppingCart, Loader2 } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { useSupabaseProducts } from "@/hooks/useSupabaseProducts";
@@ -13,6 +13,7 @@ import { resolveKits, suggestKitFor } from "@/lib/kits";
 const ProductDetail = () => {
   const { id } = useParams();
   const { addToCart } = useCart();
+  const navigate = useNavigate();
   const [qty, setQty] = useState(1);
   const { data: allProducts, isLoading } = useSupabaseProducts();
 
@@ -79,6 +80,10 @@ const ProductDetail = () => {
     if (suggested) {
       toast.message(`Complete your job with ${suggested.def.name}`, {
         description: `${suggested.products.length} items · ₹${suggested.totalPrice.toLocaleString("en-IN")}`,
+        action: {
+          label: "View Kit",
+          onClick: () => navigate(`/kit/${suggested.def.id}`),
+        },
       });
     }
   };
