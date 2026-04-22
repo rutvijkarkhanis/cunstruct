@@ -11,6 +11,7 @@ import Cart from "./pages/Cart.tsx";
 import Checkout from "./pages/Checkout.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import SearchResults from "./pages/SearchResults.tsx";
+import KitDetail from "./pages/KitDetail.tsx";
 
 
 const queryClient = new QueryClient();
@@ -29,7 +30,8 @@ const App = () => (
             <Route path="/cart" element={<Cart />} />
             <Route path="/checkout" element={<Checkout />} />
             <Route path="/search" element={<SearchResults />} />
-            
+            <Route path="/kit/:id" element={<KitDetail />} />
+
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
