@@ -10,9 +10,11 @@ export type Product = {
   name: string;
   brand: string | null;
   group_name: string | null;
+  variant_name: string | null;
   selling_price: number;
   image_url: string;
-  category: string | null;
+  main_category: string | null;
+  subcategory: string | null;
   weight: number | null;
   delivery_type: string | null;
 };
