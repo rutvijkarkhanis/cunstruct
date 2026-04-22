@@ -79,6 +79,10 @@ const ProductDetail = () => {
     if (suggested) {
       toast.message(`Complete your job with ${suggested.def.name}`, {
         description: `${suggested.products.length} items · ₹${suggested.totalPrice.toLocaleString("en-IN")}`,
+        action: {
+          label: "View Kit",
+          onClick: () => navigate(`/kit/${suggested.def.id}`),
+        },
       });
     }
   };
