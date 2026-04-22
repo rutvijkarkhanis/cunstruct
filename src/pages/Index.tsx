@@ -7,6 +7,7 @@ import {
   useSupabaseCategories,
 } from "@/hooks/useSupabaseProducts";
 import { resolveKits, ResolvedKit } from "@/lib/kits";
+import { resolveRecommendedProducts } from "@/lib/recommendedProducts";
 import { useCart } from "@/context/CartContext";
 import { toast } from "sonner";
 import GroupedProductCard, { groupProducts } from "@/components/GroupedProductCard";
@@ -122,6 +123,17 @@ const Index = () => {
     () => (products ? sortGroups(groupProducts(products), sort) : []),
     [products, sort],
   );
+
+  // Fixed cross-sell list — only used when no category is selected.
+  const recommendedGroups = useMemo(() => {
+    if (!allProducts) return [];
+    const picked = resolveRecommendedProducts(allProducts);
+    // Wrap each as its own single-item group to reuse GroupedProductCard.
+    return picked.map((p) => ({
+      groupName: p.group_name?.trim() || p.name,
+      products: [p],
+    }));
+  }, [allProducts]);
 
   const handleHeroSearch = (e: FormEvent) => {
     e.preventDefault();
@@ -257,34 +269,61 @@ const Index = () => {
           </Link>
         )}
 
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-base font-bold text-foreground">
-            {selectedCat ? `Popular in ${selectedCat}` : "Recommended Products"}
-          </h2>
-          <div className="flex items-center gap-2">
-            <SortDropdown value={sort} onChange={setSort} />
-            <Link
-              to="/products"
-              className="text-xs font-medium text-accent flex items-center gap-0.5"
-            >
-              View All <ChevronRight className="h-3.5 w-3.5" />
-            </Link>
+        <div className="flex items-center justify-between mb-1">
+          <div className="min-w-0">
+            <h2 className="text-base font-bold text-foreground">
+              {selectedCat ? `Popular in ${selectedCat}` : "You Might Also Need"}
+            </h2>
+            {!selectedCat && (
+              <p className="text-[11px] text-muted-foreground">
+                Quick add — finish your job in one trip.
+              </p>
+            )}
           </div>
+          {selectedCat && (
+            <div className="flex items-center gap-2 shrink-0">
+              <SortDropdown value={sort} onChange={setSort} />
+            </div>
+          )}
         </div>
 
-        {isLoading ? (
+        {selectedCat ? (
+          isLoading ? (
+            <div className="flex justify-center py-10">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : groups.length === 0 ? (
+            <p className="text-center py-10 text-muted-foreground">No products found.</p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 mt-3">
+              {groups.slice(0, 20).map((g) => (
+                <GroupedProductCard key={g.groupName} group={g} />
+              ))}
+            </div>
+          )
+        ) : !allProducts ? (
           <div className="flex justify-center py-10">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
-        ) : groups.length === 0 ? (
+        ) : recommendedGroups.length === 0 ? (
           <p className="text-center py-10 text-muted-foreground">No products found.</p>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-            {groups.slice(0, 20).map((g) => (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 mt-3">
+            {recommendedGroups.map((g) => (
               <GroupedProductCard key={g.groupName} group={g} />
             ))}
           </div>
         )}
+
+        {/* CTA: View All Products */}
+        <div className="flex justify-center mt-6">
+          <Link
+            to="/products"
+            className="inline-flex items-center gap-1 h-10 px-5 rounded-full border border-border bg-card text-foreground text-sm font-semibold hover:border-primary/40 hover:text-primary transition-colors"
+          >
+            View All Products <ChevronRight className="h-4 w-4" />
+          </Link>
+        </div>
       </div>
     </div>
   );
