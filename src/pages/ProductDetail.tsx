@@ -1,5 +1,5 @@
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Minus, Plus, ShoppingCart, Loader2 } from "lucide-react";
+import { Minus, Plus, ShoppingCart, Loader2 } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { useSupabaseProducts } from "@/hooks/useSupabaseProducts";
 import { useCart } from "@/context/CartContext";
@@ -8,6 +8,7 @@ import Header from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { extractVariantLabel } from "@/lib/productGroupUtils";
 import GroupedProductCard, { groupProducts } from "@/components/GroupedProductCard";
+import { resolveKits, suggestKitFor } from "@/lib/kits";
 
 const ProductDetail = () => {
   const { id } = useParams();
@@ -47,6 +48,9 @@ const ProductDetail = () => {
     return groupProducts(sameSub).slice(0, 6);
   }, [allProducts, product]);
 
+  const kits = useMemo(() => (allProducts ? resolveKits(allProducts) : []), [allProducts]);
+  const [descExpanded, setDescExpanded] = useState(false);
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -71,7 +75,17 @@ const ProductDetail = () => {
   const handleAdd = () => {
     addToCart(product, qty);
     toast.success(`${qty}x ${product.name} added to cart`);
+    const suggested = suggestKitFor(product, kits);
+    if (suggested) {
+      toast.message(`Complete your job with ${suggested.def.name}`, {
+        description: `${suggested.products.length} items · ₹${suggested.totalPrice.toLocaleString("en-IN")}`,
+      });
+    }
   };
+
+  const description =
+    product.description?.trim() || "Standard construction-grade product. Contact for details.";
+  const isLong = description.length > 160;
 
   return (
     <div className="min-h-screen bg-background">
@@ -122,6 +136,19 @@ const ProductDetail = () => {
               </span>
             )}
             <h1 className="text-xl font-bold text-foreground">{productName}</h1>
+
+            {/* Description */}
+            <div className="text-sm text-muted-foreground leading-relaxed">
+              <p className={!descExpanded && isLong ? "line-clamp-2" : ""}>{description}</p>
+              {isLong && (
+                <button
+                  onClick={() => setDescExpanded((v) => !v)}
+                  className="mt-1 text-xs font-semibold text-accent hover:underline"
+                >
+                  {descExpanded ? "Show less" : "Read more"}
+                </button>
+              )}
+            </div>
 
             {/* Variant selector */}
             {hasVariants && (
