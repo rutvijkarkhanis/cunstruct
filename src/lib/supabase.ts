@@ -17,4 +17,6 @@ export type Product = {
   subcategory: string | null;
   weight: number | null;
   delivery_type: string | null;
+  description: string | null;
+  priority: string | null;
 };

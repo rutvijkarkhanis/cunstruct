@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase, Product } from "@/lib/supabase";
 
 const PRODUCT_COLS =
-  "id, name, brand, group_name, variant_name, selling_price, image_url, main_category, subcategory, weight, delivery_type";
+  "id, name, brand, group_name, variant_name, selling_price, image_url, main_category, subcategory, weight, delivery_type, description, priority";
 
 export function useSupabaseProducts(category?: string | null) {
   return useQuery<Product[]>({
