@@ -58,3 +58,22 @@ export function useSupabaseCategories() {
     },
   });
 }
+
+export function useSupabaseSubcategories(mainCategory?: string | null) {
+  return useQuery<string[]>({
+    queryKey: ["supabase-subcategories", mainCategory],
+    queryFn: async () => {
+      let query = supabase.from("product").select("subcategory, main_category");
+      if (mainCategory) {
+        query = query.eq("main_category", mainCategory);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+      const unique = [
+        ...new Set((data ?? []).map((d) => d.subcategory).filter(Boolean)),
+      ] as string[];
+      return unique.sort();
+    },
+    enabled: !!mainCategory,
+  });
+}
