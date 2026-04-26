@@ -1,7 +1,8 @@
 import { useMemo, useState, FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Clock, Loader2, Package, Eye, Search, ChevronRight, ArrowRight } from "lucide-react";
+import { Zap, Loader2, Package, Eye, Search, ChevronRight, ArrowRight, HardHat } from "lucide-react";
 import Header from "@/components/Header";
+import KitsCarousel from "@/components/KitsCarousel";
 import {
   useSupabaseProducts,
   useSupabaseCategories,
@@ -110,7 +111,7 @@ const Index = () => {
     () => (allProducts ? resolveKits(allProducts) : []),
     [allProducts],
   );
-  const visibleKits = kits.slice(0, 6);
+  // Carousel shows full kit list (no slicing); CTA links to /kits page.
 
   const featuredKit: ResolvedKit | null = useMemo(() => {
     if (!selectedCat) return null;
@@ -143,12 +144,18 @@ const Index = () => {
       {/* Hero */}
       <div className="container pt-4 pb-2">
         <div className="bg-primary rounded-xl p-6 space-y-4">
+          {/* 30-min badge — prominent, above headline */}
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent text-accent-foreground text-xs font-bold uppercase tracking-wide shadow-sm">
+            <Zap className="h-3.5 w-3.5" />
+            Delivery in 30 minutes
+          </span>
+
           <div className="space-y-2">
             <h1 className="text-2xl sm:text-3xl font-bold text-primary-foreground leading-tight">
-              What do you want to <span className="text-accent">get done</span> today?
+              Construction Materials Delivered in <span className="text-accent">30 Minutes</span>
             </h1>
             <p className="text-sm text-primary-foreground/80">
-              Pick a job or browse products.
+              Drill bits, fasteners, plumbing, electricals — everything your site needs, when it needs it.
             </p>
           </div>
 
@@ -168,24 +175,17 @@ const Index = () => {
               Search
             </button>
           </form>
-
-          <div className="flex items-center gap-2">
-            <Clock className="h-4 w-4 text-accent" />
-            <span className="text-sm font-medium text-primary-foreground/80">
-              Delivery in 60 mins
-            </span>
-          </div>
         </div>
       </div>
 
-      {/* Kits grid (PRIMARY) */}
+      {/* Kits carousel (PRIMARY) */}
       <div className="container py-4">
         <div className="flex items-end justify-between mb-3">
           <div>
             <h2 className="text-base font-bold text-foreground">Get the Job Done Kits</h2>
             <p className="text-[11px] text-muted-foreground">Pick a job, we'll pack everything you need.</p>
           </div>
-          {kits.length > visibleKits.length && (
+          {kits.length > 0 && (
             <Link
               to="/kits"
               className="text-xs font-medium text-accent flex items-center gap-0.5 shrink-0"
@@ -199,14 +199,10 @@ const Index = () => {
           <div className="flex justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
-        ) : visibleKits.length === 0 ? (
+        ) : kits.length === 0 ? (
           <p className="text-center py-8 text-muted-foreground text-sm">No kits available.</p>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {visibleKits.map((k) => (
-              <KitGridCard key={k.def.id} kit={k} />
-            ))}
-          </div>
+          <KitsCarousel kits={kits} renderCard={(k) => <KitGridCard kit={k} />} />
         )}
       </div>
 
@@ -337,6 +333,29 @@ const Index = () => {
             View All Products <ChevronRight className="h-4 w-4" />
           </Link>
         </div>
+
+        {/* Brand section: positioning */}
+        <section className="mt-12 bg-secondary/40 border rounded-2xl p-6 sm:p-8">
+          <div className="max-w-2xl">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-[11px] font-bold uppercase tracking-wide mb-3">
+              <HardHat className="h-3.5 w-3.5" />
+              Built for Construction Sites
+            </div>
+            <h2 className="text-xl sm:text-2xl font-bold text-foreground leading-tight">
+              Made for real on-site problems — not generic shopping.
+            </h2>
+            <div className="mt-3 space-y-2 text-sm text-muted-foreground leading-relaxed">
+              <p>
+                Cunstruct is designed for urgent material shortages, missing tools, and last-minute
+                requirements that hold up your work.
+              </p>
+              <p>
+                Instead of calling multiple vendors or delaying the job, order instantly and get
+                materials delivered in minutes.
+              </p>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   );
