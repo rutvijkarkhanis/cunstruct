@@ -91,7 +91,7 @@ const Checkout = () => {
           <h1 className="text-2xl font-bold text-foreground">Order Placed!</h1>
           <div className="flex items-center justify-center gap-2 text-success">
             <Clock className="h-4 w-4" />
-            <span className="text-sm font-medium">Estimated delivery in 60 mins</span>
+            <span className="text-sm font-medium">Estimated delivery in 30 minutes</span>
           </div>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mt-8 w-full max-w-md mx-auto">
             <Button onClick={handleWhatsApp} className="w-full sm:w-auto bg-[#25D366] hover:bg-[#1da851] text-white px-6 h-12 text-base font-semibold">
