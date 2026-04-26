@@ -148,10 +148,16 @@ export const KIT_DEFS: KitDef[] = [
   },
 ];
 
-function matchProduct(products: Product[], keywords: string[], used: Set<string>): Product | null {
+function matchProduct(
+  products: Product[],
+  keywords: string[],
+  used: Set<string>,
+  usedImages: Set<string>,
+): Product | null {
   let best: Product | null = null;
   for (const p of products) {
     if (used.has(p.id)) continue;
+    if (p.image_url && usedImages.has(p.image_url)) continue;
     const hay = `${p.name ?? ""} ${p.group_name ?? ""} ${p.subcategory ?? ""} ${p.main_category ?? ""}`.toLowerCase();
     if (keywords.some((k) => hay.includes(k.toLowerCase()))) {
       if (!best || (p.selling_price ?? Infinity) < (best.selling_price ?? Infinity)) {
@@ -165,11 +171,13 @@ function matchProduct(products: Product[], keywords: string[], used: Set<string>
 export function resolveKits(products: Product[]): ResolvedKit[] {
   return KIT_DEFS.map((def) => {
     const used = new Set<string>();
+    const usedImages = new Set<string>();
     const picked: Product[] = [];
     for (const slot of def.slots) {
-      const match = matchProduct(products, slot.keywords, used);
+      const match = matchProduct(products, slot.keywords, used, usedImages);
       if (match) {
         used.add(match.id);
+        if (match.image_url) usedImages.add(match.image_url);
         picked.push(match);
       }
     }
