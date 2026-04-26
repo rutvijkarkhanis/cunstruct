@@ -144,20 +144,9 @@ const Index = () => {
       {/* Hero */}
       <div className="container pt-4 pb-2">
         <div className="bg-primary rounded-xl p-6 space-y-4">
-          {/* Location badge — prominent, above headline */}
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent text-accent-foreground text-xs font-bold uppercase tracking-wide shadow-sm">
-            <Zap className="h-3.5 w-3.5" />
-            Serving Across Gurgaon
-          </span>
-
-          <div className="space-y-2">
-            <h1 className="text-2xl sm:text-3xl font-bold text-primary-foreground leading-tight">
-              Construction Materials Delivered in <span className="text-accent">30 Minutes</span>
-            </h1>
-            <p className="text-sm text-primary-foreground/80">
-              Drill bits, fasteners, plumbing, electricals — everything your site needs, delivered across Gurgaon.
-            </p>
-          </div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-primary-foreground leading-tight">
+            Construction Materials in <span className="text-accent">30 Minutes</span>
+          </h1>
 
           <form onSubmit={handleHeroSearch} className="relative max-w-xl">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -175,6 +164,12 @@ const Index = () => {
               Search
             </button>
           </form>
+
+          {/* Location badge — below the search bar */}
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent text-accent-foreground text-xs font-bold uppercase tracking-wide shadow-sm">
+            <Zap className="h-3.5 w-3.5" />
+            Serving Across Gurgaon
+          </span>
         </div>
       </div>
 
