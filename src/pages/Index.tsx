@@ -144,10 +144,10 @@ const Index = () => {
       {/* Hero */}
       <div className="container pt-4 pb-2">
         <div className="bg-primary rounded-xl p-6 space-y-4">
-          {/* 30-min badge — prominent, above headline */}
+          {/* Location badge — prominent, above headline */}
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent text-accent-foreground text-xs font-bold uppercase tracking-wide shadow-sm">
             <Zap className="h-3.5 w-3.5" />
-            Delivery in 30 minutes
+            Serving Across Gurgaon
           </span>
 
           <div className="space-y-2">
@@ -155,7 +155,7 @@ const Index = () => {
               Construction Materials Delivered in <span className="text-accent">30 Minutes</span>
             </h1>
             <p className="text-sm text-primary-foreground/80">
-              Drill bits, fasteners, plumbing, electricals — everything your site needs, when it needs it.
+              Drill bits, fasteners, plumbing, electricals — everything your site needs, delivered across Gurgaon.
             </p>
           </div>
 
