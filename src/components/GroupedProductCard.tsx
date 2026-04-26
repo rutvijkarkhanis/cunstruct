@@ -1,10 +1,9 @@
 import { Link, useNavigate } from "react-router-dom";
-import { Plus, Zap, Truck, Clock } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Product } from "@/lib/supabase";
 import { useCart } from "@/context/CartContext";
 import { toast } from "sonner";
 import { extractVariantLabel } from "@/lib/productGroupUtils";
-import { deliveryTag } from "@/lib/sort";
 
 export type ProductGroup = {
   groupName: string;
@@ -24,15 +23,6 @@ const GroupedProductCard = ({ group }: { group: ProductGroup }) => {
   const hiddenCount = group.products.length - visibleVariants.length;
   const minPrice = Math.min(...group.products.map((p) => p.selling_price ?? Infinity));
   const startingPrice = isFinite(minPrice) ? minPrice : selected.selling_price;
-  const tag = deliveryTag(selected);
-  const tagIcon = tag.tone === "instant" ? Zap : tag.tone === "same" ? Truck : Clock;
-  const TagIcon = tagIcon;
-  const tagClass =
-    tag.tone === "instant"
-      ? "bg-success/10 text-success border-success/20"
-      : tag.tone === "same"
-        ? "bg-primary/10 text-primary border-primary/20"
-        : "bg-muted text-muted-foreground border-border";
 
   const handleAdd = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -61,14 +51,9 @@ const GroupedProductCard = ({ group }: { group: ProductGroup }) => {
       </div>
 
       <div className="p-3 flex flex-col flex-1">
-        {/* Delivery tag */}
-        <span className={`inline-flex items-center gap-1 self-start px-1.5 py-0.5 rounded text-[10px] font-semibold border ${tagClass}`}>
-          <TagIcon className="h-2.5 w-2.5" />
-          {tag.label}
-        </span>
         {/* Brand */}
         {brand && (
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide mt-1">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
             {brand}
           </span>
         )}
