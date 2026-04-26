@@ -1,7 +1,8 @@
-import { useMemo, useState, FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { Zap, Loader2, Package, Eye, Search, ChevronRight, ArrowRight, HardHat } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { Zap, Loader2, Package, Eye, ChevronRight, ArrowRight, HardHat } from "lucide-react";
 import Header from "@/components/Header";
+import SearchBar from "@/components/SearchBar";
 import KitsCarousel from "@/components/KitsCarousel";
 import {
   useSupabaseProducts,
@@ -98,10 +99,8 @@ const CATEGORY_TO_KIT: Record<string, string> = {
 };
 
 const Index = () => {
-  const navigate = useNavigate();
   const [selectedCat, setSelectedCat] = useState<string | null>(null);
   const [sort, setSort] = useState<SortOption>("price_asc");
-  const [heroQuery, setHeroQuery] = useState("");
 
   const { data: products, isLoading } = useSupabaseProducts(selectedCat);
   const { data: allProducts } = useSupabaseProducts();
@@ -131,12 +130,6 @@ const Index = () => {
     [allProducts],
   );
 
-  const handleHeroSearch = (e: FormEvent) => {
-    e.preventDefault();
-    if (!heroQuery.trim()) return;
-    navigate(`/search?q=${encodeURIComponent(heroQuery.trim())}`);
-  };
-
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -148,22 +141,7 @@ const Index = () => {
             Construction Materials in <span className="text-accent">30 Minutes</span>
           </h1>
 
-          <form onSubmit={handleHeroSearch} className="relative max-w-xl">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <input
-              type="search"
-              value={heroQuery}
-              onChange={(e) => setHeroQuery(e.target.value)}
-              placeholder="Search drills, switches, valves…"
-              className="w-full h-11 pl-10 pr-24 rounded-full bg-card text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent"
-            />
-            <button
-              type="submit"
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 h-8 px-4 rounded-full bg-accent text-accent-foreground text-xs font-semibold hover:bg-accent/90"
-            >
-              Search
-            </button>
-          </form>
+          <SearchBar variant="hero" placeholder="Search drills, switches, valves…" />
 
           {/* Location badge — below the search bar */}
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent text-accent-foreground text-xs font-bold uppercase tracking-wide shadow-sm">
