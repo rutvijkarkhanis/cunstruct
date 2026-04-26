@@ -96,7 +96,7 @@ const Products = () => {
 
         <div className="flex items-center gap-2 mb-4 bg-success/10 rounded-lg px-3 py-2">
           <Clock className="h-4 w-4 text-success" />
-          <span className="text-sm font-medium text-success">Delivery in 60 mins</span>
+          <span className="text-sm font-medium text-success">Delivery in 30 minutes</span>
         </div>
 
         <div className="flex items-center justify-between mb-3">

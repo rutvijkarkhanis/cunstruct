@@ -17,6 +17,11 @@ const ProductDetail = () => {
   const [qty, setQty] = useState(1);
   const { data: allProducts, isLoading } = useSupabaseProducts();
 
+  // Always open the product page from the top; defeat scroll restoration.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [id]);
+
   // Find clicked product and its group siblings
   const { group, selectedIdx: initialIdx } = useMemo(() => {
     if (!allProducts || !id) return { group: [], selectedIdx: 0 };
