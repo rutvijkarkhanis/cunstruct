@@ -143,11 +143,10 @@ const Index = () => {
 
           <SearchBar variant="hero" placeholder="Search drills, switches, valves…" />
 
-          {/* Location badge — below the search bar */}
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent text-accent-foreground text-xs font-bold uppercase tracking-wide shadow-sm">
-            <Zap className="h-3.5 w-3.5" />
-            Serving Across Gurgaon
-          </span>
+          {/* Subtle location line — below the search bar */}
+          <p className="text-xs text-primary-foreground/60">
+            📍 Delivering across Gurgaon
+          </p>
         </div>
       </div>
 
