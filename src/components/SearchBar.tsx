@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { useSupabaseProducts } from "@/hooks/useSupabaseProducts";
 import { groupProducts, ProductGroup } from "@/components/GroupedProductCard";
-import { resolveKits, ResolvedKit, KIT_DEFS } from "@/lib/kits";
+import { resolveKits, ResolvedKit } from "@/lib/kits";
 import {
   JOB_DEFS,
   JobDef,
