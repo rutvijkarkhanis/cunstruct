@@ -12,7 +12,7 @@ export type DeliveryInfo = {
 };
 
 const config: Record<DeliveryType, { vehicle: string; fee: number; eta: string; freeAbove: number }> = {
-  light:  { vehicle: "Bike",     fee: 79,  eta: "60 mins",             freeAbove: 3000 },
+  light:  { vehicle: "Bike",     fee: 79,  eta: "30 minutes",          freeAbove: 3000 },
   medium: { vehicle: "Loader",   fee: 199, eta: "60–90 mins",          freeAbove: 8000 },
   heavy:  { vehicle: "Tata Ace", fee: 499, eta: "2–4 hrs (Scheduled)", freeAbove: 20000 },
 };
@@ -55,5 +55,5 @@ export function getEstimatedDelivery(category: string | null): { eta: string; fe
   if (category === "heavy-materials") {
     return { eta: "2–4 hrs (Scheduled)", fee: 499 };
   }
-  return { eta: "60 mins", fee: 79 };
+  return { eta: "30 minutes", fee: 79 };
 }
