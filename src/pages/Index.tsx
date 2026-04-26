@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Zap, Loader2, Package, Eye, ChevronRight, ArrowRight, HardHat } from "lucide-react";
+import { Loader2, Package, Eye, ChevronRight, ArrowRight, HardHat } from "lucide-react";
 import Header from "@/components/Header";
 import SearchBar from "@/components/SearchBar";
 import KitsCarousel from "@/components/KitsCarousel";
