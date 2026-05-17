@@ -1,0 +1,253 @@
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Plus, Building2 } from "lucide-react";
+import { Link } from "react-router-dom";
+import { toast } from "sonner";
+import { Progress } from "@/components/ui/progress";
+
+const TYPES = ["Residential", "Commercial", "Retail", "Office", "Hospital", "Other"];
+const SCOPES = ["Civil", "MEP", "Finishing", "Turnkey"];
+
+export default function OpsProjects() {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+
+  const { data: projects } = useQuery({
+    queryKey: ["projects"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("projects")
+        .select("*, stage_master:current_stage_id(name, sequence)")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  return (
+    <div className="p-8 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Projects</h1>
+          <p className="text-sm text-muted-foreground">All active construction sites</p>
+        </div>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button><Plus className="w-4 h-4 mr-1" /> Onboard project</Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Project onboarding</DialogTitle>
+            </DialogHeader>
+            <OnboardWizard onDone={() => { setOpen(false); qc.invalidateQueries({ queryKey: ["projects"] }); }} />
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {projects && projects.length === 0 && (
+        <Card className="p-12 text-center text-muted-foreground">
+          <Building2 className="w-10 h-10 mx-auto mb-2 opacity-50" />
+          <p>No projects yet. Onboard your first site.</p>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {projects?.map((p) => (
+          <Link to={`/ops/projects/${p.id}`} key={p.id}>
+            <Card className="p-5 hover:border-primary transition-colors space-y-3">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="font-semibold">{p.name}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {p.client_name} · {p.location}
+                  </div>
+                </div>
+                <div className="text-xs px-2 py-1 rounded bg-primary/10 text-primary">
+                  {p.project_type}
+                </div>
+              </div>
+              <div className="text-sm">
+                <span className="text-muted-foreground">Current stage: </span>
+                <span className="font-medium">
+                  {(p as any).stage_master?.name ?? "—"}
+                </span>
+              </div>
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Progress</span>
+                  <span>{Number(p.progress_pct).toFixed(0)}%</span>
+                </div>
+                <Progress value={Number(p.progress_pct)} />
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {p.floors ?? "—"} floors · {p.area_sqft ? `${p.area_sqft} sqft` : "—"}
+              </div>
+            </Card>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OnboardWizard({ onDone }: { onDone: () => void }) {
+  const [name, setName] = useState("");
+  const [clientName, setClientName] = useState("");
+  const [location, setLocation] = useState("");
+  const [projectType, setProjectType] = useState("Residential");
+  const [scope, setScope] = useState("Turnkey");
+  const [floors, setFloors] = useState(1);
+  const [areaSqft, setAreaSqft] = useState(1000);
+  const [stageId, setStageId] = useState<string>("");
+  const [progress, setProgress] = useState(0);
+  const [estCompletion, setEstCompletion] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const { data: stages } = useQuery({
+    queryKey: ["stage_master"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("stage_master")
+        .select("*")
+        .order("sequence");
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data: project, error } = await supabase
+        .from("projects")
+        .insert({
+          name,
+          client_name: clientName,
+          location,
+          project_type: projectType,
+          scope,
+          floors,
+          area_sqft: areaSqft,
+          current_stage_id: stageId || null,
+          progress_pct: progress,
+          estimated_completion: estCompletion || null,
+          account_manager_id: user?.id,
+        })
+        .select()
+        .single();
+      if (error) throw error;
+
+      if (stageId) {
+        await supabase.from("stage_updates").insert({
+          project_id: project.id,
+          stage_id: stageId,
+          progress_pct: progress,
+          source: "app",
+          note: "Initial onboarding",
+          created_by: user?.id,
+        });
+        await supabase.from("project_stages").insert({
+          project_id: project.id,
+          stage_id: stageId,
+          started_at: new Date().toISOString(),
+        });
+      }
+      toast.success("Project onboarded");
+      onDone();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-4">
+      <div>
+        <Label>Project name</Label>
+        <Input value={name} onChange={(e) => setName(e.target.value)} required />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>Client</Label>
+          <Input value={clientName} onChange={(e) => setClientName(e.target.value)} />
+        </div>
+        <div>
+          <Label>Location</Label>
+          <Input value={location} onChange={(e) => setLocation(e.target.value)} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>Type</Label>
+          <Select value={projectType} onValueChange={setProjectType}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>{TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label>Scope</Label>
+          <Select value={scope} onValueChange={setScope}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>{SCOPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>Floors</Label>
+          <Input type="number" value={floors} onChange={(e) => setFloors(+e.target.value)} />
+        </div>
+        <div>
+          <Label>Built-up area (sqft)</Label>
+          <Input type="number" value={areaSqft} onChange={(e) => setAreaSqft(+e.target.value)} />
+        </div>
+      </div>
+      <div>
+        <Label>Current stage</Label>
+        <Select value={stageId} onValueChange={setStageId}>
+          <SelectTrigger><SelectValue placeholder="Select stage" /></SelectTrigger>
+          <SelectContent>
+            {stages?.map(s => (
+              <SelectItem key={s.id} value={s.id}>{s.sequence}. {s.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>Progress %</Label>
+          <Input type="number" min={0} max={100} value={progress} onChange={(e) => setProgress(+e.target.value)} />
+        </div>
+        <div>
+          <Label>Target completion</Label>
+          <Input type="date" value={estCompletion} onChange={(e) => setEstCompletion(e.target.value)} />
+        </div>
+      </div>
+      <Button type="submit" className="w-full" disabled={busy}>
+        {busy ? "Creating…" : "Create project"}
+      </Button>
+    </form>
+  );
+}

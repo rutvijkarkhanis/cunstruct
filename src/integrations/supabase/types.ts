@@ -1,0 +1,468 @@
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
+
+export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.5"
+  }
+  public: {
+    Tables: {
+      profiles: {
+        Row: {
+          created_at: string
+          email: string | null
+          full_name: string | null
+          id: string
+          phone: string | null
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          id: string
+          phone?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          id?: string
+          phone?: string | null
+        }
+        Relationships: []
+      }
+      project_stages: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          id: string
+          project_id: string
+          stage_id: string
+          started_at: string | null
+          velocity: number | null
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          project_id: string
+          stage_id: string
+          started_at?: string | null
+          velocity?: number | null
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          project_id?: string
+          stage_id?: string
+          started_at?: string | null
+          velocity?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_stages_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_stages_stage_id_fkey"
+            columns: ["stage_id"]
+            isOneToOne: false
+            referencedRelation: "stage_master"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      projects: {
+        Row: {
+          account_manager_id: string | null
+          area_sqft: number | null
+          client_name: string | null
+          created_at: string
+          current_stage_id: string | null
+          estimated_completion: string | null
+          floors: number | null
+          id: string
+          location: string | null
+          name: string
+          onboarded_at: string
+          owner_id: string | null
+          progress_pct: number
+          project_type: string | null
+          scope: string | null
+          updated_at: string
+          velocity_days_per_pct: number | null
+        }
+        Insert: {
+          account_manager_id?: string | null
+          area_sqft?: number | null
+          client_name?: string | null
+          created_at?: string
+          current_stage_id?: string | null
+          estimated_completion?: string | null
+          floors?: number | null
+          id?: string
+          location?: string | null
+          name: string
+          onboarded_at?: string
+          owner_id?: string | null
+          progress_pct?: number
+          project_type?: string | null
+          scope?: string | null
+          updated_at?: string
+          velocity_days_per_pct?: number | null
+        }
+        Update: {
+          account_manager_id?: string | null
+          area_sqft?: number | null
+          client_name?: string | null
+          created_at?: string
+          current_stage_id?: string | null
+          estimated_completion?: string | null
+          floors?: number | null
+          id?: string
+          location?: string | null
+          name?: string
+          onboarded_at?: string
+          owner_id?: string | null
+          progress_pct?: number
+          project_type?: string | null
+          scope?: string | null
+          updated_at?: string
+          velocity_days_per_pct?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "projects_account_manager_id_fkey"
+            columns: ["account_manager_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "projects_current_stage_id_fkey"
+            columns: ["current_stage_id"]
+            isOneToOne: false
+            referencedRelation: "stage_master"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stage_master: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          sequence: number
+          typical_duration_days: number | null
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          sequence: number
+          typical_duration_days?: number | null
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          sequence?: number
+          typical_duration_days?: number | null
+        }
+        Relationships: []
+      }
+      stage_material_mapping: {
+        Row: {
+          alternate_product_ids: string[] | null
+          buffer_pct: number | null
+          created_at: string
+          id: string
+          lead_time_days: number | null
+          notes: string | null
+          preferred_brands: string[] | null
+          priority: string
+          product_id: string
+          product_name: string | null
+          qty_formula: Json | null
+          reliability_score: number | null
+          stage_id: string
+          trigger_offset_days: number | null
+          unit: string | null
+          updated_at: string
+        }
+        Insert: {
+          alternate_product_ids?: string[] | null
+          buffer_pct?: number | null
+          created_at?: string
+          id?: string
+          lead_time_days?: number | null
+          notes?: string | null
+          preferred_brands?: string[] | null
+          priority?: string
+          product_id: string
+          product_name?: string | null
+          qty_formula?: Json | null
+          reliability_score?: number | null
+          stage_id: string
+          trigger_offset_days?: number | null
+          unit?: string | null
+          updated_at?: string
+        }
+        Update: {
+          alternate_product_ids?: string[] | null
+          buffer_pct?: number | null
+          created_at?: string
+          id?: string
+          lead_time_days?: number | null
+          notes?: string | null
+          preferred_brands?: string[] | null
+          priority?: string
+          product_id?: string
+          product_name?: string | null
+          qty_formula?: Json | null
+          reliability_score?: number | null
+          stage_id?: string
+          trigger_offset_days?: number | null
+          unit?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stage_material_mapping_stage_id_fkey"
+            columns: ["stage_id"]
+            isOneToOne: false
+            referencedRelation: "stage_master"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stage_updates: {
+        Row: {
+          created_by: string | null
+          id: string
+          note: string | null
+          progress_pct: number
+          project_id: string
+          recorded_at: string
+          source: string
+          stage_id: string
+        }
+        Insert: {
+          created_by?: string | null
+          id?: string
+          note?: string | null
+          progress_pct: number
+          project_id: string
+          recorded_at?: string
+          source?: string
+          stage_id: string
+        }
+        Update: {
+          created_by?: string | null
+          id?: string
+          note?: string | null
+          progress_pct?: number
+          project_id?: string
+          recorded_at?: string
+          source?: string
+          stage_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stage_updates_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stage_updates_stage_id_fkey"
+            columns: ["stage_id"]
+            isOneToOne: false
+            referencedRelation: "stage_master"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
+      is_staff: { Args: { _user_id: string }; Returns: boolean }
+    }
+    Enums: {
+      app_role: "contractor" | "site_engineer" | "ops" | "admin"
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
+}
+
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
+
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
+
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {
+      app_role: ["contractor", "site_engineer", "ops", "admin"],
+    },
+  },
+} as const
