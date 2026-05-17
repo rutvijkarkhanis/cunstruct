@@ -511,6 +511,56 @@ export type Database = {
           },
         ]
       }
+      supplier_reservations: {
+        Row: {
+          confirmed_at: string | null
+          confirmed_by: string | null
+          created_at: string
+          expected_delivery_date: string | null
+          forecast_item_id: string
+          id: string
+          notes: string | null
+          reserved_at: string | null
+          status: string
+          supplier_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          created_at?: string
+          expected_delivery_date?: string | null
+          forecast_item_id: string
+          id?: string
+          notes?: string | null
+          reserved_at?: string | null
+          status?: string
+          supplier_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          created_at?: string
+          expected_delivery_date?: string | null
+          forecast_item_id?: string
+          id?: string
+          notes?: string | null
+          reserved_at?: string | null
+          status?: string
+          supplier_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplier_reservations_forecast_item_id_fkey"
+            columns: ["forecast_item_id"]
+            isOneToOne: false
+            referencedRelation: "forecast_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -531,6 +581,53 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      whatsapp_messages: {
+        Row: {
+          approved_by: string | null
+          content: string
+          contractor_reply: string | null
+          created_at: string
+          generated_at: string
+          id: string
+          message_type: string
+          project_id: string
+          sent_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          approved_by?: string | null
+          content: string
+          contractor_reply?: string | null
+          created_at?: string
+          generated_at?: string
+          id?: string
+          message_type: string
+          project_id: string
+          sent_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          approved_by?: string | null
+          content?: string
+          contractor_reply?: string | null
+          created_at?: string
+          generated_at?: string
+          id?: string
+          message_type?: string
+          project_id?: string
+          sent_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_messages_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
