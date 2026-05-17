@@ -119,6 +119,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "forecast_items_product_fk"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "product"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "forecast_items_stage_id_fkey"
             columns: ["stage_id"]
             isOneToOne: false
@@ -167,6 +174,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      product: {
+        Row: {
+          brand: string | null
+          category: string | null
+          created_at: string
+          id: string
+          image_url: string | null
+          lead_time_days: number | null
+          name: string
+          selling_price: number | null
+          unit: string | null
+          updated_at: string
+        }
+        Insert: {
+          brand?: string | null
+          category?: string | null
+          created_at?: string
+          id: string
+          image_url?: string | null
+          lead_time_days?: number | null
+          name: string
+          selling_price?: number | null
+          unit?: string | null
+          updated_at?: string
+        }
+        Update: {
+          brand?: string | null
+          category?: string | null
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          lead_time_days?: number | null
+          name?: string
+          selling_price?: number | null
+          unit?: string | null
+          updated_at?: string
+        }
+        Relationships: []
       }
       profiles: {
         Row: {
@@ -454,6 +500,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "stage_material_mapping_product_fk"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "product"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "stage_material_mapping_stage_id_fkey"
             columns: ["stage_id"]
