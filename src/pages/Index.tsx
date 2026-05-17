@@ -100,10 +100,18 @@ const CATEGORY_TO_KIT: Record<string, string> = {
 const Index = () => {
   const [selectedCat, setSelectedCat] = useState<string | null>(null);
   const [sort, setSort] = useState<SortOption>("price_asc");
+  const [showBanner, setShowBanner] = useState(() => {
+    try { return localStorage.getItem("hide-contractor-banner") !== "1"; } catch { return true; }
+  });
 
   const { data: products, isLoading } = useSupabaseProducts(selectedCat);
   const { data: allProducts } = useSupabaseProducts();
   const { data: categories } = useSupabaseCategories();
+
+  const dismissBanner = () => {
+    setShowBanner(false);
+    try { localStorage.setItem("hide-contractor-banner", "1"); } catch { /* noop */ }
+  };
 
   const kits = useMemo(
     () => (allProducts ? resolveKits(allProducts) : []),
@@ -131,6 +139,27 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Contractor banner */}
+      {showBanner && (
+        <div className="bg-primary text-primary-foreground text-sm">
+          <div className="container flex items-center justify-between gap-4 py-2">
+            <Link
+              to="/auth"
+              className="flex-1 text-center hover:underline"
+            >
+              Contractor? Track your project procurement →
+            </Link>
+            <button
+              onClick={dismissBanner}
+              className="shrink-0 p-1 rounded hover:bg-primary-foreground/10"
+              aria-label="Dismiss banner"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       <Header />
 
       {/* Hero */}
