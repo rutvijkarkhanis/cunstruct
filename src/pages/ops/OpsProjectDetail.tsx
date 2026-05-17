@@ -9,6 +9,10 @@ import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
+} from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
+import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { useState } from "react";
@@ -363,27 +367,6 @@ function ForecastItemsList({ items, qc, projectId }: { items: any[]; qc: any; pr
     return (a.order_by_date ?? "").localeCompare(b.order_by_date ?? "");
   });
 
-  const markOrdered = async (item: any) => {
-    const actualStr = window.prompt(`Actual qty ordered for ${item.product_name ?? item.product_id}?`, String(item.qty_estimated));
-    if (!actualStr) return;
-    const actual = Number(actualStr);
-    if (isNaN(actual)) return toast.error("Invalid quantity");
-    await supabase.from("forecast_items").update({
-      status: "ordered", ordered_at: new Date().toISOString(),
-    }).eq("id", item.id);
-    const variance = item.qty_estimated > 0
-      ? ((actual - Number(item.qty_estimated)) / Number(item.qty_estimated)) * 100 : 0;
-    await supabase.from("forecast_accuracy").insert({
-      forecast_item_id: item.id,
-      predicted_qty: item.qty_estimated,
-      actual_qty: actual,
-      variance_pct: variance,
-    });
-    toast.success("Marked ordered · accuracy recorded");
-    qc.invalidateQueries({ queryKey: ["forecasts", projectId] });
-    qc.invalidateQueries({ queryKey: ["accuracy", projectId] });
-  };
-
   return (
     <div className="space-y-2">
       {sorted.map((i) => (
@@ -400,18 +383,163 @@ function ForecastItemsList({ items, qc, projectId }: { items: any[]; qc: any; pr
                 i.confidence === "medium" ? "bg-muted text-muted-foreground" :
                 "bg-destructive/15 text-destructive"
               }`}>{i.confidence}</span>
-              {i.status === "ordered" && <span className="text-[10px] uppercase text-primary">Ordered</span>}
+              <StatusBadge status={i.status} />
             </div>
             <div className="text-xs text-muted-foreground mt-0.5">
               Qty {i.qty_estimated} {i.unit ?? ""} · {formatINR(i.budget_estimated)} · order by {formatDateShort(i.order_by_date)}
+              {i.supplier_name && <> · supplier {i.supplier_name}</>}
+              {i.actual_order_date && <> · ordered {formatDateShort(i.actual_order_date)}</>}
+              {i.actual_delivery_date && <> · delivered {formatDateShort(i.actual_delivery_date)}</>}
             </div>
           </div>
-          {i.status !== "ordered" && (
-            <Button size="sm" variant="outline" onClick={() => markOrdered(i)}>Mark ordered</Button>
-          )}
+          <ItemActionDialog item={i} qc={qc} projectId={projectId} />
         </div>
       ))}
     </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const s = (status ?? "pending").toLowerCase();
+  const map: Record<string, string> = {
+    pending: "bg-muted text-muted-foreground",
+    confirmed: "bg-primary/15 text-primary",
+    modified: "bg-amber-500/15 text-amber-700",
+    rejected: "bg-destructive/15 text-destructive",
+    ordered: "bg-blue-500/15 text-blue-700",
+    delivered: "bg-green-500/15 text-green-700",
+  };
+  return (
+    <span className={`text-[10px] uppercase px-1.5 py-0.5 rounded ${map[s] ?? map.pending}`}>{s}</span>
+  );
+}
+
+function ItemActionDialog({ item, qc, projectId }: { item: any; qc: any; projectId: string }) {
+  const [open, setOpen] = useState(false);
+  const [status, setStatus] = useState<string>(item.status ?? "pending");
+  const [confirmedQty, setConfirmedQty] = useState<string>(
+    String(item.confirmed_qty ?? item.qty_estimated ?? ""),
+  );
+  const [confirmedPrice, setConfirmedPrice] = useState<string>(
+    String(item.confirmed_price ?? item.unit_price ?? ""),
+  );
+  const [supplier, setSupplier] = useState<string>(item.supplier_name ?? "");
+  const [orderDate, setOrderDate] = useState<string>(
+    item.actual_order_date ?? new Date().toISOString().slice(0, 10),
+  );
+  const [deliveryDate, setDeliveryDate] = useState<string>(item.actual_delivery_date ?? "");
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const patch: any = {
+        status,
+        decided_at: new Date().toISOString(),
+        decided_by: user?.id ?? null,
+      };
+      const qty = confirmedQty === "" ? null : Number(confirmedQty);
+      const price = confirmedPrice === "" ? null : Number(confirmedPrice);
+      if (qty != null) patch.confirmed_qty = qty;
+      if (price != null) patch.confirmed_price = price;
+      if (supplier) patch.supplier_name = supplier;
+      if (["ordered", "delivered"].includes(status)) {
+        patch.actual_order_date = orderDate || null;
+        patch.ordered_at = new Date().toISOString();
+      }
+      if (status === "delivered") {
+        patch.actual_delivery_date = deliveryDate || null;
+      }
+      await supabase.from("forecast_items").update(patch).eq("id", item.id);
+
+      // Record accuracy on order/delivery when qty known
+      if (["ordered", "delivered"].includes(status) && qty != null && Number(item.qty_estimated) > 0) {
+        const variance = ((qty - Number(item.qty_estimated)) / Number(item.qty_estimated)) * 100;
+        await supabase.from("forecast_accuracy").insert({
+          forecast_item_id: item.id,
+          predicted_qty: item.qty_estimated,
+          actual_qty: qty,
+          variance_pct: variance,
+        });
+      }
+
+      toast.success(`Marked ${status}`);
+      setOpen(false);
+      qc.invalidateQueries({ queryKey: ["forecasts", projectId] });
+      qc.invalidateQueries({ queryKey: ["accuracy", projectId] });
+      qc.invalidateQueries({ queryKey: ["ops-stats"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline">Update</Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{item.product_name ?? item.product_id}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label>Action</Label>
+            <Select value={status} onValueChange={setStatus}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="confirmed">Confirmed</SelectItem>
+                <SelectItem value="modified">Modified</SelectItem>
+                <SelectItem value="rejected">Rejected</SelectItem>
+                <SelectItem value="ordered">Ordered</SelectItem>
+                <SelectItem value="delivered">Delivered</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {status !== "rejected" && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Confirmed qty</Label>
+                <Input type="number" value={confirmedQty} onChange={(e) => setConfirmedQty(e.target.value)} />
+              </div>
+              <div>
+                <Label>Confirmed price (₹/unit)</Label>
+                <Input type="number" value={confirmedPrice} onChange={(e) => setConfirmedPrice(e.target.value)} />
+              </div>
+            </div>
+          )}
+          {status !== "rejected" && (
+            <div>
+              <Label>Supplier</Label>
+              <Input value={supplier} onChange={(e) => setSupplier(e.target.value)} placeholder="Supplier name" />
+            </div>
+          )}
+          {["ordered", "delivered"].includes(status) && (
+            <div>
+              <Label>Actual order date</Label>
+              <Input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} />
+            </div>
+          )}
+          {status === "delivered" && (
+            <div>
+              <Label>Actual delivery date</Label>
+              <Input type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} />
+            </div>
+          )}
+          <div className="text-xs text-muted-foreground">
+            Predicted: {item.qty_estimated} {item.unit ?? ""} · {formatINR(item.unit_price)} /unit
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
