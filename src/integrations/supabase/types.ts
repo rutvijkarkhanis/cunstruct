@@ -14,16 +14,327 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      profiles: {
+        Row: {
+          created_at: string
+          email: string | null
+          full_name: string | null
+          id: string
+          phone: string | null
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          id: string
+          phone?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          id?: string
+          phone?: string | null
+        }
+        Relationships: []
+      }
+      project_stages: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          id: string
+          project_id: string
+          stage_id: string
+          started_at: string | null
+          velocity: number | null
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          project_id: string
+          stage_id: string
+          started_at?: string | null
+          velocity?: number | null
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          project_id?: string
+          stage_id?: string
+          started_at?: string | null
+          velocity?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_stages_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_stages_stage_id_fkey"
+            columns: ["stage_id"]
+            isOneToOne: false
+            referencedRelation: "stage_master"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      projects: {
+        Row: {
+          account_manager_id: string | null
+          area_sqft: number | null
+          client_name: string | null
+          created_at: string
+          current_stage_id: string | null
+          estimated_completion: string | null
+          floors: number | null
+          id: string
+          location: string | null
+          name: string
+          onboarded_at: string
+          owner_id: string | null
+          progress_pct: number
+          project_type: string | null
+          scope: string | null
+          updated_at: string
+          velocity_days_per_pct: number | null
+        }
+        Insert: {
+          account_manager_id?: string | null
+          area_sqft?: number | null
+          client_name?: string | null
+          created_at?: string
+          current_stage_id?: string | null
+          estimated_completion?: string | null
+          floors?: number | null
+          id?: string
+          location?: string | null
+          name: string
+          onboarded_at?: string
+          owner_id?: string | null
+          progress_pct?: number
+          project_type?: string | null
+          scope?: string | null
+          updated_at?: string
+          velocity_days_per_pct?: number | null
+        }
+        Update: {
+          account_manager_id?: string | null
+          area_sqft?: number | null
+          client_name?: string | null
+          created_at?: string
+          current_stage_id?: string | null
+          estimated_completion?: string | null
+          floors?: number | null
+          id?: string
+          location?: string | null
+          name?: string
+          onboarded_at?: string
+          owner_id?: string | null
+          progress_pct?: number
+          project_type?: string | null
+          scope?: string | null
+          updated_at?: string
+          velocity_days_per_pct?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "projects_account_manager_id_fkey"
+            columns: ["account_manager_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "projects_current_stage_id_fkey"
+            columns: ["current_stage_id"]
+            isOneToOne: false
+            referencedRelation: "stage_master"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stage_master: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          sequence: number
+          typical_duration_days: number | null
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          sequence: number
+          typical_duration_days?: number | null
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          sequence?: number
+          typical_duration_days?: number | null
+        }
+        Relationships: []
+      }
+      stage_material_mapping: {
+        Row: {
+          alternate_product_ids: string[] | null
+          buffer_pct: number | null
+          created_at: string
+          id: string
+          lead_time_days: number | null
+          notes: string | null
+          preferred_brands: string[] | null
+          priority: string
+          product_id: string
+          product_name: string | null
+          qty_formula: Json | null
+          reliability_score: number | null
+          stage_id: string
+          trigger_offset_days: number | null
+          unit: string | null
+          updated_at: string
+        }
+        Insert: {
+          alternate_product_ids?: string[] | null
+          buffer_pct?: number | null
+          created_at?: string
+          id?: string
+          lead_time_days?: number | null
+          notes?: string | null
+          preferred_brands?: string[] | null
+          priority?: string
+          product_id: string
+          product_name?: string | null
+          qty_formula?: Json | null
+          reliability_score?: number | null
+          stage_id: string
+          trigger_offset_days?: number | null
+          unit?: string | null
+          updated_at?: string
+        }
+        Update: {
+          alternate_product_ids?: string[] | null
+          buffer_pct?: number | null
+          created_at?: string
+          id?: string
+          lead_time_days?: number | null
+          notes?: string | null
+          preferred_brands?: string[] | null
+          priority?: string
+          product_id?: string
+          product_name?: string | null
+          qty_formula?: Json | null
+          reliability_score?: number | null
+          stage_id?: string
+          trigger_offset_days?: number | null
+          unit?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stage_material_mapping_stage_id_fkey"
+            columns: ["stage_id"]
+            isOneToOne: false
+            referencedRelation: "stage_master"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stage_updates: {
+        Row: {
+          created_by: string | null
+          id: string
+          note: string | null
+          progress_pct: number
+          project_id: string
+          recorded_at: string
+          source: string
+          stage_id: string
+        }
+        Insert: {
+          created_by?: string | null
+          id?: string
+          note?: string | null
+          progress_pct: number
+          project_id: string
+          recorded_at?: string
+          source?: string
+          stage_id: string
+        }
+        Update: {
+          created_by?: string | null
+          id?: string
+          note?: string | null
+          progress_pct?: number
+          project_id?: string
+          recorded_at?: string
+          source?: string
+          stage_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stage_updates_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stage_updates_stage_id_fkey"
+            columns: ["stage_id"]
+            isOneToOne: false
+            referencedRelation: "stage_master"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
+      is_staff: { Args: { _user_id: string }; Returns: boolean }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "contractor" | "site_engineer" | "ops" | "admin"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +461,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["contractor", "site_engineer", "ops", "admin"],
+    },
   },
 } as const
