@@ -51,9 +51,15 @@ export type Database = {
       }
       forecast_items: {
         Row: {
+          actual_delivery_date: string | null
+          actual_order_date: string | null
           budget_estimated: number | null
           confidence: string
+          confirmed_price: number | null
+          confirmed_qty: number | null
           created_at: string
+          decided_at: string | null
+          decided_by: string | null
           delivery_date: string | null
           forecast_id: string
           id: string
@@ -67,13 +73,20 @@ export type Database = {
           risk_flag: boolean
           stage_id: string | null
           status: string
+          supplier_name: string | null
           unit: string | null
           unit_price: number | null
         }
         Insert: {
+          actual_delivery_date?: string | null
+          actual_order_date?: string | null
           budget_estimated?: number | null
           confidence?: string
+          confirmed_price?: number | null
+          confirmed_qty?: number | null
           created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
           delivery_date?: string | null
           forecast_id: string
           id?: string
@@ -87,13 +100,20 @@ export type Database = {
           risk_flag?: boolean
           stage_id?: string | null
           status?: string
+          supplier_name?: string | null
           unit?: string | null
           unit_price?: number | null
         }
         Update: {
+          actual_delivery_date?: string | null
+          actual_order_date?: string | null
           budget_estimated?: number | null
           confidence?: string
+          confirmed_price?: number | null
+          confirmed_qty?: number | null
           created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
           delivery_date?: string | null
           forecast_id?: string
           id?: string
@@ -107,6 +127,7 @@ export type Database = {
           risk_flag?: boolean
           stage_id?: string | null
           status?: string
+          supplier_name?: string | null
           unit?: string | null
           unit_price?: number | null
         }
