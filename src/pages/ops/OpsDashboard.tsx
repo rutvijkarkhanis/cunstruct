@@ -16,7 +16,7 @@ export default function OpsDashboard() {
     queryKey: ["ops-stats"],
     queryFn: async () => {
       const since = new Date(); since.setDate(since.getDate() - 7);
-      const [projects, stages, mappings, forecastsWeek, ordered, cunstructOrdered, riskItems, pendingApprovals, accuracy] =
+      const [projects, stages, mappings, forecastsWeek, ordered, cunstructOrdered, riskItems, pendingApprovals, accuracy, allItems, decidedItems, proactiveRevenue] =
         await Promise.all([
           supabase.from("projects").select("id", { count: "exact", head: true }),
           supabase.from("stage_master").select("id", { count: "exact", head: true }),
@@ -27,6 +27,9 @@ export default function OpsDashboard() {
           supabase.from("forecast_items").select("id", { count: "exact", head: true }).eq("risk_flag", true).neq("status", "ordered"),
           supabase.from("forecasts").select("id", { count: "exact", head: true }).eq("status", "draft"),
           supabase.from("forecast_accuracy").select("variance_pct"),
+          supabase.from("forecast_items").select("id", { count: "exact", head: true }),
+          supabase.from("forecast_items").select("id", { count: "exact", head: true }).in("status", ["confirmed", "modified", "rejected", "ordered", "delivered"]),
+          supabase.from("forecast_items").select("confirmed_qty,confirmed_price,qty_estimated,unit_price").eq("initiated_by", "cunstruct").in("status", ["ordered", "delivered"]),
         ]);
       const accRows = accuracy.data ?? [];
       const sysAccuracy = accRows.length >= 5
@@ -35,6 +38,15 @@ export default function OpsDashboard() {
       const proactiveRate = (ordered.count ?? 0) > 0
         ? ((cunstructOrdered.count ?? 0) / (ordered.count ?? 1)) * 100
         : 0;
+      const totalItems = allItems.count ?? 0;
+      const acceptedCount = (decidedItems.count ?? 0) - 0;
+      // acceptance = (confirmed + modified + ordered + delivered) / decided. Reject excluded.
+      const acceptanceRate = totalItems > 0 ? ((decidedItems.count ?? 0) / totalItems) * 100 : 0;
+      const proactiveRevenue_ = (proactiveRevenue.data ?? []).reduce((s: number, r: any) => {
+        const qty = Number(r.confirmed_qty ?? r.qty_estimated ?? 0);
+        const price = Number(r.confirmed_price ?? r.unit_price ?? 0);
+        return s + qty * price;
+      }, 0);
       return {
         projects: projects.count ?? 0,
         stages: stages.count ?? 0,
@@ -44,6 +56,10 @@ export default function OpsDashboard() {
         pending: pendingApprovals.count ?? 0,
         proactiveRate,
         sysAccuracy,
+        acceptanceRate,
+        proactiveRevenue: proactiveRevenue_,
+        totalItems,
+        decidedItems: decidedItems.count ?? 0,
       };
     },
   });
@@ -97,6 +113,30 @@ export default function OpsDashboard() {
         </div>
       </Card>
 
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="p-5">
+          <div className="text-xs text-muted-foreground">Forecast Acceptance Rate</div>
+          <div className="text-3xl font-bold">{(stats?.acceptanceRate ?? 0).toFixed(0)}%</div>
+          <div className="text-xs text-muted-foreground mt-1">
+            {stats?.decidedItems ?? 0} of {stats?.totalItems ?? 0} items actioned
+          </div>
+        </Card>
+        <Card className="p-5">
+          <div className="text-xs text-muted-foreground">Forecast Accuracy</div>
+          <div className="text-3xl font-bold">
+            {stats?.sysAccuracy != null
+              ? `${stats.sysAccuracy.toFixed(0)}%`
+              : <span className="text-sm text-muted-foreground font-normal italic">Need 5+ data points</span>}
+          </div>
+          <div className="text-xs text-muted-foreground mt-1">Predicted vs actual quantity</div>
+        </Card>
+        <Card className="p-5">
+          <div className="text-xs text-muted-foreground">Revenue from Proactive Orders</div>
+          <div className="text-3xl font-bold">{formatINR(stats?.proactiveRevenue ?? 0)}</div>
+          <div className="text-xs text-muted-foreground mt-1">Cunstruct-initiated, ordered or delivered</div>
+        </Card>
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Mini label="Active projects" value={stats?.projects ?? 0} />
         <Mini label="Forecasts this week" value={stats?.forecastsWeek ?? 0} />
@@ -130,14 +170,6 @@ export default function OpsDashboard() {
               </div>
             </Link>
           ))}
-        </div>
-      </Card>
-
-      <Card className="p-5">
-        <div className="text-xs text-muted-foreground">System-wide forecast accuracy</div>
-        <div className="text-2xl font-bold">
-          {stats?.sysAccuracy != null ? `${stats.sysAccuracy.toFixed(0)}%` :
-            <span className="text-sm text-muted-foreground font-normal italic">Insufficient data (need 5+ data points)</span>}
         </div>
       </Card>
 
