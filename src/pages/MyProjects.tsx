@@ -26,7 +26,7 @@ export default function MyProjects() {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    if (!loading && !user) navigate("/auth");
+    if (!loading && !user) navigate("/auth?returnUrl=" + encodeURIComponent("/my-projects"));
   }, [user, loading, navigate]);
 
   const { data: projects } = useQuery({
