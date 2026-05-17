@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/select";
 import { ArrowLeft, Clock, Sparkles, Package, Truck, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
-import { recalcProjectVelocity, formatINR } from "@/lib/forecastEngine";
+import { recalcProjectVelocity, formatINR, autoGenerateForecastForCurrentStage } from "@/lib/forecastEngine";
 
 export default function MyProjectDetail() {
   const { id } = useParams<{ id: string }>();
@@ -99,10 +99,12 @@ export default function MyProjectDetail() {
         current_stage_id: logStageId, progress_pct: logProgress,
       }).eq("id", id!);
       try { await recalcProjectVelocity(id!); } catch { /* ignore */ }
+      try { await autoGenerateForecastForCurrentStage(id!); } catch { /* ignore */ }
       toast.success("Progress logged");
       setLogNote("");
       qc.invalidateQueries({ queryKey: ["my-project", id] });
       qc.invalidateQueries({ queryKey: ["my-updates", id] });
+      qc.invalidateQueries({ queryKey: ["my-forecast-items", id] });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally { setBusy(false); }
