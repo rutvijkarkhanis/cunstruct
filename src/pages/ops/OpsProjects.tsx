@@ -23,6 +23,8 @@ import { Plus, Building2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { generateForecasts } from "@/lib/forecastEngine";
 
 const TYPES = ["Residential", "Commercial", "Retail", "Office", "Hospital", "Other"];
 const SCOPES = ["Civil", "MEP", "Finishing", "Turnkey"];
@@ -30,6 +32,7 @@ const SCOPES = ["Civil", "MEP", "Finishing", "Turnkey"];
 export default function OpsProjects() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<"all" | "pending_review" | "active">("all");
 
   const { data: projects } = useQuery({
     queryKey: ["projects"],
@@ -42,6 +45,29 @@ export default function OpsProjects() {
       return data;
     },
   });
+
+  const pendingCount = projects?.filter(p => p.status === "pending_review").length ?? 0;
+  const filtered = projects?.filter(p =>
+    tab === "all" ? true : (p.status ?? "active") === tab
+  );
+
+  const activate = async (projectId: string) => {
+    try {
+      const { error } = await supabase.from("projects")
+        .update({ status: "active" }).eq("id", projectId);
+      if (error) throw error;
+      try {
+        const { created } = await generateForecasts(projectId);
+        toast.success(`Activated · generated ${created} forecast items`);
+      } catch {
+        toast.success("Project activated");
+      }
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["pending-review-count"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to activate");
+    }
+  };
 
   return (
     <div className="p-8 space-y-6">
@@ -63,6 +89,21 @@ export default function OpsProjects() {
         </Dialog>
       </div>
 
+      <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
+        <TabsList>
+          <TabsTrigger value="all">All</TabsTrigger>
+          <TabsTrigger value="pending_review">
+            Pending review
+            {pendingCount > 0 && (
+              <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-amber-500 text-white">
+                {pendingCount}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="active">Active</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
       {projects && projects.length === 0 && (
         <Card className="p-12 text-center text-muted-foreground">
           <Building2 className="w-10 h-10 mx-auto mb-2 opacity-50" />
@@ -71,9 +112,9 @@ export default function OpsProjects() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {projects?.map((p) => (
-          <Link to={`/ops/projects/${p.id}`} key={p.id}>
-            <Card className="p-5 hover:border-primary transition-colors space-y-3">
+        {filtered?.map((p) => (
+          <Card key={p.id} className="p-5 hover:border-primary transition-colors space-y-3">
+            <Link to={`/ops/projects/${p.id}`} className="block space-y-3">
               <div className="flex items-start justify-between">
                 <div>
                   <div className="font-semibold">{p.name}</div>
@@ -81,8 +122,15 @@ export default function OpsProjects() {
                     {p.client_name} · {p.location}
                   </div>
                 </div>
-                <div className="text-xs px-2 py-1 rounded bg-primary/10 text-primary">
-                  {p.project_type}
+                <div className="flex items-center gap-1">
+                  {p.status === "pending_review" && (
+                    <span className="text-[10px] uppercase px-2 py-1 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400">
+                      Pending
+                    </span>
+                  )}
+                  <div className="text-xs px-2 py-1 rounded bg-primary/10 text-primary">
+                    {p.project_type}
+                  </div>
                 </div>
               </div>
               <div className="text-sm">
@@ -101,8 +149,16 @@ export default function OpsProjects() {
               <div className="text-xs text-muted-foreground">
                 {p.floors ?? "—"} floors · {p.area_sqft ? `${p.area_sqft} sqft` : "—"}
               </div>
-            </Card>
-          </Link>
+            </Link>
+            {p.status === "pending_review" && (
+              <Button
+                size="sm" className="w-full"
+                onClick={(e) => { e.preventDefault(); activate(p.id); }}
+              >
+                Review & activate
+              </Button>
+            )}
+          </Card>
         ))}
       </div>
     </div>
