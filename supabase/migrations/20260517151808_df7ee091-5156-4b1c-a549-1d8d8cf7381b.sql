@@ -1,0 +1,1 @@
+ALTER TABLE public.stage_material_mapping ADD CONSTRAINT stage_material_mapping_stage_product_unique UNIQUE (stage_id, product_id);
