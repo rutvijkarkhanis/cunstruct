@@ -132,6 +132,8 @@ function MappingForm({ stages, onDone }: { stages: any[]; onDone: () => void }) 
   const [triggerOffset, setTriggerOffset] = useState(5);
   const [buffer, setBuffer] = useState(10);
   const [reliability, setReliability] = useState(0.9);
+  const [bufferDays, setBufferDays] = useState(1);
+  const [stockReliability, setStockReliability] = useState(70);
   const [unit, setUnit] = useState("");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
@@ -163,6 +165,8 @@ function MappingForm({ stages, onDone }: { stages: any[]; onDone: () => void }) 
         trigger_offset_days: triggerOffset,
         buffer_pct: buffer,
         reliability_score: reliability,
+        buffer_days: bufferDays,
+        stock_reliability_score: stockReliability,
         unit: unit || null,
         notes: notes || null,
       });
@@ -251,6 +255,14 @@ function MappingForm({ stages, onDone }: { stages: any[]; onDone: () => void }) 
         <div>
           <Label>Reliability (0-1)</Label>
           <Input type="number" step="0.05" min="0" max="1" value={reliability} onChange={(e) => setReliability(+e.target.value)} />
+        </div>
+        <div>
+          <Label>Buffer days</Label>
+          <Input type="number" min="0" value={bufferDays} onChange={(e) => setBufferDays(+e.target.value)} />
+        </div>
+        <div>
+          <Label>Stock reliability (0-100)</Label>
+          <Input type="number" min="0" max="100" value={stockReliability} onChange={(e) => setStockReliability(+e.target.value)} />
         </div>
       </div>
 

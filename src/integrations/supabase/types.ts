@@ -14,6 +14,160 @@ export type Database = {
   }
   public: {
     Tables: {
+      forecast_accuracy: {
+        Row: {
+          actual_qty: number
+          forecast_item_id: string
+          id: string
+          predicted_qty: number
+          recorded_at: string
+          variance_pct: number
+        }
+        Insert: {
+          actual_qty: number
+          forecast_item_id: string
+          id?: string
+          predicted_qty: number
+          recorded_at?: string
+          variance_pct: number
+        }
+        Update: {
+          actual_qty?: number
+          forecast_item_id?: string
+          id?: string
+          predicted_qty?: number
+          recorded_at?: string
+          variance_pct?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "forecast_accuracy_forecast_item_id_fkey"
+            columns: ["forecast_item_id"]
+            isOneToOne: false
+            referencedRelation: "forecast_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      forecast_items: {
+        Row: {
+          budget_estimated: number | null
+          confidence: string
+          created_at: string
+          delivery_date: string | null
+          forecast_id: string
+          id: string
+          initiated_by: string
+          notes: string | null
+          order_by_date: string | null
+          ordered_at: string | null
+          product_id: string
+          product_name: string | null
+          qty_estimated: number
+          risk_flag: boolean
+          stage_id: string | null
+          status: string
+          unit: string | null
+          unit_price: number | null
+        }
+        Insert: {
+          budget_estimated?: number | null
+          confidence?: string
+          created_at?: string
+          delivery_date?: string | null
+          forecast_id: string
+          id?: string
+          initiated_by?: string
+          notes?: string | null
+          order_by_date?: string | null
+          ordered_at?: string | null
+          product_id: string
+          product_name?: string | null
+          qty_estimated?: number
+          risk_flag?: boolean
+          stage_id?: string | null
+          status?: string
+          unit?: string | null
+          unit_price?: number | null
+        }
+        Update: {
+          budget_estimated?: number | null
+          confidence?: string
+          created_at?: string
+          delivery_date?: string | null
+          forecast_id?: string
+          id?: string
+          initiated_by?: string
+          notes?: string | null
+          order_by_date?: string | null
+          ordered_at?: string | null
+          product_id?: string
+          product_name?: string | null
+          qty_estimated?: number
+          risk_flag?: boolean
+          stage_id?: string | null
+          status?: string
+          unit?: string | null
+          unit_price?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "forecast_items_forecast_id_fkey"
+            columns: ["forecast_id"]
+            isOneToOne: false
+            referencedRelation: "forecasts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "forecast_items_stage_id_fkey"
+            columns: ["stage_id"]
+            isOneToOne: false
+            referencedRelation: "stage_master"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      forecasts: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          created_at: string
+          generated_at: string
+          horizon_days: number
+          id: string
+          project_id: string
+          status: string
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string
+          generated_at?: string
+          horizon_days: number
+          id?: string
+          project_id: string
+          status?: string
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string
+          generated_at?: string
+          horizon_days?: number
+          id?: string
+          project_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "forecasts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string
@@ -37,6 +191,50 @@ export type Database = {
           phone?: string | null
         }
         Relationships: []
+      }
+      project_alerts: {
+        Row: {
+          created_at: string
+          id: string
+          kind: string
+          message: string
+          project_id: string
+          related_item_id: string | null
+          resolved: boolean
+          resolved_at: string | null
+          severity: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          kind: string
+          message: string
+          project_id: string
+          related_item_id?: string | null
+          resolved?: boolean
+          resolved_at?: string | null
+          severity?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          kind?: string
+          message?: string
+          project_id?: string
+          related_item_id?: string | null
+          resolved?: boolean
+          resolved_at?: string | null
+          severity?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_alerts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       project_stages: {
         Row: {
@@ -92,6 +290,7 @@ export type Database = {
           current_stage_id: string | null
           estimated_completion: string | null
           floors: number | null
+          historical_avg_velocity: number | null
           id: string
           location: string | null
           name: string
@@ -99,6 +298,7 @@ export type Database = {
           owner_id: string | null
           progress_pct: number
           project_type: string | null
+          projected_completion_date: string | null
           scope: string | null
           updated_at: string
           velocity_days_per_pct: number | null
@@ -111,6 +311,7 @@ export type Database = {
           current_stage_id?: string | null
           estimated_completion?: string | null
           floors?: number | null
+          historical_avg_velocity?: number | null
           id?: string
           location?: string | null
           name: string
@@ -118,6 +319,7 @@ export type Database = {
           owner_id?: string | null
           progress_pct?: number
           project_type?: string | null
+          projected_completion_date?: string | null
           scope?: string | null
           updated_at?: string
           velocity_days_per_pct?: number | null
@@ -130,6 +332,7 @@ export type Database = {
           current_stage_id?: string | null
           estimated_completion?: string | null
           floors?: number | null
+          historical_avg_velocity?: number | null
           id?: string
           location?: string | null
           name?: string
@@ -137,6 +340,7 @@ export type Database = {
           owner_id?: string | null
           progress_pct?: number
           project_type?: string | null
+          projected_completion_date?: string | null
           scope?: string | null
           updated_at?: string
           velocity_days_per_pct?: number | null
@@ -188,6 +392,7 @@ export type Database = {
       stage_material_mapping: {
         Row: {
           alternate_product_ids: string[] | null
+          buffer_days: number
           buffer_pct: number | null
           created_at: string
           id: string
@@ -200,12 +405,14 @@ export type Database = {
           qty_formula: Json | null
           reliability_score: number | null
           stage_id: string
+          stock_reliability_score: number
           trigger_offset_days: number | null
           unit: string | null
           updated_at: string
         }
         Insert: {
           alternate_product_ids?: string[] | null
+          buffer_days?: number
           buffer_pct?: number | null
           created_at?: string
           id?: string
@@ -218,12 +425,14 @@ export type Database = {
           qty_formula?: Json | null
           reliability_score?: number | null
           stage_id: string
+          stock_reliability_score?: number
           trigger_offset_days?: number | null
           unit?: string | null
           updated_at?: string
         }
         Update: {
           alternate_product_ids?: string[] | null
+          buffer_days?: number
           buffer_pct?: number | null
           created_at?: string
           id?: string
@@ -236,6 +445,7 @@ export type Database = {
           qty_formula?: Json | null
           reliability_score?: number | null
           stage_id?: string
+          stock_reliability_score?: number
           trigger_offset_days?: number | null
           unit?: string | null
           updated_at?: string
