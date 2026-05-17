@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Loader2, Package, Eye, ChevronRight, ArrowRight, HardHat } from "lucide-react";
+import { Loader2, Package, Eye, ChevronRight, ArrowRight, HardHat, X } from "lucide-react";
 import Header from "@/components/Header";
 import SearchBar from "@/components/SearchBar";
 import KitsCarousel from "@/components/KitsCarousel";
@@ -15,7 +15,6 @@ import { toast } from "sonner";
 import GroupedProductCard, { groupProducts } from "@/components/GroupedProductCard";
 import SortDropdown from "@/components/SortDropdown";
 import { sortGroups, SortOption } from "@/lib/sort";
-
 const tagColor: Record<ResolvedKit["def"]["tag"], string> = {
   "Most Popular": "bg-accent/15 text-accent border-accent/30",
   "Contractor Pick": "bg-primary/10 text-primary border-primary/30",
