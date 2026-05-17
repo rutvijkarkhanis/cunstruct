@@ -2,6 +2,8 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import {
   LayoutDashboard,
   Building2,
@@ -27,6 +29,18 @@ const NAV = [
 export default function OpsLayout() {
   const { user, loading, isStaff, signOut } = useAuth();
   const navigate = useNavigate();
+
+  const { data: pendingCount } = useQuery({
+    queryKey: ["pending-review-count"],
+    enabled: !!user && isStaff,
+    refetchInterval: 30000,
+    queryFn: async () => {
+      const { count } = await supabase
+        .from("projects").select("id", { count: "exact", head: true })
+        .eq("status", "pending_review");
+      return count ?? 0;
+    },
+  });
 
   useEffect(() => {
     if (!loading && !user) navigate("/auth");
@@ -75,6 +89,11 @@ export default function OpsLayout() {
             >
               <item.icon className="w-4 h-4" />
               <span>{item.label}</span>
+              {item.to === "/ops/projects" && pendingCount ? (
+                <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-amber-500 text-white">
+                  {pendingCount}
+                </span>
+              ) : null}
               {item.disabled && (
                 <span className="ml-auto text-[10px] uppercase tracking-wide">soon</span>
               )}

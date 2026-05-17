@@ -15,6 +15,8 @@ import SearchResults from "./pages/SearchResults.tsx";
 import KitDetail from "./pages/KitDetail.tsx";
 import Kits from "./pages/Kits.tsx";
 import Auth from "./pages/Auth.tsx";
+import MyProjects from "./pages/MyProjects.tsx";
+import MyProjectDetail from "./pages/MyProjectDetail.tsx";
 import OpsLayout from "./components/ops/OpsLayout.tsx";
 import OpsDashboard from "./pages/ops/OpsDashboard.tsx";
 import OpsProjects from "./pages/ops/OpsProjects.tsx";
@@ -43,6 +45,8 @@ const App = () => (
               <Route path="/kit/:id" element={<KitDetail />} />
               <Route path="/kits" element={<Kits />} />
               <Route path="/auth" element={<Auth />} />
+              <Route path="/my-projects" element={<MyProjects />} />
+              <Route path="/my-projects/:id" element={<MyProjectDetail />} />
               <Route path="/ops" element={<OpsLayout />}>
                 <Route index element={<OpsDashboard />} />
                 <Route path="projects" element={<OpsProjects />} />
