@@ -150,7 +150,7 @@ const Index = () => {
                 to="/auth"
                 className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary-foreground text-primary text-xs font-semibold hover:bg-primary-foreground/90 transition-colors"
               >
-                Get started <ArrowRight className="w-3 h-3" />
+                Track project <ArrowRight className="w-3 h-3" />
               </Link>
             </div>
             <button
