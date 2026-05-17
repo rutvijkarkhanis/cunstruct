@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable/index";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,8 @@ import { useAuth } from "@/context/AuthContext";
 
 export default function Auth() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const returnUrl = searchParams.get("returnUrl");
   const { user, loading, isStaff, roles } = useAuth();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
@@ -20,6 +22,10 @@ export default function Auth() {
 
   useEffect(() => {
     if (!loading && user) {
+      if (returnUrl) {
+        navigate(returnUrl);
+        return;
+      }
       // wait until roles have resolved at least once before deciding
       if (roles.length === 0 && !isStaff) {
         const t = setTimeout(() => navigate(isStaff ? "/ops" : "/my-projects"), 300);
@@ -27,7 +33,7 @@ export default function Auth() {
       }
       navigate(isStaff ? "/ops" : "/my-projects");
     }
-  }, [user, loading, isStaff, roles, navigate]);
+  }, [user, loading, isStaff, roles, returnUrl, navigate]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,7 +44,7 @@ export default function Auth() {
           email,
           password,
           options: {
-            emailRedirectTo: window.location.origin + "/ops",
+            emailRedirectTo: window.location.origin + (returnUrl || "/ops"),
             data: { full_name: fullName },
           },
         });
@@ -47,7 +53,7 @@ export default function Auth() {
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        // role-based redirect handled by effect
+        // redirect handled by effect
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Auth failed");
@@ -58,7 +64,7 @@ export default function Auth() {
 
   const google = async () => {
     const res = await lovable.auth.signInWithOAuth("google", {
-      redirect_uri: window.location.origin + "/ops",
+      redirect_uri: window.location.origin + "/auth" + (returnUrl ? `?returnUrl=${encodeURIComponent(returnUrl)}` : ""),
     });
     if (res.error) toast.error("Google sign-in failed");
   };
