@@ -119,6 +119,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "forecast_items_product_fk"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "product"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "forecast_items_stage_id_fkey"
             columns: ["stage_id"]
             isOneToOne: false
@@ -493,6 +500,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "stage_material_mapping_product_fk"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "product"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "stage_material_mapping_stage_id_fkey"
             columns: ["stage_id"]
