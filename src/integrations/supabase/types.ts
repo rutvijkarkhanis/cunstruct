@@ -168,6 +168,45 @@ export type Database = {
           },
         ]
       }
+      product: {
+        Row: {
+          brand: string | null
+          category: string | null
+          created_at: string
+          id: string
+          image_url: string | null
+          lead_time_days: number | null
+          name: string
+          selling_price: number | null
+          unit: string | null
+          updated_at: string
+        }
+        Insert: {
+          brand?: string | null
+          category?: string | null
+          created_at?: string
+          id: string
+          image_url?: string | null
+          lead_time_days?: number | null
+          name: string
+          selling_price?: number | null
+          unit?: string | null
+          updated_at?: string
+        }
+        Update: {
+          brand?: string | null
+          category?: string | null
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          lead_time_days?: number | null
+          name?: string
+          selling_price?: number | null
+          unit?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
