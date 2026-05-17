@@ -300,6 +300,7 @@ export type Database = {
           project_type: string | null
           projected_completion_date: string | null
           scope: string | null
+          status: string
           updated_at: string
           velocity_days_per_pct: number | null
         }
@@ -321,6 +322,7 @@ export type Database = {
           project_type?: string | null
           projected_completion_date?: string | null
           scope?: string | null
+          status?: string
           updated_at?: string
           velocity_days_per_pct?: number | null
         }
@@ -342,6 +344,7 @@ export type Database = {
           project_type?: string | null
           projected_completion_date?: string | null
           scope?: string | null
+          status?: string
           updated_at?: string
           velocity_days_per_pct?: number | null
         }
