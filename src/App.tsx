@@ -23,6 +23,7 @@ import OpsProjects from "./pages/ops/OpsProjects.tsx";
 import OpsProjectDetail from "./pages/ops/OpsProjectDetail.tsx";
 import OpsStages from "./pages/ops/OpsStages.tsx";
 import OpsMappings from "./pages/ops/OpsMappings.tsx";
+import OpsForecasts from "./pages/ops/OpsForecasts.tsx";
 
 
 const queryClient = new QueryClient();
@@ -47,12 +48,14 @@ const App = () => (
               <Route path="/auth" element={<Auth />} />
               <Route path="/my-projects" element={<MyProjects />} />
               <Route path="/my-projects/:id" element={<MyProjectDetail />} />
+              <Route path="/contractor/my-projects/:id" element={<MyProjectDetail />} />
               <Route path="/ops" element={<OpsLayout />}>
                 <Route index element={<OpsDashboard />} />
                 <Route path="projects" element={<OpsProjects />} />
                 <Route path="projects/:id" element={<OpsProjectDetail />} />
                 <Route path="stages" element={<OpsStages />} />
                 <Route path="mappings" element={<OpsMappings />} />
+                <Route path="forecasts" element={<OpsForecasts />} />
               </Route>
 
               <Route path="*" element={<NotFound />} />

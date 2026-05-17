@@ -206,6 +206,122 @@ export async function generateForecasts(projectId: string): Promise<{ created: n
   return { created };
 }
 
+/**
+ * Auto-generate a forecast for a project's CURRENT stage from stage_material_mapping,
+ * joined with the `product` table. Approves immediately so contractors see it.
+ * Triggered on project creation, stage change, and progress updates.
+ */
+export async function autoGenerateForecastForCurrentStage(
+  projectId: string,
+): Promise<{ created: number; forecastId: string | null; skipped?: string }> {
+  const { data: project } = await supabase
+    .from("projects")
+    .select("id, current_stage_id, area_sqft, owner_id, name, location, status")
+    .eq("id", projectId)
+    .single();
+  if (!project) return { created: 0, forecastId: null, skipped: "no_project" };
+  if (!project.current_stage_id) return { created: 0, forecastId: null, skipped: "no_stage" };
+
+  const { data: stage } = await supabase
+    .from("stage_master")
+    .select("name, typical_duration_days")
+    .eq("id", project.current_stage_id)
+    .single();
+
+  const { data: mappings } = await supabase
+    .from("stage_material_mapping")
+    .select("*")
+    .eq("stage_id", project.current_stage_id);
+  if (!mappings || mappings.length === 0) {
+    return { created: 0, forecastId: null, skipped: "no_mappings" };
+  }
+
+  const productIds = Array.from(new Set(mappings.map((m: any) => m.product_id)));
+  const { data: products } = await supabase
+    .from("product")
+    .select("id, name, selling_price, lead_time_days, unit")
+    .in("id", productIds);
+  const productMap = new Map((products ?? []).map((p: any) => [p.id, p]));
+
+  const today = new Date();
+  const todayIso = today.toISOString().slice(0, 10);
+
+  const { data: forecast, error: fErr } = await supabase
+    .from("forecasts")
+    .insert({
+      project_id: projectId,
+      horizon_days: stage?.typical_duration_days ?? 30,
+      status: "approved",
+      approved_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+  if (fErr || !forecast) throw fErr ?? new Error("Failed to create forecast");
+
+  const items = mappings.map((m: any) => {
+    const p: any = productMap.get(m.product_id);
+    const leadTime = Number(m.lead_time_days ?? p?.lead_time_days ?? 3);
+    const buffer = Number(m.buffer_days ?? 1);
+    const orderBy = new Date(today);
+    orderBy.setDate(orderBy.getDate() + leadTime + buffer);
+    const orderByIso = orderBy.toISOString().slice(0, 10);
+
+    const formula = (m.qty_formula ?? {}) as any;
+    let qty = 1;
+    if (formula?.per_sqft && project.area_sqft) {
+      qty = Number(formula.per_sqft) * Number(project.area_sqft);
+    } else if (formula?.fixed) {
+      qty = Number(formula.fixed);
+    }
+    qty = Math.ceil(qty * (1 + Number(m.buffer_pct ?? 0) / 100));
+
+    const unitPrice = p?.selling_price != null ? Number(p.selling_price) : null;
+    const budget = unitPrice != null ? unitPrice * qty : null;
+
+    const priority = String(m.priority ?? "").toLowerCase();
+    const isCritical = priority === "critical";
+    const risk = orderByIso <= todayIso || isCritical;
+
+    const hasLead = m.lead_time_days != null || p?.lead_time_days != null;
+    const confidence: "high" | "medium" | "low" =
+      isCritical && hasLead ? "high" : hasLead ? "medium" : "low";
+
+    return {
+      forecast_id: forecast.id,
+      product_id: m.product_id,
+      product_name: p?.name ?? m.product_name ?? m.product_id,
+      stage_id: m.stage_id,
+      qty_estimated: qty,
+      unit: p?.unit ?? m.unit ?? null,
+      unit_price: unitPrice,
+      budget_estimated: budget,
+      order_by_date: orderByIso,
+      delivery_date: orderByIso,
+      confidence,
+      risk_flag: risk,
+      initiated_by: "cunstruct",
+      notes: isCritical ? "critical" : (m.priority ?? null),
+    };
+  });
+
+  const { error: itemsErr } = await supabase.from("forecast_items").insert(items);
+  if (itemsErr) throw itemsErr;
+
+  // Generate WhatsApp briefing draft (best-effort)
+  try {
+    const content = await buildBriefingText(forecast.id);
+    await supabase.from("whatsapp_messages").insert({
+      project_id: projectId,
+      message_type: "weekly_brief",
+      content,
+    });
+  } catch {
+    /* non-fatal */
+  }
+
+  return { created: items.length, forecastId: forecast.id };
+}
+
 /** Build the Monday WhatsApp briefing text from an approved forecast. */
 export async function buildBriefingText(forecastId: string): Promise<string> {
   const { data: forecast } = await supabase

@@ -17,7 +17,7 @@ import { ArrowLeft, MessageSquare, Camera, Mic, AlertTriangle, Sparkles } from "
 import { formatDistanceToNow } from "date-fns";
 import {
   recalcProjectVelocity, generateForecasts, buildBriefingText,
-  formatINR, formatDateShort,
+  formatINR, formatDateShort, autoGenerateForecastForCurrentStage,
 } from "@/lib/forecastEngine";
 
 export default function OpsProjectDetail() {
@@ -92,10 +92,12 @@ export default function OpsProjectDetail() {
         current_stage_id: stageId, progress_pct: progress,
       }).eq("id", id!);
       await recalcProjectVelocity(id!);
-      toast.success("Update logged · velocity recalculated");
+      try { await autoGenerateForecastForCurrentStage(id!); } catch { /* ignore */ }
+      toast.success("Update logged · forecast refreshed");
       setNote("");
       qc.invalidateQueries({ queryKey: ["project", id] });
       qc.invalidateQueries({ queryKey: ["updates", id] });
+      qc.invalidateQueries({ queryKey: ["forecasts", id] });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally { setBusy(false); }

@@ -216,6 +216,10 @@ function ProjectWizard({ userId, onDone }: { userId: string; onDone: (id?: strin
           created_by: userId,
         });
       }
+      try {
+        const { autoGenerateForecastForCurrentStage } = await import("@/lib/forecastEngine");
+        await autoGenerateForecastForCurrentStage(project.id);
+      } catch { /* non-fatal */ }
       setSubmitted(project.id);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to create project");

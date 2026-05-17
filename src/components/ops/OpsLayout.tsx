@@ -21,7 +21,7 @@ const NAV = [
   { to: "/ops/projects", label: "Projects", icon: Building2 },
   { to: "/ops/stages", label: "Stage Master", icon: Layers },
   { to: "/ops/mappings", label: "Stage Mappings", icon: Link2 },
-  { to: "/ops/forecasts", label: "Forecasts", icon: Sparkles, disabled: true },
+  { to: "/ops/forecasts", label: "Forecasts", icon: Sparkles },
   { to: "/ops/anomalies", label: "Anomalies", icon: AlertTriangle, disabled: true },
   { to: "/ops/briefings", label: "WhatsApp Briefings", icon: MessageSquare, disabled: true },
 ];

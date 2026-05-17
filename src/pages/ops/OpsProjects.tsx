@@ -24,7 +24,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { generateForecasts } from "@/lib/forecastEngine";
+import { generateForecasts, autoGenerateForecastForCurrentStage } from "@/lib/forecastEngine";
 
 const TYPES = ["Residential", "Commercial", "Retail", "Office", "Hospital", "Other"];
 const SCOPES = ["Civil", "MEP", "Finishing", "Turnkey"];
@@ -57,8 +57,9 @@ export default function OpsProjects() {
         .update({ status: "active" }).eq("id", projectId);
       if (error) throw error;
       try {
-        const { created } = await generateForecasts(projectId);
-        toast.success(`Activated · generated ${created} forecast items`);
+        const auto = await autoGenerateForecastForCurrentStage(projectId);
+        await generateForecasts(projectId);
+        toast.success(`Activated · ${auto.created} current-stage items forecasted`);
       } catch {
         toast.success("Project activated");
       }
