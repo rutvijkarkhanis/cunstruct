@@ -142,13 +142,17 @@ const Index = () => {
       {/* Contractor banner */}
       {showBanner && (
         <div className="bg-primary text-primary-foreground text-sm">
-          <div className="container flex items-center justify-between gap-4 py-2">
-            <Link
-              to="/auth"
-              className="flex-1 text-center hover:underline"
-            >
-              Contractor? Track your project procurement →
-            </Link>
+          <div className="container flex items-center justify-between gap-3 py-2">
+            <div className="flex-1 flex items-center justify-center gap-3 flex-wrap">
+              <span className="hidden sm:inline">Contractor? Track your project procurement</span>
+              <span className="sm:hidden">Contractor? Track procurement</span>
+              <Link
+                to="/auth"
+                className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary-foreground text-primary text-xs font-semibold hover:bg-primary-foreground/90 transition-colors"
+              >
+                Get started <ArrowRight className="w-3 h-3" />
+              </Link>
+            </div>
             <button
               onClick={dismissBanner}
               className="shrink-0 p-1 rounded hover:bg-primary-foreground/10"
