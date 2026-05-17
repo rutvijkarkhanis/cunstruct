@@ -11,7 +11,7 @@ import { useAuth } from "@/context/AuthContext";
 
 export default function Auth() {
   const navigate = useNavigate();
-  const { user, loading } = useAuth();
+  const { user, loading, isStaff, roles } = useAuth();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -19,8 +19,15 @@ export default function Auth() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!loading && user) navigate("/ops");
-  }, [user, loading, navigate]);
+    if (!loading && user) {
+      // wait until roles have resolved at least once before deciding
+      if (roles.length === 0 && !isStaff) {
+        const t = setTimeout(() => navigate(isStaff ? "/ops" : "/my-projects"), 300);
+        return () => clearTimeout(t);
+      }
+      navigate(isStaff ? "/ops" : "/my-projects");
+    }
+  }, [user, loading, isStaff, roles, navigate]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,7 +47,7 @@ export default function Auth() {
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        navigate("/ops");
+        // role-based redirect handled by effect
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Auth failed");
