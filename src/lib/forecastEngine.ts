@@ -1,4 +1,15 @@
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+
+// Diagnostic logger prefix for easy filtering in console
+const LOG = (label: string, data?: any) => {
+  const prefix = "[ForecastDiag]";
+  if (data !== undefined) {
+    console.log(prefix, label, data);
+  } else {
+    console.log(prefix, label);
+  }
+};
 
 export const formatINR = (n: number | null | undefined): string => {
   if (n == null || isNaN(Number(n))) return "—";
