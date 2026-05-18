@@ -284,6 +284,11 @@ export async function autoGenerateForecastForCurrentStage(
     .from("product")
     .select("id, name, selling_price, lead_time_days, unit")
     .in("id", productIds);
+  if (!products || products.length === 0) {
+    throw new Error(
+      `No rows found in product table for mapped SKUs: ${productIds.join(", ")}`,
+    );
+  }
   const productMap = new Map((products ?? []).map((p: any) => [p.id, p]));
 
   const today = new Date();
