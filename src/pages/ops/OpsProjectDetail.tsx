@@ -319,7 +319,7 @@ export default function OpsProjectDetail() {
   );
 }
 
-function ForecastsPanel({ forecasts, projectId, qc, project }: { forecasts: any[]; projectId: string; qc: any; project: any }) {
+function ForecastsPanel({ forecasts, projectId, qc, project, requestEditPhone }: { forecasts: any[]; projectId: string; qc: any; project: any; requestEditPhone: (cb?: (phone: string) => void) => void }) {
   const [horizon, setHorizon] = useState<"7" | "14" | "30">("7");
   const filtered = forecasts.filter(f => String(f.horizon_days) === horizon);
   // pick latest per horizon
@@ -348,15 +348,9 @@ function ForecastsPanel({ forecasts, projectId, qc, project }: { forecasts: any[
   };
 
   const [sending, setSending] = useState(false);
-  const sendToCustomer = async (forecast: any) => {
+  const doSend = async (forecast: any, phoneRaw: string) => {
     try {
       setSending(true);
-      const phone = project?.customer_phone ?? null;
-      if (!phone) {
-        toast.error("No customer phone on file for this project");
-        return;
-      }
-
       const items = forecast.forecast_items ?? [];
       if (!items.length) {
         toast.error("No forecast items to send");
@@ -374,7 +368,7 @@ function ForecastsPanel({ forecasts, projectId, qc, project }: { forecasts: any[
         `Estimated Total: ₹${Math.round(total).toLocaleString("en-IN")}\n\n` +
         `Reply:\n1 - Confirm\n2 - Modify\n3 - Call Me`;
 
-      const to = phone.replace(/[^0-9]/g, "");
+      const to = phoneRaw.replace(/[^0-9]/g, "");
       const { data, error } = await supabase.functions.invoke("whatsapp-send", {
         body: { to, message },
       });
@@ -394,6 +388,15 @@ function ForecastsPanel({ forecasts, projectId, qc, project }: { forecasts: any[
     } finally {
       setSending(false);
     }
+  };
+
+  const sendToCustomer = async (forecast: any) => {
+    const phone = project?.customer_phone ?? "";
+    if (!phone) {
+      requestEditPhone((newPhone) => { void doSend(forecast, newPhone); });
+      return;
+    }
+    await doSend(forecast, phone);
   };
 
   return (
