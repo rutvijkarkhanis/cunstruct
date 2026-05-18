@@ -17,15 +17,45 @@ export default function OpsForecasts() {
   const { data: forecasts, isLoading } = useQuery({
     queryKey: ["all-forecasts"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data: baseForecasts, error } = await supabase
         .from("forecasts")
-        .select(
-          "id, project_id, horizon_days, status, generated_at, whatsapp_sent_at, projects:project_id(name, location, owner_id, customer_phone), forecast_items(id, product_name, qty_estimated, unit, budget_estimated, order_by_date, risk_flag, confidence, notes, status)"
-        )
+        .select("id, project_id, horizon_days, status, generated_at, whatsapp_sent_at")
         .order("generated_at", { ascending: false })
         .limit(50);
       if (error) throw error;
-      return data ?? [];
+      if (!baseForecasts || baseForecasts.length === 0) return [];
+
+      const projectIds = [...new Set(baseForecasts.map((f) => f.project_id).filter(Boolean))];
+      const forecastIds = baseForecasts.map((f) => f.id);
+
+      const [projectsRes, itemsRes] = await Promise.all([
+        projectIds.length
+          ? supabase
+              .from("projects")
+              .select("id, name, location, owner_id, customer_phone")
+              .in("id", projectIds)
+          : Promise.resolve({ data: [], error: null } as any),
+        supabase
+          .from("forecast_items")
+          .select("id, forecast_id, product_name, qty_estimated, unit, budget_estimated, order_by_date, risk_flag, confidence, notes, status")
+          .in("forecast_id", forecastIds),
+      ]);
+      if (projectsRes.error) throw projectsRes.error;
+      if (itemsRes.error) throw itemsRes.error;
+
+      const projectsById = new Map((projectsRes.data ?? []).map((p: any) => [p.id, p]));
+      const itemsByForecast = new Map<string, any[]>();
+      for (const it of itemsRes.data ?? []) {
+        const arr = itemsByForecast.get(it.forecast_id) ?? [];
+        arr.push(it);
+        itemsByForecast.set(it.forecast_id, arr);
+      }
+
+      return baseForecasts.map((f) => ({
+        ...f,
+        projects: projectsById.get(f.project_id) ?? null,
+        forecast_items: itemsByForecast.get(f.id) ?? [],
+      }));
     },
   });
 
