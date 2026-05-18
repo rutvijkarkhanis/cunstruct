@@ -68,8 +68,15 @@ Deno.serve(async (req) => {
       }),
     });
 
-    const data = await response.json();
-    console.log("Meta API response body:", JSON.stringify(data));
+    const responseBody = await response.text();
+    console.log("Meta API response body:", responseBody);
+
+    let data: any;
+    try {
+      data = JSON.parse(responseBody);
+    } catch {
+      data = { raw: responseBody };
+    }
 
     if (!response.ok) {
       return new Response(
@@ -77,8 +84,9 @@ Deno.serve(async (req) => {
           success: false,
           error: data.error?.message || "WhatsApp API error",
           whatsappError: data.error,
+          status: response.status,
         }),
-        { status: response.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
