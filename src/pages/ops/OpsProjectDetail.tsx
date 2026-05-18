@@ -690,3 +690,78 @@ function AccuracyPanel({ projectId }: { projectId: string }) {
     </Card>
   );
 }
+
+function EditCustomerDialog({
+  open, onOpenChange, projectId, initialName, initialPhone, onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  projectId: string;
+  initialName: string;
+  initialPhone: string;
+  onSaved: (phone: string) => void;
+}) {
+  const [name, setName] = useState(initialName);
+  const [phone, setPhone] = useState(initialPhone);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setName(initialName);
+      setPhone(initialPhone);
+    }
+  }, [open, initialName, initialPhone]);
+
+  const save = async () => {
+    const cleaned = phone.replace(/[\s+\-]/g, "");
+    if (!cleaned) return toast.error("Customer phone is required");
+    if (!/^\d{10,15}$/.test(cleaned)) return toast.error("Phone must be 10–15 digits");
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("projects")
+        .update({ customer_name: name || null, customer_phone: cleaned })
+        .eq("id", projectId);
+      if (error) throw error;
+      toast.success("Customer details updated");
+      onOpenChange(false);
+      onSaved(cleaned);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit Customer Details</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label>Customer Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
+          </div>
+          <div>
+            <Label>Customer Phone</Label>
+            <Input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="10–15 digits (with country code)"
+              inputMode="tel"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Spaces, + and dashes are removed automatically.
+            </p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
