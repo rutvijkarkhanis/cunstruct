@@ -111,6 +111,7 @@ export default function MyProjectDetail() {
         qc.invalidateQueries({ queryKey: ["all-forecasts"] }),
       ]);
     } catch (e) {
+      console.error("[Forecast] submitUpdate failed:", e);
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally { setBusy(false); }
   };
