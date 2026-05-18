@@ -41,41 +41,51 @@ function normalizePhone(p: string | null | undefined): string {
   return (p ?? "").replace(/[^0-9]/g, "");
 }
 
-// Find the latest 'sent' forecast for a given phone by traversing
-// profiles.phone -> projects.owner_id -> forecasts
-async function findLatestSentForecastForPhone(phone: string) {
-  const candidates = [phone, phone.startsWith("91") ? phone.slice(2) : `91${phone}`];
+// Find the latest forecast for a customer by matching normalized phone
+// on projects.customer_phone (where forecasts are linked via project_id).
+async function findLatestForecastForPhone(incomingPhone: string) {
+  const normalizedIncoming = normalizePhone(incomingPhone);
+  console.log("incoming phone:", incomingPhone);
+  console.log("normalized phone:", normalizedIncoming);
 
-  const { data: profiles } = await admin
-    .from("profiles")
-    .select("id, phone")
-    .in("phone", candidates);
-
-  if (!profiles || profiles.length === 0) return null;
-  const ownerIds = profiles.map((p) => p.id);
-
-  const { data: projects } = await admin
+  const { data: projects, error: projErr } = await admin
     .from("projects")
-    .select("id, owner_id")
-    .in("owner_id", ownerIds);
+    .select("id, customer_name, customer_phone");
 
-  if (!projects || projects.length === 0) return null;
-  const projectIds = projects.map((p) => p.id);
+  if (projErr) {
+    console.error("projects lookup error", projErr);
+    return null;
+  }
+
+  const matchedProjects = (projects ?? []).filter(
+    (p) => normalizePhone(p.customer_phone) === normalizedIncoming,
+  );
+  if (matchedProjects.length === 0) {
+    console.log("no matching project for phone");
+    return null;
+  }
+  const projectIds = matchedProjects.map((p) => p.id);
 
   const { data: forecasts } = await admin
     .from("forecasts")
-    .select("id, project_id, status, generated_at, forecast_items(id, budget_estimated)")
+    .select("id, project_id, generated_at, forecast_items(id, budget_estimated)")
     .in("project_id", projectIds)
-    .eq("status", "sent")
     .order("generated_at", { ascending: false })
     .limit(1);
 
-  if (!forecasts || forecasts.length === 0) return null;
-  return forecasts[0];
+  if (!forecasts || forecasts.length === 0) {
+    console.log("matched project but no forecast", projectIds);
+    return null;
+  }
+  const f = forecasts[0];
+  const project = matchedProjects.find((p) => p.id === f.project_id) ?? null;
+  console.log("matched forecast ID:", f.id);
+  console.log("matched project ID:", f.project_id);
+  return { ...f, customer_name: project?.customer_name ?? null };
 }
 
 async function handleConfirm(phone: string) {
-  const forecast = await findLatestSentForecastForPhone(phone);
+  const forecast = await findLatestForecastForPhone(phone);
   if (!forecast) {
     await sendWhatsApp(
       phone,
@@ -117,11 +127,18 @@ async function handleConfirm(phone: string) {
 }
 
 async function handleModify(phone: string) {
-  await sendWhatsApp(phone, "Please tell us what quantity you would like to change.");
+  const forecast = await findLatestForecastForPhone(phone);
+  await admin.from("callback_tasks").insert({
+    project_id: forecast?.project_id ?? null,
+    customer_phone: phone,
+    status: "open",
+    notes: "Modification requested via WhatsApp option 2",
+  });
+  await sendWhatsApp(phone, "✏️ Got it. Our team will reach out to update your order.");
 }
 
 async function handleCallback(phone: string) {
-  const forecast = await findLatestSentForecastForPhone(phone);
+  const forecast = await findLatestForecastForPhone(phone);
   await admin.from("callback_tasks").insert({
     project_id: forecast?.project_id ?? null,
     customer_phone: phone,
@@ -173,7 +190,7 @@ Deno.serve(async (req) => {
           const waId = msg.id ?? null;
 
           // Resolve project for logging
-          const forecast = await findLatestSentForecastForPhone(from);
+          const forecast = await findLatestForecastForPhone(from);
           const projectId = forecast?.project_id ?? null;
 
           // Save inbound message (skip duplicates by wa_message_id)
