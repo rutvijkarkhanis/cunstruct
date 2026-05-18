@@ -396,6 +396,10 @@ export async function autoGenerateForecastForCurrentStage(
     };
   });
 
+  LOG("Forecast items generated", {
+    count: items.length,
+  });
+
   if (items.length === 0) {
     LOG("Skipped: zero items after generation", {
       mappings_count: mappings.length,
@@ -403,9 +407,8 @@ export async function autoGenerateForecastForCurrentStage(
       reason:
         "mappings.map() produced empty array — check mapping/product join logic",
     });
-    toast.error("No forecast items were generated. Check diagnostic logs.");
     await cleanupEmptyForecasts(projectId);
-    return { created: 0, forecastId: null, skipped: "no_items" };
+    throw new Error("Forecast generation produced zero items.");
   }
 
   const totalForecastValue = items.reduce(
