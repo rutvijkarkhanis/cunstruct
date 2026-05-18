@@ -388,6 +388,8 @@ export type Database = {
           client_name: string | null
           created_at: string
           current_stage_id: string | null
+          customer_name: string | null
+          customer_phone: string | null
           estimated_completion: string | null
           floors: number | null
           historical_avg_velocity: number | null
@@ -410,6 +412,8 @@ export type Database = {
           client_name?: string | null
           created_at?: string
           current_stage_id?: string | null
+          customer_name?: string | null
+          customer_phone?: string | null
           estimated_completion?: string | null
           floors?: number | null
           historical_avg_velocity?: number | null
@@ -432,6 +436,8 @@ export type Database = {
           client_name?: string | null
           created_at?: string
           current_stage_id?: string | null
+          customer_name?: string | null
+          customer_phone?: string | null
           estimated_completion?: string | null
           floors?: number | null
           historical_avg_velocity?: number | null
