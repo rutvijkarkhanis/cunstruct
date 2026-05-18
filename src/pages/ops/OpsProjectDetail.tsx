@@ -87,20 +87,24 @@ export default function OpsProjectDetail() {
     setBusy(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      await supabase.from("stage_updates").insert({
+      const { error: updateLogError } = await supabase.from("stage_updates").insert({
         project_id: id, stage_id: stageId, progress_pct: progress,
         source, note, created_by: user?.id,
       });
-      await supabase.from("projects").update({
+      if (updateLogError) throw updateLogError;
+      const { error: projectUpdateError } = await supabase.from("projects").update({
         current_stage_id: stageId, progress_pct: progress,
       }).eq("id", id!);
+      if (projectUpdateError) throw projectUpdateError;
       await recalcProjectVelocity(id!);
-      try { await autoGenerateForecastForCurrentStage(id!); } catch { /* ignore */ }
+      const generated = await autoGenerateForecastForCurrentStage(id!);
       toast.success("Update logged · forecast refreshed");
       setNote("");
       qc.invalidateQueries({ queryKey: ["project", id] });
       qc.invalidateQueries({ queryKey: ["updates", id] });
       qc.invalidateQueries({ queryKey: ["forecasts", id] });
+      qc.invalidateQueries({ queryKey: ["all-forecasts"] });
+      qc.setQueryData(["last-forecast-generation", id], generated);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally { setBusy(false); }
