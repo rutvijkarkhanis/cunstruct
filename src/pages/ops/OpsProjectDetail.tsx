@@ -14,9 +14,9 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, MessageSquare, Camera, Mic, AlertTriangle, Sparkles } from "lucide-react";
+import { ArrowLeft, MessageSquare, Camera, Mic, AlertTriangle, Sparkles, UserCog } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import {
   recalcProjectVelocity, generateForecasts, buildBriefingText,
@@ -81,6 +81,14 @@ export default function OpsProjectDetail() {
   const [note, setNote] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [genBusy, setGenBusy] = useState(false);
+
+  // Edit customer dialog state (hoisted so ForecastsPanel can request opening it)
+  const [editOpen, setEditOpen] = useState(false);
+  const afterSaveRef = useRef<((phone: string) => void) | null>(null);
+  const requestEditPhone = (cb?: (phone: string) => void) => {
+    afterSaveRef.current = cb ?? null;
+    setEditOpen(true);
+  };
 
   const logUpdate = async () => {
     if (!stageId) return toast.error("Select a stage");
@@ -151,6 +159,30 @@ export default function OpsProjectDetail() {
           {genBusy ? "Generating…" : "Generate Forecast"}
         </Button>
       </div>
+
+      <div>
+        <Button variant="outline" size="sm" onClick={() => requestEditPhone()}>
+          <UserCog className="w-4 h-4 mr-1" /> Edit Customer Details
+        </Button>
+        <span className="ml-3 text-xs text-muted-foreground">
+          {project.customer_name || "—"}
+          {project.customer_phone ? ` · ${project.customer_phone}` : " · no phone"}
+        </span>
+      </div>
+
+      <EditCustomerDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        projectId={id!}
+        initialName={project.customer_name ?? ""}
+        initialPhone={project.customer_phone ?? ""}
+        onSaved={(phone) => {
+          qc.invalidateQueries({ queryKey: ["project", id] });
+          const cb = afterSaveRef.current;
+          afterSaveRef.current = null;
+          if (cb) cb(phone);
+        }}
+      />
 
       <Card className="p-5">
         <div className="flex items-center justify-between mb-2">
@@ -270,7 +302,13 @@ export default function OpsProjectDetail() {
         </TabsContent>
 
         <TabsContent value="forecasts" className="mt-4">
-          <ForecastsPanel forecasts={forecasts ?? []} projectId={id!} qc={qc} project={project} />
+          <ForecastsPanel
+            forecasts={forecasts ?? []}
+            projectId={id!}
+            qc={qc}
+            project={project}
+            requestEditPhone={requestEditPhone}
+          />
         </TabsContent>
 
         <TabsContent value="accuracy" className="mt-4">
@@ -281,7 +319,7 @@ export default function OpsProjectDetail() {
   );
 }
 
-function ForecastsPanel({ forecasts, projectId, qc, project }: { forecasts: any[]; projectId: string; qc: any; project: any }) {
+function ForecastsPanel({ forecasts, projectId, qc, project, requestEditPhone }: { forecasts: any[]; projectId: string; qc: any; project: any; requestEditPhone: (cb?: (phone: string) => void) => void }) {
   const [horizon, setHorizon] = useState<"7" | "14" | "30">("7");
   const filtered = forecasts.filter(f => String(f.horizon_days) === horizon);
   // pick latest per horizon
@@ -310,15 +348,9 @@ function ForecastsPanel({ forecasts, projectId, qc, project }: { forecasts: any[
   };
 
   const [sending, setSending] = useState(false);
-  const sendToCustomer = async (forecast: any) => {
+  const doSend = async (forecast: any, phoneRaw: string) => {
     try {
       setSending(true);
-      const phone = project?.customer_phone ?? null;
-      if (!phone) {
-        toast.error("No customer phone on file for this project");
-        return;
-      }
-
       const items = forecast.forecast_items ?? [];
       if (!items.length) {
         toast.error("No forecast items to send");
@@ -336,7 +368,7 @@ function ForecastsPanel({ forecasts, projectId, qc, project }: { forecasts: any[
         `Estimated Total: ₹${Math.round(total).toLocaleString("en-IN")}\n\n` +
         `Reply:\n1 - Confirm\n2 - Modify\n3 - Call Me`;
 
-      const to = phone.replace(/[^0-9]/g, "");
+      const to = phoneRaw.replace(/[^0-9]/g, "");
       const { data, error } = await supabase.functions.invoke("whatsapp-send", {
         body: { to, message },
       });
@@ -356,6 +388,15 @@ function ForecastsPanel({ forecasts, projectId, qc, project }: { forecasts: any[
     } finally {
       setSending(false);
     }
+  };
+
+  const sendToCustomer = async (forecast: any) => {
+    const phone = project?.customer_phone ?? "";
+    if (!phone) {
+      requestEditPhone((newPhone) => { void doSend(forecast, newPhone); });
+      return;
+    }
+    await doSend(forecast, phone);
   };
 
   return (
@@ -647,5 +688,80 @@ function AccuracyPanel({ projectId }: { projectId: string }) {
         ))}
       </div>
     </Card>
+  );
+}
+
+function EditCustomerDialog({
+  open, onOpenChange, projectId, initialName, initialPhone, onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  projectId: string;
+  initialName: string;
+  initialPhone: string;
+  onSaved: (phone: string) => void;
+}) {
+  const [name, setName] = useState(initialName);
+  const [phone, setPhone] = useState(initialPhone);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setName(initialName);
+      setPhone(initialPhone);
+    }
+  }, [open, initialName, initialPhone]);
+
+  const save = async () => {
+    const cleaned = phone.replace(/[\s+\-]/g, "");
+    if (!cleaned) return toast.error("Customer phone is required");
+    if (!/^\d{10,15}$/.test(cleaned)) return toast.error("Phone must be 10–15 digits");
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("projects")
+        .update({ customer_name: name || null, customer_phone: cleaned })
+        .eq("id", projectId);
+      if (error) throw error;
+      toast.success("Customer details updated");
+      onOpenChange(false);
+      onSaved(cleaned);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit Customer Details</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label>Customer Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
+          </div>
+          <div>
+            <Label>Customer Phone</Label>
+            <Input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="10–15 digits (with country code)"
+              inputMode="tel"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Spaces, + and dashes are removed automatically.
+            </p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
