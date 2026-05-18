@@ -509,7 +509,6 @@ export async function autoGenerateForecastForCurrentStage(
           code: (fErr as any)?.code,
           payload: forecastPayload,
         });
-        toast.error(message);
         throw new Error(message);
       }
       forecast = { id: created.id };
