@@ -137,6 +137,23 @@ export async function generateForecasts(projectId: string): Promise<{ created: n
         .in("stage_id", upcomingIds)
     : { data: [] as any[] };
 
+  // Join stage_material_mapping → product by SKU (product.id is the SKU)
+  const mappedSkus = Array.from(new Set((mappings ?? []).map((m: any) => m.product_id)));
+  let productMap = new Map<string, any>();
+  if (mappedSkus.length) {
+    const { data: productRows, error: prodErr } = await supabase
+      .from("product")
+      .select("id, name, selling_price, unit, lead_time_days")
+      .in("id", mappedSkus);
+    if (prodErr) throw prodErr;
+    if (!productRows || productRows.length === 0) {
+      throw new Error(
+        `No rows found in product table for mapped SKUs: ${mappedSkus.join(", ")}`,
+      );
+    }
+    productMap = new Map(productRows.map((p: any) => [p.id, p]));
+  }
+
   const horizons: (7 | 14 | 30)[] = [7, 14, 30];
   let created = 0;
 
@@ -152,6 +169,8 @@ export async function generateForecasts(projectId: string): Promise<{ created: n
         const buffer = Number(m.buffer_days ?? 1);
         const orderBy = computeOrderByDate(stage.startDate, leadTime, buffer);
 
+        const prod: any = productMap.get(m.product_id);
+
         // Qty: use qty_formula.per_sqft if present else default 1
         let qty = 1;
         const formula = m.qty_formula as any;
@@ -162,7 +181,9 @@ export async function generateForecasts(projectId: string): Promise<{ created: n
         }
         qty = Math.ceil(qty * (1 + Number(m.buffer_pct ?? 0) / 100));
 
-        const unitPrice = formula?.unit_price ? Number(formula.unit_price) : null;
+        const unitPrice = prod?.selling_price != null
+          ? Number(prod.selling_price)
+          : (formula?.unit_price ? Number(formula.unit_price) : null);
         const budget = unitPrice ? unitPrice * qty : null;
 
         const hasVelocity = vel.has_enough_data;
@@ -174,10 +195,10 @@ export async function generateForecasts(projectId: string): Promise<{ created: n
 
         itemsForHorizon.push({
           product_id: m.product_id,
-          product_name: m.product_name,
+          product_name: prod?.name ?? m.product_name ?? m.product_id,
           stage_id: m.stage_id,
           qty_estimated: qty,
-          unit: m.unit,
+          unit: prod?.unit ?? m.unit,
           unit_price: unitPrice,
           budget_estimated: budget,
           order_by_date: orderBy.toISOString().slice(0, 10),
