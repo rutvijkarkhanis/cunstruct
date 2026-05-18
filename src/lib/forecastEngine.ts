@@ -1,5 +1,4 @@
 import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
 
 // Diagnostic logger prefix for easy filtering in console
 const LOG = (label: string, data?: any) => {
