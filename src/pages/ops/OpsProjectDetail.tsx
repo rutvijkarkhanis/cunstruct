@@ -108,6 +108,7 @@ export default function OpsProjectDetail() {
       ]);
       qc.setQueryData(["last-forecast-generation", id], generated);
     } catch (e) {
+      console.error("[Forecast] logUpdate failed:", e);
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally { setBusy(false); }
   };
