@@ -14,9 +14,9 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, MessageSquare, Camera, Mic, AlertTriangle, Sparkles } from "lucide-react";
+import { ArrowLeft, MessageSquare, Camera, Mic, AlertTriangle, Sparkles, UserCog } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import {
   recalcProjectVelocity, generateForecasts, buildBriefingText,
@@ -81,6 +81,14 @@ export default function OpsProjectDetail() {
   const [note, setNote] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [genBusy, setGenBusy] = useState(false);
+
+  // Edit customer dialog state (hoisted so ForecastsPanel can request opening it)
+  const [editOpen, setEditOpen] = useState(false);
+  const afterSaveRef = useRef<((phone: string) => void) | null>(null);
+  const requestEditPhone = (cb?: (phone: string) => void) => {
+    afterSaveRef.current = cb ?? null;
+    setEditOpen(true);
+  };
 
   const logUpdate = async () => {
     if (!stageId) return toast.error("Select a stage");
@@ -151,6 +159,30 @@ export default function OpsProjectDetail() {
           {genBusy ? "Generating…" : "Generate Forecast"}
         </Button>
       </div>
+
+      <div>
+        <Button variant="outline" size="sm" onClick={() => requestEditPhone()}>
+          <UserCog className="w-4 h-4 mr-1" /> Edit Customer Details
+        </Button>
+        <span className="ml-3 text-xs text-muted-foreground">
+          {project.customer_name || "—"}
+          {project.customer_phone ? ` · ${project.customer_phone}` : " · no phone"}
+        </span>
+      </div>
+
+      <EditCustomerDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        projectId={id!}
+        initialName={project.customer_name ?? ""}
+        initialPhone={project.customer_phone ?? ""}
+        onSaved={(phone) => {
+          qc.invalidateQueries({ queryKey: ["project", id] });
+          const cb = afterSaveRef.current;
+          afterSaveRef.current = null;
+          if (cb) cb(phone);
+        }}
+      />
 
       <Card className="p-5">
         <div className="flex items-center justify-between mb-2">
@@ -270,7 +302,13 @@ export default function OpsProjectDetail() {
         </TabsContent>
 
         <TabsContent value="forecasts" className="mt-4">
-          <ForecastsPanel forecasts={forecasts ?? []} projectId={id!} qc={qc} project={project} />
+          <ForecastsPanel
+            forecasts={forecasts ?? []}
+            projectId={id!}
+            qc={qc}
+            project={project}
+            requestEditPhone={requestEditPhone}
+          />
         </TabsContent>
 
         <TabsContent value="accuracy" className="mt-4">
