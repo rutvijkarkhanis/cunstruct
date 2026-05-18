@@ -260,7 +260,7 @@ export default function OpsProjectDetail() {
         </TabsContent>
 
         <TabsContent value="forecasts" className="mt-4">
-          <ForecastsPanel forecasts={forecasts ?? []} projectId={id!} qc={qc} />
+          <ForecastsPanel forecasts={forecasts ?? []} projectId={id!} qc={qc} project={project} />
         </TabsContent>
 
         <TabsContent value="accuracy" className="mt-4">
@@ -271,7 +271,7 @@ export default function OpsProjectDetail() {
   );
 }
 
-function ForecastsPanel({ forecasts, projectId, qc }: { forecasts: any[]; projectId: string; qc: any }) {
+function ForecastsPanel({ forecasts, projectId, qc, project }: { forecasts: any[]; projectId: string; qc: any; project: any }) {
   const [horizon, setHorizon] = useState<"7" | "14" | "30">("7");
   const filtered = forecasts.filter(f => String(f.horizon_days) === horizon);
   // pick latest per horizon
@@ -297,6 +297,64 @@ function ForecastsPanel({ forecasts, projectId, qc }: { forecasts: any[]; projec
     const text = await buildBriefingText(forecastId);
     (window as any).__brief = text;
     qc.setQueryData(["brief", forecastId], text);
+  };
+
+  const [sending, setSending] = useState(false);
+  const sendToCustomer = async (forecast: any) => {
+    try {
+      setSending(true);
+      // Resolve customer phone from project owner profile
+      let phone: string | null = null;
+      if (project?.owner_id) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("phone")
+          .eq("id", project.owner_id)
+          .maybeSingle();
+        phone = profile?.phone ?? null;
+      }
+      if (!phone) {
+        toast.error("No customer phone on file for this project");
+        return;
+      }
+
+      const items = forecast.forecast_items ?? [];
+      if (!items.length) {
+        toast.error("No forecast items to send");
+        return;
+      }
+      const lines = items.map((i: any) =>
+        `• ${i.qty_estimated} ${i.unit ?? ""} ${i.product_name}`.replace(/\s+/g, " ").trim()
+      );
+      const total = items.reduce(
+        (s: number, i: any) => s + Number(i.budget_estimated ?? 0), 0,
+      );
+      const message =
+        `🏗️ Based on your site progress, you may need:\n\n` +
+        `${lines.join("\n")}\n\n` +
+        `Estimated Total: ₹${Math.round(total).toLocaleString("en-IN")}\n\n` +
+        `Reply:\n1 - Confirm\n2 - Modify\n3 - Call Me`;
+
+      const to = phone.replace(/[^0-9]/g, "");
+      const { data, error } = await supabase.functions.invoke("whatsapp-send", {
+        body: { to, message },
+      });
+      if (error || !data?.success) {
+        throw new Error(error?.message || data?.error || "WhatsApp send failed");
+      }
+
+      await supabase.from("forecasts").update({
+        whatsapp_sent_at: new Date().toISOString(),
+        status: "sent",
+      }).eq("id", forecast.id);
+
+      toast.success("Forecast sent successfully.");
+      qc.invalidateQueries({ queryKey: ["forecasts", projectId] });
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to send forecast");
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -328,6 +386,15 @@ function ForecastsPanel({ forecasts, projectId, qc }: { forecasts: any[]; projec
                 {latest.status === "approved" && (
                   <Button size="sm" variant="outline" onClick={() => generateBrief(latest.id)}>
                     Generate WhatsApp Brief
+                  </Button>
+                )}
+                {(latest.status === "approved" || latest.status === "sent") && (
+                  <Button
+                    size="sm"
+                    onClick={() => sendToCustomer(latest)}
+                    disabled={sending}
+                  >
+                    {sending ? "Sending…" : latest.status === "sent" ? "Resend to Customer" : "Send to Customer"}
                   </Button>
                 )}
               </div>

@@ -1,0 +1,1 @@
+ALTER TABLE public.forecasts ADD COLUMN IF NOT EXISTS whatsapp_sent_at TIMESTAMPTZ;
