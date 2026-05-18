@@ -434,24 +434,55 @@ export async function autoGenerateForecastForCurrentStage(
       .update({ generated_at: new Date().toISOString() })
       .eq("id", existing.id);
   } else {
+    const forecastPayload = {
+      project_id: projectId,
+      horizon_days: horizonDays,
+      status: "approved",
+      approved_at: new Date().toISOString(),
+    };
+    LOG("Forecasts insert payload", forecastPayload);
     const { data: created, error: fErr } = await supabase
       .from("forecasts")
-      .insert({
-        project_id: projectId,
-        horizon_days: horizonDays,
-        status: "approved",
-        approved_at: new Date().toISOString(),
-      })
+      .insert(forecastPayload)
       .select()
       .single();
-    if (fErr || !created) throw fErr ?? new Error("Failed to create forecast");
+    if (fErr || !created) {
+      console.error("[ForecastDiag] Forecasts insert error (full):", fErr);
+      LOG("Forecasts insert error", {
+        message: fErr?.message,
+        details: (fErr as any)?.details,
+        hint: (fErr as any)?.hint,
+        code: (fErr as any)?.code,
+        payload: forecastPayload,
+      });
+      throw new Error(
+        `Failed to create forecast: ${fErr?.message ?? "unknown error"}${
+          (fErr as any)?.details ? ` — ${(fErr as any).details}` : ""
+        }`,
+      );
+    }
     forecast = { id: created.id };
   }
 
+  const itemsPayload = items.map((i) => ({ ...i, forecast_id: forecast.id }));
+  LOG("Forecast items insert payload (first row)", itemsPayload[0]);
   const { error: itemsErr } = await supabase
     .from("forecast_items")
-    .insert(items.map((i) => ({ ...i, forecast_id: forecast.id })));
-  if (itemsErr) throw itemsErr;
+    .insert(itemsPayload);
+  if (itemsErr) {
+    console.error("[ForecastDiag] forecast_items insert error (full):", itemsErr);
+    LOG("forecast_items insert error", {
+      message: itemsErr.message,
+      details: (itemsErr as any).details,
+      hint: (itemsErr as any).hint,
+      code: (itemsErr as any).code,
+    });
+    throw new Error(
+      `Failed to insert forecast items: ${itemsErr.message}${
+        (itemsErr as any).details ? ` — ${(itemsErr as any).details}` : ""
+      }`,
+    );
+  }
 
   // 7. Final result log
   LOG("Final result", {
