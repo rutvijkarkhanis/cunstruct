@@ -91,20 +91,25 @@ export default function MyProjectDetail() {
     if (!logStageId) return toast.error("Pick a stage");
     setBusy(true);
     try {
-      await supabase.from("stage_updates").insert({
+      const { error: updateLogError } = await supabase.from("stage_updates").insert({
         project_id: id, stage_id: logStageId, progress_pct: logProgress,
         source: "app", note: logNote, created_by: user?.id,
       });
-      await supabase.from("projects").update({
+      if (updateLogError) throw updateLogError;
+      const { error: projectUpdateError } = await supabase.from("projects").update({
         current_stage_id: logStageId, progress_pct: logProgress,
       }).eq("id", id!);
+      if (projectUpdateError) throw projectUpdateError;
       try { await recalcProjectVelocity(id!); } catch { /* ignore */ }
-      try { await autoGenerateForecastForCurrentStage(id!); } catch { /* ignore */ }
+      await autoGenerateForecastForCurrentStage(id!);
       toast.success("Progress logged");
       setLogNote("");
-      qc.invalidateQueries({ queryKey: ["my-project", id] });
-      qc.invalidateQueries({ queryKey: ["my-updates", id] });
-      qc.invalidateQueries({ queryKey: ["my-forecast-items", id] });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["my-project", id] }),
+        qc.invalidateQueries({ queryKey: ["my-updates", id] }),
+        qc.invalidateQueries({ queryKey: ["my-forecast-items", id] }),
+        qc.invalidateQueries({ queryKey: ["all-forecasts"] }),
+      ]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally { setBusy(false); }

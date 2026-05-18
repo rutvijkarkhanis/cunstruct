@@ -20,7 +20,7 @@ export default function OpsForecasts() {
       const { data, error } = await supabase
         .from("forecasts")
         .select(
-          "id, project_id, horizon_days, status, generated_at, whatsapp_sent_at, projects:project_id(name, location, owner_id, profiles:owner_id(phone)), forecast_items(id, product_name, qty_estimated, unit, budget_estimated, order_by_date, risk_flag, confidence, notes, status)"
+          "id, project_id, horizon_days, status, generated_at, whatsapp_sent_at, projects:project_id(name, location, owner_id, customer_phone), forecast_items(id, product_name, qty_estimated, unit, budget_estimated, order_by_date, risk_flag, confidence, notes, status)"
         )
         .order("generated_at", { ascending: false })
         .limit(50);
@@ -30,9 +30,13 @@ export default function OpsForecasts() {
   });
 
   const sendToCustomer = async (f: any) => {
-    const phone = f.projects?.profiles?.phone;
+    const phone = f.projects?.customer_phone;
     const items = f.forecast_items ?? [];
-    if (!phone || !items.length) return;
+    if (!items.length) return;
+    if (!phone) {
+      toast.error("No customer phone on file for this project");
+      return;
+    }
     setSendingId(f.id);
     try {
       const lines = items.map((i: any) =>
@@ -92,8 +96,7 @@ export default function OpsForecasts() {
             (s: number, i: any) => s + Number(i.budget_estimated ?? 0),
             0,
           );
-          const phone = f.projects?.profiles?.phone;
-          const canSend = items.length > 0 && !!phone;
+          const canSend = items.length > 0;
           return (
             <Card key={f.id} className="p-5">
               <div className="flex items-start justify-between mb-3">

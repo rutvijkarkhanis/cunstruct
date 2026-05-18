@@ -87,20 +87,26 @@ export default function OpsProjectDetail() {
     setBusy(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      await supabase.from("stage_updates").insert({
+      const { error: updateLogError } = await supabase.from("stage_updates").insert({
         project_id: id, stage_id: stageId, progress_pct: progress,
         source, note, created_by: user?.id,
       });
-      await supabase.from("projects").update({
+      if (updateLogError) throw updateLogError;
+      const { error: projectUpdateError } = await supabase.from("projects").update({
         current_stage_id: stageId, progress_pct: progress,
       }).eq("id", id!);
+      if (projectUpdateError) throw projectUpdateError;
       await recalcProjectVelocity(id!);
-      try { await autoGenerateForecastForCurrentStage(id!); } catch { /* ignore */ }
+      const generated = await autoGenerateForecastForCurrentStage(id!);
       toast.success("Update logged · forecast refreshed");
       setNote("");
-      qc.invalidateQueries({ queryKey: ["project", id] });
-      qc.invalidateQueries({ queryKey: ["updates", id] });
-      qc.invalidateQueries({ queryKey: ["forecasts", id] });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["project", id] }),
+        qc.invalidateQueries({ queryKey: ["updates", id] }),
+        qc.invalidateQueries({ queryKey: ["forecasts", id] }),
+        qc.invalidateQueries({ queryKey: ["all-forecasts"] }),
+      ]);
+      qc.setQueryData(["last-forecast-generation", id], generated);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally { setBusy(false); }
@@ -111,7 +117,10 @@ export default function OpsProjectDetail() {
     try {
       const { created } = await generateForecasts(id!);
       toast.success(`Generated ${created} forecast items`);
-      qc.invalidateQueries({ queryKey: ["forecasts", id] });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["forecasts", id] }),
+        qc.invalidateQueries({ queryKey: ["all-forecasts"] }),
+      ]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally { setGenBusy(false); }
@@ -303,16 +312,7 @@ function ForecastsPanel({ forecasts, projectId, qc, project }: { forecasts: any[
   const sendToCustomer = async (forecast: any) => {
     try {
       setSending(true);
-      // Resolve customer phone from project owner profile
-      let phone: string | null = null;
-      if (project?.owner_id) {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("phone")
-          .eq("id", project.owner_id)
-          .maybeSingle();
-        phone = profile?.phone ?? null;
-      }
+      const phone = project?.customer_phone ?? null;
       if (!phone) {
         toast.error("No customer phone on file for this project");
         return;
@@ -388,7 +388,7 @@ function ForecastsPanel({ forecasts, projectId, qc, project }: { forecasts: any[
                     Generate WhatsApp Brief
                   </Button>
                 )}
-                {(latest.status === "approved" || latest.status === "sent") && (
+                {(latest.forecast_items ?? []).length > 0 && (
                   <Button
                     size="sm"
                     onClick={() => sendToCustomer(latest)}
