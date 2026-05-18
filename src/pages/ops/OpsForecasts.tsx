@@ -86,6 +86,8 @@ export default function OpsForecasts() {
         toast.error("Please sign in again.");
         return;
       }
+      console.log('Sending WhatsApp to:', to);
+      console.log('Message body:', message);
       const { data, error } = await supabase.functions.invoke("whatsapp-send", {
         body: { to, message },
       });
