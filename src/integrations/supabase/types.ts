@@ -165,6 +165,7 @@ export type Database = {
           id: string
           project_id: string
           status: string
+          whatsapp_sent_at: string | null
         }
         Insert: {
           approved_at?: string | null
@@ -175,6 +176,7 @@ export type Database = {
           id?: string
           project_id: string
           status?: string
+          whatsapp_sent_at?: string | null
         }
         Update: {
           approved_at?: string | null
@@ -185,6 +187,7 @@ export type Database = {
           id?: string
           project_id?: string
           status?: string
+          whatsapp_sent_at?: string | null
         }
         Relationships: [
           {
