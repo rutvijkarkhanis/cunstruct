@@ -100,10 +100,12 @@ export default function OpsProjectDetail() {
       const generated = await autoGenerateForecastForCurrentStage(id!);
       toast.success("Update logged · forecast refreshed");
       setNote("");
-      qc.invalidateQueries({ queryKey: ["project", id] });
-      qc.invalidateQueries({ queryKey: ["updates", id] });
-      qc.invalidateQueries({ queryKey: ["forecasts", id] });
-      qc.invalidateQueries({ queryKey: ["all-forecasts"] });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["project", id] }),
+        qc.invalidateQueries({ queryKey: ["updates", id] }),
+        qc.invalidateQueries({ queryKey: ["forecasts", id] }),
+        qc.invalidateQueries({ queryKey: ["all-forecasts"] }),
+      ]);
       qc.setQueryData(["last-forecast-generation", id], generated);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
@@ -115,7 +117,10 @@ export default function OpsProjectDetail() {
     try {
       const { created } = await generateForecasts(id!);
       toast.success(`Generated ${created} forecast items`);
-      qc.invalidateQueries({ queryKey: ["forecasts", id] });
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["forecasts", id] }),
+        qc.invalidateQueries({ queryKey: ["all-forecasts"] }),
+      ]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally { setGenBusy(false); }
