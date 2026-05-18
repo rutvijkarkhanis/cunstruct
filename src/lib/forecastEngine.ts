@@ -189,20 +189,42 @@ export async function generateForecasts(projectId: string): Promise<{ created: n
       }
     }
 
-    const { data: forecast, error } = await supabase
+    if (itemsForHorizon.length === 0) continue;
+
+    // Find existing forecast for this project+horizon in draft/sent/approved
+    const { data: existing } = await supabase
       .from("forecasts")
-      .insert({ project_id: projectId, horizon_days: horizon, status: "draft" })
-      .select().single();
-    if (error) throw error;
-    if (itemsForHorizon.length) {
-      const { error: itemsErr } = await supabase
-        .from("forecast_items")
-        .insert(itemsForHorizon.map(i => ({ ...i, forecast_id: forecast.id })));
-      if (itemsErr) throw itemsErr;
-      created += itemsForHorizon.length;
+      .select("id, status")
+      .eq("project_id", projectId)
+      .eq("horizon_days", horizon)
+      .in("status", ["draft", "sent", "approved"])
+      .order("generated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    let forecastId: string;
+    if (existing) {
+      forecastId = existing.id;
+      await supabase.from("forecast_items").delete().eq("forecast_id", forecastId);
+      await supabase.from("forecasts")
+        .update({ generated_at: new Date().toISOString() })
+        .eq("id", forecastId);
+    } else {
+      const { data: forecast, error } = await supabase
+        .from("forecasts")
+        .insert({ project_id: projectId, horizon_days: horizon, status: "draft" })
+        .select().single();
+      if (error) throw error;
+      forecastId = forecast.id;
     }
+    const { error: itemsErr } = await supabase
+      .from("forecast_items")
+      .insert(itemsForHorizon.map(i => ({ ...i, forecast_id: forecastId })));
+    if (itemsErr) throw itemsErr;
+    created += itemsForHorizon.length;
   }
 
+  await cleanupEmptyForecasts(projectId);
   return { created };
 }
 
