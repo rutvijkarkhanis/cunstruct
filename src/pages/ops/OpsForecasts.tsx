@@ -81,10 +81,16 @@ export default function OpsForecasts() {
         `Estimated Total: ₹${Math.round(total).toLocaleString("en-IN")}\n\n` +
         `Reply:\n1 - Confirm\n2 - Modify\n3 - Call Me`;
       const to = String(phone).replace(/[^0-9]/g, "");
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData?.session) {
+        toast.error("Please sign in again.");
+        return;
+      }
       const { data, error } = await supabase.functions.invoke("whatsapp-send", {
         body: { to, message },
       });
       if (error || !data?.success) {
+        console.error("whatsapp-send error:", { error, data });
         throw new Error(error?.message || data?.error || "WhatsApp send failed");
       }
       await supabase.from("forecasts").update({
