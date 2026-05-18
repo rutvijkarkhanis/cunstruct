@@ -1,20 +1,26 @@
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { AlertTriangle, Sparkles, Send } from "lucide-react";
 import { formatINR, formatDateShort } from "@/lib/forecastEngine";
 import { formatDistanceToNow } from "date-fns";
+import { useState } from "react";
+import { toast } from "sonner";
 
 export default function OpsForecasts() {
+  const qc = useQueryClient();
+  const [sendingId, setSendingId] = useState<string | null>(null);
+
   const { data: forecasts, isLoading } = useQuery({
     queryKey: ["all-forecasts"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("forecasts")
         .select(
-          "id, project_id, horizon_days, status, generated_at, projects:project_id(name, location), forecast_items(id, product_name, qty_estimated, unit, budget_estimated, order_by_date, risk_flag, confidence, notes, status)"
+          "id, project_id, horizon_days, status, generated_at, whatsapp_sent_at, projects:project_id(name, location, owner_id, profiles:owner_id(phone)), forecast_items(id, product_name, qty_estimated, unit, budget_estimated, order_by_date, risk_flag, confidence, notes, status)"
         )
         .order("generated_at", { ascending: false })
         .limit(50);
@@ -22,6 +28,43 @@ export default function OpsForecasts() {
       return data ?? [];
     },
   });
+
+  const sendToCustomer = async (f: any) => {
+    const phone = f.projects?.profiles?.phone;
+    const items = f.forecast_items ?? [];
+    if (!phone || !items.length) return;
+    setSendingId(f.id);
+    try {
+      const lines = items.map((i: any) =>
+        `• ${i.qty_estimated} ${i.unit ?? ""} ${i.product_name}`.replace(/\s+/g, " ").trim()
+      );
+      const total = items.reduce(
+        (s: number, i: any) => s + Number(i.budget_estimated ?? 0), 0,
+      );
+      const message =
+        `🏗️ Based on your site progress, you may need:\n\n` +
+        `${lines.join("\n")}\n\n` +
+        `Estimated Total: ₹${Math.round(total).toLocaleString("en-IN")}\n\n` +
+        `Reply:\n1 - Confirm\n2 - Modify\n3 - Call Me`;
+      const to = String(phone).replace(/[^0-9]/g, "");
+      const { data, error } = await supabase.functions.invoke("whatsapp-send", {
+        body: { to, message },
+      });
+      if (error || !data?.success) {
+        throw new Error(error?.message || data?.error || "WhatsApp send failed");
+      }
+      await supabase.from("forecasts").update({
+        whatsapp_sent_at: new Date().toISOString(),
+        status: "sent",
+      }).eq("id", f.id);
+      toast.success("Forecast sent successfully.");
+      qc.invalidateQueries({ queryKey: ["all-forecasts"] });
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to send forecast");
+    } finally {
+      setSendingId(null);
+    }
+  };
 
   return (
     <div className="p-8 space-y-6">
@@ -49,6 +92,8 @@ export default function OpsForecasts() {
             (s: number, i: any) => s + Number(i.budget_estimated ?? 0),
             0,
           );
+          const phone = f.projects?.profiles?.phone;
+          const canSend = items.length > 0 && !!phone;
           return (
             <Card key={f.id} className="p-5">
               <div className="flex items-start justify-between mb-3">
@@ -70,6 +115,21 @@ export default function OpsForecasts() {
                     <Badge variant="destructive" className="gap-1">
                       <AlertTriangle className="w-3 h-3" /> {risks.length} at risk
                     </Badge>
+                  )}
+                  {canSend && (
+                    <Button
+                      size="sm"
+                      onClick={() => sendToCustomer(f)}
+                      disabled={sendingId === f.id}
+                      className="gap-1"
+                    >
+                      <Send className="w-3 h-3" />
+                      {sendingId === f.id
+                        ? "Sending…"
+                        : f.whatsapp_sent_at
+                          ? "Resend"
+                          : "Send to Customer"}
+                    </Button>
                   )}
                 </div>
               </div>

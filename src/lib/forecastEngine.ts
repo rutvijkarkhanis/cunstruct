@@ -189,20 +189,42 @@ export async function generateForecasts(projectId: string): Promise<{ created: n
       }
     }
 
-    const { data: forecast, error } = await supabase
+    if (itemsForHorizon.length === 0) continue;
+
+    // Find existing forecast for this project+horizon in draft/sent/approved
+    const { data: existing } = await supabase
       .from("forecasts")
-      .insert({ project_id: projectId, horizon_days: horizon, status: "draft" })
-      .select().single();
-    if (error) throw error;
-    if (itemsForHorizon.length) {
-      const { error: itemsErr } = await supabase
-        .from("forecast_items")
-        .insert(itemsForHorizon.map(i => ({ ...i, forecast_id: forecast.id })));
-      if (itemsErr) throw itemsErr;
-      created += itemsForHorizon.length;
+      .select("id, status")
+      .eq("project_id", projectId)
+      .eq("horizon_days", horizon)
+      .in("status", ["draft", "sent", "approved"])
+      .order("generated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    let forecastId: string;
+    if (existing) {
+      forecastId = existing.id;
+      await supabase.from("forecast_items").delete().eq("forecast_id", forecastId);
+      await supabase.from("forecasts")
+        .update({ generated_at: new Date().toISOString() })
+        .eq("id", forecastId);
+    } else {
+      const { data: forecast, error } = await supabase
+        .from("forecasts")
+        .insert({ project_id: projectId, horizon_days: horizon, status: "draft" })
+        .select().single();
+      if (error) throw error;
+      forecastId = forecast.id;
     }
+    const { error: itemsErr } = await supabase
+      .from("forecast_items")
+      .insert(itemsForHorizon.map(i => ({ ...i, forecast_id: forecastId })));
+    if (itemsErr) throw itemsErr;
+    created += itemsForHorizon.length;
   }
 
+  await cleanupEmptyForecasts(projectId);
   return { created };
 }
 
@@ -246,17 +268,7 @@ export async function autoGenerateForecastForCurrentStage(
   const today = new Date();
   const todayIso = today.toISOString().slice(0, 10);
 
-  const { data: forecast, error: fErr } = await supabase
-    .from("forecasts")
-    .insert({
-      project_id: projectId,
-      horizon_days: stage?.typical_duration_days ?? 30,
-      status: "approved",
-      approved_at: new Date().toISOString(),
-    })
-    .select()
-    .single();
-  if (fErr || !forecast) throw fErr ?? new Error("Failed to create forecast");
+  const horizonDays = stage?.typical_duration_days ?? 30;
 
   const items = mappings.map((m: any) => {
     const p: any = productMap.get(m.product_id);
@@ -287,7 +299,6 @@ export async function autoGenerateForecastForCurrentStage(
       isCritical && hasLead ? "high" : hasLead ? "medium" : "low";
 
     return {
-      forecast_id: forecast.id,
       product_id: m.product_id,
       product_name: p?.name ?? m.product_name ?? m.product_id,
       stage_id: m.stage_id,
@@ -304,7 +315,47 @@ export async function autoGenerateForecastForCurrentStage(
     };
   });
 
-  const { error: itemsErr } = await supabase.from("forecast_items").insert(items);
+  if (items.length === 0) {
+    await cleanupEmptyForecasts(projectId);
+    return { created: 0, forecastId: null, skipped: "no_items" };
+  }
+
+  // Reuse existing forecast for same project+horizon if still active
+  const { data: existing } = await supabase
+    .from("forecasts")
+    .select("id, status")
+    .eq("project_id", projectId)
+    .eq("horizon_days", horizonDays)
+    .in("status", ["draft", "sent", "approved"])
+    .order("generated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  let forecast: { id: string };
+  if (existing) {
+    forecast = { id: existing.id };
+    await supabase.from("forecast_items").delete().eq("forecast_id", existing.id);
+    await supabase.from("forecasts")
+      .update({ generated_at: new Date().toISOString() })
+      .eq("id", existing.id);
+  } else {
+    const { data: created, error: fErr } = await supabase
+      .from("forecasts")
+      .insert({
+        project_id: projectId,
+        horizon_days: horizonDays,
+        status: "approved",
+        approved_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+    if (fErr || !created) throw fErr ?? new Error("Failed to create forecast");
+    forecast = { id: created.id };
+  }
+
+  const { error: itemsErr } = await supabase
+    .from("forecast_items")
+    .insert(items.map((i) => ({ ...i, forecast_id: forecast.id })));
   if (itemsErr) throw itemsErr;
 
   // Generate WhatsApp briefing draft (best-effort)
@@ -319,7 +370,28 @@ export async function autoGenerateForecastForCurrentStage(
     /* non-fatal */
   }
 
+  await cleanupEmptyForecasts(projectId);
   return { created: items.length, forecastId: forecast.id };
+}
+
+/** Delete forecasts that have no items and zero estimated value. */
+export async function cleanupEmptyForecasts(projectId?: string): Promise<number> {
+  let query = supabase
+    .from("forecasts")
+    .select("id, forecast_items(id, budget_estimated)");
+  if (projectId) query = query.eq("project_id", projectId);
+  const { data: rows } = await query;
+  const empties = (rows ?? []).filter((f: any) => {
+    const items = f.forecast_items ?? [];
+    if (items.length > 0) return false;
+    const total = items.reduce(
+      (s: number, i: any) => s + Number(i.budget_estimated ?? 0), 0,
+    );
+    return total === 0;
+  });
+  if (!empties.length) return 0;
+  await supabase.from("forecasts").delete().in("id", empties.map((e: any) => e.id));
+  return empties.length;
 }
 
 /** Build the Monday WhatsApp briefing text from an approved forecast. */
