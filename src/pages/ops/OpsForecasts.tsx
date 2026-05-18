@@ -91,7 +91,7 @@ export default function OpsForecasts() {
       });
       if (error || !data?.success) {
         console.error("whatsapp-send error:", { error, data });
-        throw new Error(error?.message || data?.error || "WhatsApp send failed");
+        throw new Error(data?.error || error?.message || "WhatsApp send failed");
       }
       await supabase.from("forecasts").update({
         whatsapp_sent_at: new Date().toISOString(),
