@@ -84,14 +84,26 @@ Deno.serve(async (req) => {
           success: false,
           error: data.error?.message || "WhatsApp API error",
           whatsappError: data.error,
-          status: response.status,
+          metaResponse: data,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
+    const messageId = data?.messages?.[0]?.id;
+    if (messageId) {
+      return new Response(
+        JSON.stringify({ success: true, to, messageId, metaResponse: data }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     return new Response(
-      JSON.stringify({ success: true, response: data }),
+      JSON.stringify({
+        success: false,
+        error: "Meta did not return a message ID.",
+        metaResponse: data,
+      }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
