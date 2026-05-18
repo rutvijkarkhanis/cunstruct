@@ -89,15 +89,20 @@ export default function OpsForecasts() {
       const { data, error } = await supabase.functions.invoke("whatsapp-send", {
         body: { to, message },
       });
-      if (error || !data?.success) {
-        console.error("whatsapp-send error:", { error, data });
-        throw new Error(data?.error || error?.message || "WhatsApp send failed");
+      console.log("whatsapp-send response:", { data, error });
+      if (error) {
+        toast.error(error.message || "Failed to send WhatsApp message.");
+        return;
+      }
+      if (data?.success === false) {
+        toast.error(data.error || "Failed to send WhatsApp message.");
+        return;
       }
       await supabase.from("forecasts").update({
         whatsapp_sent_at: new Date().toISOString(),
         status: "sent",
       }).eq("id", f.id);
-      toast.success("Forecast sent successfully.");
+      toast.success("WhatsApp message sent successfully.");
       qc.invalidateQueries({ queryKey: ["all-forecasts"] });
     } catch (err: any) {
       toast.error(err?.message || "Failed to send forecast");
