@@ -169,6 +169,8 @@ export default function OpsProjects() {
 function OnboardWizard({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState("");
   const [clientName, setClientName] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
   const [location, setLocation] = useState("");
   const [projectType, setProjectType] = useState("Residential");
   const [scope, setScope] = useState("Turnkey");
@@ -201,6 +203,8 @@ function OnboardWizard({ onDone }: { onDone: () => void }) {
         .insert({
           name,
           client_name: clientName,
+          customer_name: customerName || null,
+          customer_phone: customerPhone || null,
           location,
           project_type: projectType,
           scope,
@@ -253,6 +257,16 @@ function OnboardWizard({ onDone }: { onDone: () => void }) {
         <div>
           <Label>Location</Label>
           <Input value={location} onChange={(e) => setLocation(e.target.value)} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>Customer name</Label>
+          <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
+        </div>
+        <div>
+          <Label>Customer phone</Label>
+          <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="9198XXXXXXXX" />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
