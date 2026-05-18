@@ -47,6 +47,9 @@ Deno.serve(async (req) => {
     );
   }
 
+  console.log("WHATSAPP_ACCESS_TOKEN prefix:", accessToken.slice(0, 10));
+  console.log("WHATSAPP_ACCESS_TOKEN length:", accessToken.length);
+
   const url = `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`;
 
   try {
@@ -66,6 +69,7 @@ Deno.serve(async (req) => {
     });
 
     const data = await response.json();
+    console.log("Meta API response body:", JSON.stringify(data));
 
     if (!response.ok) {
       return new Response(
