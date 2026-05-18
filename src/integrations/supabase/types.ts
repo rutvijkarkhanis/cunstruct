@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      callback_tasks: {
+        Row: {
+          created_at: string
+          customer_phone: string
+          id: string
+          notes: string | null
+          project_id: string | null
+          resolved_at: string | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          customer_phone: string
+          id?: string
+          notes?: string | null
+          project_id?: string | null
+          resolved_at?: string | null
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          customer_phone?: string
+          id?: string
+          notes?: string | null
+          project_id?: string | null
+          resolved_at?: string | null
+          status?: string
+        }
+        Relationships: []
+      }
       forecast_accuracy: {
         Row: {
           actual_qty: number
@@ -435,6 +465,42 @@ export type Database = {
           },
         ]
       }
+      sales_orders: {
+        Row: {
+          created_at: string
+          customer_phone: string | null
+          forecast_id: string | null
+          id: string
+          project_id: string | null
+          source: string
+          status: string
+          total_amount: number | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          customer_phone?: string | null
+          forecast_id?: string | null
+          id?: string
+          project_id?: string | null
+          source?: string
+          status?: string
+          total_amount?: number | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          customer_phone?: string | null
+          forecast_id?: string | null
+          id?: string
+          project_id?: string | null
+          source?: string
+          status?: string
+          total_amount?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       stage_master: {
         Row: {
           created_at: string
@@ -665,36 +731,45 @@ export type Database = {
           content: string
           contractor_reply: string | null
           created_at: string
+          direction: string
+          from_phone: string | null
           generated_at: string
           id: string
           message_type: string
           project_id: string
           sent_at: string | null
           updated_at: string
+          wa_message_id: string | null
         }
         Insert: {
           approved_by?: string | null
           content: string
           contractor_reply?: string | null
           created_at?: string
+          direction?: string
+          from_phone?: string | null
           generated_at?: string
           id?: string
           message_type: string
           project_id: string
           sent_at?: string | null
           updated_at?: string
+          wa_message_id?: string | null
         }
         Update: {
           approved_by?: string | null
           content?: string
           contractor_reply?: string | null
           created_at?: string
+          direction?: string
+          from_phone?: string | null
           generated_at?: string
           id?: string
           message_type?: string
           project_id?: string
           sent_at?: string | null
           updated_at?: string
+          wa_message_id?: string | null
         }
         Relationships: [
           {
