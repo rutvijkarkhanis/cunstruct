@@ -277,8 +277,7 @@ export async function autoGenerateForecastForCurrentStage(
 
   if (!project) {
     LOG("Project loaded: NONE", { projectId });
-    toast.error("No forecast items were generated. Check diagnostic logs.");
-    return { created: 0, forecastId: null, skipped: "no_project" };
+    throw new Error("Project not found");
   }
 
   LOG("Project loaded", {
@@ -286,38 +285,40 @@ export async function autoGenerateForecastForCurrentStage(
     name: project.name,
     current_stage_id: project.current_stage_id,
   });
+  LOG("project.current_stage_id", project.current_stage_id);
 
   if (!project.current_stage_id) {
     LOG("Skipped: project has no current_stage_id", { projectId: project.id });
-    toast.error("No forecast items were generated. Check diagnostic logs.");
-    return { created: 0, forecastId: null, skipped: "no_stage" };
+    throw new Error("Project has no current_stage_id.");
   }
+  const currentStageId = project.current_stage_id;
 
   // 2. Load stage info
   const { data: stage } = await supabase
     .from("stage_master")
     .select("name, typical_duration_days")
-    .eq("id", project.current_stage_id)
+    .eq("id", currentStageId)
     .single();
 
   // 3. Load stage mappings
   const { data: mappings } = await supabase
     .from("stage_material_mapping")
     .select("*")
-    .eq("stage_id", project.current_stage_id);
+    .eq("stage_id", currentStageId);
 
   LOG("Stage mappings query", {
+    current_stage_id: currentStageId,
     count: mappings?.length ?? 0,
     product_ids: mappings?.map((m: any) => m.product_id) ?? [],
   });
 
   if (!mappings || mappings.length === 0) {
     LOG("Skipped: zero mappings for stage", {
-      stage_id: project.current_stage_id,
+      current_stage_id: currentStageId,
       stage_name: stage?.name,
+      reason: "No stage_material_mapping rows matched project.current_stage_id",
     });
-    toast.error("No forecast items were generated. Check diagnostic logs.");
-    return { created: 0, forecastId: null, skipped: "no_mappings" };
+    throw new Error("No stage mappings found for current_stage_id.");
   }
 
   // 4. Load products
@@ -334,9 +335,7 @@ export async function autoGenerateForecastForCurrentStage(
 
   if (!products || products.length === 0) {
     LOG("Skipped: no product rows for mapped SKUs", { productIds });
-    throw new Error(
-      `No rows found in product table for mapped SKUs: ${productIds.join(", ")}`,
-    );
+    throw new Error("No matching products found.");
   }
   const productMap = new Map((products ?? []).map((p: any) => [p.id, p]));
 
