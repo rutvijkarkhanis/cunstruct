@@ -340,7 +340,11 @@ export async function autoGenerateForecastForCurrentStage(
 
   const today = new Date();
   const todayIso = today.toISOString().slice(0, 10);
-  const horizonDays = stage?.typical_duration_days ?? 30;
+  // forecasts.horizon_days has a CHECK constraint: must be 7, 14, or 30.
+  const rawDuration = Number(stage?.typical_duration_days ?? 30);
+  const horizonDays: 7 | 14 | 30 =
+    rawDuration <= 7 ? 7 : rawDuration <= 14 ? 14 : 30;
+  LOG("Horizon resolved", { typical_duration_days: rawDuration, horizonDays });
 
   // 5. Generate items
   const items = mappings.map((m: any) => {
