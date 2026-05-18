@@ -392,7 +392,7 @@ function ForecastsPanel({ forecasts, projectId, qc, project }: { forecasts: any[
                     Generate WhatsApp Brief
                   </Button>
                 )}
-                {(latest.status === "approved" || latest.status === "sent") && (
+                {(latest.forecast_items ?? []).length > 0 && (
                   <Button
                     size="sm"
                     onClick={() => sendToCustomer(latest)}
