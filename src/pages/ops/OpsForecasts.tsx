@@ -20,7 +20,7 @@ export default function OpsForecasts() {
       const { data, error } = await supabase
         .from("forecasts")
         .select(
-          "id, project_id, horizon_days, status, generated_at, whatsapp_sent_at, projects:project_id(name, location, owner_id, customer_phone, profiles:owner_id(phone)), forecast_items(id, product_name, qty_estimated, unit, budget_estimated, order_by_date, risk_flag, confidence, notes, status)"
+          "id, project_id, horizon_days, status, generated_at, whatsapp_sent_at, projects:project_id(name, location, owner_id, customer_phone), forecast_items(id, product_name, qty_estimated, unit, budget_estimated, order_by_date, risk_flag, confidence, notes, status)"
         )
         .order("generated_at", { ascending: false })
         .limit(50);
@@ -30,7 +30,7 @@ export default function OpsForecasts() {
   });
 
   const sendToCustomer = async (f: any) => {
-    const phone = f.projects?.customer_phone ?? f.projects?.profiles?.phone;
+    const phone = f.projects?.customer_phone;
     const items = f.forecast_items ?? [];
     if (!items.length) return;
     if (!phone) {
