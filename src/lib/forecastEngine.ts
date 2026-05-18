@@ -1,4 +1,27 @@
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+
+const FORECASTS_TABLE_SCHEMA = {
+  columns: [
+    "id",
+    "project_id",
+    "generated_at",
+    "horizon_days",
+    "status",
+    "approved_at",
+    "approved_by",
+    "created_at",
+    "whatsapp_sent_at",
+  ],
+  notNull: ["id", "project_id", "generated_at", "horizon_days", "status", "created_at"],
+  defaults: {
+    id: "gen_random_uuid()",
+    generated_at: "now()",
+    status: "draft",
+    created_at: "now()",
+  },
+  statusValues: ["draft", "approved", "sent"],
+} as const;
 
 // Diagnostic logger prefix for easy filtering in console
 const LOG = (label: string, data?: any) => {
@@ -442,30 +465,67 @@ export async function autoGenerateForecastForCurrentStage(
       project_id: projectId,
       horizon_days: horizonDays,
       status: "approved",
-      approved_at: new Date().toISOString(),
-    };
+    } as const;
+    const payloadKeys = Object.keys(forecastPayload);
+    const invalidKeys = payloadKeys.filter(
+      (key) => !FORECASTS_TABLE_SCHEMA.columns.includes(key as any),
+    );
+    const missingRequiredKeys = FORECASTS_TABLE_SCHEMA.notNull.filter(
+      (key) =>
+        !(key in FORECASTS_TABLE_SCHEMA.defaults) &&
+        !payloadKeys.includes(key),
+    );
     LOG("Forecasts insert payload", forecastPayload);
-    const { data: created, error: fErr } = await supabase
-      .from("forecasts")
-      .insert(forecastPayload)
-      .select()
-      .single();
-    if (fErr || !created) {
-      console.error("[ForecastDiag] Forecasts insert error (full):", fErr);
-      LOG("Forecasts insert error", {
-        message: fErr?.message,
-        details: (fErr as any)?.details,
-        hint: (fErr as any)?.hint,
-        code: (fErr as any)?.code,
+    LOG("Forecasts schema comparison", {
+      schema: FORECASTS_TABLE_SCHEMA,
+      payload_keys: payloadKeys,
+      invalid_payload_keys: invalidKeys,
+      missing_required_without_defaults: missingRequiredKeys,
+      status_is_valid: FORECASTS_TABLE_SCHEMA.statusValues.includes(forecastPayload.status),
+    });
+    if (invalidKeys.length > 0) {
+      throw new Error(`Forecast payload contains invalid fields: ${invalidKeys.join(", ")}`);
+    }
+    if (missingRequiredKeys.length > 0) {
+      throw new Error(`Forecast payload missing required fields: ${missingRequiredKeys.join(", ")}`);
+    }
+    if (!FORECASTS_TABLE_SCHEMA.statusValues.includes(forecastPayload.status)) {
+      throw new Error(`Invalid forecast status: ${forecastPayload.status}`);
+    }
+
+    try {
+      const { data: created, error: fErr } = await supabase
+        .from("forecasts")
+        .insert(forecastPayload)
+        .select()
+        .single();
+      if (fErr || !created) {
+        const message = fErr?.message ?? "Failed to create forecast";
+        console.error("[ForecastDiag] Forecasts insert error (full):", fErr);
+        LOG("Forecasts insert error", {
+          message: fErr?.message,
+          details: (fErr as any)?.details,
+          hint: (fErr as any)?.hint,
+          code: (fErr as any)?.code,
+          payload: forecastPayload,
+        });
+        toast.error(message);
+        throw new Error(message);
+      }
+      forecast = { id: created.id };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to create forecast";
+      console.error("[ForecastDiag] Forecasts insert exception (full):", err);
+      LOG("Forecasts insert exception", {
+        message,
+        details: (err as any)?.details,
+        hint: (err as any)?.hint,
+        code: (err as any)?.code,
         payload: forecastPayload,
       });
-      throw new Error(
-        `Failed to create forecast: ${fErr?.message ?? "unknown error"}${
-          (fErr as any)?.details ? ` — ${(fErr as any).details}` : ""
-        }`,
-      );
+      toast.error(message);
+      throw err instanceof Error ? err : new Error(message);
     }
-    forecast = { id: created.id };
   }
 
   const itemsPayload = items.map((i) => ({ ...i, forecast_id: forecast.id }));
