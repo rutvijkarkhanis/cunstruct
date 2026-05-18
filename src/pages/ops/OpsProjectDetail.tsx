@@ -312,15 +312,7 @@ function ForecastsPanel({ forecasts, projectId, qc, project }: { forecasts: any[
   const sendToCustomer = async (forecast: any) => {
     try {
       setSending(true);
-      let phone: string | null = project?.customer_phone ?? null;
-      if (project?.owner_id) {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("phone")
-          .eq("id", project.owner_id)
-          .maybeSingle();
-        phone = phone ?? profile?.phone ?? null;
-      }
+      const phone = project?.customer_phone ?? null;
       if (!phone) {
         toast.error("No customer phone on file for this project");
         return;
