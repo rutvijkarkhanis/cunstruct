@@ -92,8 +92,7 @@ export default function OpsForecasts() {
             (s: number, i: any) => s + Number(i.budget_estimated ?? 0),
             0,
           );
-          const phone = f.projects?.profiles?.phone;
-          const canSend = items.length > 0 && !!phone;
+          const canSend = items.length > 0;
           return (
             <Card key={f.id} className="p-5">
               <div className="flex items-start justify-between mb-3">
