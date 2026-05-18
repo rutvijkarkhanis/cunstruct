@@ -60,8 +60,10 @@ export default function OpsProjects() {
         const auto = await autoGenerateForecastForCurrentStage(projectId);
         await generateForecasts(projectId);
         toast.success(`Activated · ${auto.created} current-stage items forecasted`);
-      } catch {
+      } catch (err) {
+        console.error("[Forecast] autoGenerateForecastForCurrentStage failed:", err);
         toast.success("Project activated");
+        toast.error(err instanceof Error ? err.message : "Forecast generation failed");
       }
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["pending-review-count"] });
