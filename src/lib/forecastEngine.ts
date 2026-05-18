@@ -1,4 +1,15 @@
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+
+// Diagnostic logger prefix for easy filtering in console
+const LOG = (label: string, data?: any) => {
+  const prefix = "[ForecastDiag]";
+  if (data !== undefined) {
+    console.log(prefix, label, data);
+  } else {
+    console.log(prefix, label);
+  }
+};
 
 export const formatINR = (n: number | null | undefined): string => {
   if (n == null || isNaN(Number(n))) return "—";
@@ -257,34 +268,72 @@ export async function generateForecasts(projectId: string): Promise<{ created: n
 export async function autoGenerateForecastForCurrentStage(
   projectId: string,
 ): Promise<{ created: number; forecastId: string | null; skipped?: string }> {
+  // 1. Load project
   const { data: project } = await supabase
     .from("projects")
     .select("id, current_stage_id, area_sqft, owner_id, name, location, status")
     .eq("id", projectId)
     .single();
-  if (!project) return { created: 0, forecastId: null, skipped: "no_project" };
-  if (!project.current_stage_id) return { created: 0, forecastId: null, skipped: "no_stage" };
 
+  if (!project) {
+    LOG("Project loaded: NONE", { projectId });
+    toast.error("No forecast items were generated. Check diagnostic logs.");
+    return { created: 0, forecastId: null, skipped: "no_project" };
+  }
+
+  LOG("Project loaded", {
+    id: project.id,
+    name: project.name,
+    current_stage_id: project.current_stage_id,
+  });
+
+  if (!project.current_stage_id) {
+    LOG("Skipped: project has no current_stage_id", { projectId: project.id });
+    toast.error("No forecast items were generated. Check diagnostic logs.");
+    return { created: 0, forecastId: null, skipped: "no_stage" };
+  }
+
+  // 2. Load stage info
   const { data: stage } = await supabase
     .from("stage_master")
     .select("name, typical_duration_days")
     .eq("id", project.current_stage_id)
     .single();
 
+  // 3. Load stage mappings
   const { data: mappings } = await supabase
     .from("stage_material_mapping")
     .select("*")
     .eq("stage_id", project.current_stage_id);
+
+  LOG("Stage mappings query", {
+    count: mappings?.length ?? 0,
+    product_ids: mappings?.map((m: any) => m.product_id) ?? [],
+  });
+
   if (!mappings || mappings.length === 0) {
+    LOG("Skipped: zero mappings for stage", {
+      stage_id: project.current_stage_id,
+      stage_name: stage?.name,
+    });
+    toast.error("No forecast items were generated. Check diagnostic logs.");
     return { created: 0, forecastId: null, skipped: "no_mappings" };
   }
 
+  // 4. Load products
   const productIds = Array.from(new Set(mappings.map((m: any) => m.product_id)));
   const { data: products } = await supabase
     .from("product")
     .select("id, name, selling_price, lead_time_days, unit")
     .in("id", productIds);
+
+  LOG("Product query", {
+    count: products?.length ?? 0,
+    ids: products?.map((p: any) => p.id) ?? [],
+  });
+
   if (!products || products.length === 0) {
+    LOG("Skipped: no product rows for mapped SKUs", { productIds });
     throw new Error(
       `No rows found in product table for mapped SKUs: ${productIds.join(", ")}`,
     );
@@ -293,9 +342,9 @@ export async function autoGenerateForecastForCurrentStage(
 
   const today = new Date();
   const todayIso = today.toISOString().slice(0, 10);
-
   const horizonDays = stage?.typical_duration_days ?? 30;
 
+  // 5. Generate items
   const items = mappings.map((m: any) => {
     const p: any = productMap.get(m.product_id);
     const leadTime = Number(m.lead_time_days ?? p?.lead_time_days ?? 3);
@@ -324,6 +373,13 @@ export async function autoGenerateForecastForCurrentStage(
     const confidence: "high" | "medium" | "low" =
       isCritical && hasLead ? "high" : hasLead ? "medium" : "low";
 
+    LOG("Generated item", {
+      product_id: m.product_id,
+      qty,
+      unit_price: unitPrice,
+      total_value: budget,
+    });
+
     return {
       product_id: m.product_id,
       product_name: p?.name ?? m.product_name ?? m.product_id,
@@ -342,11 +398,23 @@ export async function autoGenerateForecastForCurrentStage(
   });
 
   if (items.length === 0) {
+    LOG("Skipped: zero items after generation", {
+      mappings_count: mappings.length,
+      products_count: products.length,
+      reason:
+        "mappings.map() produced empty array — check mapping/product join logic",
+    });
+    toast.error("No forecast items were generated. Check diagnostic logs.");
     await cleanupEmptyForecasts(projectId);
     return { created: 0, forecastId: null, skipped: "no_items" };
   }
 
-  // Reuse existing forecast for same project+horizon if still active
+  const totalForecastValue = items.reduce(
+    (sum: number, i: any) => sum + Number(i.budget_estimated ?? 0),
+    0,
+  );
+
+  // 6. Reuse or create forecast
   const { data: existing } = await supabase
     .from("forecasts")
     .select("id, status")
@@ -383,6 +451,14 @@ export async function autoGenerateForecastForCurrentStage(
     .from("forecast_items")
     .insert(items.map((i) => ({ ...i, forecast_id: forecast.id })));
   if (itemsErr) throw itemsErr;
+
+  // 7. Final result log
+  LOG("Final result", {
+    forecast_items_inserted: items.length,
+    total_forecast_value: totalForecastValue,
+    forecast_id: forecast.id,
+    horizon_days: horizonDays,
+  });
 
   // Generate WhatsApp briefing draft (best-effort)
   try {
