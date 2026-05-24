@@ -24,11 +24,13 @@ import OpsProjectDetail from "./pages/ops/OpsProjectDetail.tsx";
 import OpsStages from "./pages/ops/OpsStages.tsx";
 import OpsMappings from "./pages/ops/OpsMappings.tsx";
 import OpsForecasts from "./pages/ops/OpsForecasts.tsx";
+import ErrorBoundary from "./components/ErrorBoundary.tsx";
 
 
 const queryClient = new QueryClient();
 
 const App = () => (
+  <ErrorBoundary>
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <AuthProvider>
@@ -65,6 +67,7 @@ const App = () => (
       </AuthProvider>
     </TooltipProvider>
   </QueryClientProvider>
+  </ErrorBoundary>
 );
 
 export default App;

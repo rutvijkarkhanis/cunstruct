@@ -510,7 +510,7 @@ const ResultsPanel = ({
                   className="flex items-center gap-3 px-3 py-2 hover:bg-muted/50 transition-colors"
                 >
                   <img
-                    src={top.image_url}
+                    src={top.image_url || "/placeholder.svg"}
                     alt=""
                     className="h-10 w-10 rounded object-contain bg-muted shrink-0"
                     loading="lazy"
@@ -524,7 +524,7 @@ const ResultsPanel = ({
                     </p>
                   </div>
                   <span className="text-sm font-bold text-foreground shrink-0">
-                    ₹{(isFinite(min) ? min : top.selling_price).toLocaleString("en-IN")}
+                    ₹{((isFinite(min) ? min : top.selling_price) ?? 0).toLocaleString("en-IN")}
                   </span>
                 </Link>
               </li>
