@@ -5,6 +5,8 @@ import { useCart } from "@/context/CartContext";
 import { toast } from "sonner";
 import { extractVariantLabel } from "@/lib/productGroupUtils";
 
+const FALLBACK_IMG = "/placeholder.svg";
+
 export type ProductGroup = {
   groupName: string;
   products: Product[];
@@ -17,12 +19,12 @@ const GroupedProductCard = ({ group }: { group: ProductGroup }) => {
   const selected = group.products[selectedIdx];
   const hasVariants = group.products.length > 1;
   const brand = selected.brand ?? "";
-  const productName = group.groupName;
+  const productName = group.groupName ?? selected.name ?? "Product";
   const MAX_VISIBLE_VARIANTS = 2;
   const visibleVariants = group.products.slice(0, MAX_VISIBLE_VARIANTS);
   const hiddenCount = group.products.length - visibleVariants.length;
   const minPrice = Math.min(...group.products.map((p) => p.selling_price ?? Infinity));
-  const startingPrice = isFinite(minPrice) ? minPrice : selected.selling_price;
+  const startingPrice = isFinite(minPrice) ? minPrice : (selected.selling_price ?? 0);
 
   const handleAdd = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -32,7 +34,7 @@ const GroupedProductCard = ({ group }: { group: ProductGroup }) => {
       return;
     }
     addToCart(selected);
-    toast.success(`${selected.name} added to cart`);
+    toast.success(`${selected.name ?? "Item"} added to cart`);
   };
 
   return (
@@ -43,8 +45,8 @@ const GroupedProductCard = ({ group }: { group: ProductGroup }) => {
       {/* Image */}
       <div className="h-32 sm:h-36 lg:h-40 overflow-hidden bg-muted flex items-center justify-center p-3">
         <img
-          src={selected.image_url}
-          alt={group.groupName}
+          src={selected.image_url || FALLBACK_IMG}
+          alt={productName}
           loading="lazy"
           className="max-h-full max-w-full object-contain"
         />
@@ -68,7 +70,7 @@ const GroupedProductCard = ({ group }: { group: ProductGroup }) => {
           <>
             <div className="flex flex-wrap gap-1.5 mt-2">
               {visibleVariants.map((p) => {
-                const label = p.variant_name?.trim() || extractVariantLabel(p.name, productName);
+                const label = p.variant_name?.trim() || extractVariantLabel(p.name ?? "", productName);
                 return (
                   <span
                     key={p.id}
@@ -96,7 +98,7 @@ const GroupedProductCard = ({ group }: { group: ProductGroup }) => {
             {hasVariants && (
               <span className="text-[10px] text-muted-foreground leading-none">Starting at</span>
             )}
-            <span className="text-base font-bold text-foreground">₹{startingPrice}</span>
+            <span className="text-base font-bold text-foreground">₹{(startingPrice ?? 0).toLocaleString("en-IN")}</span>
           </div>
           <button
             onClick={handleAdd}
@@ -116,7 +118,7 @@ export default GroupedProductCard;
 export function groupProducts(products: Product[]): ProductGroup[] {
   const map = new Map<string, Product[]>();
   for (const p of products) {
-    const key = p.group_name?.trim() || p.name;
+    const key = (p.group_name?.trim() || p.name || p.id || "Untitled");
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(p);
   }
