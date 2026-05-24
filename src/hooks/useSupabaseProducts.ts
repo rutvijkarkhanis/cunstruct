@@ -8,7 +8,7 @@ export function useSupabaseProducts(category?: string | null) {
   return useQuery<Product[]>({
     queryKey: ["supabase-products", category],
     queryFn: async () => {
-      let query = supabase.from("product").select(PRODUCT_COLS);
+      let query = supabase.from("live_products").select(PRODUCT_COLS);
 
       if (category) {
         // category arg can be a main_category or subcategory; match either
@@ -30,7 +30,7 @@ export function useSupabaseProduct(id: string | undefined) {
     queryFn: async () => {
       if (!id) return null;
       const { data, error } = await supabase
-        .from("product")
+        .from("live_products")
         .select(PRODUCT_COLS)
         .eq("id", id)
         .single();
@@ -47,7 +47,7 @@ export function useSupabaseCategories() {
     queryKey: ["supabase-categories"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("product")
+        .from("live_products")
         .select("main_category");
 
       if (error) throw error;
@@ -63,7 +63,7 @@ export function useSupabaseSubcategories(mainCategory?: string | null) {
   return useQuery<string[]>({
     queryKey: ["supabase-subcategories", mainCategory],
     queryFn: async () => {
-      let query = supabase.from("product").select("subcategory, main_category");
+      let query = supabase.from("live_products").select("subcategory, main_category");
       if (mainCategory) {
         query = query.eq("main_category", mainCategory);
       }

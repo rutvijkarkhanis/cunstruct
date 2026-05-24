@@ -143,7 +143,7 @@ function MappingForm({ stages, onDone }: { stages: any[]; onDone: () => void }) 
     enabled: productSearch.length >= 2,
     queryFn: async () => {
       const { data } = await catalogSupabase
-        .from("product")
+        .from("live_products")
         .select("id, name, brand")
         .ilike("name", `%${productSearch}%`)
         .limit(10);
