@@ -1,14 +1,20 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase, Product } from "@/lib/supabase";
 
-const PRODUCT_COLS =
-  "id, name, brand, group_name, variant_name, selling_price, image_url, main_category, subcategory, weight, delivery_type, description, priority";
+const TABLE = "products_master";
+const PUBLISHED = "published";
+
+function logError(scope: string, error: unknown, extra?: Record<string, unknown>) {
+  // Temporary diagnostics for the products_master cutover.
+  // eslint-disable-next-line no-console
+  console.error(`[products_master] ${scope} failed`, { error, ...extra });
+}
 
 export function useSupabaseProducts(category?: string | null) {
   return useQuery<Product[]>({
     queryKey: ["supabase-products", category],
     queryFn: async () => {
-      let query = supabase.from("live_products").select(PRODUCT_COLS);
+      let query = supabase.from(TABLE).select("*").eq("status", PUBLISHED);
 
       if (category) {
         // category arg can be a main_category or subcategory; match either
@@ -18,8 +24,11 @@ export function useSupabaseProducts(category?: string | null) {
       }
 
       const { data, error } = await query;
-      if (error) throw error;
-      return data ?? [];
+      if (error) {
+        logError("list", error, { table: TABLE, category });
+        throw error;
+      }
+      return (data ?? []) as unknown as Product[];
     },
   });
 }
@@ -30,13 +39,17 @@ export function useSupabaseProduct(id: string | undefined) {
     queryFn: async () => {
       if (!id) return null;
       const { data, error } = await supabase
-        .from("live_products")
-        .select(PRODUCT_COLS)
+        .from(TABLE)
+        .select("*")
+        .eq("status", PUBLISHED)
         .eq("id", id)
-        .single();
+        .maybeSingle();
 
-      if (error) throw error;
-      return data;
+      if (error) {
+        logError("detail", error, { table: TABLE, id });
+        throw error;
+      }
+      return (data ?? null) as unknown as Product | null;
     },
     enabled: !!id,
   });
@@ -47,12 +60,16 @@ export function useSupabaseCategories() {
     queryKey: ["supabase-categories"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("live_products")
-        .select("main_category");
+        .from(TABLE)
+        .select("main_category")
+        .eq("status", PUBLISHED);
 
-      if (error) throw error;
+      if (error) {
+        logError("categories", error, { table: TABLE });
+        throw error;
+      }
       const unique = [
-        ...new Set((data ?? []).map((d) => d.main_category).filter(Boolean)),
+        ...new Set((data ?? []).map((d: any) => d.main_category).filter(Boolean)),
       ] as string[];
       return unique.sort();
     },
@@ -63,14 +80,20 @@ export function useSupabaseSubcategories(mainCategory?: string | null) {
   return useQuery<string[]>({
     queryKey: ["supabase-subcategories", mainCategory],
     queryFn: async () => {
-      let query = supabase.from("live_products").select("subcategory, main_category");
+      let query = supabase
+        .from(TABLE)
+        .select("subcategory, main_category")
+        .eq("status", PUBLISHED);
       if (mainCategory) {
         query = query.eq("main_category", mainCategory);
       }
       const { data, error } = await query;
-      if (error) throw error;
+      if (error) {
+        logError("subcategories", error, { table: TABLE, mainCategory });
+        throw error;
+      }
       const unique = [
-        ...new Set((data ?? []).map((d) => d.subcategory).filter(Boolean)),
+        ...new Set((data ?? []).map((d: any) => d.subcategory).filter(Boolean)),
       ] as string[];
       return unique.sort();
     },
