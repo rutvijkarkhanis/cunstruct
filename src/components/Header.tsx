@@ -2,7 +2,6 @@ import { Link } from "react-router-dom";
 import { ShoppingCart } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import SearchBar from "@/components/SearchBar";
-import logo from "@/assets/cunstruct-logo.png";
 
 const Header = () => {
   const { totalItems } = useCart();
@@ -10,8 +9,8 @@ const Header = () => {
   return (
     <header className="sticky top-0 z-50 bg-card/95 backdrop-blur-sm border-b">
       <div className="container flex items-center gap-3 h-14">
-        <Link to="/" aria-label="Cunstruct home" className="shrink-0 flex items-center">
-          <img src={logo} alt="Cunstruct" className="h-8 w-auto" />
+        <Link to="/" className="text-lg font-bold tracking-tight text-foreground shrink-0">
+          Cunstruct
         </Link>
         <SearchBar />
         <Link to="/cart" className="relative p-2 -mr-2 shrink-0">
