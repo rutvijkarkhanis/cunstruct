@@ -13,7 +13,7 @@ const groupMinPrice = (g: ProductGroup) =>
   Math.min(...g.products.map((p) => p.selling_price ?? Infinity));
 
 const groupHasFast = (g: ProductGroup) =>
-  g.products.some((p) => (p.priority ?? "").toLowerCase() === "fast");
+  g.products.some((p) => String(p.priority ?? "").toLowerCase() === "fast");
 
 export function sortGroups(groups: ProductGroup[], sort: SortOption): ProductGroup[] {
   const arr = [...groups];
@@ -39,7 +39,7 @@ export function sortGroups(groups: ProductGroup[], sort: SortOption): ProductGro
 
 export function deliveryTag(product: Product): { label: string; tone: "instant" | "same" | "request" } {
   const dt = (product.delivery_type ?? "").toLowerCase();
-  const pr = (product.priority ?? "").toLowerCase();
+  const pr = String(product.priority ?? "").toLowerCase();
   if (dt === "heavy" || dt === "on_request") return { label: "On Request", tone: "request" };
   if (pr === "fast" || dt === "light") return { label: "Instant", tone: "instant" };
   return { label: "Same Day", tone: "same" };

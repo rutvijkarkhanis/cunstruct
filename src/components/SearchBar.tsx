@@ -162,8 +162,8 @@ const SearchBar = ({ variant = "header", placeholder }: Props) => {
       return hay.includes(term);
     });
     matches.sort((a, b) => {
-      const af = (a.priority ?? "").toLowerCase() === "fast" ? 0 : 1;
-      const bf = (b.priority ?? "").toLowerCase() === "fast" ? 0 : 1;
+      const af = String(a.priority ?? "").toLowerCase() === "fast" ? 0 : 1;
+      const bf = String(b.priority ?? "").toLowerCase() === "fast" ? 0 : 1;
       return af - bf;
     });
     const productGroups = groupProducts(matches).slice(0, 5);
