@@ -138,11 +138,20 @@ const Index = () => {
     [allProducts],
   );
 
+  const orgJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "Cunstruct",
+    url: "https://cunstruct.com",
+    description: "Construction materials delivered in 30 minutes — cement, steel, tiles, plumbing, electrical and more.",
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <SEO
         canonicalPath="/"
         description="Cunstruct — construction materials delivered in 30 minutes. Browse cement, steel, tiles, plumbing, electrical products and pre-assembled job kits."
+        jsonLd={orgJsonLd}
       />
       {/* Contractor banner */}
       {showBanner && (
