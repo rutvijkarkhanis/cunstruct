@@ -1,0 +1,4 @@
+# Pre-rendered pages (dist/product/*/index.html, dist/products/index.html, etc.)
+# are served automatically as static files — Netlify checks the filesystem before
+# applying redirect rules. The catch-all below handles client-side-only routes.
+/*    /index.html    200

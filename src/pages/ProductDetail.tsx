@@ -94,8 +94,10 @@ const ProductDetail = () => {
     }
   };
 
+  const categoryLabel = product.subcategory || product.main_category;
   const description =
-    product.description?.trim() || "Standard construction-grade product. Contact for details.";
+    product.description?.trim() ||
+    `${brand ? brand + " " : ""}${productName}${categoryLabel ? " — " + categoryLabel : ""}. Construction-grade quality, delivered in 30 minutes by Cunstruct.`;
   const isLong = description.length > 160;
 
   const seoDescription = `${brand ? brand + " " : ""}${productName} — ${description.slice(0, 140)}${description.length > 140 ? "…" : ""}`;

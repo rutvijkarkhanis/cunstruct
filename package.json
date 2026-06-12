@@ -12,7 +12,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "fill-descriptions": "node scripts/fill-product-descriptions.mjs",
+    "fill-descriptions:dry": "DRY_RUN=1 node scripts/fill-product-descriptions.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
