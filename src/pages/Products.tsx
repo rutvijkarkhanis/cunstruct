@@ -10,6 +10,7 @@ import {
   useSupabaseCategories,
   useSupabaseSubcategories,
 } from "@/hooks/useSupabaseProducts";
+import SEO from "@/components/SEO";
 
 const Products = () => {
   const [params, setParams] = useSearchParams();
@@ -22,6 +23,11 @@ const Products = () => {
   const { data: subcategories } = useSupabaseSubcategories(mainCategory);
 
   const title = subcategory ?? mainCategory ?? "All Products";
+  const seoDescription = subcategory
+    ? `Buy ${subcategory} construction materials online. Fast 30-minute delivery.`
+    : mainCategory
+    ? `Shop ${mainCategory} products for construction. Cement, steel, tiles and more delivered in 30 minutes.`
+    : "Browse all construction materials — cement, steel, tiles, plumbing, electrical and more. 30-minute delivery.";
 
   const groups = products ? sortGroups(groupProducts(products), sort) : [];
 
@@ -37,6 +43,11 @@ const Products = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      <SEO
+        title={title}
+        description={seoDescription}
+        canonicalPath={mainCategory ? `/products?category=${encodeURIComponent(mainCategory)}${subcategory ? `&sub=${encodeURIComponent(subcategory)}` : ""}` : "/products"}
+      />
       <Header />
       <div className="container py-4">
         <div className="flex items-center gap-3 mb-4">

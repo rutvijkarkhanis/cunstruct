@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Loader2, Package } from "lucide-react";
 import Header from "@/components/Header";
+import SEO from "@/components/SEO";
 import GroupedProductCard, { groupProducts } from "@/components/GroupedProductCard";
 import SortDropdown from "@/components/SortDropdown";
 import { useSupabaseProducts } from "@/hooks/useSupabaseProducts";
@@ -34,6 +35,10 @@ const SearchResults = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      <SEO
+        title={q ? `Search: ${q}` : "Search"}
+        description={q ? `Search results for "${q}" on Cunstruct — construction materials delivered in 30 minutes.` : "Search Cunstruct for construction materials, kits, and more."}
+      />
       <Header />
       <div className="container py-4">
         <div className="flex items-center gap-3 mb-4">

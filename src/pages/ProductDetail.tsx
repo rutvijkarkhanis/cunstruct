@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { extractVariantLabel } from "@/lib/productGroupUtils";
 import GroupedProductCard, { groupProducts } from "@/components/GroupedProductCard";
 import { resolveKits, suggestKitFor } from "@/lib/kits";
+import SEO, { SITE_URL } from "@/components/SEO";
 
 const ProductDetail = () => {
   const { id } = useParams();
@@ -97,8 +98,58 @@ const ProductDetail = () => {
     product.description?.trim() || "Standard construction-grade product. Contact for details.";
   const isLong = description.length > 160;
 
+  const seoDescription = `${brand ? brand + " " : ""}${productName} — ${description.slice(0, 140)}${description.length > 140 ? "…" : ""}`;
+
+  const breadcrumbItems = [
+    { name: "Home", url: `${SITE_URL}/` },
+    ...(product.main_category
+      ? [{ name: product.main_category, url: `${SITE_URL}/products?category=${encodeURIComponent(product.main_category)}` }]
+      : []),
+    ...(product.subcategory
+      ? [{ name: product.subcategory, url: `${SITE_URL}/products?category=${encodeURIComponent(product.main_category ?? "")}&sub=${encodeURIComponent(product.subcategory)}` }]
+      : []),
+    { name: productName, url: `${SITE_URL}/product/${product.id}` },
+  ];
+
+  const jsonLd = [
+    {
+      "@context": "https://schema.org",
+      "@type": "Product",
+      name: productName,
+      description: description,
+      image: product.image_url,
+      sku: product.id,
+      brand: brand ? { "@type": "Brand", name: brand } : undefined,
+      offers: {
+        "@type": "Offer",
+        price: product.selling_price,
+        priceCurrency: "INR",
+        availability: "https://schema.org/InStock",
+        url: `${SITE_URL}/product/${product.id}`,
+      },
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: breadcrumbItems.map((item, index) => ({
+        "@type": "ListItem",
+        position: index + 1,
+        name: item.name,
+        item: item.url,
+      })),
+    },
+  ];
+
   return (
     <div className="min-h-screen bg-background">
+      <SEO
+        title={`${brand ? brand + " " : ""}${productName}`}
+        description={seoDescription}
+        image={product.image_url}
+        type="product"
+        canonicalPath={`/product/${product.id}`}
+        jsonLd={jsonLd}
+      />
       <Header />
       <div className="container py-4">
         {/* Breadcrumb */}

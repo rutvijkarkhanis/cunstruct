@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Loader2, Package, Eye, ChevronRight, ArrowRight, HardHat, X } from "lucide-react";
 import Header from "@/components/Header";
+import SEO from "@/components/SEO";
 import SearchBar from "@/components/SearchBar";
 import KitsCarousel from "@/components/KitsCarousel";
 import {
@@ -139,6 +140,10 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      <SEO
+        canonicalPath="/"
+        description="Cunstruct — construction materials delivered in 30 minutes. Browse cement, steel, tiles, plumbing, electrical products and pre-assembled job kits."
+      />
       {/* Contractor banner */}
       {showBanner && (
         <div className="bg-primary text-primary-foreground text-sm">

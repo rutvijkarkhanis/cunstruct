@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Loader2, Minus, Plus, Package } from "lucide-react";
 import Header from "@/components/Header";
+import SEO, { SITE_URL } from "@/components/SEO";
 import { useSupabaseProducts } from "@/hooks/useSupabaseProducts";
 import { resolveKits } from "@/lib/kits";
 import { useCart } from "@/context/CartContext";
@@ -75,8 +76,29 @@ const KitDetail = () => {
     navigate("/cart");
   };
 
+  const kitJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: kit.def.name,
+    description: `Pre-assembled kit with ${kit.products.length} construction items.`,
+    url: `${SITE_URL}/kit/${kit.def.id}`,
+    numberOfItems: kit.products.length,
+    itemListElement: kit.products.map((p, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      name: p.name,
+      url: `${SITE_URL}/product/${p.id}`,
+    })),
+  };
+
   return (
     <div className="min-h-screen bg-background pb-32">
+      <SEO
+        title={kit.def.name}
+        description={`${kit.def.name} kit — ${kit.products.length} construction items ready to order. Delivered in 30 minutes.`}
+        canonicalPath={`/kit/${kit.def.id}`}
+        jsonLd={kitJsonLd}
+      />
       <Header />
 
       <div className="container py-4">

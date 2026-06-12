@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, Eye, Loader2, Package } from "lucide-react";
 import Header from "@/components/Header";
+import SEO from "@/components/SEO";
 import { useSupabaseProducts } from "@/hooks/useSupabaseProducts";
 import { resolveKits, ResolvedKit } from "@/lib/kits";
 import { useCart } from "@/context/CartContext";
@@ -80,6 +81,11 @@ const Kits = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      <SEO
+        title="Construction Kits"
+        description="Pre-assembled construction kits for common jobs — plastering, tiling, plumbing repairs and more. Everything you need, delivered in 30 minutes."
+        canonicalPath="/kits"
+      />
       <Header />
       <div className="container py-4">
         <Link
