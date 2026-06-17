@@ -252,6 +252,75 @@ const SearchBar = ({ variant = "header", placeholder }: Props) => {
     navigate(`/search?q=${encodeURIComponent(term)}`);
   };
 
+  const closeAndBlur = () => {
+    close();
+    inputRef.current?.blur();
+  };
+
+  const showDefault = !debounced.trim();
+  const showResults = !showDefault && totalHits > 0;
+  const showEmpty = !showDefault && totalHits === 0;
+
+  /* --------------------------- Keyboard navigation --------------------------- */
+
+  type NavItem = { key: string; onSelect: () => void };
+
+  const navItems: NavItem[] = useMemo(() => {
+    if (!showResults) return [];
+    const items: NavItem[] = [];
+    jobs.forEach(({ job }) => {
+      items.push({
+        key: `job-${job.id}`,
+        onSelect: () => {
+          handleJobClick(job);
+          navigate(`/kit/${job.kitId}`);
+        },
+      });
+    });
+    productGroups.forEach((g) => {
+      const top = g.products[0];
+      items.push({
+        key: `prod-${g.groupName}`,
+        onSelect: () => {
+          handleProductClick(top.id);
+          navigate(`/product/${top.id}`);
+        },
+      });
+    });
+    categories.forEach((c) => {
+      items.push({
+        key: `cat-${c}`,
+        onSelect: () => {
+          handleCategoryClick(c);
+          navigate(`/products?category=${encodeURIComponent(c)}`);
+        },
+      });
+    });
+    return items;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showResults, jobs, productGroups, categories]);
+
+  const [activeIndex, setActiveIndex] = useState(-1);
+  useEffect(() => {
+    setActiveIndex(-1);
+  }, [debounced, open]);
+
+  const activeKey = activeIndex >= 0 ? navItems[activeIndex]?.key ?? null : null;
+
+  const onInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!open || navItems.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIndex((i) => (i + 1) % navItems.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIndex((i) => (i <= 0 ? navItems.length - 1 : i - 1));
+    } else if (e.key === "Enter" && activeIndex >= 0) {
+      e.preventDefault();
+      navItems[activeIndex]?.onSelect();
+    }
+  };
+
   /* ------------------------------- Styles ------------------------------- */
 
   const isHero = variant === "hero";
@@ -261,25 +330,24 @@ const SearchBar = ({ variant = "header", placeholder }: Props) => {
   );
   const inputCls = cn(
     "w-full text-sm focus:outline-none focus:ring-2 focus:ring-ring transition",
+    "[&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-decoration]:appearance-none",
     isHero
       ? "h-11 pl-10 pr-24 rounded-full bg-card text-foreground placeholder:text-muted-foreground"
       : "h-9 pl-8 pr-8 rounded-full border bg-background text-foreground",
   );
-  const iconCls = cn(
-    "absolute top-1/2 -translate-y-1/2 text-muted-foreground",
-    isHero ? "left-3 h-4 w-4" : "left-2.5 h-4 w-4",
+  const iconBtnCls = cn(
+    "absolute top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors",
+    isHero ? "left-3" : "left-2.5",
   );
-
-  const showDefault = !debounced.trim();
-  const showResults = !showDefault && totalHits > 0;
-  const showEmpty = !showDefault && totalHits === 0;
 
   /* ------------------------------- Render ------------------------------- */
 
   return (
     <div ref={ref} className={wrapperCls}>
       <form onSubmit={submit} className="relative">
-        <Search className={iconCls} />
+        <button type="submit" aria-label="Search" className={iconBtnCls}>
+          <Search className="h-4 w-4" />
+        </button>
         <input
           ref={inputRef}
           type="search"
@@ -289,6 +357,7 @@ const SearchBar = ({ variant = "header", placeholder }: Props) => {
             setOpen(true);
           }}
           onFocus={() => setOpen(true)}
+          onKeyDown={onInputKeyDown}
           placeholder={placeholder ?? "Search drills, switches, valves…"}
           className={inputCls}
           aria-label="Search products, jobs and categories"
@@ -331,14 +400,25 @@ const SearchBar = ({ variant = "header", placeholder }: Props) => {
           <div
             className={cn(
               "z-50 bg-card border shadow-lg overflow-hidden",
-              // Desktop: dropdown anchored under input
-              "sm:absolute sm:left-0 sm:right-0 sm:top-full sm:mt-1 sm:rounded-lg",
-              // Mobile: full-width overlay below header
-              "fixed sm:static inset-x-0 top-14 sm:top-auto rounded-none sm:max-h-[70vh]",
-              // Mobile fills available height
-              "max-h-[calc(100vh-3.5rem)]",
+              // Mobile (base): full-width fixed overlay below the header
+              "fixed inset-x-0 top-14 rounded-none max-h-[calc(100vh-3.5rem)]",
+              // Desktop (sm+): dropdown anchored directly under the input.
+              // Every mobile positioning property above has exactly one sm: override
+              // here — never mix two classes that touch the same property at the
+              // same breakpoint (e.g. sm:absolute + sm:static), since which one wins
+              // depends on Tailwind's internal utility order, not source order.
+              "sm:absolute sm:inset-x-auto sm:left-0 sm:right-0 sm:top-full sm:mt-1 sm:rounded-lg sm:max-h-[70vh]",
             )}
           >
+            <div className="sm:hidden flex items-center justify-end px-3 py-2 border-b">
+              <button
+                type="button"
+                onClick={closeAndBlur}
+                className="text-xs font-semibold text-primary"
+              >
+                Cancel
+              </button>
+            </div>
             <div className="overflow-y-auto max-h-[inherit]">
               {showDefault && (
                 <DefaultPanel
@@ -355,6 +435,7 @@ const SearchBar = ({ variant = "header", placeholder }: Props) => {
                   jobs={jobs}
                   productGroups={productGroups}
                   categories={categories}
+                  activeKey={activeKey}
                   onJobClick={handleJobClick}
                   onProductClick={handleProductClick}
                   onCategoryClick={handleCategoryClick}
@@ -448,6 +529,7 @@ const ResultsPanel = ({
   jobs,
   productGroups,
   categories,
+  activeKey,
   onJobClick,
   onProductClick,
   onCategoryClick,
@@ -456,6 +538,7 @@ const ResultsPanel = ({
   jobs: { job: JobDef; kit: ResolvedKit | null }[];
   productGroups: ProductGroup[];
   categories: string[];
+  activeKey: string | null;
   onJobClick: (job: JobDef) => void;
   onProductClick: (productId: string) => void;
   onCategoryClick: (cat: string) => void;
@@ -470,7 +553,10 @@ const ResultsPanel = ({
               <Link
                 to={`/kit/${job.kitId}`}
                 onClick={() => onJobClick(job)}
-                className="flex items-center gap-3 px-3 py-2 hover:bg-muted/50 transition-colors"
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2 hover:bg-muted/50 transition-colors",
+                  activeKey === `job-${job.id}` && "bg-muted/70",
+                )}
               >
                 <div className="h-10 w-10 rounded-lg bg-accent/10 text-accent flex items-center justify-center shrink-0">
                   <Wrench className="h-5 w-5" />
@@ -507,7 +593,10 @@ const ResultsPanel = ({
                 <Link
                   to={`/product/${top.id}`}
                   onClick={() => onProductClick(top.id)}
-                  className="flex items-center gap-3 px-3 py-2 hover:bg-muted/50 transition-colors"
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-2 hover:bg-muted/50 transition-colors",
+                    activeKey === `prod-${g.groupName}` && "bg-muted/70",
+                  )}
                 >
                   <img
                     src={top.image_url || "/placeholder.svg"}
@@ -543,7 +632,10 @@ const ResultsPanel = ({
               key={c}
               to={`/products?category=${encodeURIComponent(c)}`}
               onClick={() => onCategoryClick(c)}
-              className="px-2.5 py-1 rounded-full text-xs bg-muted text-foreground border border-border hover:border-primary/40 hover:bg-accent/10 transition-colors"
+              className={cn(
+                "px-2.5 py-1 rounded-full text-xs bg-muted text-foreground border border-border hover:border-primary/40 hover:bg-accent/10 transition-colors",
+                activeKey === `cat-${c}` && "border-primary/60 bg-accent/15",
+              )}
             >
               {highlight(c, query)}
             </Link>
