@@ -24,10 +24,10 @@ const Products = () => {
 
   const title = subcategory ?? mainCategory ?? "All Products";
   const seoDescription = subcategory
-    ? `Buy ${subcategory} construction materials online. Fast 30-minute delivery.`
+    ? `Buy ${subcategory} online — construction materials and hardware delivered in 30 minutes across Delhi & Gurgaon.`
     : mainCategory
-    ? `Shop ${mainCategory} products for construction. Cement, steel, tiles and more delivered in 30 minutes.`
-    : "Browse all construction materials — cement, steel, tiles, plumbing, electrical and more. 30-minute delivery.";
+    ? `Shop ${mainCategory} online — cement, steel, tiles and more delivered in 30 minutes across Delhi & Gurgaon.`
+    : "Buy building materials and hardware online — cement, steel, tiles, plumbing, electrical and more, delivered in 30 minutes across Delhi & Gurgaon.";
 
   const groups = products ? sortGroups(groupProducts(products), sort) : [];
 

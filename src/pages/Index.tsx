@@ -143,14 +143,20 @@ const Index = () => {
     "@type": "Organization",
     name: "Cunstruct",
     url: "https://cunstruct.com",
-    description: "Construction materials delivered in 30 minutes — cement, steel, tiles, plumbing, electrical and more.",
+    description:
+      "Buy building materials and hardware online — cement, steel, tiles, plumbing, electrical and more — delivered in 30 minutes across Delhi and Gurgaon.",
+    areaServed: [
+      { "@type": "City", name: "Delhi" },
+      { "@type": "City", name: "Gurgaon" },
+    ],
   };
 
   return (
     <div className="min-h-screen bg-background">
       <SEO
+        title="Buy Building Materials & Hardware Online in Delhi & Gurgaon"
         canonicalPath="/"
-        description="Cunstruct — construction materials delivered in 30 minutes. Browse cement, steel, tiles, plumbing, electrical products and pre-assembled job kits."
+        description="Cunstruct — buy building materials and hardware online in Delhi & Gurgaon. Cement, steel, tiles, plumbing, electrical and pre-assembled job kits delivered in 30 minutes."
         jsonLd={orgJsonLd}
       />
       {/* Contractor banner */}
