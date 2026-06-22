@@ -60,6 +60,7 @@ const SearchBar = ({ variant = "header", placeholder }: Props) => {
   const navigate = useNavigate();
   const ref = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const { data: products } = useSupabaseProducts();
 
   // Close on outside click (desktop). Mobile uses an X button.
@@ -305,6 +306,13 @@ const SearchBar = ({ variant = "header", placeholder }: Props) => {
     setActiveIndex(-1);
   }, [debounced, open]);
 
+  // The results panel swaps content (default/results/empty) without
+  // unmounting its scroll container, so a leftover scrollTop from a
+  // longer list can leave shorter content looking cropped from the top.
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [debounced, open]);
+
   const activeKey = activeIndex >= 0 ? navItems[activeIndex]?.key ?? null : null;
 
   const onInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -419,7 +427,7 @@ const SearchBar = ({ variant = "header", placeholder }: Props) => {
                 Cancel
               </button>
             </div>
-            <div className="overflow-y-auto max-h-[inherit]">
+            <div ref={scrollRef} className="overflow-y-auto max-h-[inherit]">
               {showDefault && (
                 <DefaultPanel
                   jobs={defaultJobs}
