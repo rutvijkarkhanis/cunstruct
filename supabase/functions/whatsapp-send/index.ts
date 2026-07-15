@@ -1,5 +1,9 @@
 import { z } from "npm:zod@3.22.4";
-import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
 
 const BodySchema = z.object({
   to: z.string().regex(/^\d+$/, "Phone number must contain only digits").min(10).max(15),

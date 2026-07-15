@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { supabase as catalogSupabase } from "@/lib/supabase";
 import { toast } from "sonner";
 
 const FORECASTS_TABLE_SCHEMA = {
@@ -174,17 +175,21 @@ export async function generateForecasts(projectId: string): Promise<{ created: n
   const mappedSkus = Array.from(new Set((mappings ?? []).map((m: any) => m.product_id)));
   let productMap = new Map<string, any>();
   if (mappedSkus.length) {
-    const { data: productRows, error: prodErr } = await supabase
+    let { data: productRows, error: prodErr } = await supabase
       .from("product")
       .select("id, name, selling_price, unit, lead_time_days")
       .in("id", mappedSkus);
-    if (prodErr) throw prodErr;
-    if (!productRows || productRows.length === 0) {
-      throw new Error(
-        `No rows found in product table for mapped SKUs: ${mappedSkus.join(", ")}`,
-      );
+    if (prodErr) {
+      console.warn("[ForecastDiag] Main DB product lookup failed, trying catalog", prodErr);
     }
-    productMap = new Map(productRows.map((p: any) => [p.id, p]));
+    if (!productRows || productRows.length === 0) {
+      const { data: catalogRows } = await catalogSupabase
+        .from("products_master")
+        .select("id, name, selling_price")
+        .in("id", mappedSkus);
+      productRows = (catalogRows ?? []) as any[];
+    }
+    productMap = new Map((productRows ?? []).map((p: any) => [p.id, p]));
   }
 
   const horizons: (7 | 14 | 30)[] = [7, 14, 30];
@@ -345,20 +350,25 @@ export async function autoGenerateForecastForCurrentStage(
 
   // 4. Load products
   const productIds = Array.from(new Set(mappings.map((m: any) => m.product_id)));
-  const { data: products } = await supabase
+  let { data: products } = await supabase
     .from("product")
     .select("id, name, selling_price, lead_time_days, unit")
     .in("id", productIds);
+
+  if (!products || products.length === 0) {
+    LOG("Main DB product table empty, falling back to catalog DB", { productIds });
+    const { data: catalogProducts } = await catalogSupabase
+      .from("products_master")
+      .select("id, name, selling_price")
+      .in("id", productIds);
+    products = (catalogProducts ?? []) as any[];
+  }
 
   LOG("Product query", {
     count: products?.length ?? 0,
     ids: products?.map((p: any) => p.id) ?? [],
   });
 
-  if (!products || products.length === 0) {
-    LOG("Skipped: no product rows for mapped SKUs", { productIds });
-    throw new Error("No matching products found.");
-  }
   const productMap = new Map((products ?? []).map((p: any) => [p.id, p]));
 
   const today = new Date();
@@ -374,9 +384,10 @@ export async function autoGenerateForecastForCurrentStage(
     const p: any = productMap.get(m.product_id);
     const leadTime = Number(m.lead_time_days ?? p?.lead_time_days ?? 3);
     const buffer = Number(m.buffer_days ?? 1);
-    const orderBy = new Date(today);
-    orderBy.setDate(orderBy.getDate() + leadTime + buffer);
+    const stageStart = new Date(today);
+    const orderBy = computeOrderByDate(stageStart, leadTime, buffer);
     const orderByIso = orderBy.toISOString().slice(0, 10);
+    const deliveryIso = stageStart.toISOString().slice(0, 10);
 
     const formula = (m.qty_formula ?? {}) as any;
     let qty = 1;
@@ -414,7 +425,7 @@ export async function autoGenerateForecastForCurrentStage(
       unit_price: unitPrice,
       budget_estimated: budget,
       order_by_date: orderByIso,
-      delivery_date: orderByIso,
+      delivery_date: deliveryIso,
       confidence,
       risk_flag: risk,
       initiated_by: "cunstruct",
