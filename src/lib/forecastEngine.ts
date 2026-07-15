@@ -1,6 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
 import { supabase as catalogSupabase } from "@/lib/supabase";
-import { toast } from "sonner";
 
 const FORECASTS_TABLE_SCHEMA = {
   columns: [
@@ -533,7 +532,6 @@ export async function autoGenerateForecastForCurrentStage(
         code: (err as any)?.code,
         payload: forecastPayload,
       });
-      toast.error(message);
       throw err instanceof Error ? err : new Error(message);
     }
   }

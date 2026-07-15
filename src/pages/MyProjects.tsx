@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+  Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -29,7 +29,8 @@ export default function MyProjects() {
     if (!loading && !user) navigate("/auth?returnUrl=" + encodeURIComponent("/my-projects"));
   }, [user, loading, navigate]);
 
-  const { data: projects } = useQuery({
+  // Fix #8: destructure isError so a failed fetch doesn't silently look like an empty list
+  const { data: projects, isError: isProjectsError } = useQuery({
     queryKey: ["my-projects", user?.id],
     enabled: !!user,
     queryFn: async () => {
@@ -45,7 +46,25 @@ export default function MyProjects() {
 
   if (loading || !user) return <div className="p-8 text-muted-foreground">Loading…</div>;
 
+  if (isProjectsError) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-8 gap-4">
+        <p className="text-muted-foreground">Could not load your projects.</p>
+        <Button variant="outline" size="sm" onClick={() => qc.invalidateQueries({ queryKey: ["my-projects"] })}>
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
   const hasProjects = (projects?.length ?? 0) > 0;
+
+  // Fix #10: shared onDone handler — single Dialog rendered once below
+  const handleDone = (pid?: string) => {
+    setOpen(false);
+    qc.invalidateQueries({ queryKey: ["my-projects"] });
+    if (pid) navigate(`/my-projects/${pid}`);
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -70,22 +89,7 @@ export default function MyProjects() {
               <h1 className="text-2xl font-bold">Your projects</h1>
               <p className="text-sm text-muted-foreground">Track progress and get proactive material plans</p>
             </div>
-            <Dialog open={open} onOpenChange={setOpen}>
-              <DialogTrigger asChild>
-                <Button><Plus className="w-4 h-4 mr-1" />New project</Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-lg">
-                <DialogHeader><DialogTitle>Start a new project</DialogTitle></DialogHeader>
-                <ProjectWizard
-                  userId={user.id}
-                  onDone={(pid) => {
-                    setOpen(false);
-                    qc.invalidateQueries({ queryKey: ["my-projects"] });
-                    if (pid) navigate(`/my-projects/${pid}`);
-                  }}
-                />
-              </DialogContent>
-            </Dialog>
+            <Button onClick={() => setOpen(true)}><Plus className="w-4 h-4 mr-1" />New project</Button>
           </div>
         )}
 
@@ -98,22 +102,7 @@ export default function MyProjects() {
                 Tell us about your site and we'll plan your material orders before you need them.
               </p>
             </div>
-            <Dialog open={open} onOpenChange={setOpen}>
-              <DialogTrigger asChild>
-                <Button size="lg"><Plus className="w-4 h-4 mr-1" />Start a new project</Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-lg">
-                <DialogHeader><DialogTitle>Start a new project</DialogTitle></DialogHeader>
-                <ProjectWizard
-                  userId={user.id}
-                  onDone={(pid) => {
-                    setOpen(false);
-                    qc.invalidateQueries({ queryKey: ["my-projects"] });
-                    if (pid) navigate(`/my-projects/${pid}`);
-                  }}
-                />
-              </DialogContent>
-            </Dialog>
+            <Button size="lg" onClick={() => setOpen(true)}><Plus className="w-4 h-4 mr-1" />Start a new project</Button>
           </Card>
         )}
 
@@ -160,6 +149,14 @@ export default function MyProjects() {
           })}
         </div>
       </main>
+
+      {/* Fix #10: single Dialog instance shared by both the header button and the empty-state button */}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>Start a new project</DialogTitle></DialogHeader>
+          <ProjectWizard userId={user.id} onDone={handleDone} />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -186,6 +183,7 @@ function ProjectWizard({ userId, onDone }: { userId: string; onDone: (id?: strin
   });
 
   const submit = async () => {
+    if (floors < 1 || areaSqft < 1) return toast.error("Floors and area must be at least 1");
     setBusy(true);
     try {
       const { data: project, error } = await supabase
@@ -207,7 +205,7 @@ function ProjectWizard({ userId, onDone }: { userId: string; onDone: (id?: strin
       if (error) throw error;
 
       if (stageId) {
-        await supabase.from("stage_updates").insert({
+        const { error: stageLogError } = await supabase.from("stage_updates").insert({
           project_id: project.id,
           stage_id: stageId,
           progress_pct: progress,
@@ -215,14 +213,17 @@ function ProjectWizard({ userId, onDone }: { userId: string; onDone: (id?: strin
           note: "Initial progress at onboarding",
           created_by: userId,
         });
+        if (stageLogError) console.error("[ProjectWizard] stage_updates insert failed:", stageLogError);
       }
+
+      // Forecast generation is best-effort — project creation already succeeded
       try {
         const { autoGenerateForecastForCurrentStage } = await import("@/lib/forecastEngine");
         await autoGenerateForecastForCurrentStage(project.id);
       } catch (err) {
         console.error("[Forecast] autoGenerateForecastForCurrentStage failed:", err);
-        toast.error(err instanceof Error ? err.message : "Forecast generation failed");
       }
+
       setSubmitted(project.id);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to create project");
@@ -275,11 +276,11 @@ function ProjectWizard({ userId, onDone }: { userId: string; onDone: (id?: strin
         <div className="space-y-3">
           <div>
             <Label>Number of floors</Label>
-            <Input type="number" min={1} value={floors} onChange={e => setFloors(+e.target.value)} />
+            <Input type="number" min={1} value={floors} onChange={e => setFloors(Math.max(1, +e.target.value))} />
           </div>
           <div>
             <Label>Built-up area (sq ft)</Label>
-            <Input type="number" min={1} value={areaSqft} onChange={e => setAreaSqft(+e.target.value)} />
+            <Input type="number" min={1} value={areaSqft} onChange={e => setAreaSqft(Math.max(1, +e.target.value))} />
           </div>
         </div>
       )}

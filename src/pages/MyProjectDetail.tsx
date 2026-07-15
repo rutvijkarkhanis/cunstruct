@@ -21,11 +21,14 @@ export default function MyProjectDetail() {
   const navigate = useNavigate();
   const qc = useQueryClient();
 
+  // Fix #4: include returnUrl so the user lands back here after login
   useEffect(() => {
-    if (!loading && !user) navigate("/auth");
+    if (!loading && !user) navigate("/auth?returnUrl=" + encodeURIComponent(window.location.pathname));
   }, [user, loading, navigate]);
 
-  const { data: project } = useQuery({
+  // Fix #5 + #6: destructure isError; add owner_id filter so any RLS misconfiguration
+  // can't expose another user's project
+  const { data: project, isError: isProjectError } = useQuery({
     queryKey: ["my-project", id],
     enabled: !!id && !!user,
     queryFn: async () => {
@@ -33,6 +36,7 @@ export default function MyProjectDetail() {
         .from("projects")
         .select("*, stage_master:current_stage_id(name, sequence)")
         .eq("id", id!)
+        .eq("owner_id", user!.id)
         .single();
       if (error) throw error;
       return data;
@@ -60,14 +64,15 @@ export default function MyProjectDetail() {
     },
   });
 
+  // Fix #2: scope forecast_items to this project via the !inner join + project_id filter
   const { data: forecastItems } = useQuery({
     queryKey: ["my-forecast-items", id],
     enabled: !!id,
     queryFn: async () => {
-      // RLS already filters to approved/sent + medium/high confidence
       const { data } = await supabase
         .from("forecast_items")
-        .select("*, stage_master:stage_id(name), forecasts:forecast_id(status, generated_at)")
+        .select("*, stage_master:stage_id(name), forecasts!inner:forecast_id(status, generated_at)")
+        .eq("forecasts.project_id", id)
         .order("order_by_date", { ascending: true });
       return (data ?? []).filter((i: any) =>
         i.forecasts && (i.forecasts.status === "approved" || i.forecasts.status === "sent")
@@ -80,30 +85,43 @@ export default function MyProjectDetail() {
   const [logNote, setLogNote] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // Fix #3: sync form to the server values whenever stage or progress changes
+  // (removes the !logStageId guard that prevented re-sync after background refetches)
   useEffect(() => {
-    if (project && !logStageId) {
+    if (project) {
       setLogStageId(project.current_stage_id ?? "");
       setLogProgress(Number(project.progress_pct) || 0);
     }
-  }, [project, logStageId]);
+  }, [project?.current_stage_id, project?.progress_pct]);
 
   const submitUpdate = async () => {
     if (!logStageId) return toast.error("Pick a stage");
     setBusy(true);
     try {
-      const { error: updateLogError } = await supabase.from("stage_updates").insert({
-        project_id: id, stage_id: logStageId, progress_pct: logProgress,
-        source: "app", note: logNote, created_by: user?.id,
-      });
+      // Fix #1a: parallelize the two independent DB writes
+      const [{ error: updateLogError }, { error: projectUpdateError }] = await Promise.all([
+        supabase.from("stage_updates").insert({
+          project_id: id, stage_id: logStageId, progress_pct: logProgress,
+          source: "app", note: logNote, created_by: user?.id,
+        }),
+        supabase.from("projects").update({
+          current_stage_id: logStageId, progress_pct: logProgress,
+        }).eq("id", id!),
+      ]);
       if (updateLogError) throw updateLogError;
-      const { error: projectUpdateError } = await supabase.from("projects").update({
-        current_stage_id: logStageId, progress_pct: logProgress,
-      }).eq("id", id!);
       if (projectUpdateError) throw projectUpdateError;
-      try { await recalcProjectVelocity(id!); } catch { /* ignore */ }
-      await autoGenerateForecastForCurrentStage(id!);
+
+      // Fix #1b: primary write succeeded — confirm immediately before side effects
       toast.success("Progress logged");
       setLogNote("");
+
+      // Fix #1c: best-effort side effects — never surface their errors to the user
+      try { await recalcProjectVelocity(id!); } catch { /* silent */ }
+      // Fix #9: only regenerate forecast when the stage actually changes
+      if (logStageId !== project?.current_stage_id) {
+        try { await autoGenerateForecastForCurrentStage(id!); } catch { /* silent */ }
+      }
+
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["my-project", id] }),
         qc.invalidateQueries({ queryKey: ["my-updates", id] }),
@@ -111,12 +129,25 @@ export default function MyProjectDetail() {
         qc.invalidateQueries({ queryKey: ["all-forecasts"] }),
       ]);
     } catch (e) {
-      console.error("[Forecast] submitUpdate failed:", e);
-      toast.error(e instanceof Error ? e.message : "Failed");
+      console.error("[submitUpdate] failed:", e);
+      toast.error(e instanceof Error ? e.message : "Failed to log update");
     } finally { setBusy(false); }
   };
 
-  if (!project) return <div className="min-h-screen bg-background p-8 text-muted-foreground">Loading…</div>;
+  // Fix #5: separate error state from loading state
+  if (!project) {
+    if (isProjectError) {
+      return (
+        <div className="min-h-screen bg-background flex flex-col items-center justify-center p-8 gap-4">
+          <p className="text-muted-foreground">Could not load project.</p>
+          <Button variant="outline" size="sm" onClick={() => qc.invalidateQueries({ queryKey: ["my-project", id] })}>
+            Retry
+          </Button>
+        </div>
+      );
+    }
+    return <div className="min-h-screen bg-background p-8 text-muted-foreground">Loading…</div>;
+  }
 
   const pending = project.status === "pending_review";
   const stageName = (project as any).stage_master?.name;
