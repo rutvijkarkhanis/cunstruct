@@ -95,28 +95,38 @@ export default function OpsProjectDetail() {
     setBusy(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      const { error: updateLogError } = await supabase.from("stage_updates").insert({
-        project_id: id, stage_id: stageId, progress_pct: progress,
-        source, note, created_by: user?.id,
-      });
+      // Fix #1a: parallelize the two independent DB writes
+      const [{ error: updateLogError }, { error: projectUpdateError }] = await Promise.all([
+        supabase.from("stage_updates").insert({
+          project_id: id, stage_id: stageId, progress_pct: progress,
+          source, note, created_by: user?.id,
+        }),
+        supabase.from("projects").update({
+          current_stage_id: stageId, progress_pct: progress,
+        }).eq("id", id!),
+      ]);
       if (updateLogError) throw updateLogError;
-      const { error: projectUpdateError } = await supabase.from("projects").update({
-        current_stage_id: stageId, progress_pct: progress,
-      }).eq("id", id!);
       if (projectUpdateError) throw projectUpdateError;
-      await recalcProjectVelocity(id!);
-      const generated = await autoGenerateForecastForCurrentStage(id!);
-      toast.success("Update logged · forecast refreshed");
+
+      // Fix #1b: confirm success before running side effects
+      toast.success("Update logged");
       setNote("");
+
+      // Fix #1c: best-effort side effects — never surface their errors to the user
+      try { await recalcProjectVelocity(id!); } catch { /* silent */ }
+      try {
+        const generated = await autoGenerateForecastForCurrentStage(id!);
+        qc.setQueryData(["last-forecast-generation", id], generated);
+      } catch { /* silent */ }
+
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["project", id] }),
         qc.invalidateQueries({ queryKey: ["updates", id] }),
         qc.invalidateQueries({ queryKey: ["forecasts", id] }),
         qc.invalidateQueries({ queryKey: ["all-forecasts"] }),
       ]);
-      qc.setQueryData(["last-forecast-generation", id], generated);
     } catch (e) {
-      console.error("[Forecast] logUpdate failed:", e);
+      console.error("[logUpdate] failed:", e);
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally { setBusy(false); }
   };
@@ -333,17 +343,23 @@ function ForecastsPanel({ forecasts, projectId, qc, project, requestEditPhone }:
     );
   }
 
+  // Fix #4: handle approval errors
   const approve = async (id: string) => {
-    await supabase.from("forecasts").update({
-      status: "approved", approved_at: new Date().toISOString(),
-    }).eq("id", id);
-    toast.success("Forecast approved");
-    qc.invalidateQueries({ queryKey: ["forecasts", projectId] });
+    try {
+      const { error } = await supabase.from("forecasts").update({
+        status: "approved", approved_at: new Date().toISOString(),
+      }).eq("id", id);
+      if (error) throw error;
+      toast.success("Forecast approved");
+      qc.invalidateQueries({ queryKey: ["forecasts", projectId] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to approve forecast");
+    }
   };
 
+  // Fix #2: removed window.__brief global leak — data already in React Query cache
   const generateBrief = async (forecastId: string) => {
     const text = await buildBriefingText(forecastId);
-    (window as any).__brief = text;
     qc.setQueryData(["brief", forecastId], text);
   };
 
@@ -668,11 +684,19 @@ function AccuracyPanel({ projectId }: { projectId: string }) {
   const { data } = useQuery({
     queryKey: ["accuracy", projectId],
     queryFn: async () => {
+      // Fix #3: scope to this project server-side — get item IDs first, then accuracy rows
+      const { data: itemRows } = await supabase
+        .from("forecast_items")
+        .select("id, forecasts!inner:forecast_id(project_id)")
+        .eq("forecasts.project_id", projectId);
+      const itemIds = (itemRows ?? []).map((r: any) => r.id);
+      if (!itemIds.length) return [];
       const { data } = await supabase
         .from("forecast_accuracy")
-        .select("*, forecast_items:forecast_item_id(product_name, product_id, forecasts:forecast_id(project_id))")
+        .select("*, forecast_items:forecast_item_id(product_name, product_id)")
+        .in("forecast_item_id", itemIds)
         .order("recorded_at", { ascending: false });
-      return (data ?? []).filter((r: any) => r.forecast_items?.forecasts?.project_id === projectId);
+      return data ?? [];
     },
   });
   const rows = data ?? [];

@@ -24,7 +24,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { generateForecasts, autoGenerateForecastForCurrentStage } from "@/lib/forecastEngine";
+import { autoGenerateForecastForCurrentStage } from "@/lib/forecastEngine";
 
 const TYPES = ["Residential", "Commercial", "Retail", "Office", "Hospital", "Other"];
 const SCOPES = ["Civil", "MEP", "Finishing", "Turnkey"];
@@ -56,15 +56,19 @@ export default function OpsProjects() {
       const { error } = await supabase.from("projects")
         .update({ status: "active" }).eq("id", projectId);
       if (error) throw error;
+
+      toast.success("Project activated");
+
+      // Fix #5: only call autoGenerateForecastForCurrentStage — generateForecasts targets
+      // upcoming stages using the same horizon_days keys and would overwrite the approved
+      // current-stage forecast with a draft. Ops can click Generate Forecast manually.
       try {
-        const auto = await autoGenerateForecastForCurrentStage(projectId);
-        await generateForecasts(projectId);
-        toast.success(`Activated · ${auto.created} current-stage items forecasted`);
+        const { created } = await autoGenerateForecastForCurrentStage(projectId);
+        if (created > 0) toast.success(`${created} forecast items ready for review`);
       } catch (err) {
         console.error("[Forecast] autoGenerateForecastForCurrentStage failed:", err);
-        toast.success("Project activated");
-        toast.error(err instanceof Error ? err.message : "Forecast generation failed");
       }
+
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["pending-review-count"] });
     } catch (e) {
