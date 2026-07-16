@@ -174,15 +174,16 @@ function ProjectWizard({ userId, onDone }: { userId: string; onDone: (id?: strin
   const [location, setLocation] = useState("");
   const [busy, setBusy] = useState(false);
   const [submitted, setSubmitted] = useState<string | null>(null);
+  const [stages, setStages] = useState<{ id: string; name: string; sequence: number }[]>([]);
+  const [stagesError, setStagesError] = useState<string | null>(null);
 
-  const { data: stages, error: stagesError } = useQuery({
-    queryKey: ["stage_master"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("stage_master").select("*").order("sequence");
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
+  useEffect(() => {
+    supabase.from("stage_master").select("id, name, sequence").order("sequence")
+      .then(({ data, error }) => {
+        if (error) { setStagesError(error.message); return; }
+        setStages(data ?? []);
+      });
+  }, []);
 
   const submit = async () => {
     if (floors < 1 || areaSqft < 1) return toast.error("Floors and area must be at least 1");
@@ -291,9 +292,7 @@ function ProjectWizard({ userId, onDone }: { userId: string; onDone: (id?: strin
         <div className="space-y-3">
           <Label>Which stage is the site currently in?</Label>
           {stagesError && (
-            <p className="text-xs text-red-500 font-mono break-all">
-              {(stagesError as any)?.message ?? String(stagesError)}
-            </p>
+            <p className="text-xs text-red-500 font-mono break-all">{stagesError}</p>
           )}
           <div className="border rounded-md divide-y max-h-56 overflow-y-auto">
             {stages?.length === 0 && (
