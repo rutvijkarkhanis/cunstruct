@@ -178,6 +178,7 @@ function ProjectWizard({ userId, onDone }: { userId: string; onDone: (id?: strin
     queryKey: ["stage_master"],
     queryFn: async () => {
       const { data, error } = await supabase.from("stage_master").select("*").order("sequence");
+      console.log("[stages] data:", data, "error:", error);
       if (error) throw error;
       return data ?? [];
     },
@@ -294,6 +295,7 @@ function ProjectWizard({ userId, onDone }: { userId: string; onDone: (id?: strin
               {(stagesError as any)?.message ?? String(stagesError)}
             </p>
           )}
+          <p className="text-xs text-muted-foreground">Loaded {stages?.length ?? "…"} stages</p>
           <Select value={stageId} onValueChange={setStageId}>
             <SelectTrigger><SelectValue placeholder="Select current stage" /></SelectTrigger>
             <SelectContent>
