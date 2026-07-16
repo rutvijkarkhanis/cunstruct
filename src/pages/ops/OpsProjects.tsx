@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -187,17 +188,12 @@ function OnboardWizard({ onDone }: { onDone: () => void }) {
   const [estCompletion, setEstCompletion] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const { data: stages } = useQuery({
-    queryKey: ["stage_master"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("stage_master")
-        .select("*")
-        .order("sequence");
-      if (error) throw error;
-      return data;
-    },
-  });
+  const [stages, setStages] = useState<{ id: string; name: string; sequence: number }[]>([]);
+
+  useEffect(() => {
+    supabase.from("stage_master").select("id, name, sequence").order("sequence")
+      .then(({ data }) => { if (data) setStages(data); });
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -303,14 +299,24 @@ function OnboardWizard({ onDone }: { onDone: () => void }) {
       </div>
       <div>
         <Label>Current stage</Label>
-        <Select value={stageId} onValueChange={setStageId}>
-          <SelectTrigger><SelectValue placeholder="Select stage" /></SelectTrigger>
-          <SelectContent>
-            {stages?.map(s => (
-              <SelectItem key={s.id} value={s.id}>{s.sequence}. {s.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="border rounded-md divide-y max-h-56 overflow-y-auto">
+          {stages.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-4">Loading stages…</p>
+          )}
+          {stages.map(s => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => setStageId(s.id)}
+              className={cn(
+                "w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors",
+                stageId === s.id && "bg-primary text-primary-foreground hover:bg-primary/90"
+              )}
+            >
+              {s.sequence}. {s.name}
+            </button>
+          ))}
+        </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
