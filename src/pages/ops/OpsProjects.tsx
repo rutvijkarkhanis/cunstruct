@@ -20,12 +20,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Building2 } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Plus, Building2, Trash2, Clock } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { autoGenerateForecastForCurrentStage } from "@/lib/forecastEngine";
+import { estimateFollowUp } from "@/lib/followup";
 
 const TYPES = ["Residential", "Commercial", "Retail", "Office", "Hospital", "Other"];
 const SCOPES = ["Civil", "MEP", "Finishing", "Turnkey"];
@@ -50,13 +55,37 @@ export default function OpsProjects() {
   const { data: stageMap } = useQuery({
     queryKey: ["stage_master_map"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("stage_master").select("id, name, sequence");
+      const { data, error } = await supabase
+        .from("stage_master")
+        .select("id, name, sequence, typical_duration_days");
       if (error) throw error;
-      const map: Record<string, { name: string; sequence: number }> = {};
-      (data ?? []).forEach(s => { map[s.id] = { name: s.name, sequence: s.sequence }; });
+      const map: Record<string, { name: string; sequence: number; typical_duration_days: number | null }> = {};
+      (data ?? []).forEach(s => {
+        map[s.id] = { name: s.name, sequence: s.sequence, typical_duration_days: s.typical_duration_days };
+      });
       return map;
     },
   });
+
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const deleteProject = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const { error } = await supabase.from("projects").delete().eq("id", deleteTarget.id);
+      if (error) throw error;
+      toast.success(`Deleted "${deleteTarget.name}"`);
+      setDeleteTarget(null);
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      qc.invalidateQueries({ queryKey: ["pending-review-count"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to delete project");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const pendingCount = projects?.filter(p => p.status === "pending_review").length ?? 0;
   const filtered = projects?.filter(p =>
@@ -168,18 +197,74 @@ export default function OpsProjects() {
               <div className="text-xs text-muted-foreground">
                 {p.floors ?? "—"} floors · {p.area_sqft ? `${p.area_sqft} sqft` : "—"}
               </div>
+              {p.status !== "pending_review" && (() => {
+                const stage = p.current_stage_id ? stageMap?.[p.current_stage_id] : undefined;
+                const est = estimateFollowUp({
+                  stageDurationDays: stage?.typical_duration_days,
+                  areaSqft: p.area_sqft,
+                  floors: p.floors,
+                  progressPct: p.progress_pct,
+                  velocityPctPerDay: p.velocity_days_per_pct ? 1 / Number(p.velocity_days_per_pct) : null,
+                  lastUpdate: p.updated_at,
+                });
+                return (
+                  <div className="flex items-center gap-1.5 text-xs">
+                    <Clock className="w-3 h-3 text-muted-foreground" />
+                    <span className="text-muted-foreground">Next check-in:</span>
+                    <span className={est.overdue ? "font-medium text-amber-600 dark:text-amber-400" : "font-medium"}>
+                      {est.overdue
+                        ? "Due now"
+                        : est.daysUntil === 0
+                          ? "Today"
+                          : `in ${est.daysUntil}d`}
+                    </span>
+                    <span className="text-muted-foreground">· ~every {est.intervalDays}d</span>
+                  </div>
+                );
+              })()}
             </Link>
-            {p.status === "pending_review" && (
+            <div className="flex items-center gap-2">
+              {p.status === "pending_review" && (
+                <Button
+                  size="sm" className="flex-1"
+                  onClick={(e) => { e.preventDefault(); activate(p.id); }}
+                >
+                  Review & activate
+                </Button>
+              )}
               <Button
-                size="sm" className="w-full"
-                onClick={(e) => { e.preventDefault(); activate(p.id); }}
+                size="sm" variant="ghost"
+                className="text-muted-foreground hover:text-destructive"
+                onClick={(e) => { e.preventDefault(); setDeleteTarget({ id: p.id, name: p.name }); }}
               >
-                Review & activate
+                <Trash2 className="w-4 h-4" />
               </Button>
-            )}
+            </div>
           </Card>
         ))}
       </div>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this project?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes <span className="font-medium">{deleteTarget?.name}</span> and all its
+              stage updates, forecasts, alerts and messages. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); deleteProject(); }}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
