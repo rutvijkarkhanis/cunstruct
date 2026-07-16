@@ -14,6 +14,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import { Plus, Building2, Clock, CheckCircle2, LogOut } from "lucide-react";
 import { toast } from "sonner";
 
@@ -178,7 +179,6 @@ function ProjectWizard({ userId, onDone }: { userId: string; onDone: (id?: strin
     queryKey: ["stage_master"],
     queryFn: async () => {
       const { data, error } = await supabase.from("stage_master").select("*").order("sequence");
-      console.log("[stages] data:", data, "error:", error);
       if (error) throw error;
       return data ?? [];
     },
@@ -295,15 +295,24 @@ function ProjectWizard({ userId, onDone }: { userId: string; onDone: (id?: strin
               {(stagesError as any)?.message ?? String(stagesError)}
             </p>
           )}
-          <p className="text-xs text-muted-foreground">Loaded {stages?.length ?? "…"} stages</p>
-          <Select value={stageId} onValueChange={setStageId}>
-            <SelectTrigger><SelectValue placeholder="Select current stage" /></SelectTrigger>
-            <SelectContent>
-              {stages?.map(s => (
-                <SelectItem key={s.id} value={s.id}>{s.sequence}. {s.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="border rounded-md divide-y max-h-56 overflow-y-auto">
+            {stages?.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">Loading stages…</p>
+            )}
+            {stages?.map(s => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setStageId(s.id)}
+                className={cn(
+                  "w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors",
+                  stageId === s.id && "bg-primary text-primary-foreground hover:bg-primary/90"
+                )}
+              >
+                {s.sequence}. {s.name}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
