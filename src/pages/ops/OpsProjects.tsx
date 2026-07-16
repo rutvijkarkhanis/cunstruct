@@ -40,10 +40,21 @@ export default function OpsProjects() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("projects")
-        .select("*, stage_master:current_stage_id(name, sequence)")
+        .select("*")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data;
+    },
+  });
+
+  const { data: stageMap } = useQuery({
+    queryKey: ["stage_master_map"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("stage_master").select("id, name, sequence");
+      if (error) throw error;
+      const map: Record<string, { name: string; sequence: number }> = {};
+      (data ?? []).forEach(s => { map[s.id] = { name: s.name, sequence: s.sequence }; });
+      return map;
     },
   });
 
@@ -144,7 +155,7 @@ export default function OpsProjects() {
               <div className="text-sm">
                 <span className="text-muted-foreground">Current stage: </span>
                 <span className="font-medium">
-                  {(p as any).stage_master?.name ?? "—"}
+                  {(p.current_stage_id && stageMap?.[p.current_stage_id]?.name) ?? "—"}
                 </span>
               </div>
               <div className="space-y-1">
