@@ -25,12 +25,18 @@ export default function MyProjects() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [stages, setStages] = useState<{ id: string; name: string; sequence: number }[]>([]);
 
   useEffect(() => {
     if (!loading && !user) navigate("/auth?returnUrl=" + encodeURIComponent("/my-projects"));
   }, [user, loading, navigate]);
 
-  // Fix #8: destructure isError so a failed fetch doesn't silently look like an empty list
+  // Fetch stages early (before Dialog opens) to avoid timing issues
+  useEffect(() => {
+    supabase.from("stage_master").select("id, name, sequence").order("sequence")
+      .then(({ data }) => { if (data) setStages(data); });
+  }, []);
+
   const { data: projects, isError: isProjectsError, error: projectsError } = useQuery({
     queryKey: ["my-projects", user?.id],
     enabled: !!user,
@@ -155,14 +161,18 @@ export default function MyProjects() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>Start a new project</DialogTitle></DialogHeader>
-          <ProjectWizard userId={user.id} onDone={handleDone} />
+          <ProjectWizard userId={user.id} stages={stages} onDone={handleDone} />
         </DialogContent>
       </Dialog>
     </div>
   );
 }
 
-function ProjectWizard({ userId, onDone }: { userId: string; onDone: (id?: string) => void }) {
+function ProjectWizard({ userId, stages, onDone }: {
+  userId: string;
+  stages: { id: string; name: string; sequence: number }[];
+  onDone: (id?: string) => void;
+}) {
   const [step, setStep] = useState(1);
   const [projectType, setProjectType] = useState("Residential");
   const [floors, setFloors] = useState(1);
@@ -174,16 +184,6 @@ function ProjectWizard({ userId, onDone }: { userId: string; onDone: (id?: strin
   const [location, setLocation] = useState("");
   const [busy, setBusy] = useState(false);
   const [submitted, setSubmitted] = useState<string | null>(null);
-  const [stages, setStages] = useState<{ id: string; name: string; sequence: number }[]>([]);
-  const [stagesError, setStagesError] = useState<string | null>(null);
-
-  useEffect(() => {
-    supabase.from("stage_master").select("id, name, sequence").order("sequence")
-      .then(({ data, error }) => {
-        if (error) { setStagesError(error.message); return; }
-        setStages(data ?? []);
-      });
-  }, []);
 
   const submit = async () => {
     if (floors < 1 || areaSqft < 1) return toast.error("Floors and area must be at least 1");
@@ -291,9 +291,6 @@ function ProjectWizard({ userId, onDone }: { userId: string; onDone: (id?: strin
       {step === 3 && (
         <div className="space-y-3">
           <Label>Which stage is the site currently in?</Label>
-          {stagesError && (
-            <p className="text-xs text-red-500 font-mono break-all">{stagesError}</p>
-          )}
           <div className="border rounded-md divide-y max-h-56 overflow-y-auto">
             {stages?.length === 0 && (
               <p className="text-sm text-muted-foreground text-center py-4">Loading stages…</p>
