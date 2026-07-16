@@ -61,16 +61,6 @@ export default function Auth() {
     }
   };
 
-  const google = async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: window.location.origin + "/auth" + (returnUrl ? `?returnUrl=${encodeURIComponent(returnUrl)}` : ""),
-      },
-    });
-    if (error) toast.error("Google sign-in failed");
-  };
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md p-8 space-y-6">
@@ -78,14 +68,6 @@ export default function Auth() {
           <Link to="/" className="text-xs text-muted-foreground hover:underline">← Back to Cunstruct</Link>
           <h1 className="text-2xl font-bold mt-2">{mode === "signin" ? "Sign in" : "Create account"}</h1>
           <p className="text-sm text-muted-foreground mt-1">Cunstruct Operations Console</p>
-        </div>
-
-        <Button variant="outline" className="w-full" onClick={google} type="button">
-          Continue with Google
-        </Button>
-
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <div className="flex-1 h-px bg-border" /> or <div className="flex-1 h-px bg-border" />
         </div>
 
         <form onSubmit={submit} className="space-y-4">
