@@ -174,10 +174,11 @@ function ProjectWizard({ userId, onDone }: { userId: string; onDone: (id?: strin
   const [busy, setBusy] = useState(false);
   const [submitted, setSubmitted] = useState<string | null>(null);
 
-  const { data: stages } = useQuery({
+  const { data: stages, error: stagesError } = useQuery({
     queryKey: ["stage_master"],
     queryFn: async () => {
-      const { data } = await supabase.from("stage_master").select("*").order("sequence");
+      const { data, error } = await supabase.from("stage_master").select("*").order("sequence");
+      if (error) throw error;
       return data ?? [];
     },
   });
@@ -288,6 +289,11 @@ function ProjectWizard({ userId, onDone }: { userId: string; onDone: (id?: strin
       {step === 3 && (
         <div className="space-y-3">
           <Label>Which stage is the site currently in?</Label>
+          {stagesError && (
+            <p className="text-xs text-red-500 font-mono break-all">
+              {(stagesError as any)?.message ?? String(stagesError)}
+            </p>
+          )}
           <Select value={stageId} onValueChange={setStageId}>
             <SelectTrigger><SelectValue placeholder="Select current stage" /></SelectTrigger>
             <SelectContent>
