@@ -14,6 +14,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import { Plus, Building2, Clock, CheckCircle2, LogOut } from "lucide-react";
 import { toast } from "sonner";
 
@@ -24,12 +25,18 @@ export default function MyProjects() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [stages, setStages] = useState<{ id: string; name: string; sequence: number }[]>([]);
 
   useEffect(() => {
     if (!loading && !user) navigate("/auth?returnUrl=" + encodeURIComponent("/my-projects"));
   }, [user, loading, navigate]);
 
-  // Fix #8: destructure isError so a failed fetch doesn't silently look like an empty list
+  // Fetch stages early (before Dialog opens) to avoid timing issues
+  useEffect(() => {
+    supabase.from("stage_master").select("id, name, sequence").order("sequence")
+      .then(({ data }) => { if (data) setStages(data); });
+  }, []);
+
   const { data: projects, isError: isProjectsError, error: projectsError } = useQuery({
     queryKey: ["my-projects", user?.id],
     enabled: !!user,
@@ -50,9 +57,6 @@ export default function MyProjects() {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-8 gap-4">
         <p className="text-muted-foreground">Could not load your projects.</p>
-        <p className="text-xs text-red-500 font-mono max-w-md text-center break-all">
-          {(projectsError as any)?.message ?? String(projectsError)}
-        </p>
         <Button variant="outline" size="sm" onClick={() => qc.invalidateQueries({ queryKey: ["my-projects"] })}>
           Retry
         </Button>
@@ -157,14 +161,18 @@ export default function MyProjects() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>Start a new project</DialogTitle></DialogHeader>
-          <ProjectWizard userId={user.id} onDone={handleDone} />
+          <ProjectWizard userId={user.id} stages={stages} onDone={handleDone} />
         </DialogContent>
       </Dialog>
     </div>
   );
 }
 
-function ProjectWizard({ userId, onDone }: { userId: string; onDone: (id?: string) => void }) {
+function ProjectWizard({ userId, stages, onDone }: {
+  userId: string;
+  stages: { id: string; name: string; sequence: number }[];
+  onDone: (id?: string) => void;
+}) {
   const [step, setStep] = useState(1);
   const [projectType, setProjectType] = useState("Residential");
   const [floors, setFloors] = useState(1);
@@ -176,14 +184,6 @@ function ProjectWizard({ userId, onDone }: { userId: string; onDone: (id?: strin
   const [location, setLocation] = useState("");
   const [busy, setBusy] = useState(false);
   const [submitted, setSubmitted] = useState<string | null>(null);
-
-  const { data: stages } = useQuery({
-    queryKey: ["stage_master"],
-    queryFn: async () => {
-      const { data } = await supabase.from("stage_master").select("*").order("sequence");
-      return data ?? [];
-    },
-  });
 
   const submit = async () => {
     if (floors < 1 || areaSqft < 1) return toast.error("Floors and area must be at least 1");
@@ -291,14 +291,24 @@ function ProjectWizard({ userId, onDone }: { userId: string; onDone: (id?: strin
       {step === 3 && (
         <div className="space-y-3">
           <Label>Which stage is the site currently in?</Label>
-          <Select value={stageId} onValueChange={setStageId}>
-            <SelectTrigger><SelectValue placeholder="Select current stage" /></SelectTrigger>
-            <SelectContent>
-              {stages?.map(s => (
-                <SelectItem key={s.id} value={s.id}>{s.sequence}. {s.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="border rounded-md divide-y max-h-56 overflow-y-auto">
+            {stages?.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">Loading stages…</p>
+            )}
+            {stages?.map(s => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setStageId(s.id)}
+                className={cn(
+                  "w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors",
+                  stageId === s.id && "bg-primary text-primary-foreground hover:bg-primary/90"
+                )}
+              >
+                {s.sequence}. {s.name}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
