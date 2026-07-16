@@ -207,11 +207,17 @@ export default function OpsProjects() {
                   velocityPctPerDay: p.velocity_days_per_pct ? 1 / Number(p.velocity_days_per_pct) : null,
                   lastUpdate: p.updated_at,
                 });
+                const tone = {
+                  overdue: "text-red-600 dark:text-red-400",
+                  urgent: "text-amber-600 dark:text-amber-400",
+                  soon: "text-blue-600 dark:text-blue-400",
+                  routine: "",
+                }[est.priority];
                 return (
                   <div className="flex items-center gap-1.5 text-xs">
                     <Clock className="w-3 h-3 text-muted-foreground" />
                     <span className="text-muted-foreground">Next check-in:</span>
-                    <span className={est.overdue ? "font-medium text-amber-600 dark:text-amber-400" : "font-medium"}>
+                    <span className={`font-medium ${tone}`}>
                       {est.overdue
                         ? "Due now"
                         : est.daysUntil === 0

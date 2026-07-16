@@ -153,6 +153,12 @@ export default function OpsProjectDetail() {
   const updateCount = updates?.length ?? 0;
 
   const currentStage = stages?.find(s => s.id === project.current_stage_id);
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const nextOrderByDate = (forecasts ?? [])
+    .flatMap((f: any) => f.forecast_items ?? [])
+    .filter((it: any) => it.status === "pending" && it.order_by_date && it.order_by_date >= todayIso)
+    .map((it: any) => it.order_by_date as string)
+    .sort()[0] ?? null;
   const followUp = estimateFollowUp({
     stageDurationDays: currentStage?.typical_duration_days,
     areaSqft: project.area_sqft,
@@ -160,7 +166,16 @@ export default function OpsProjectDetail() {
     progressPct: project.progress_pct,
     velocityPctPerDay: project.velocity_days_per_pct ? 1 / Number(project.velocity_days_per_pct) : null,
     lastUpdate: updates?.[0]?.recorded_at ?? project.updated_at,
+    updateCount: updates?.length ?? 0,
+    nextOrderByDate,
+    historicalVelocityPctPerDay: project.historical_avg_velocity ? Number(project.historical_avg_velocity) : null,
   });
+  const followUpTone = {
+    overdue: "text-red-600 dark:text-red-400 bg-red-500/10",
+    urgent: "text-amber-600 dark:text-amber-400 bg-amber-500/10",
+    soon: "text-blue-600 dark:text-blue-400 bg-blue-500/10",
+    routine: "text-muted-foreground bg-muted",
+  }[followUp.priority];
 
   return (
     <div className="p-8 space-y-6">
@@ -250,9 +265,14 @@ export default function OpsProjectDetail() {
       <Card className="p-5">
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-2">
-            <Clock className={`w-4 h-4 ${followUp.overdue ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`} />
+            <Clock className="w-4 h-4 text-muted-foreground" />
             <div>
-              <div className="text-xs text-muted-foreground">Next follow-up</div>
+              <div className="text-xs text-muted-foreground flex items-center gap-2">
+                Next follow-up
+                <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide font-medium ${followUpTone}`}>
+                  {followUp.priority}
+                </span>
+              </div>
               <div className="font-semibold">
                 {followUp.overdue
                   ? "Due now"
@@ -261,11 +281,26 @@ export default function OpsProjectDetail() {
             </div>
           </div>
           <div className="text-right">
-            <div className="text-xs text-muted-foreground">Cadence</div>
+            <div className="text-xs text-muted-foreground">Cadence · {followUp.confidence} confidence</div>
             <div className="font-semibold">~every {followUp.intervalDays}d</div>
           </div>
         </div>
         <p className="mt-3 text-xs text-muted-foreground">{followUp.reason}</p>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {followUp.factors.slice(0, 4).map((f) => (
+            <span
+              key={f.key}
+              title={f.label}
+              className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                f.key === followUp.drivingFactor
+                  ? "border-primary/40 bg-primary/5 text-primary font-medium"
+                  : "border-border text-muted-foreground"
+              }`}
+            >
+              {f.label} · {Math.max(1, Math.round(f.proposedDays))}d
+            </span>
+          ))}
+        </div>
       </Card>
 
       <Tabs defaultValue="timeline">
