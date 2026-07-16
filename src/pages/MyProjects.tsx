@@ -50,9 +50,6 @@ export default function MyProjects() {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-8 gap-4">
         <p className="text-muted-foreground">Could not load your projects.</p>
-        <p className="text-xs text-red-500 font-mono max-w-md text-center break-all">
-          {(projectsError as any)?.message ?? String(projectsError)}
-        </p>
         <Button variant="outline" size="sm" onClick={() => qc.invalidateQueries({ queryKey: ["my-projects"] })}>
           Retry
         </Button>
