@@ -337,6 +337,14 @@ function OnboardWizard({ onDone }: { onDone: () => void }) {
           stage_id: stageId,
           started_at: new Date().toISOString(),
         });
+        // Generate the current stage's material forecast right away so the
+        // project shows a forecast the moment it's onboarded.
+        try {
+          const { created } = await autoGenerateForecastForCurrentStage(project.id);
+          if (created > 0) toast.success(`${created} forecast item${created === 1 ? "" : "s"} ready`);
+        } catch (e) {
+          console.warn("[Onboard] forecast generation:", e);
+        }
       }
       toast.success("Project onboarded");
       onDone();
