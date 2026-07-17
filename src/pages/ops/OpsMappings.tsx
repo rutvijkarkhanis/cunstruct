@@ -20,6 +20,7 @@ const PRIORITIES = ["Critical", "Recommended", "Optional"];
 export default function OpsMappings() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [presetStage, setPresetStage] = useState("");
   const [filterStage, setFilterStage] = useState<string>("all");
 
   const { data: stages } = useQuery({
@@ -43,11 +44,40 @@ export default function OpsMappings() {
     },
   });
 
+  // Coverage: how many products (and how many Critical) each stage has.
+  const { data: coverage } = useQuery({
+    queryKey: ["mapping-coverage"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("stage_material_mapping")
+        .select("stage_id, priority");
+      const map: Record<string, { total: number; critical: number }> = {};
+      (data ?? []).forEach((r: any) => {
+        const c = map[r.stage_id] ?? { total: 0, critical: 0 };
+        c.total += 1;
+        if (r.priority === "Critical") c.critical += 1;
+        map[r.stage_id] = c;
+      });
+      return map;
+    },
+  });
+
   const remove = async (id: string) => {
     if (!confirm("Delete mapping?")) return;
     await supabase.from("stage_material_mapping").delete().eq("id", id);
     qc.invalidateQueries({ queryKey: ["mappings"] });
+    qc.invalidateQueries({ queryKey: ["mapping-coverage"] });
   };
+
+  // empty = no products at all; thin = has products but no Critical staple.
+  const stageLevel = (total: number, critical: number) =>
+    total === 0 ? "empty" : critical === 0 ? "thin" : "ok";
+
+  const emptyCount = (stages ?? []).filter((s) => !(coverage?.[s.id]?.total)).length;
+  const thinCount = (stages ?? []).filter((s) => {
+    const c = coverage?.[s.id];
+    return c && c.total > 0 && c.critical === 0;
+  }).length;
 
   return (
     <div className="p-8 space-y-6">
@@ -70,22 +100,103 @@ export default function OpsMappings() {
           </Select>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-              <Button><Plus className="w-4 h-4 mr-1" /> Add mapping</Button>
+              <Button onClick={() => setPresetStage("")}>
+                <Plus className="w-4 h-4 mr-1" /> Add mapping
+              </Button>
             </DialogTrigger>
             <DialogContent className="max-w-2xl">
               <DialogHeader><DialogTitle>New stage → product mapping</DialogTitle></DialogHeader>
-              <MappingForm stages={stages ?? []} onDone={() => {
+              <MappingForm stages={stages ?? []} initialStageId={presetStage} onDone={() => {
                 setOpen(false);
                 qc.invalidateQueries({ queryKey: ["mappings"] });
+                qc.invalidateQueries({ queryKey: ["mapping-coverage"] });
               }} />
             </DialogContent>
           </Dialog>
         </div>
       </div>
 
+      {/* Stage coverage — where do I have products, and where should I add more? */}
+      <Card className="p-4">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div>
+            <h2 className="font-semibold">Stage coverage</h2>
+            <p className="text-xs text-muted-foreground">
+              Products mapped per stage. Click a stage to filter; use + to add one there.
+            </p>
+          </div>
+          <div className="flex items-center gap-3 text-xs">
+            {emptyCount > 0 && (
+              <span className="flex items-center gap-1 text-destructive">
+                <span className="w-2 h-2 rounded-full bg-destructive inline-block" />
+                {emptyCount} empty
+              </span>
+            )}
+            {thinCount > 0 && (
+              <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
+                {thinCount} no critical item
+              </span>
+            )}
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+              covered
+            </span>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
+          {stages?.map((s) => {
+            const c = coverage?.[s.id] ?? { total: 0, critical: 0 };
+            const level = stageLevel(c.total, c.critical);
+            const tone =
+              level === "empty"
+                ? "border-destructive/40 bg-destructive/5"
+                : level === "thin"
+                  ? "border-amber-500/40 bg-amber-500/5"
+                  : "border-emerald-500/40 bg-emerald-500/5";
+            const active = filterStage === s.id;
+            return (
+              <div
+                key={s.id}
+                className={`relative rounded-lg border p-3 ${tone} ${active ? "ring-2 ring-primary" : ""}`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setFilterStage(active ? "all" : s.id)}
+                  className="text-left w-full"
+                >
+                  <div className="text-xs text-muted-foreground truncate">
+                    {s.sequence}. {s.name}
+                  </div>
+                  <div className="text-2xl font-bold leading-tight mt-1">{c.total}</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {c.total === 0
+                      ? "no products yet"
+                      : `${c.critical} critical · ${c.total - c.critical} other`}
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  title={`Add a product to ${s.name}`}
+                  onClick={() => {
+                    setPresetStage(s.id);
+                    setOpen(true);
+                  }}
+                  className="absolute top-2 right-2 w-6 h-6 rounded flex items-center justify-center hover:bg-background/80 text-muted-foreground"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
       {mappings && mappings.length === 0 && (
         <Card className="p-12 text-center text-muted-foreground">
-          No mappings yet. Seed the top SKUs per stage to power the forecast engine.
+          {filterStage === "all"
+            ? "No mappings yet. Seed the top SKUs per stage to power the forecast engine."
+            : "No products mapped to this stage yet. Click + on the stage above to add one."}
         </Card>
       )}
 
@@ -122,8 +233,8 @@ export default function OpsMappings() {
   );
 }
 
-function MappingForm({ stages, onDone }: { stages: any[]; onDone: () => void }) {
-  const [stageId, setStageId] = useState("");
+function MappingForm({ stages, onDone, initialStageId = "" }: { stages: any[]; onDone: () => void; initialStageId?: string }) {
+  const [stageId, setStageId] = useState(initialStageId);
   const [productSearch, setProductSearch] = useState("");
   const [productId, setProductId] = useState("");
   const [productName, setProductName] = useState("");
