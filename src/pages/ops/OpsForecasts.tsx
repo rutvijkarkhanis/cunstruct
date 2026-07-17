@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, Sparkles, Send } from "lucide-react";
 import { formatINR, formatDateShort } from "@/lib/forecastEngine";
+import { buildWhatsAppUrl } from "@/lib/whatsapp";
 import { formatDistanceToNow } from "date-fns";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -60,54 +61,35 @@ export default function OpsForecasts() {
   });
 
   const sendToCustomer = async (f: any) => {
-    const phone = f.projects?.customer_phone;
     const items = f.forecast_items ?? [];
     if (!items.length) return;
-    if (!phone) {
-      toast.error("No customer phone on file for this project");
+    const lines = items.map((i: any) =>
+      `• ${i.qty_estimated} ${i.unit ?? ""} ${i.product_name}`.replace(/\s+/g, " ").trim()
+    );
+    const total = items.reduce((s: number, i: any) => s + Number(i.budget_estimated ?? 0), 0);
+    const message =
+      `🏗️ Based on your site progress, you may need:\n\n` +
+      `${lines.join("\n")}\n\n` +
+      `Estimated Total: ₹${Math.round(total).toLocaleString("en-IN")}\n\n` +
+      `Reply:\n1 - Confirm\n2 - Modify\n3 - Call Me`;
+
+    const url = buildWhatsAppUrl(f.projects?.customer_phone, message);
+    if (!url) {
+      toast.error("No valid customer phone on file for this project");
       return;
     }
+    // Open WhatsApp (Web on desktop) with the message pre-filled; you press send.
+    window.open(url, "_blank", "noopener,noreferrer");
+
     setSendingId(f.id);
     try {
-      const lines = items.map((i: any) =>
-        `• ${i.qty_estimated} ${i.unit ?? ""} ${i.product_name}`.replace(/\s+/g, " ").trim()
-      );
-      const total = items.reduce(
-        (s: number, i: any) => s + Number(i.budget_estimated ?? 0), 0,
-      );
-      const message =
-        `🏗️ Based on your site progress, you may need:\n\n` +
-        `${lines.join("\n")}\n\n` +
-        `Estimated Total: ₹${Math.round(total).toLocaleString("en-IN")}\n\n` +
-        `Reply:\n1 - Confirm\n2 - Modify\n3 - Call Me`;
-      const to = String(phone).replace(/[^0-9]/g, "");
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (!sessionData?.session) {
-        toast.error("Please sign in again.");
-        return;
-      }
-      console.log('Sending WhatsApp to:', to);
-      console.log('Message body:', message);
-      const { data, error } = await supabase.functions.invoke("whatsapp-send", {
-        body: { to, message },
-      });
-      console.log("whatsapp-send response:", { data, error });
-      if (error) {
-        toast.error(error.message || "Failed to send WhatsApp message.");
-        return;
-      }
-      if (data?.success === false) {
-        toast.error(data.error || "Failed to send WhatsApp message.");
-        return;
-      }
       await supabase.from("forecasts").update({
         whatsapp_sent_at: new Date().toISOString(),
         status: "sent",
       }).eq("id", f.id);
-      toast.success("WhatsApp message sent successfully.");
       qc.invalidateQueries({ queryKey: ["all-forecasts"] });
-    } catch (err: any) {
-      toast.error(err?.message || "Failed to send forecast");
+    } catch {
+      /* non-fatal — the message still opened in WhatsApp */
     } finally {
       setSendingId(null);
     }
@@ -170,11 +152,7 @@ export default function OpsForecasts() {
                       className="gap-1"
                     >
                       <Send className="w-3 h-3" />
-                      {sendingId === f.id
-                        ? "Sending…"
-                        : f.whatsapp_sent_at
-                          ? "Resend"
-                          : "Send to Customer"}
+                      {f.whatsapp_sent_at ? "Open in WhatsApp again" : "Open in WhatsApp"}
                     </Button>
                   )}
                 </div>

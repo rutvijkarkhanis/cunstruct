@@ -5,10 +5,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { MessageSquare, Send, Clock, Phone, PackageOpen } from "lucide-react";
+import { MessageSquare, Send, Clock, Phone, PackageOpen, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { formatINR, formatDateShort } from "@/lib/forecastEngine";
 import { estimateFollowUp } from "@/lib/followup";
+import { buildWhatsAppUrl } from "@/lib/whatsapp";
 
 interface StageInfo { name: string; sequence: number; typical_duration_days: number | null; }
 
@@ -126,37 +127,28 @@ export default function OpsBriefings() {
 
   const send = async (row: (typeof briefings)[number]) => {
     const { project: p, forecast } = row;
-    const phone = p.customer_phone ? String(p.customer_phone).replace(/[^0-9]/g, "") : "";
-    if (!phone) {
-      toast.error("No customer phone on file — add it on the project page");
+    const url = buildWhatsAppUrl(p.customer_phone, composeMessage(row));
+    if (!url) {
+      toast.error("No valid customer phone on file — add it on the project page");
       return;
     }
-    setSendingId(p.id);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (!sessionData?.session) {
-        toast.error("Please sign in again.");
-        return;
-      }
-      const message = composeMessage(row);
-      const { data: res, error } = await supabase.functions.invoke("whatsapp-send", {
-        body: { to: phone, message },
-      });
-      if (error) { toast.error(error.message || "Failed to send WhatsApp message."); return; }
-      if (res?.success === false) { toast.error(res.error || "Failed to send WhatsApp message."); return; }
+    // Open WhatsApp (Web on desktop) with the message pre-filled; the operator sends it.
+    window.open(url, "_blank", "noopener,noreferrer");
 
-      if (forecast) {
+    // Record that a briefing was prepared/sent for this forecast (best-effort).
+    if (forecast) {
+      setSendingId(p.id);
+      try {
         await supabase.from("forecasts").update({
           whatsapp_sent_at: new Date().toISOString(),
           status: "sent",
         }).eq("id", forecast.id);
+        qc.invalidateQueries({ queryKey: ["briefings"] });
+      } catch {
+        /* non-fatal — the message still opened in WhatsApp */
+      } finally {
+        setSendingId(null);
       }
-      toast.success(`Briefing sent to ${p.customer_name || p.name}`);
-      qc.invalidateQueries({ queryKey: ["briefings"] });
-    } catch (err: any) {
-      toast.error(err?.message || "Failed to send briefing");
-    } finally {
-      setSendingId(null);
     }
   };
 
@@ -210,10 +202,22 @@ export default function OpsBriefings() {
                 </div>
                 <div className="flex flex-col items-end gap-2 shrink-0">
                   <Badge variant="outline" className="capitalize">{followUp.priority}</Badge>
-                  <Button size="sm" className="gap-1" disabled={!hasPhone || sendingId === p.id} onClick={() => send(row)}>
-                    <Send className="w-3 h-3" />
-                    {sendingId === p.id ? "Sending…" : forecast?.whatsapp_sent_at ? "Resend" : "Send briefing"}
-                  </Button>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      size="sm" variant="ghost" className="gap-1"
+                      onClick={() => {
+                        navigator.clipboard.writeText(composeMessage(row))
+                          .then(() => toast.success("Message copied"))
+                          .catch(() => toast.error("Couldn't copy"));
+                      }}
+                    >
+                      <Copy className="w-3 h-3" /> Copy
+                    </Button>
+                    <Button size="sm" className="gap-1" disabled={!hasPhone || sendingId === p.id} onClick={() => send(row)}>
+                      <Send className="w-3 h-3" />
+                      {forecast?.whatsapp_sent_at ? "Open again" : "Open in WhatsApp"}
+                    </Button>
+                  </div>
                 </div>
               </div>
 
