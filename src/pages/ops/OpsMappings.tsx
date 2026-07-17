@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { supabase as catalogSupabase } from "@/lib/supabase";
@@ -6,20 +6,23 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, DownloadCloud } from "lucide-react";
 import { toast } from "sonner";
+import { mapCategoryToStage } from "@/lib/stageMapping";
 
 const PRIORITIES = ["Critical", "Recommended", "Optional"];
 
 export default function OpsMappings() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [presetStage, setPresetStage] = useState("");
   const [filterStage, setFilterStage] = useState<string>("all");
 
@@ -98,6 +101,21 @@ export default function OpsMappings() {
               ))}
             </SelectContent>
           </Select>
+          <Dialog open={importOpen} onOpenChange={setImportOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline">
+                <DownloadCloud className="w-4 h-4 mr-1" /> Import from catalog
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader><DialogTitle>Import materials from the product catalog</DialogTitle></DialogHeader>
+              <ImportFromCatalog stages={stages ?? []} onDone={() => {
+                setImportOpen(false);
+                qc.invalidateQueries({ queryKey: ["mappings"] });
+                qc.invalidateQueries({ queryKey: ["mapping-coverage"] });
+              }} />
+            </DialogContent>
+          </Dialog>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button onClick={() => setPresetStage("")}>
@@ -387,5 +405,142 @@ function MappingForm({ stages, onDone, initialStageId = "" }: { stages: any[]; o
         {busy ? "…" : "Add mapping"}
       </Button>
     </form>
+  );
+}
+
+function ImportFromCatalog({ stages, onDone }: { stages: any[]; onDone: () => void }) {
+  const [priority, setPriority] = useState("Recommended");
+  const [excluded, setExcluded] = useState<Record<string, boolean>>({});
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
+
+  // Product IDs already mapped (in the main app DB) so we don't create duplicates.
+  const { data: existing } = useQuery({
+    queryKey: ["mapped-product-ids"],
+    queryFn: async () => {
+      const { data } = await supabase.from("stage_material_mapping").select("product_id");
+      return new Set((data ?? []).map((r: any) => String(r.product_id)));
+    },
+  });
+
+  // All published products from the catalog project.
+  const { data: products, isLoading, error } = useQuery({
+    queryKey: ["catalog-all-published"],
+    queryFn: async () => {
+      const { data, error } = await catalogSupabase
+        .from("products_master")
+        .select("id, name, main_category, unit")
+        .eq("status", "published")
+        .limit(5000);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  // Plan: new products grouped by the stage they map to.
+  const plan = useMemo(() => {
+    const byStage: Record<string, any[]> = {};
+    let alreadyMapped = 0;
+    let uncategorized = 0;
+    (products ?? []).forEach((p: any) => {
+      if (existing?.has(String(p.id))) { alreadyMapped++; return; }
+      const stage = mapCategoryToStage(p.main_category, p.name);
+      if (!stage) { uncategorized++; return; }
+      (byStage[stage] ??= []).push(p);
+    });
+    return { byStage, alreadyMapped, uncategorized };
+  }, [products, existing]);
+
+  const orderedStages = (stages ?? []).filter((s) => plan.byStage[s.name]?.length);
+  const totalSelected = orderedStages.reduce(
+    (sum, s) => sum + (excluded[s.name] ? 0 : plan.byStage[s.name].length),
+    0,
+  );
+
+  const doImport = async () => {
+    setBusy(true);
+    try {
+      const rows: any[] = [];
+      orderedStages.forEach((s) => {
+        if (excluded[s.name]) return;
+        plan.byStage[s.name].forEach((p: any) => {
+          rows.push({
+            stage_id: s.id,
+            product_id: String(p.id),
+            product_name: p.name,
+            priority,
+            unit: p.unit ?? null,
+            lead_time_days: 3,
+            trigger_offset_days: 5,
+            buffer_pct: 10,
+            reliability_score: 0.9,
+            buffer_days: 1,
+            stock_reliability_score: 70,
+          });
+        });
+      });
+      if (!rows.length) { toast.error("Nothing selected to import"); return; }
+      const CHUNK = 200;
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        setProgress(`Importing ${Math.min(i + CHUNK, rows.length)}/${rows.length}…`);
+        const { error } = await supabase.from("stage_material_mapping").insert(rows.slice(i, i + CHUNK));
+        if (error) throw error;
+      }
+      toast.success(`Imported ${rows.length} mappings`);
+      onDone();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Import failed");
+    } finally {
+      setBusy(false);
+      setProgress(null);
+    }
+  };
+
+  if (isLoading) return <div className="py-8 text-center text-sm text-muted-foreground">Loading catalog…</div>;
+  if (error) return <div className="py-8 text-center text-sm text-destructive">Couldn't load the catalog. {(error as Error).message}</div>;
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        {products?.length ?? 0} published products · {plan.alreadyMapped} already mapped ·{" "}
+        {plan.uncategorized} couldn't be matched to a stage (skipped).
+      </p>
+
+      <div>
+        <Label>Priority for imported items</Label>
+        <Select value={priority} onValueChange={setPriority}>
+          <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {PRIORITIES.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {orderedStages.length === 0 ? (
+        <Card className="p-6 text-center text-sm text-muted-foreground">
+          Nothing new to import — every matchable product is already mapped.
+        </Card>
+      ) : (
+        <div className="border rounded max-h-72 overflow-y-auto divide-y">
+          {orderedStages.map((s) => (
+            <label key={s.id} className="flex items-center gap-3 px-3 py-2 text-sm cursor-pointer hover:bg-accent/50">
+              <Checkbox
+                checked={!excluded[s.name]}
+                onCheckedChange={(v) => setExcluded((e) => ({ ...e, [s.name]: !v }))}
+              />
+              <span className="flex-1">{s.sequence}. {s.name}</span>
+              <span className="text-muted-foreground">{plan.byStage[s.name].length} products</span>
+            </label>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs text-muted-foreground">{progress}</span>
+        <Button onClick={doImport} disabled={busy || totalSelected === 0 || existing === undefined}>
+          {busy ? "Importing…" : `Import ${totalSelected} mapping${totalSelected === 1 ? "" : "s"}`}
+        </Button>
+      </div>
+    </div>
   );
 }
