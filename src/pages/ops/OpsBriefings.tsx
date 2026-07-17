@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MessageSquare, Send, Clock, Phone, PackageOpen, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { formatINR, formatDateShort } from "@/lib/forecastEngine";
@@ -75,7 +76,7 @@ export default function OpsBriefings() {
   });
 
   const briefings = useMemo(() => {
-    return (data ?? []).map((row) => {
+    const rows = (data ?? []).map((row) => {
       const { project: p, items } = row;
       const nextOrderByDate = items
         .map((it: any) => it.order_by_date)
@@ -93,7 +94,27 @@ export default function OpsBriefings() {
       });
       return { ...row, followUp };
     });
+    // Most urgent first: overdue → urgent → soon → routine, then soonest-due within a tier.
+    const rank = { overdue: 0, urgent: 1, soon: 2, routine: 3 } as const;
+    rows.sort((a, b) =>
+      rank[a.followUp.priority] - rank[b.followUp.priority] ||
+      a.followUp.daysUntil - b.followUp.daysUntil
+    );
+    return rows;
   }, [data]);
+
+  const counts = useMemo(() => ({
+    due: briefings.filter(b => b.followUp.priority === "overdue" || b.followUp.priority === "urgent").length,
+    week: briefings.filter(b => b.followUp.priority === "soon").length,
+    all: briefings.length,
+  }), [briefings]);
+
+  const [filter, setFilter] = useState<"due" | "week" | "all">("all");
+  const visible = useMemo(() => briefings.filter(b => {
+    if (filter === "all") return true;
+    if (filter === "due") return b.followUp.priority === "overdue" || b.followUp.priority === "urgent";
+    return b.followUp.priority !== "routine"; // "week": everything except routine
+  }), [briefings, filter]);
 
   const composeMessage = (row: (typeof briefings)[number]): string => {
     const { project: p, items, stage, followUp } = row;
@@ -163,15 +184,37 @@ export default function OpsBriefings() {
         </p>
       </div>
 
+      {!isLoading && briefings.length > 0 && (
+        <div className="flex items-center gap-3">
+          {counts.due > 0 && (
+            <span className="text-sm font-medium text-amber-600 dark:text-amber-400">
+              {counts.due} check-in{counts.due === 1 ? "" : "s"} due now
+            </span>
+          )}
+          <Tabs value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
+            <TabsList>
+              <TabsTrigger value="due">Due now ({counts.due})</TabsTrigger>
+              <TabsTrigger value="week">Upcoming ({counts.due + counts.week})</TabsTrigger>
+              <TabsTrigger value="all">All ({counts.all})</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+      )}
+
       {isLoading && <Card className="p-8 text-center text-muted-foreground">Loading…</Card>}
       {!isLoading && briefings.length === 0 && (
         <Card className="p-12 text-center text-muted-foreground">
           No active projects yet. Onboard and activate a project to send briefings.
         </Card>
       )}
+      {!isLoading && briefings.length > 0 && visible.length === 0 && (
+        <Card className="p-10 text-center text-muted-foreground text-sm">
+          Nothing in this view. {filter !== "all" && "No check-ins are due — switch to \"All\" to see every project."}
+        </Card>
+      )}
 
       <div className="space-y-4">
-        {briefings.map((row) => {
+        {visible.map((row) => {
           const { project: p, items, stage, forecast, followUp } = row;
           const total = items.reduce((s: number, i: any) => s + Number(i.budget_estimated ?? 0), 0);
           const hasPhone = !!p.customer_phone;
