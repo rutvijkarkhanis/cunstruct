@@ -8,6 +8,7 @@ import { AlertTriangle, Sparkles, Send } from "lucide-react";
 import { formatINR, formatDateShort } from "@/lib/forecastEngine";
 import { buildWhatsAppUrl, buildBriefingMessage } from "@/lib/whatsapp";
 import { supabase as catalogSupabase } from "@/lib/supabase";
+import { classifyModel, MODEL_MARGIN, MODEL_BLURB, type TradeModel } from "@/lib/tradeModel";
 import { formatDistanceToNow } from "date-fns";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -78,31 +79,53 @@ export default function OpsForecasts() {
       try {
         const { data, error } = await catalogSupabase
           .from("products_master")
-          .select("id, cost_price, selling_price")
+          .select("id, cost_price, selling_price, main_category")
           .in("id", productIds);
         if (error) throw error;
-        const map: Record<string, { cost: number; sell: number }> = {};
+        const map: Record<string, { cost: number; sell: number; category: string | null }> = {};
         (data ?? []).forEach((r: any) => {
-          map[r.id] = { cost: Number(r.cost_price ?? 0), sell: Number(r.selling_price ?? 0) };
+          map[r.id] = {
+            cost: Number(r.cost_price ?? 0),
+            sell: Number(r.selling_price ?? 0),
+            category: r.main_category ?? null,
+          };
         });
         return map;
       } catch {
-        return {} as Record<string, { cost: number; sell: number }>;
+        return {} as Record<string, { cost: number; sell: number; category: string | null }>;
       }
     },
   });
 
-  // Profit for a forecast item = (what we quote − catalog cost) × qty.
-  const itemProfit = (i: any): { profit: number; marginPct: number | null } | null => {
+  // Economics for a forecast item: which model it is (Trade/Hook/Broker) and the
+  // margin that implies. If we know the real catalog cost we use the actual
+  // margin; otherwise we estimate from the model's default margin.
+  const itemEconomics = (
+    i: any,
+  ): { model: TradeModel; marginPct: number; profit: number; estimated: boolean } => {
     const c = costMap?.[i.product_id];
-    if (!c || !c.cost) return null;
-    const revenue = Number(i.unit_price ?? c.sell ?? 0);
+    const model = classifyModel(c?.category, i.product_name);
     const qty = Number(i.qty_estimated ?? 0);
-    if (!revenue || !qty) return null;
-    const profit = (revenue - c.cost) * qty;
-    const marginPct = revenue > 0 ? ((revenue - c.cost) / revenue) * 100 : null;
-    return { profit, marginPct };
+    const revenue = Number(i.budget_estimated ?? 0) || Number(i.unit_price ?? 0) * qty;
+
+    // Real margin when we have a catalog cost and a sensible quoted price.
+    const unitRevenue = Number(i.unit_price ?? c?.sell ?? 0);
+    if (c?.cost && unitRevenue > 0 && qty > 0) {
+      const marginPct = ((unitRevenue - c.cost) / unitRevenue) * 100;
+      return { model, marginPct, profit: (unitRevenue - c.cost) * qty, estimated: false };
+    }
+
+    // Otherwise estimate from the model's default margin.
+    const marginPct = MODEL_MARGIN[model];
+    return { model, marginPct, profit: (revenue * marginPct) / 100, estimated: true };
   };
+
+  const modelBadgeClass = (m: TradeModel) =>
+    m === "Trade"
+      ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+      : m === "Hook"
+        ? "bg-accent/20 text-amber-600 dark:text-amber-400"
+        : "bg-muted text-muted-foreground";
 
   const sendToCustomer = async (f: any) => {
     const items = f.forecast_items ?? [];
@@ -199,9 +222,9 @@ export default function OpsForecasts() {
               <div className="text-xs text-muted-foreground mb-3">
                 {items.length} items · estimated {formatINR(total)}
                 {(() => {
-                  const totalProfit = items.reduce((s: number, i: any) => s + (itemProfit(i)?.profit ?? 0), 0);
+                  const totalProfit = items.reduce((s: number, i: any) => s + itemEconomics(i).profit, 0);
                   return totalProfit > 0
-                    ? <> · <span className="text-emerald-600 dark:text-emerald-400 font-medium">profit {formatINR(totalProfit)}</span></>
+                    ? <> · <span className="text-emerald-600 dark:text-emerald-400 font-medium">est. profit {formatINR(totalProfit)}</span></>
                     : null;
                 })()}
               </div>
@@ -239,12 +262,22 @@ export default function OpsForecasts() {
                         {formatDateShort(i.order_by_date)}
                       </div>
                       {(() => {
-                        const pr = itemProfit(i);
-                        if (!pr) return null;
+                        const e = itemEconomics(i);
                         return (
-                          <div className="text-xs mt-0.5 text-emerald-600 dark:text-emerald-400">
-                            Profit {formatINR(pr.profit)}
-                            {pr.marginPct != null && ` · ${pr.marginPct.toFixed(0)}% margin`}
+                          <div className="text-xs mt-1 flex items-center gap-1.5 flex-wrap">
+                            <span
+                              title={MODEL_BLURB[e.model]}
+                              className={`uppercase text-[10px] px-1.5 py-0.5 rounded font-medium ${modelBadgeClass(e.model)}`}
+                            >
+                              {e.model}
+                            </span>
+                            <span className="text-emerald-600 dark:text-emerald-400">
+                              {e.estimated ? "~" : ""}
+                              {e.marginPct.toFixed(0)}% margin · profit {formatINR(e.profit)}
+                              {e.estimated && (
+                                <span className="text-muted-foreground"> est.</span>
+                              )}
+                            </span>
                           </div>
                         );
                       })()}
