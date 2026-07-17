@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button";
 import { AlertTriangle, Sparkles, Send } from "lucide-react";
 import { formatINR, formatDateShort } from "@/lib/forecastEngine";
 import { buildWhatsAppUrl, buildBriefingMessage } from "@/lib/whatsapp";
+import { supabase as catalogSupabase } from "@/lib/supabase";
 import { formatDistanceToNow } from "date-fns";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 export default function OpsForecasts() {
@@ -59,6 +60,49 @@ export default function OpsForecasts() {
       }));
     },
   });
+
+  // Look up catalog cost per product so we can show profit per item.
+  const productIds = useMemo(
+    () => Array.from(new Set(
+      (forecasts ?? [])
+        .flatMap((f: any) => (f.forecast_items ?? []).map((i: any) => i.product_id))
+        .filter(Boolean),
+    )),
+    [forecasts],
+  );
+
+  const { data: costMap } = useQuery({
+    queryKey: ["forecast-costs", productIds],
+    enabled: productIds.length > 0,
+    queryFn: async () => {
+      try {
+        const { data, error } = await catalogSupabase
+          .from("products_master")
+          .select("id, cost_price, selling_price")
+          .in("id", productIds);
+        if (error) throw error;
+        const map: Record<string, { cost: number; sell: number }> = {};
+        (data ?? []).forEach((r: any) => {
+          map[r.id] = { cost: Number(r.cost_price ?? 0), sell: Number(r.selling_price ?? 0) };
+        });
+        return map;
+      } catch {
+        return {} as Record<string, { cost: number; sell: number }>;
+      }
+    },
+  });
+
+  // Profit for a forecast item = (what we quote − catalog cost) × qty.
+  const itemProfit = (i: any): { profit: number; marginPct: number | null } | null => {
+    const c = costMap?.[i.product_id];
+    if (!c || !c.cost) return null;
+    const revenue = Number(i.unit_price ?? c.sell ?? 0);
+    const qty = Number(i.qty_estimated ?? 0);
+    if (!revenue || !qty) return null;
+    const profit = (revenue - c.cost) * qty;
+    const marginPct = revenue > 0 ? ((revenue - c.cost) / revenue) * 100 : null;
+    return { profit, marginPct };
+  };
 
   const sendToCustomer = async (f: any) => {
     const items = f.forecast_items ?? [];
@@ -154,6 +198,12 @@ export default function OpsForecasts() {
               </div>
               <div className="text-xs text-muted-foreground mb-3">
                 {items.length} items · estimated {formatINR(total)}
+                {(() => {
+                  const totalProfit = items.reduce((s: number, i: any) => s + (itemProfit(i)?.profit ?? 0), 0);
+                  return totalProfit > 0
+                    ? <> · <span className="text-emerald-600 dark:text-emerald-400 font-medium">profit {formatINR(totalProfit)}</span></>
+                    : null;
+                })()}
               </div>
               <div className="grid gap-2">
                 {items.slice(0, 6).map((i: any) => (
@@ -188,6 +238,16 @@ export default function OpsForecasts() {
                         {formatINR(i.budget_estimated)} · order by{" "}
                         {formatDateShort(i.order_by_date)}
                       </div>
+                      {(() => {
+                        const pr = itemProfit(i);
+                        if (!pr) return null;
+                        return (
+                          <div className="text-xs mt-0.5 text-emerald-600 dark:text-emerald-400">
+                            Profit {formatINR(pr.profit)}
+                            {pr.marginPct != null && ` · ${pr.marginPct.toFixed(0)}% margin`}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 ))}
