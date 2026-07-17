@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, Sparkles, Send } from "lucide-react";
 import { formatINR, formatDateShort } from "@/lib/forecastEngine";
-import { buildWhatsAppUrl } from "@/lib/whatsapp";
+import { buildWhatsAppUrl, buildBriefingMessage } from "@/lib/whatsapp";
 import { formatDistanceToNow } from "date-fns";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -33,7 +33,7 @@ export default function OpsForecasts() {
         projectIds.length
           ? supabase
               .from("projects")
-              .select("id, name, location, owner_id, customer_phone")
+              .select("id, name, location, owner_id, customer_phone, customer_name")
               .in("id", projectIds)
           : Promise.resolve({ data: [], error: null } as any),
         supabase
@@ -63,15 +63,10 @@ export default function OpsForecasts() {
   const sendToCustomer = async (f: any) => {
     const items = f.forecast_items ?? [];
     if (!items.length) return;
-    const lines = items.map((i: any) =>
-      `• ${i.qty_estimated} ${i.unit ?? ""} ${i.product_name}`.replace(/\s+/g, " ").trim()
-    );
-    const total = items.reduce((s: number, i: any) => s + Number(i.budget_estimated ?? 0), 0);
-    const message =
-      `🏗️ Based on your site progress, you may need:\n\n` +
-      `${lines.join("\n")}\n\n` +
-      `Estimated Total: ₹${Math.round(total).toLocaleString("en-IN")}\n\n` +
-      `Reply:\n1 - Confirm\n2 - Modify\n3 - Call Me`;
+    const message = buildBriefingMessage(items, {
+      projectName: f.projects?.name ?? "your project",
+      customerName: f.projects?.customer_name,
+    });
 
     const url = buildWhatsAppUrl(f.projects?.customer_phone, message);
     if (!url) {

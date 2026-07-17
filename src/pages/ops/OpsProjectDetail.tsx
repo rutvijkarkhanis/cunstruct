@@ -23,7 +23,7 @@ import {
   formatINR, formatDateShort, autoGenerateForecastForCurrentStage,
 } from "@/lib/forecastEngine";
 import { estimateFollowUp } from "@/lib/followup";
-import { buildWhatsAppUrl } from "@/lib/whatsapp";
+import { buildWhatsAppUrl, buildBriefingMessage } from "@/lib/whatsapp";
 
 export default function OpsProjectDetail() {
   const { id } = useParams<{ id: string }>();
@@ -449,15 +449,12 @@ function ForecastsPanel({ forecasts, projectId, qc, project, requestEditPhone }:
       toast.error("No forecast items to send");
       return;
     }
-    const lines = items.map((i: any) =>
-      `• ${i.qty_estimated} ${i.unit ?? ""} ${i.product_name}`.replace(/\s+/g, " ").trim()
-    );
-    const total = items.reduce((s: number, i: any) => s + Number(i.budget_estimated ?? 0), 0);
-    const message =
-      `🏗️ Based on your site progress, you may need:\n\n` +
-      `${lines.join("\n")}\n\n` +
-      `Estimated Total: ₹${Math.round(total).toLocaleString("en-IN")}\n\n` +
-      `Reply:\n1 - Confirm\n2 - Modify\n3 - Call Me`;
+    const message = buildBriefingMessage(items, {
+      projectName: project.name,
+      customerName: project.customer_name,
+      stageName: (project as any).stage_master?.name,
+      progressPct: project.progress_pct,
+    });
 
     const url = buildWhatsAppUrl(phoneRaw, message);
     if (!url) {
