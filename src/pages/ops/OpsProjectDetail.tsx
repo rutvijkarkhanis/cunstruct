@@ -136,14 +136,25 @@ export default function OpsProjectDetail() {
   const runForecast = async () => {
     setGenBusy(true);
     try {
-      const { created } = await generateForecasts(id!);
-      toast.success(`Generated ${created} forecast items`);
+      let created = 0;
+      // Upcoming stages within the 7–30 day window (best-effort — empty when the
+      // next stage is projected beyond the window, e.g. at low progress).
+      try { created += (await generateForecasts(id!)).created; }
+      catch (e) { console.warn("[Forecast] upcoming generation:", e); }
+      // Current-stage materials — what to order now. Reliable whenever the current
+      // stage has mappings, regardless of progress/horizon. Runs last so its items win.
+      try { created += (await autoGenerateForecastForCurrentStage(id!)).created; }
+      catch (e) { console.warn("[Forecast] current-stage generation:", e); }
+
+      if (created > 0) {
+        toast.success(`Generated ${created} forecast item${created === 1 ? "" : "s"}`);
+      } else {
+        toast.error("No materials to forecast — map materials to this project's stage in Stage Mappings, or move it to a stage that has materials.");
+      }
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["forecasts", id] }),
         qc.invalidateQueries({ queryKey: ["all-forecasts"] }),
       ]);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
     } finally { setGenBusy(false); }
   };
 
