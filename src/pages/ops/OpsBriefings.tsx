@@ -10,7 +10,7 @@ import { MessageSquare, Send, Clock, Phone, PackageOpen, Copy } from "lucide-rea
 import { toast } from "sonner";
 import { formatINR, formatDateShort } from "@/lib/forecastEngine";
 import { estimateFollowUp } from "@/lib/followup";
-import { buildWhatsAppUrl } from "@/lib/whatsapp";
+import { buildWhatsAppUrl, buildBriefingMessage } from "@/lib/whatsapp";
 
 interface StageInfo { name: string; sequence: number; typical_duration_days: number | null; }
 
@@ -116,35 +116,13 @@ export default function OpsBriefings() {
     return b.followUp.priority !== "routine"; // "week": everything except routine
   }), [briefings, filter]);
 
-  const composeMessage = (row: (typeof briefings)[number]): string => {
-    const { project: p, items, stage, followUp } = row;
-    const stageName = stage?.name ?? "your current stage";
-    const progress = Number(p.progress_pct ?? 0).toFixed(0);
-    const checkIn = followUp.overdue
-      ? "We'll check in with you shortly."
-      : `We'll check in again around ${formatDateShort(followUp.nextFollowUpDate.toISOString())}.`;
-
-    if (items.length === 0) {
-      return (
-        `🏗️ ${p.name} — quick check-in\n\n` +
-        `You're in *${stageName}* (${progress}% done). How's progress since we last spoke?\n\n` +
-        `Reply with an update and we'll line up your next materials.\n${checkIn}`
-      );
-    }
-
-    const lines = items.map((i: any) =>
-      `• ${i.qty_estimated} ${i.unit ?? ""} ${i.product_name}`.replace(/\s+/g, " ").trim()
-    );
-    const total = items.reduce((s: number, i: any) => s + Number(i.budget_estimated ?? 0), 0);
-    return (
-      `🏗️ ${p.name} — procurement update\n\n` +
-      `Current stage: *${stageName}* (${progress}%)\n\n` +
-      `Based on your site progress, you may need:\n${lines.join("\n")}\n\n` +
-      `Estimated total: ₹${Math.round(total).toLocaleString("en-IN")}\n\n` +
-      `${checkIn}\n\n` +
-      `Reply:\n1 - Confirm\n2 - Modify\n3 - Call Me`
-    );
-  };
+  const composeMessage = (row: (typeof briefings)[number]): string =>
+    buildBriefingMessage(row.items, {
+      projectName: row.project.name,
+      customerName: row.project.customer_name,
+      stageName: row.stage?.name,
+      progressPct: row.project.progress_pct,
+    });
 
   const send = async (row: (typeof briefings)[number]) => {
     const { project: p, forecast } = row;
