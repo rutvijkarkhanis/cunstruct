@@ -397,7 +397,10 @@ export async function autoGenerateForecastForCurrentStage(
     }
     qty = Math.ceil(qty * (1 + Number(m.buffer_pct ?? 0) / 100));
 
-    const unitPrice = p?.selling_price != null ? Number(p.selling_price) : null;
+    // Price from the catalog product; fall back to the mapping's qty_formula.unit_price.
+    const unitPrice = p?.selling_price != null
+      ? Number(p.selling_price)
+      : (formula?.unit_price != null ? Number(formula.unit_price) : null);
     const budget = unitPrice != null ? unitPrice * qty : null;
 
     const priority = String(m.priority ?? "").toLowerCase();

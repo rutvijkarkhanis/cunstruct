@@ -15,7 +15,11 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { Plus, Building2, Clock, CheckCircle2, LogOut } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Plus, Building2, Clock, CheckCircle2, LogOut, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 const TYPES = ["Residential", "Commercial", "Retail", "Office", "Hospital"];
@@ -26,6 +30,8 @@ export default function MyProjects() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [stages, setStages] = useState<{ id: string; name: string; sequence: number }[]>([]);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) navigate("/auth?returnUrl=" + encodeURIComponent("/my-projects"));
@@ -71,6 +77,22 @@ export default function MyProjects() {
     setOpen(false);
     qc.invalidateQueries({ queryKey: ["my-projects"] });
     if (pid) navigate(`/my-projects/${pid}`);
+  };
+
+  const deleteProject = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const { error } = await supabase.from("projects").delete().eq("id", deleteTarget.id);
+      if (error) throw error;
+      toast.success(`Deleted "${deleteTarget.name}"`);
+      setDeleteTarget(null);
+      qc.invalidateQueries({ queryKey: ["my-projects"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to delete project");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -124,15 +146,25 @@ export default function MyProjects() {
                       <div className="font-semibold truncate">{p.name}</div>
                       <div className="text-xs text-muted-foreground truncate">{p.location || "—"}</div>
                     </div>
-                    {pending ? (
-                      <span className="text-[10px] uppercase tracking-wide px-2 py-1 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> Pending review
-                      </span>
-                    ) : (
-                      <span className="text-[10px] uppercase tracking-wide px-2 py-1 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" /> Active
-                      </span>
-                    )}
+                    <div className="flex items-center gap-1 shrink-0">
+                      {pending ? (
+                        <span className="text-[10px] uppercase tracking-wide px-2 py-1 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 flex items-center gap-1">
+                          <Clock className="w-3 h-3" /> Pending review
+                        </span>
+                      ) : (
+                        <span className="text-[10px] uppercase tracking-wide px-2 py-1 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" /> Active
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        aria-label="Delete project"
+                        className="p-1 rounded text-muted-foreground hover:text-destructive"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteTarget({ id: p.id, name: p.name }); }}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                   <div className="text-sm">
                     <span className="text-muted-foreground">Current stage: </span>
@@ -156,6 +188,28 @@ export default function MyProjects() {
           })}
         </div>
       </main>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this project?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes <span className="font-medium">{deleteTarget?.name}</span> and all its
+              stage updates and forecasts. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); deleteProject(); }}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Fix #10: single Dialog instance shared by both the header button and the empty-state button */}
       <Dialog open={open} onOpenChange={setOpen}>

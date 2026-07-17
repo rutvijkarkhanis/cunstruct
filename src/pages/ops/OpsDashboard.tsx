@@ -3,8 +3,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
-import { Building2, Layers, Link2, AlertTriangle, RefreshCw } from "lucide-react";
+import { Building2, Layers, Link2, AlertTriangle, RefreshCw, MessageSquare } from "lucide-react";
 import { runAnomalyDetection, formatINR } from "@/lib/forecastEngine";
+import { estimateFollowUp } from "@/lib/followup";
 import { toast } from "sonner";
 import { useState } from "react";
 
@@ -61,6 +62,30 @@ export default function OpsDashboard() {
         totalItems,
         decidedItems: decidedItems.count ?? 0,
       };
+    },
+  });
+
+  const { data: dueCheckins } = useQuery({
+    queryKey: ["due-checkins"],
+    queryFn: async () => {
+      const [{ data: projects }, { data: stages }] = await Promise.all([
+        supabase.from("projects")
+          .select("area_sqft, floors, progress_pct, current_stage_id, velocity_days_per_pct, historical_avg_velocity, updated_at, status")
+          .neq("status", "pending_review"),
+        supabase.from("stage_master").select("id, typical_duration_days"),
+      ]);
+      const dur: Record<string, number | null> = {};
+      (stages ?? []).forEach((s: any) => { dur[s.id] = s.typical_duration_days; });
+      return (projects ?? []).filter((p: any) => {
+        const e = estimateFollowUp({
+          stageDurationDays: p.current_stage_id ? dur[p.current_stage_id] : null,
+          areaSqft: p.area_sqft, floors: p.floors, progressPct: p.progress_pct,
+          velocityPctPerDay: p.velocity_days_per_pct ? 1 / Number(p.velocity_days_per_pct) : null,
+          lastUpdate: p.updated_at,
+          historicalVelocityPctPerDay: p.historical_avg_velocity ? Number(p.historical_avg_velocity) : null,
+        });
+        return e.priority === "overdue" || e.priority === "urgent";
+      }).length;
     },
   });
 
@@ -173,7 +198,9 @@ export default function OpsDashboard() {
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard to="/ops/briefings" icon={MessageSquare} label="Check-ins due"
+          value={dueCheckins ?? 0} tone={dueCheckins ? "warn" : undefined} />
         <StatCard to="/ops/projects" icon={Building2} label="Projects" value={stats?.projects ?? 0} />
         <StatCard to="/ops/stages" icon={Layers} label="Stages" value={stats?.stages ?? 0} />
         <StatCard to="/ops/mappings" icon={Link2} label="Mappings" value={stats?.mappings ?? 0} />
@@ -192,12 +219,12 @@ function Mini({ label, value, tone }: { label: string; value: number; tone?: "wa
   );
 }
 
-function StatCard({ to, icon: Icon, label, value }: { to: string; icon: React.ElementType; label: string; value: number }) {
+function StatCard({ to, icon: Icon, label, value, tone }: { to: string; icon: React.ElementType; label: string; value: number; tone?: "warn" }) {
   return (
     <Link to={to}>
       <Card className="p-5 hover:border-primary transition-colors">
-        <Icon className="w-5 h-5 text-primary mb-2" />
-        <div className="text-2xl font-bold">{value}</div>
+        <Icon className={`w-5 h-5 mb-2 ${tone === "warn" ? "text-amber-600 dark:text-amber-400" : "text-primary"}`} />
+        <div className={`text-2xl font-bold ${tone === "warn" ? "text-amber-600 dark:text-amber-400" : ""}`}>{value}</div>
         <div className="text-sm text-muted-foreground">{label}</div>
       </Card>
     </Link>

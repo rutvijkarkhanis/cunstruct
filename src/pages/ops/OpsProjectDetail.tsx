@@ -16,12 +16,14 @@ import {
 } from "@/components/ui/select";
 import { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
-import { ArrowLeft, MessageSquare, Camera, Mic, AlertTriangle, Sparkles, UserCog } from "lucide-react";
+import { ArrowLeft, MessageSquare, Camera, Mic, AlertTriangle, Sparkles, UserCog, Clock } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import {
   recalcProjectVelocity, generateForecasts, buildBriefingText,
   formatINR, formatDateShort, autoGenerateForecastForCurrentStage,
 } from "@/lib/forecastEngine";
+import { estimateFollowUp } from "@/lib/followup";
+import { buildWhatsAppUrl } from "@/lib/whatsapp";
 
 export default function OpsProjectDetail() {
   const { id } = useParams<{ id: string }>();
@@ -134,14 +136,25 @@ export default function OpsProjectDetail() {
   const runForecast = async () => {
     setGenBusy(true);
     try {
-      const { created } = await generateForecasts(id!);
-      toast.success(`Generated ${created} forecast items`);
+      let created = 0;
+      // Upcoming stages within the 7–30 day window (best-effort — empty when the
+      // next stage is projected beyond the window, e.g. at low progress).
+      try { created += (await generateForecasts(id!)).created; }
+      catch (e) { console.warn("[Forecast] upcoming generation:", e); }
+      // Current-stage materials — what to order now. Reliable whenever the current
+      // stage has mappings, regardless of progress/horizon. Runs last so its items win.
+      try { created += (await autoGenerateForecastForCurrentStage(id!)).created; }
+      catch (e) { console.warn("[Forecast] current-stage generation:", e); }
+
+      if (created > 0) {
+        toast.success(`Generated ${created} forecast item${created === 1 ? "" : "s"}`);
+      } else {
+        toast.error("No materials to forecast — map materials to this project's stage in Stage Mappings, or move it to a stage that has materials.");
+      }
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["forecasts", id] }),
         qc.invalidateQueries({ queryKey: ["all-forecasts"] }),
       ]);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
     } finally { setGenBusy(false); }
   };
 
@@ -150,6 +163,31 @@ export default function OpsProjectDetail() {
   const stageSeq = (project as any).stage_master?.sequence ?? 0;
   const hasVelocity = project.velocity_days_per_pct != null && project.projected_completion_date;
   const updateCount = updates?.length ?? 0;
+
+  const currentStage = stages?.find(s => s.id === project.current_stage_id);
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const nextOrderByDate = (forecasts ?? [])
+    .flatMap((f: any) => f.forecast_items ?? [])
+    .filter((it: any) => it.status === "pending" && it.order_by_date && it.order_by_date >= todayIso)
+    .map((it: any) => it.order_by_date as string)
+    .sort()[0] ?? null;
+  const followUp = estimateFollowUp({
+    stageDurationDays: currentStage?.typical_duration_days,
+    areaSqft: project.area_sqft,
+    floors: project.floors,
+    progressPct: project.progress_pct,
+    velocityPctPerDay: project.velocity_days_per_pct ? 1 / Number(project.velocity_days_per_pct) : null,
+    lastUpdate: updates?.[0]?.recorded_at ?? project.updated_at,
+    updateCount: updates?.length ?? 0,
+    nextOrderByDate,
+    historicalVelocityPctPerDay: project.historical_avg_velocity ? Number(project.historical_avg_velocity) : null,
+  });
+  const followUpTone = {
+    overdue: "text-red-600 dark:text-red-400 bg-red-500/10",
+    urgent: "text-amber-600 dark:text-amber-400 bg-amber-500/10",
+    soon: "text-blue-600 dark:text-blue-400 bg-blue-500/10",
+    routine: "text-muted-foreground bg-muted",
+  }[followUp.priority];
 
   return (
     <div className="p-8 space-y-6">
@@ -232,6 +270,47 @@ export default function OpsProjectDetail() {
                   : s.sequence === stageSeq ? "bg-primary/50"
                   : "bg-muted"
               }`} />
+          ))}
+        </div>
+      </Card>
+
+      <Card className="p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-muted-foreground" />
+            <div>
+              <div className="text-xs text-muted-foreground flex items-center gap-2">
+                Next follow-up
+                <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide font-medium ${followUpTone}`}>
+                  {followUp.priority}
+                </span>
+              </div>
+              <div className="font-semibold">
+                {followUp.overdue
+                  ? "Due now"
+                  : `${formatDateShort(followUp.nextFollowUpDate.toISOString())} · in ${followUp.daysUntil}d`}
+              </div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-xs text-muted-foreground">Cadence · {followUp.confidence} confidence</div>
+            <div className="font-semibold">~every {followUp.intervalDays}d</div>
+          </div>
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">{followUp.reason}</p>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {followUp.factors.slice(0, 4).map((f) => (
+            <span
+              key={f.key}
+              title={f.label}
+              className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                f.key === followUp.drivingFactor
+                  ? "border-primary/40 bg-primary/5 text-primary font-medium"
+                  : "border-border text-muted-foreground"
+              }`}
+            >
+              {f.label} · {Math.max(1, Math.round(f.proposedDays))}d
+            </span>
           ))}
         </div>
       </Card>
@@ -365,55 +444,38 @@ function ForecastsPanel({ forecasts, projectId, qc, project, requestEditPhone }:
 
   const [sending, setSending] = useState(false);
   const doSend = async (forecast: any, phoneRaw: string) => {
+    const items = forecast.forecast_items ?? [];
+    if (!items.length) {
+      toast.error("No forecast items to send");
+      return;
+    }
+    const lines = items.map((i: any) =>
+      `• ${i.qty_estimated} ${i.unit ?? ""} ${i.product_name}`.replace(/\s+/g, " ").trim()
+    );
+    const total = items.reduce((s: number, i: any) => s + Number(i.budget_estimated ?? 0), 0);
+    const message =
+      `🏗️ Based on your site progress, you may need:\n\n` +
+      `${lines.join("\n")}\n\n` +
+      `Estimated Total: ₹${Math.round(total).toLocaleString("en-IN")}\n\n` +
+      `Reply:\n1 - Confirm\n2 - Modify\n3 - Call Me`;
+
+    const url = buildWhatsAppUrl(phoneRaw, message);
+    if (!url) {
+      toast.error("No valid customer phone on file");
+      return;
+    }
+    // Open WhatsApp (Web on desktop) with the message pre-filled; you press send.
+    window.open(url, "_blank", "noopener,noreferrer");
+
+    setSending(true);
     try {
-      setSending(true);
-      const items = forecast.forecast_items ?? [];
-      if (!items.length) {
-        toast.error("No forecast items to send");
-        return;
-      }
-      const lines = items.map((i: any) =>
-        `• ${i.qty_estimated} ${i.unit ?? ""} ${i.product_name}`.replace(/\s+/g, " ").trim()
-      );
-      const total = items.reduce(
-        (s: number, i: any) => s + Number(i.budget_estimated ?? 0), 0,
-      );
-      const message =
-        `🏗️ Based on your site progress, you may need:\n\n` +
-        `${lines.join("\n")}\n\n` +
-        `Estimated Total: ₹${Math.round(total).toLocaleString("en-IN")}\n\n` +
-        `Reply:\n1 - Confirm\n2 - Modify\n3 - Call Me`;
-
-      const to = phoneRaw.replace(/[^0-9]/g, "");
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (!sessionData?.session) {
-        toast.error("Please sign in again.");
-        return;
-      }
-      console.log('Sending WhatsApp to:', to);
-      console.log('Message body:', message);
-      const { data, error } = await supabase.functions.invoke("whatsapp-send", {
-        body: { to, message },
-      });
-      console.log("whatsapp-send response:", { data, error });
-      if (error) {
-        toast.error(error.message || "Failed to send WhatsApp message.");
-        return;
-      }
-      if (data?.success === false) {
-        toast.error(data.error || "Failed to send WhatsApp message.");
-        return;
-      }
-
       await supabase.from("forecasts").update({
         whatsapp_sent_at: new Date().toISOString(),
         status: "sent",
       }).eq("id", forecast.id);
-
-      toast.success("WhatsApp message sent successfully.");
       qc.invalidateQueries({ queryKey: ["forecasts", projectId] });
-    } catch (err: any) {
-      toast.error(err?.message || "Failed to send forecast");
+    } catch {
+      /* non-fatal — the message still opened in WhatsApp */
     } finally {
       setSending(false);
     }
@@ -465,7 +527,7 @@ function ForecastsPanel({ forecasts, projectId, qc, project, requestEditPhone }:
                     onClick={() => sendToCustomer(latest)}
                     disabled={sending}
                   >
-                    {sending ? "Sending…" : latest.status === "sent" ? "Resend to Customer" : "Send to Customer"}
+                    {latest.status === "sent" ? "Open in WhatsApp again" : "Open in WhatsApp"}
                   </Button>
                 )}
               </div>
