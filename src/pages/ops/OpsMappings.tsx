@@ -40,7 +40,8 @@ export default function OpsMappings() {
       let q = supabase
         .from("stage_material_mapping")
         .select("*, stage_master:stage_id(name, sequence)")
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(5000);
       if (filterStage !== "all") q = q.eq("stage_id", filterStage);
       const { data } = await q;
       return data ?? [];
@@ -53,7 +54,8 @@ export default function OpsMappings() {
     queryFn: async () => {
       const { data } = await supabase
         .from("stage_material_mapping")
-        .select("stage_id, priority");
+        .select("stage_id, priority")
+        .limit(20000);
       const map: Record<string, { total: number; critical: number }> = {};
       (data ?? []).forEach((r: any) => {
         const c = map[r.stage_id] ?? { total: 0, critical: 0 };
@@ -411,6 +413,8 @@ function MappingForm({ stages, onDone, initialStageId = "" }: { stages: any[]; o
 function ImportFromCatalog({ stages, onDone }: { stages: any[]; onDone: () => void }) {
   const [priority, setPriority] = useState("Recommended");
   const [excluded, setExcluded] = useState<Record<string, boolean>>({});
+  const [includeAll, setIncludeAll] = useState(false);
+  const [fallbackStage, setFallbackStage] = useState(""); // stage name for unmatched, "" = skip
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
 
@@ -418,42 +422,53 @@ function ImportFromCatalog({ stages, onDone }: { stages: any[]; onDone: () => vo
   const { data: existing } = useQuery({
     queryKey: ["mapped-product-ids"],
     queryFn: async () => {
-      const { data } = await supabase.from("stage_material_mapping").select("product_id");
+      const { data } = await supabase.from("stage_material_mapping").select("product_id").limit(20000);
       return new Set((data ?? []).map((r: any) => String(r.product_id)));
     },
   });
 
-  // All published products from the catalog project.
+  // Products from the catalog project — published only by default, or every status.
   const { data: products, isLoading, error } = useQuery({
-    queryKey: ["catalog-all-published"],
+    queryKey: ["catalog-import-products", includeAll],
     queryFn: async () => {
-      const { data, error } = await catalogSupabase
+      let q = catalogSupabase
         .from("products_master")
-        .select("id, name, main_category, unit")
-        .eq("status", "published")
-        .limit(5000);
+        .select("id, name, main_category, unit, status")
+        .limit(10000);
+      if (!includeAll) q = q.eq("status", "published");
+      const { data, error } = await q;
       if (error) throw error;
       return data ?? [];
     },
   });
 
-  // Plan: new products grouped by the stage they map to.
+  // Plan: new products grouped by the stage they map to; unmatched kept aside.
   const plan = useMemo(() => {
     const byStage: Record<string, any[]> = {};
+    const uncategorized: any[] = [];
     let alreadyMapped = 0;
-    let uncategorized = 0;
     (products ?? []).forEach((p: any) => {
       if (existing?.has(String(p.id))) { alreadyMapped++; return; }
       const stage = mapCategoryToStage(p.main_category, p.name);
-      if (!stage) { uncategorized++; return; }
+      if (!stage) { uncategorized.push(p); return; }
       (byStage[stage] ??= []).push(p);
     });
-    return { byStage, alreadyMapped, uncategorized };
+    return { byStage, uncategorized, alreadyMapped };
   }, [products, existing]);
 
-  const orderedStages = (stages ?? []).filter((s) => plan.byStage[s.name]?.length);
+  // Fold unmatched products into the chosen fallback stage (if any).
+  const effectiveByStage = useMemo(() => {
+    const m: Record<string, any[]> = {};
+    Object.entries(plan.byStage).forEach(([k, v]) => { m[k] = v; });
+    if (fallbackStage && plan.uncategorized.length) {
+      m[fallbackStage] = [...(m[fallbackStage] ?? []), ...plan.uncategorized];
+    }
+    return m;
+  }, [plan, fallbackStage]);
+
+  const orderedStages = (stages ?? []).filter((s) => effectiveByStage[s.name]?.length);
   const totalSelected = orderedStages.reduce(
-    (sum, s) => sum + (excluded[s.name] ? 0 : plan.byStage[s.name].length),
+    (sum, s) => sum + (excluded[s.name] ? 0 : effectiveByStage[s.name].length),
     0,
   );
 
@@ -463,7 +478,7 @@ function ImportFromCatalog({ stages, onDone }: { stages: any[]; onDone: () => vo
       const rows: any[] = [];
       orderedStages.forEach((s) => {
         if (excluded[s.name]) return;
-        plan.byStage[s.name].forEach((p: any) => {
+        effectiveByStage[s.name].forEach((p: any) => {
           rows.push({
             stage_id: s.id,
             product_id: String(p.id),
@@ -502,23 +517,43 @@ function ImportFromCatalog({ stages, onDone }: { stages: any[]; onDone: () => vo
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        {products?.length ?? 0} published products · {plan.alreadyMapped} already mapped ·{" "}
-        {plan.uncategorized} couldn't be matched to a stage (skipped).
+        {products?.length ?? 0} catalog products ({includeAll ? "all statuses" : "published only"}) ·{" "}
+        {plan.alreadyMapped} already mapped · {plan.uncategorized.length} unmatched.
       </p>
 
-      <div>
-        <Label>Priority for imported items</Label>
-        <Select value={priority} onValueChange={setPriority}>
-          <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {PRIORITIES.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-          </SelectContent>
-        </Select>
+      <label className="flex items-center gap-2 text-sm cursor-pointer">
+        <Checkbox checked={includeAll} onCheckedChange={(v) => setIncludeAll(!!v)} />
+        Include products that aren't published yet
+      </label>
+
+      <div className="grid sm:grid-cols-2 gap-3">
+        <div>
+          <Label>Priority for imported items</Label>
+          <Select value={priority} onValueChange={setPriority}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {PRIORITIES.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label>Unmatched products ({plan.uncategorized.length})</Label>
+          <Select value={fallbackStage || "__skip__"} onValueChange={(v) => setFallbackStage(v === "__skip__" ? "" : v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__skip__">Skip them</SelectItem>
+              {(stages ?? []).map((s) => (
+                <SelectItem key={s.id} value={s.name}>Put in {s.sequence}. {s.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {orderedStages.length === 0 ? (
         <Card className="p-6 text-center text-sm text-muted-foreground">
           Nothing new to import — every matchable product is already mapped.
+          {plan.uncategorized.length > 0 && " Pick a stage under “Unmatched products” to import the rest."}
         </Card>
       ) : (
         <div className="border rounded max-h-72 overflow-y-auto divide-y">
@@ -529,7 +564,7 @@ function ImportFromCatalog({ stages, onDone }: { stages: any[]; onDone: () => vo
                 onCheckedChange={(v) => setExcluded((e) => ({ ...e, [s.name]: !v }))}
               />
               <span className="flex-1">{s.sequence}. {s.name}</span>
-              <span className="text-muted-foreground">{plan.byStage[s.name].length} products</span>
+              <span className="text-muted-foreground">{effectiveByStage[s.name].length} products</span>
             </label>
           ))}
         </div>
