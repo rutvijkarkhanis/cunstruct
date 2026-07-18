@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { supabase as catalogSupabase } from "@/lib/supabase";
@@ -6,20 +6,24 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, DownloadCloud } from "lucide-react";
 import { toast } from "sonner";
+import { mapCategoryToStage } from "@/lib/stageMapping";
 
 const PRIORITIES = ["Critical", "Recommended", "Optional"];
 
 export default function OpsMappings() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [presetStage, setPresetStage] = useState("");
   const [filterStage, setFilterStage] = useState<string>("all");
 
   const { data: stages } = useQuery({
@@ -36,10 +40,30 @@ export default function OpsMappings() {
       let q = supabase
         .from("stage_material_mapping")
         .select("*, stage_master:stage_id(name, sequence)")
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(5000);
       if (filterStage !== "all") q = q.eq("stage_id", filterStage);
       const { data } = await q;
       return data ?? [];
+    },
+  });
+
+  // Coverage: how many products (and how many Critical) each stage has.
+  const { data: coverage } = useQuery({
+    queryKey: ["mapping-coverage"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("stage_material_mapping")
+        .select("stage_id, priority")
+        .limit(20000);
+      const map: Record<string, { total: number; critical: number }> = {};
+      (data ?? []).forEach((r: any) => {
+        const c = map[r.stage_id] ?? { total: 0, critical: 0 };
+        c.total += 1;
+        if (r.priority === "Critical") c.critical += 1;
+        map[r.stage_id] = c;
+      });
+      return map;
     },
   });
 
@@ -47,7 +71,18 @@ export default function OpsMappings() {
     if (!confirm("Delete mapping?")) return;
     await supabase.from("stage_material_mapping").delete().eq("id", id);
     qc.invalidateQueries({ queryKey: ["mappings"] });
+    qc.invalidateQueries({ queryKey: ["mapping-coverage"] });
   };
+
+  // empty = no products at all; thin = has products but no Critical staple.
+  const stageLevel = (total: number, critical: number) =>
+    total === 0 ? "empty" : critical === 0 ? "thin" : "ok";
+
+  const emptyCount = (stages ?? []).filter((s) => !(coverage?.[s.id]?.total)).length;
+  const thinCount = (stages ?? []).filter((s) => {
+    const c = coverage?.[s.id];
+    return c && c.total > 0 && c.critical === 0;
+  }).length;
 
   return (
     <div className="p-8 space-y-6">
@@ -68,24 +103,120 @@ export default function OpsMappings() {
               ))}
             </SelectContent>
           </Select>
+          <Dialog open={importOpen} onOpenChange={setImportOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline">
+                <DownloadCloud className="w-4 h-4 mr-1" /> Import from catalog
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader><DialogTitle>Import materials from the product catalog</DialogTitle></DialogHeader>
+              <ImportFromCatalog stages={stages ?? []} onDone={() => {
+                setImportOpen(false);
+                qc.invalidateQueries({ queryKey: ["mappings"] });
+                qc.invalidateQueries({ queryKey: ["mapping-coverage"] });
+              }} />
+            </DialogContent>
+          </Dialog>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-              <Button><Plus className="w-4 h-4 mr-1" /> Add mapping</Button>
+              <Button onClick={() => setPresetStage("")}>
+                <Plus className="w-4 h-4 mr-1" /> Add mapping
+              </Button>
             </DialogTrigger>
             <DialogContent className="max-w-2xl">
               <DialogHeader><DialogTitle>New stage → product mapping</DialogTitle></DialogHeader>
-              <MappingForm stages={stages ?? []} onDone={() => {
+              <MappingForm stages={stages ?? []} initialStageId={presetStage} onDone={() => {
                 setOpen(false);
                 qc.invalidateQueries({ queryKey: ["mappings"] });
+                qc.invalidateQueries({ queryKey: ["mapping-coverage"] });
               }} />
             </DialogContent>
           </Dialog>
         </div>
       </div>
 
+      {/* Stage coverage — where do I have products, and where should I add more? */}
+      <Card className="p-4">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div>
+            <h2 className="font-semibold">Stage coverage</h2>
+            <p className="text-xs text-muted-foreground">
+              Products mapped per stage. Click a stage to filter; use + to add one there.
+            </p>
+          </div>
+          <div className="flex items-center gap-3 text-xs">
+            {emptyCount > 0 && (
+              <span className="flex items-center gap-1 text-destructive">
+                <span className="w-2 h-2 rounded-full bg-destructive inline-block" />
+                {emptyCount} empty
+              </span>
+            )}
+            {thinCount > 0 && (
+              <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
+                {thinCount} no critical item
+              </span>
+            )}
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+              covered
+            </span>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
+          {stages?.map((s) => {
+            const c = coverage?.[s.id] ?? { total: 0, critical: 0 };
+            const level = stageLevel(c.total, c.critical);
+            const tone =
+              level === "empty"
+                ? "border-destructive/40 bg-destructive/5"
+                : level === "thin"
+                  ? "border-amber-500/40 bg-amber-500/5"
+                  : "border-emerald-500/40 bg-emerald-500/5";
+            const active = filterStage === s.id;
+            return (
+              <div
+                key={s.id}
+                className={`relative rounded-lg border p-3 ${tone} ${active ? "ring-2 ring-primary" : ""}`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setFilterStage(active ? "all" : s.id)}
+                  className="text-left w-full"
+                >
+                  <div className="text-xs text-muted-foreground truncate">
+                    {s.sequence}. {s.name}
+                  </div>
+                  <div className="text-2xl font-bold leading-tight mt-1">{c.total}</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {c.total === 0
+                      ? "no products yet"
+                      : `${c.critical} critical · ${c.total - c.critical} other`}
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  title={`Add a product to ${s.name}`}
+                  onClick={() => {
+                    setPresetStage(s.id);
+                    setOpen(true);
+                  }}
+                  className="absolute top-2 right-2 w-6 h-6 rounded flex items-center justify-center hover:bg-background/80 text-muted-foreground"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
       {mappings && mappings.length === 0 && (
         <Card className="p-12 text-center text-muted-foreground">
-          No mappings yet. Seed the top SKUs per stage to power the forecast engine.
+          {filterStage === "all"
+            ? "No mappings yet. Seed the top SKUs per stage to power the forecast engine."
+            : "No products mapped to this stage yet. Click + on the stage above to add one."}
         </Card>
       )}
 
@@ -122,8 +253,8 @@ export default function OpsMappings() {
   );
 }
 
-function MappingForm({ stages, onDone }: { stages: any[]; onDone: () => void }) {
-  const [stageId, setStageId] = useState("");
+function MappingForm({ stages, onDone, initialStageId = "" }: { stages: any[]; onDone: () => void; initialStageId?: string }) {
+  const [stageId, setStageId] = useState(initialStageId);
   const [productSearch, setProductSearch] = useState("");
   const [productId, setProductId] = useState("");
   const [productName, setProductName] = useState("");
@@ -276,5 +407,175 @@ function MappingForm({ stages, onDone }: { stages: any[]; onDone: () => void }) 
         {busy ? "…" : "Add mapping"}
       </Button>
     </form>
+  );
+}
+
+function ImportFromCatalog({ stages, onDone }: { stages: any[]; onDone: () => void }) {
+  const [priority, setPriority] = useState("Recommended");
+  const [excluded, setExcluded] = useState<Record<string, boolean>>({});
+  const [includeAll, setIncludeAll] = useState(false);
+  const [fallbackStage, setFallbackStage] = useState(""); // stage name for unmatched, "" = skip
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
+
+  // Product IDs already mapped (in the main app DB) so we don't create duplicates.
+  const { data: existing } = useQuery({
+    queryKey: ["mapped-product-ids"],
+    queryFn: async () => {
+      const { data } = await supabase.from("stage_material_mapping").select("product_id").limit(20000);
+      return new Set((data ?? []).map((r: any) => String(r.product_id)));
+    },
+  });
+
+  // Products from the catalog project — published only by default, or every status.
+  const { data: products, isLoading, error } = useQuery({
+    queryKey: ["catalog-import-products", includeAll],
+    queryFn: async () => {
+      let q = catalogSupabase
+        .from("products_master")
+        .select("id, name, main_category, unit, status")
+        .limit(10000);
+      if (!includeAll) q = q.eq("status", "published");
+      const { data, error } = await q;
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  // Plan: new products grouped by the stage they map to; unmatched kept aside.
+  const plan = useMemo(() => {
+    const byStage: Record<string, any[]> = {};
+    const uncategorized: any[] = [];
+    let alreadyMapped = 0;
+    (products ?? []).forEach((p: any) => {
+      if (existing?.has(String(p.id))) { alreadyMapped++; return; }
+      const stage = mapCategoryToStage(p.main_category, p.name);
+      if (!stage) { uncategorized.push(p); return; }
+      (byStage[stage] ??= []).push(p);
+    });
+    return { byStage, uncategorized, alreadyMapped };
+  }, [products, existing]);
+
+  // Fold unmatched products into the chosen fallback stage (if any).
+  const effectiveByStage = useMemo(() => {
+    const m: Record<string, any[]> = {};
+    Object.entries(plan.byStage).forEach(([k, v]) => { m[k] = v; });
+    if (fallbackStage && plan.uncategorized.length) {
+      m[fallbackStage] = [...(m[fallbackStage] ?? []), ...plan.uncategorized];
+    }
+    return m;
+  }, [plan, fallbackStage]);
+
+  const orderedStages = (stages ?? []).filter((s) => effectiveByStage[s.name]?.length);
+  const totalSelected = orderedStages.reduce(
+    (sum, s) => sum + (excluded[s.name] ? 0 : effectiveByStage[s.name].length),
+    0,
+  );
+
+  const doImport = async () => {
+    setBusy(true);
+    try {
+      const rows: any[] = [];
+      orderedStages.forEach((s) => {
+        if (excluded[s.name]) return;
+        effectiveByStage[s.name].forEach((p: any) => {
+          rows.push({
+            stage_id: s.id,
+            product_id: String(p.id),
+            product_name: p.name,
+            priority,
+            unit: p.unit ?? null,
+            lead_time_days: 3,
+            trigger_offset_days: 5,
+            buffer_pct: 10,
+            reliability_score: 0.9,
+            buffer_days: 1,
+            stock_reliability_score: 70,
+          });
+        });
+      });
+      if (!rows.length) { toast.error("Nothing selected to import"); return; }
+      const CHUNK = 200;
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        setProgress(`Importing ${Math.min(i + CHUNK, rows.length)}/${rows.length}…`);
+        const { error } = await supabase.from("stage_material_mapping").insert(rows.slice(i, i + CHUNK));
+        if (error) throw error;
+      }
+      toast.success(`Imported ${rows.length} mappings`);
+      onDone();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Import failed");
+    } finally {
+      setBusy(false);
+      setProgress(null);
+    }
+  };
+
+  if (isLoading) return <div className="py-8 text-center text-sm text-muted-foreground">Loading catalog…</div>;
+  if (error) return <div className="py-8 text-center text-sm text-destructive">Couldn't load the catalog. {(error as Error).message}</div>;
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        {products?.length ?? 0} catalog products ({includeAll ? "all statuses" : "published only"}) ·{" "}
+        {plan.alreadyMapped} already mapped · {plan.uncategorized.length} unmatched.
+      </p>
+
+      <label className="flex items-center gap-2 text-sm cursor-pointer">
+        <Checkbox checked={includeAll} onCheckedChange={(v) => setIncludeAll(!!v)} />
+        Include products that aren't published yet
+      </label>
+
+      <div className="grid sm:grid-cols-2 gap-3">
+        <div>
+          <Label>Priority for imported items</Label>
+          <Select value={priority} onValueChange={setPriority}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {PRIORITIES.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label>Unmatched products ({plan.uncategorized.length})</Label>
+          <Select value={fallbackStage || "__skip__"} onValueChange={(v) => setFallbackStage(v === "__skip__" ? "" : v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__skip__">Skip them</SelectItem>
+              {(stages ?? []).map((s) => (
+                <SelectItem key={s.id} value={s.name}>Put in {s.sequence}. {s.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {orderedStages.length === 0 ? (
+        <Card className="p-6 text-center text-sm text-muted-foreground">
+          Nothing new to import — every matchable product is already mapped.
+          {plan.uncategorized.length > 0 && " Pick a stage under “Unmatched products” to import the rest."}
+        </Card>
+      ) : (
+        <div className="border rounded max-h-72 overflow-y-auto divide-y">
+          {orderedStages.map((s) => (
+            <label key={s.id} className="flex items-center gap-3 px-3 py-2 text-sm cursor-pointer hover:bg-accent/50">
+              <Checkbox
+                checked={!excluded[s.name]}
+                onCheckedChange={(v) => setExcluded((e) => ({ ...e, [s.name]: !v }))}
+              />
+              <span className="flex-1">{s.sequence}. {s.name}</span>
+              <span className="text-muted-foreground">{effectiveByStage[s.name].length} products</span>
+            </label>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs text-muted-foreground">{progress}</span>
+        <Button onClick={doImport} disabled={busy || totalSelected === 0 || existing === undefined}>
+          {busy ? "Importing…" : `Import ${totalSelected} mapping${totalSelected === 1 ? "" : "s"}`}
+        </Button>
+      </div>
+    </div>
   );
 }
