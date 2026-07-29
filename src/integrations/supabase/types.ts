@@ -471,6 +471,45 @@ export type Database = {
           },
         ]
       }
+      order_items: {
+        Row: {
+          created_at: string
+          id: string
+          line_total: number | null
+          order_id: string
+          product_id: string
+          product_name: string | null
+          qty: number
+          stage_id: string | null
+          unit: string | null
+          unit_price: number | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          line_total?: number | null
+          order_id: string
+          product_id: string
+          product_name?: string | null
+          qty?: number
+          stage_id?: string | null
+          unit?: string | null
+          unit_price?: number | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          line_total?: number | null
+          order_id?: string
+          product_id?: string
+          product_name?: string | null
+          qty?: number
+          stage_id?: string | null
+          unit?: string | null
+          unit_price?: number | null
+        }
+        Relationships: []
+      }
       sales_orders: {
         Row: {
           created_at: string

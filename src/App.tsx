@@ -26,6 +26,7 @@ const Auth = lazy(() => import("./pages/Auth.tsx"));
 // ── App-subdomain pages (projects + ops) ─────────────────────────────────────
 const MyProjects = lazy(() => import("./pages/MyProjects.tsx"));
 const MyProjectDetail = lazy(() => import("./pages/MyProjectDetail.tsx"));
+const MyProjectOrder = lazy(() => import("./pages/MyProjectOrder.tsx"));
 const OpsLayout = lazy(() => import("./components/ops/OpsLayout.tsx"));
 const OpsDashboard = lazy(() => import("./pages/ops/OpsDashboard.tsx"));
 const OpsProjects = lazy(() => import("./pages/ops/OpsProjects.tsx"));
@@ -111,6 +112,7 @@ function AppRoutes() {
       <Route path="/auth" element={<Auth />} />
       <Route path="/my-projects" element={<MyProjects />} />
       <Route path="/my-projects/:id" element={<MyProjectDetail />} />
+      <Route path="/my-projects/:id/order" element={<MyProjectOrder />} />
       <Route path="/contractor/my-projects/:id" element={<MyProjectDetail />} />
       <Route path="/ops" element={<OpsLayout />}>
         <Route index element={<OpsDashboard />} />
