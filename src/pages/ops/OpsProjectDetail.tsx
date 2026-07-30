@@ -24,6 +24,7 @@ import {
 } from "@/lib/forecastEngine";
 import { estimateFollowUp } from "@/lib/followup";
 import { buildWhatsAppUrl, buildBriefingMessage } from "@/lib/whatsapp";
+import OpsProjectBoq from "./OpsProjectBoq";
 
 export default function OpsProjectDetail() {
   const { id } = useParams<{ id: string }>();
@@ -315,12 +316,17 @@ export default function OpsProjectDetail() {
         </div>
       </Card>
 
-      <Tabs defaultValue="timeline">
+      <Tabs defaultValue="boq">
         <TabsList>
+          <TabsTrigger value="boq">BOQ</TabsTrigger>
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
           <TabsTrigger value="forecasts">Forecasts</TabsTrigger>
           <TabsTrigger value="accuracy">Accuracy</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="boq" className="mt-4">
+          <OpsProjectBoq projectId={id!} project={project} stages={stages ?? []} />
+        </TabsContent>
 
         <TabsContent value="timeline" className="space-y-4 mt-4">
           <Card className="p-5 space-y-3">
