@@ -37,6 +37,7 @@ const OpsForecasts = lazy(() => import("./pages/ops/OpsForecasts.tsx"));
 const OpsBriefings = lazy(() => import("./pages/ops/OpsBriefings.tsx"));
 const OpsAnomalies = lazy(() => import("./pages/ops/OpsAnomalies.tsx"));
 const OpsProjections = lazy(() => import("./pages/ops/OpsProjections.tsx"));
+const OpsOnboarding = lazy(() => import("./pages/ops/OpsOnboarding.tsx"));
 
 const PageLoader = () => (
   <div className="min-h-screen bg-background flex items-center justify-center">
@@ -124,6 +125,7 @@ function AppRoutes() {
         <Route path="briefings" element={<OpsBriefings />} />
         <Route path="anomalies" element={<OpsAnomalies />} />
         <Route path="projections" element={<OpsProjections />} />
+        <Route path="onboarding" element={<OpsOnboarding />} />
       </Route>
       {/* Anything else (storefront paths) → back to the main domain */}
       <Route path="*" element={<CrossDomainRedirect base={main} />} />

@@ -471,6 +471,81 @@ export type Database = {
           },
         ]
       }
+      boq_template: {
+        Row: {
+          created_at: string
+          id: string
+          item_name: string
+          match_keyword: string | null
+          product_id: string | null
+          project_type: string | null
+          qty_formula: Json | null
+          sort: number
+          stage_id: string
+          unit: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          item_name: string
+          match_keyword?: string | null
+          product_id?: string | null
+          project_type?: string | null
+          qty_formula?: Json | null
+          sort?: number
+          stage_id: string
+          unit?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          item_name?: string
+          match_keyword?: string | null
+          product_id?: string | null
+          project_type?: string | null
+          qty_formula?: Json | null
+          sort?: number
+          stage_id?: string
+          unit?: string | null
+        }
+        Relationships: []
+      }
+      catalog_gaps: {
+        Row: {
+          created_at: string
+          id: string
+          item_name: string
+          project_id: string | null
+          requested_qty: number | null
+          source: string
+          stage_id: string | null
+          status: string
+          unit: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          item_name: string
+          project_id?: string | null
+          requested_qty?: number | null
+          source?: string
+          stage_id?: string | null
+          status?: string
+          unit?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          item_name?: string
+          project_id?: string | null
+          requested_qty?: number | null
+          source?: string
+          stage_id?: string | null
+          status?: string
+          unit?: string | null
+        }
+        Relationships: []
+      }
       project_rooms: {
         Row: {
           count: number

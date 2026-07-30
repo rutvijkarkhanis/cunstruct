@@ -16,23 +16,25 @@ import { formatINR } from "@/lib/forecastEngine";
 import { placeOrder, suggestQtyDetailed, type BoqLine } from "@/lib/boq";
 import { computeDimensions, type Room } from "@/lib/dimensions";
 import { resolveCoverage, hasBasis } from "@/lib/coverageDefaults";
+import { logGaps, type GapItem } from "@/lib/catalogGaps";
 import { buildBriefingMessage, buildWhatsAppUrl } from "@/lib/whatsapp";
 
 const ROOM_TYPES = ["bedroom", "bathroom", "kitchen", "living", "balcony", "room"];
 
 interface RoomRow extends Room {
-  name: string;
-  room_type: string;
-  length_ft: number;
-  width_ft: number;
-  height_ft: number;
-  count: number;
-  electrical_points: number;
+  name: string; room_type: string; length_ft: number; width_ft: number;
+  height_ft: number; count: number; electrical_points: number;
 }
-
 const blankRoom = (): RoomRow => ({
   name: "", room_type: "bedroom", length_ft: 10, width_ft: 10, height_ft: 10, count: 1, electrical_points: 4,
 });
+
+function matchProduct(item: any, products: any[]): any | null {
+  if (item.product_id) return products.find((p) => String(p.id) === String(item.product_id)) ?? null;
+  const kw = (item.match_keyword ?? "").toLowerCase();
+  if (!kw) return null;
+  return products.find((p) => (p.name ?? "").toLowerCase().includes(kw)) ?? null;
+}
 
 export default function MyProjectOrder() {
   const { id } = useParams<{ id: string }>();
@@ -116,46 +118,47 @@ export default function MyProjectOrder() {
   const dims = useMemo(() => computeDimensions(rooms), [rooms]);
   const builtUp = project?.area_sqft != null ? Number(project.area_sqft) : dims.floorAreaSqft || null;
 
-  // ---- Stage + materials --------------------------------------------------
+  // ---- Stage + BOQ template ----------------------------------------------
   const [stageId, setStageId] = useState("");
   useEffect(() => {
     if (project?.current_stage_id && !stageId) setStageId(project.current_stage_id);
   }, [project?.current_stage_id, stageId]);
 
-  const { data: mappings, isLoading: mappingsLoading } = useQuery({
-    queryKey: ["boq-mappings", stageId],
+  const { data: items, isLoading: itemsLoading } = useQuery({
+    queryKey: ["boq-template", stageId],
     enabled: !!stageId,
     queryFn: async () => {
       const { data } = await supabase
-        .from("stage_material_mapping")
-        .select("product_id, product_name, unit, qty_formula, buffer_pct, priority")
-        .eq("stage_id", stageId);
+        .from("boq_template")
+        .select("id, item_name, match_keyword, unit, qty_formula, product_id, sort")
+        .eq("stage_id", stageId)
+        .order("sort");
       return data ?? [];
     },
   });
 
-  const productIds = useMemo(() => (mappings ?? []).map((m: any) => m.product_id).filter(Boolean), [mappings]);
-  const { data: priceMap } = useQuery({
-    queryKey: ["boq-prices", productIds],
-    enabled: productIds.length > 0,
+  // Resolve each template item to a catalog product (explicit id or keyword).
+  const { data: catalogMatches } = useQuery({
+    queryKey: ["boq-catalog-match", (items ?? []).map((i: any) => i.id)],
+    enabled: (items ?? []).length > 0,
     queryFn: async () => {
+      const ids = (items ?? []).map((i: any) => i.product_id).filter(Boolean);
+      const kws = (items ?? []).map((i: any) => i.match_keyword).filter(Boolean);
+      const orParts: string[] = [];
+      if (ids.length) orParts.push(`id.in.(${ids.join(",")})`);
+      kws.forEach((k: string) => orParts.push(`name.ilike.%${k}%`));
+      if (!orParts.length) return [];
       try {
         const { data, error } = await catalogSupabase
           .from("products_master")
-          .select("id, selling_price, unit, main_category")
-          .in("id", productIds);
+          .select("id, name, selling_price, unit")
+          .or(orParts.join(","))
+          .eq("status", "published")
+          .limit(1000);
         if (error) throw error;
-        const m: Record<string, { price: number | null; unit: string | null; category: string | null }> = {};
-        (data ?? []).forEach((r: any) => {
-          m[r.id] = {
-            price: r.selling_price != null ? Number(r.selling_price) : null,
-            unit: r.unit ?? null,
-            category: r.main_category ?? null,
-          };
-        });
-        return m;
+        return data ?? [];
       } catch {
-        return {} as Record<string, { price: number | null; unit: string | null; category: string | null }>;
+        return [];
       }
     },
   });
@@ -163,57 +166,70 @@ export default function MyProjectOrder() {
   const [overrides, setOverrides] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState(false);
 
-  // Resolve the effective coverage for a mapping: its own qty_formula, or a
-  // seeded default matched by product name/category.
-  const lineFor = (m: any) => {
-    const cat = priceMap?.[m.product_id]?.category ?? null;
-    const own = hasBasis(m.qty_formula);
-    const def = own ? null : resolveCoverage(m.product_name, cat);
-    const formula = own ? m.qty_formula : (def ?? {});
-    const bufferPct = own ? (m.buffer_pct ?? 0) : (def?.wastage_pct ?? m.buffer_pct ?? 0);
-    const detail = suggestQtyDetailed({ product_id: m.product_id, qty_formula: formula, buffer_pct: bufferPct }, dims, builtUp);
-    const suggested = detail.qty;
-    const qty = overrides[m.product_id] ?? suggested;
-    const price = priceMap?.[m.product_id]?.price ?? (formula.unit_price != null ? Number(formula.unit_price) : null);
-    const unit = m.unit ?? priceMap?.[m.product_id]?.unit ?? def?.unit ?? "";
-    return { qty, price, unit, explanation: detail.explanation, isFallback: detail.isFallback && !own };
+  const lineFor = (item: any) => {
+    const match = matchProduct(item, catalogMatches ?? []);
+    const cover = resolveCoverage(item.item_name);
+    const formula = hasBasis(item.qty_formula) ? item.qty_formula : (cover ?? item.qty_formula ?? {});
+    const wastage = cover?.wastage_pct ?? 8;
+    const detail = suggestQtyDetailed({ product_id: item.id, qty_formula: formula, buffer_pct: wastage }, dims, builtUp);
+    const qty = overrides[item.id] ?? detail.qty;
+    const inCatalog = !!match;
+    const price = match?.selling_price != null ? Number(match.selling_price)
+      : (formula.unit_price != null ? Number(formula.unit_price) : null);
+    const unit = item.unit ?? match?.unit ?? cover?.unit ?? "";
+    return { qty, price, unit, inCatalog, catalogProductId: match ? String(match.id) : null, explanation: detail.explanation };
   };
 
   const setQ = (pid: string, v: number) => setOverrides((o) => ({ ...o, [pid]: Math.max(0, v) }));
 
-  const grandTotal = (mappings ?? []).reduce((s: number, m: any) => {
-    const l = lineFor(m);
-    return s + (l.price != null ? l.price * l.qty : 0);
+  const orderTotal = (items ?? []).reduce((s: number, it: any) => {
+    const l = lineFor(it);
+    return s + (l.inCatalog && l.price != null ? l.price * l.qty : 0);
   }, 0);
-  const itemCount = (mappings ?? []).filter((m: any) => lineFor(m).qty > 0).length;
+  const orderCount = (items ?? []).filter((it: any) => { const l = lineFor(it); return l.inCatalog && l.qty > 0; }).length;
+  const gapCount = (items ?? []).filter((it: any) => { const l = lineFor(it); return !l.inCatalog && l.qty > 0; }).length;
   const selectedStageName = (stages ?? []).find((s: any) => s.id === stageId)?.name as string | undefined;
 
   const doPlace = async () => {
-    if (!mappings) return;
+    if (!items) return;
     setBusy(true);
     try {
-      const lines: BoqLine[] = mappings
-        .map((m: any) => {
-          const l = lineFor(m);
-          return { product_id: m.product_id, product_name: m.product_name, unit: l.unit, qty: l.qty, unit_price: l.price, stage_id: stageId };
-        })
-        .filter((l) => l.qty > 0);
-      if (!lines.length) { toast.error("Add at least one item first."); return; }
-
-      const res = await placeOrder({ projectId: id!, customerPhone: (project as any)?.customer_phone ?? null, lines });
-      toast.success(`Order placed — ${res.lineCount} items · ${formatINR(res.total)}`);
-
-      const briefItems = lines.map((l) => ({
-        product_name: l.product_name, qty_estimated: l.qty, unit: l.unit,
-        budget_estimated: (Number(l.unit_price) || 0) * l.qty, order_by_date: null,
+      const resolved = items.map((it: any) => ({ it, l: lineFor(it) })).filter(({ l }) => l.qty > 0);
+      const inLines: BoqLine[] = resolved.filter(({ l }) => l.inCatalog).map(({ it, l }) => ({
+        product_id: l.catalogProductId!, product_name: it.item_name, unit: l.unit, qty: l.qty, unit_price: l.price, stage_id: stageId,
       }));
-      const msg = buildBriefingMessage(briefItems, {
-        projectName: project?.name ?? "your project",
-        customerName: (project as any)?.customer_name ?? null,
-        stageName: selectedStageName ?? null,
-      });
-      const url = buildWhatsAppUrl((project as any)?.customer_phone, msg) ?? `https://wa.me/?text=${encodeURIComponent(msg)}`;
-      window.open(url, "_blank");
+      const gapLines: GapItem[] = resolved.filter(({ l }) => !l.inCatalog).map(({ it, l }) => ({
+        item_name: it.item_name, requested_qty: l.qty, unit: l.unit,
+      }));
+
+      if (!inLines.length && !gapLines.length) { toast.error("Add at least one item first."); return; }
+
+      let placedTotal = 0;
+      if (inLines.length) {
+        const res = await placeOrder({ projectId: id!, customerPhone: (project as any)?.customer_phone ?? null, lines: inLines });
+        placedTotal = res.total;
+      }
+      let gapsLogged = 0;
+      if (gapLines.length) gapsLogged = await logGaps(id!, stageId, gapLines);
+
+      const parts = [];
+      if (inLines.length) parts.push(`ordered ${inLines.length} item${inLines.length === 1 ? "" : "s"} · ${formatINR(placedTotal)}`);
+      if (gapsLogged) parts.push(`${gapsLogged} sent for onboarding`);
+      toast.success(parts.join(" · ") || "Done");
+
+      if (inLines.length) {
+        const briefItems = inLines.map((l) => ({
+          product_name: l.product_name, qty_estimated: l.qty, unit: l.unit,
+          budget_estimated: (Number(l.unit_price) || 0) * l.qty, order_by_date: null,
+        }));
+        const msg = buildBriefingMessage(briefItems, {
+          projectName: project?.name ?? "your project",
+          customerName: (project as any)?.customer_name ?? null,
+          stageName: selectedStageName ?? null,
+        });
+        const url = buildWhatsAppUrl((project as any)?.customer_phone, msg) ?? `https://wa.me/?text=${encodeURIComponent(msg)}`;
+        window.open(url, "_blank");
+      }
       navigate(`/my-projects/${id}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to place order");
@@ -234,9 +250,9 @@ export default function MyProjectOrder() {
 
       <main className="max-w-2xl mx-auto px-5 py-6 space-y-6">
         <div>
-          <h1 className="text-xl font-bold">Order materials</h1>
+          <h1 className="text-xl font-bold">Bill of quantities</h1>
           <p className="text-sm text-muted-foreground">
-            Enter your rooms once — quantities are calculated per material from the right dimension.
+            Enter your rooms once — every material's quantity is calculated from the right dimension. In-catalog items can be ordered now; the rest we'll onboard.
           </p>
         </div>
 
@@ -248,11 +264,9 @@ export default function MyProjectOrder() {
               <Plus className="w-4 h-4" /> Add room
             </Button>
           </div>
-
           {rooms.length === 0 && (
             <p className="text-sm text-muted-foreground py-2">Add your rooms to calculate accurate quantities.</p>
           )}
-
           {rooms.map((r, i) => (
             <div key={i} className="rounded-lg border p-3 space-y-2">
               <div className="flex items-center gap-2">
@@ -276,7 +290,6 @@ export default function MyProjectOrder() {
               </div>
             </div>
           ))}
-
           {rooms.length > 0 && (
             <>
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground pt-1">
@@ -304,37 +317,45 @@ export default function MyProjectOrder() {
           </Select>
         </div>
 
-        {mappingsLoading ? (
+        {itemsLoading ? (
           <p className="text-sm text-muted-foreground py-8 text-center">Loading checklist…</p>
-        ) : (mappings ?? []).length === 0 ? (
+        ) : (items ?? []).length === 0 ? (
           <Card className="p-6 text-center text-sm text-muted-foreground">
-            No materials mapped to this stage yet.
+            No standard checklist for this stage yet. Ops can add items under BOQ templates.
           </Card>
         ) : (
           <div className="space-y-2">
-            {mappings!.map((m: any) => {
-              const l = lineFor(m);
+            {items!.map((it: any) => {
+              const l = lineFor(it);
               return (
-                <Card key={m.product_id} className={`p-3 ${l.qty === 0 ? "opacity-60" : ""}`}>
+                <Card key={it.id} className={`p-3 ${l.qty === 0 ? "opacity-60" : ""}`}>
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="font-medium text-sm truncate">{m.product_name ?? m.product_id}</div>
+                      <div className="font-medium text-sm truncate flex items-center gap-2">
+                        {it.item_name}
+                        {!l.inCatalog && (
+                          <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 shrink-0">
+                            onboard
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs text-muted-foreground">
-                        {l.price != null ? `${formatINR(l.price)}/${l.unit || "unit"}` : "price unavailable"}
-                        {l.price != null && l.qty > 0 && <> · <span className="text-foreground font-medium">{formatINR(l.price * l.qty)}</span></>}
+                        {l.inCatalog
+                          ? (l.price != null
+                            ? <>{formatINR(l.price)}/{l.unit || "unit"}{l.qty > 0 && <> · <span className="text-foreground font-medium">{formatINR(l.price * l.qty)}</span></>}</>
+                            : "in catalog · price unavailable")
+                          : "not in catalog yet — we'll onboard it"}
                       </div>
-                      <div className={`text-[11px] ${l.isFallback ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`}>
-                        {l.explanation}
-                      </div>
+                      <div className="text-[11px] text-muted-foreground">{l.explanation}</div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setQ(m.product_id, l.qty - 1)} disabled={l.qty <= 0}>
+                      <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setQ(it.id, l.qty - 1)} disabled={l.qty <= 0}>
                         <Minus className="w-4 h-4" />
                       </Button>
                       <div className="w-12 text-center text-sm tabular-nums">
                         {l.qty}<div className="text-[10px] text-muted-foreground leading-none">{l.unit}</div>
                       </div>
-                      <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setQ(m.product_id, l.qty + 1)}>
+                      <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setQ(it.id, l.qty + 1)}>
                         <Plus className="w-4 h-4" />
                       </Button>
                     </div>
@@ -346,16 +367,18 @@ export default function MyProjectOrder() {
         )}
       </main>
 
-      {(mappings ?? []).length > 0 && (
+      {(items ?? []).length > 0 && (
         <div className="fixed bottom-0 inset-x-0 border-t bg-card/95 backdrop-blur">
           <div className="max-w-2xl mx-auto px-5 py-3 flex items-center justify-between gap-4">
             <div>
-              <div className="text-xs text-muted-foreground">{itemCount} item{itemCount === 1 ? "" : "s"}</div>
-              <div className="text-lg font-bold">{formatINR(grandTotal)}</div>
+              <div className="text-xs text-muted-foreground">
+                {orderCount} to order{gapCount > 0 ? ` · ${gapCount} to onboard` : ""}
+              </div>
+              <div className="text-lg font-bold">{formatINR(orderTotal)}</div>
             </div>
-            <Button onClick={doPlace} disabled={busy || itemCount === 0} className="gap-1">
+            <Button onClick={doPlace} disabled={busy || (orderCount === 0 && gapCount === 0)} className="gap-1">
               <Send className="w-4 h-4" />
-              {busy ? "Placing…" : "Place order"}
+              {busy ? "Submitting…" : orderCount > 0 ? "Place order" : "Send BOQ"}
             </Button>
           </div>
         </div>

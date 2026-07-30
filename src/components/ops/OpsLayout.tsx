@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   MessageSquare,
   TrendingUp,
+  PackagePlus,
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,7 @@ const NAV = [
   { to: "/ops/mappings", label: "Stage Mappings", icon: Link2 },
   { to: "/ops/forecasts", label: "Forecasts", icon: Sparkles },
   { to: "/ops/projections", label: "Business Forecast", icon: TrendingUp },
+  { to: "/ops/onboarding", label: "Onboarding Queue", icon: PackagePlus },
   { to: "/ops/anomalies", label: "Anomalies", icon: AlertTriangle },
   { to: "/ops/briefings", label: "WhatsApp Briefings", icon: MessageSquare },
 ];
