@@ -28,6 +28,29 @@ describe("resolveCoverage", () => {
   it("returns null when nothing matches", () => {
     expect(resolveCoverage("Mystery Widget")).toBeNull();
   });
+
+  // Regression guards for the coverage-rate corrections validated against real
+  // Indian thumb-rules. These caught genuine over-estimation bugs (putty ~16x,
+  // plaster ~3x) — keep the sane ranges pinned so they can't quietly return.
+  it("uses realistic putty coverage (~1 bag per 500 wall-sqft, not per 30)", () => {
+    const putty = resolveCoverage("Birla Wall Putty 40kg")!;
+    // 1200 wall-sqft should need ~2–3 bags, never dozens.
+    const bags = 1200 * (putty.per_wall_sqft as number);
+    expect(bags).toBeLessThan(4);
+    expect(bags).toBeGreaterThan(1);
+  });
+
+  it("uses realistic plaster cement (~1 bag per ~110 wall-sqft)", () => {
+    const plaster = resolveCoverage("Internal Cement Plaster")!;
+    const bagsPer100 = 100 * (plaster.per_wall_sqft as number);
+    expect(bagsPer100).toBeLessThan(1.3); // internal 12mm 1:6 ≈ 0.65–0.9 bag/100 sqft
+  });
+
+  it("keeps structural rates in the real thumb-rule range", () => {
+    expect(resolveCoverage("TMT Steel Fe550")?.per_sqft).toBeGreaterThanOrEqual(4.0); // residential norm
+    expect(resolveCoverage("AAC Block 600x200")?.per_sqft).toBeLessThanOrEqual(6); // per built-up sqft
+    expect(resolveCoverage("UltraTech Cement PPC 50kg")?.per_sqft).toBeCloseTo(0.45, 2);
+  });
 });
 
 describe("hasBasis", () => {

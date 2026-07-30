@@ -24,7 +24,7 @@ export const QTY_BASES: BasisDoc[] = [
     label: "per wall sq.ft",
     drivenBy: "Paintable wall area (perimeter × height − 15% for doors/windows)",
     plain: "Anything applied to walls — putty, primer, emulsion paint, plaster.",
-    example: "1,200 wall sq.ft × 1⁄40 = 30 bags of wall putty.",
+    example: "1,200 wall sq.ft ÷ 500 ≈ 3 bags of wall putty (40kg, 2 coats).",
   },
   {
     key: "per_point",
