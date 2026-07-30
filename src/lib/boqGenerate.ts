@@ -32,12 +32,22 @@ export interface CatalogProduct {
   unit?: string | null;
 }
 
+/**
+ * How confidently a line is tied to a catalog product:
+ *   - "linked"  — an exact SKU was set on the template item (trustworthy)
+ *   - "keyword" — matched by a fuzzy name keyword (needs a human glance)
+ *   - "none"    — no catalog product found (a gap, or awaiting a pick)
+ */
+export type MatchType = "linked" | "keyword" | "none";
+
 export interface BoqComputedLine {
   qty: number;
   price: number | null;
   unit: string;
   inCatalog: boolean;
   catalogProductId: string | null;
+  catalogProductName: string | null;
+  matchType: MatchType;
   explanation: string;
 }
 
@@ -47,6 +57,14 @@ export function matchProduct(item: BoqTemplateItem, products: CatalogProduct[]):
   const kw = (item.match_keyword ?? "").toLowerCase();
   if (!kw) return null;
   return products.find((p) => (p.name ?? "").toLowerCase().includes(kw)) ?? null;
+}
+
+/** Classify how a template item matched (or didn't) against the catalog. */
+export function matchType(item: BoqTemplateItem, products: CatalogProduct[]): MatchType {
+  if (item.product_id && products.find((p) => String(p.id) === String(item.product_id))) return "linked";
+  const kw = (item.match_keyword ?? "").toLowerCase();
+  if (kw && products.find((p) => (p.name ?? "").toLowerCase().includes(kw))) return "keyword";
+  return "none";
 }
 
 /** Compute the quantity, unit, price, and catalog status for a single template item. */
@@ -74,6 +92,8 @@ export function computeBoqLine(
     unit,
     inCatalog,
     catalogProductId: match ? String(match.id) : null,
+    catalogProductName: match?.name ?? null,
+    matchType: matchType(item, catalogMatches),
     explanation: detail.explanation,
   };
 }
