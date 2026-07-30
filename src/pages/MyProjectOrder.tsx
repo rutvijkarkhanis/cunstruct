@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, Minus, Plus, Send, Trash2 } from "lucide-react";
+import { ArrowLeft, Minus, Plus, Send, Trash2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { formatINR } from "@/lib/forecastEngine";
 import { placeOrder, suggestQtyDetailed, type BoqLine } from "@/lib/boq";
@@ -18,6 +18,10 @@ import { computeDimensions, type Room } from "@/lib/dimensions";
 import { resolveCoverage, hasBasis } from "@/lib/coverageDefaults";
 import { logGaps, type GapItem } from "@/lib/catalogGaps";
 import { buildBriefingMessage, buildWhatsAppUrl } from "@/lib/whatsapp";
+import { InfoHint } from "@/components/InfoHint";
+import { BoqExplainer } from "@/components/boq/BoqExplainer";
+import { suggestRooms, canSuggestRooms, tierWastageDelta, type ProjectBasics } from "@/lib/smartSuggest";
+import { NOTE } from "@/lib/boqGlossary";
 
 const ROOM_TYPES = ["bedroom", "bathroom", "kitchen", "living", "balcony", "room"];
 
@@ -115,8 +119,24 @@ export default function MyProjectOrder() {
     }
   };
 
+  const applySuggestedRooms = () => {
+    const p: any = project ?? {};
+    const basics: ProjectBasics = {
+      quality_tier: p.quality_tier, bedrooms: p.bedrooms, bathrooms: p.bathrooms, kitchens: p.kitchens,
+    };
+    if (!canSuggestRooms(basics)) {
+      toast.error("Add bedroom / bathroom counts in Project basics first");
+      return;
+    }
+    const suggested = suggestRooms(basics);
+    setRooms(suggested.map((r) => ({ ...r })));
+    const total = suggested.reduce((s, r) => s + r.count, 0);
+    toast.success(`Suggested ${total} room${total === 1 ? "" : "s"} — adjust sizes, then Save`);
+  };
+
   const dims = useMemo(() => computeDimensions(rooms), [rooms]);
   const builtUp = project?.area_sqft != null ? Number(project.area_sqft) : dims.floorAreaSqft || null;
+  const tier = (project as any)?.quality_tier ?? "standard";
 
   // ---- Stage + BOQ template ----------------------------------------------
   const [stageId, setStageId] = useState("");
@@ -185,7 +205,9 @@ export default function MyProjectOrder() {
     const match = matchProduct(item, catalogMatches ?? []);
     const cover = resolveCoverage(item.item_name);
     const formula = hasBasis(item.qty_formula) ? item.qty_formula : (cover ?? item.qty_formula ?? {});
-    const wastage = cover?.wastage_pct ?? 8;
+    // Quality tier nudges the wastage buffer up (premium) or down (economy).
+    const baseWastage = cover?.wastage_pct ?? 8;
+    const wastage = Math.max(0, Math.min(40, baseWastage + tierWastageDelta(tier)));
     const detail = suggestQtyDetailed({ product_id: item.id, qty_formula: formula, buffer_pct: wastage }, dims, builtUp);
     const qty = overrides[item.id] ?? detail.qty;
     const inCatalog = !!match;
@@ -264,23 +286,40 @@ export default function MyProjectOrder() {
       </header>
 
       <main className="max-w-2xl mx-auto px-5 py-6 space-y-6">
-        <div>
-          <h1 className="text-xl font-bold">Bill of quantities</h1>
-          <p className="text-sm text-muted-foreground">
-            Enter your rooms once — every material's quantity is calculated from the right dimension. In-catalog items can be ordered now; the rest we'll onboard.
-          </p>
+        <div className="space-y-3">
+          <div>
+            <h1 className="text-xl font-bold flex items-center gap-1.5">
+              Bill of quantities
+              <InfoHint title="What is a BOQ?">{NOTE.whatIsBoq}</InfoHint>
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Enter your rooms once — every material's quantity is calculated from the right dimension. In-catalog items can be ordered now; the rest we'll onboard.
+            </p>
+          </div>
+          <BoqExplainer />
         </div>
 
         {/* Rooms editor */}
         <Card className="p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <div className="font-semibold">Rooms</div>
-            <Button variant="outline" size="sm" onClick={() => setRooms((r) => [...r, blankRoom()])} className="gap-1">
-              <Plus className="w-4 h-4" /> Add room
-            </Button>
+            <div className="font-semibold flex items-center gap-1.5">
+              Rooms
+              <InfoHint title="Why rooms?">{NOTE.whyRooms}</InfoHint>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={applySuggestedRooms} className="gap-1" title="Auto-build rooms from your Project basics">
+                <Sparkles className="w-4 h-4 text-primary" /> Suggest
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setRooms((r) => [...r, blankRoom()])} className="gap-1">
+                <Plus className="w-4 h-4" /> Add room
+              </Button>
+            </div>
           </div>
           {rooms.length === 0 && (
-            <p className="text-sm text-muted-foreground py-2">Add your rooms to calculate accurate quantities.</p>
+            <p className="text-sm text-muted-foreground py-2">
+              Add your rooms to calculate accurate quantities — or hit <span className="text-foreground font-medium">Suggest</span> to
+              auto-build them from your Project basics.
+            </p>
           )}
           {rooms.map((r, i) => (
             <div key={i} className="rounded-lg border p-3 space-y-2">
@@ -307,7 +346,15 @@ export default function MyProjectOrder() {
           ))}
           {rooms.length > 0 && (
             <>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground pt-1">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground pt-1">
+                <span className="inline-flex items-center gap-1 font-medium text-foreground">
+                  Totals
+                  <InfoHint title="Calculated dimensions" side="top">
+                    These are the drivers behind every quantity. <b>Floor</b> = length × width of all
+                    rooms. <b>Wall</b> = perimeter × height − 15% for doors/windows. <b>Points</b> = the
+                    electrical points you entered. Change a room and every material re-calculates.
+                  </InfoHint>
+                </span>
                 <span>Floor: <b className="text-foreground">{dims.floorAreaSqft.toLocaleString("en-IN")}</b> sq.ft</span>
                 <span>Wall: <b className="text-foreground">{dims.wallAreaSqft.toLocaleString("en-IN")}</b> sq.ft</span>
                 <span>Rooms: <b className="text-foreground">{dims.rooms}</b></span>
@@ -323,7 +370,13 @@ export default function MyProjectOrder() {
 
         {/* Stage + materials */}
         <div>
-          <label className="text-xs uppercase tracking-wide text-muted-foreground">Stage</label>
+          <label className="text-xs uppercase tracking-wide text-muted-foreground inline-flex items-center gap-1">
+            Stage
+            <InfoHint title="Construction stage">
+              {NOTE.whatIsStage} Pick the stage you're buying for and its checklist appears below, each
+              line pre-filled with a quantity from your rooms.
+            </InfoHint>
+          </label>
           <Select value={stageId} onValueChange={(v) => { setStageId(v); setOverrides({}); }}>
             <SelectTrigger className="mt-1"><SelectValue placeholder="Pick a stage" /></SelectTrigger>
             <SelectContent>
@@ -340,6 +393,21 @@ export default function MyProjectOrder() {
           </Card>
         ) : (
           <div className="space-y-2">
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground px-1">
+              <span className="inline-flex items-center gap-1">
+                How to read each line
+                <InfoHint title="Reading a line" side="bottom">
+                  <div><b>The small grey text</b> shows the maths, e.g. <code>340 wall sq.ft × 0.025 = 9 (+10% wastage) → 10</code>.</div>
+                  <div className="pt-1">{NOTE.wastage}</div>
+                  <div className="pt-1">{NOTE.packRounding}</div>
+                  <div className="pt-1"><b>“onboard” badge:</b> {NOTE.onboard}</div>
+                  <div className="pt-1">Use − / + to override any quantity.</div>
+                </InfoHint>
+              </span>
+              <span className="capitalize">
+                {tier} finish · buffer {tierWastageDelta(tier) >= 0 ? "+" : ""}{tierWastageDelta(tier)}%
+              </span>
+            </div>
             {items!.map((it: any) => {
               const l = lineFor(it);
               return (
@@ -386,8 +454,9 @@ export default function MyProjectOrder() {
         <div className="fixed bottom-0 inset-x-0 border-t bg-card/95 backdrop-blur">
           <div className="max-w-2xl mx-auto px-5 py-3 flex items-center justify-between gap-4">
             <div>
-              <div className="text-xs text-muted-foreground">
+              <div className="text-xs text-muted-foreground inline-flex items-center gap-1">
                 {orderCount} to order{gapCount > 0 ? ` · ${gapCount} to onboard` : ""}
+                <InfoHint title="What happens on submit?" side="top">{NOTE.orderVsOnboard}</InfoHint>
               </div>
               <div className="text-lg font-bold">{formatINR(orderTotal)}</div>
             </div>

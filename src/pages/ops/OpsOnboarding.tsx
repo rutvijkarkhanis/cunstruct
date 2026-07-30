@@ -8,6 +8,8 @@ import {
 } from "@/components/ui/select";
 import { PackagePlus, Check, X } from "lucide-react";
 import { toast } from "sonner";
+import { InfoHint } from "@/components/InfoHint";
+import { NOTE } from "@/lib/boqGlossary";
 
 const STATUSES = ["open", "onboarded", "dismissed"];
 
@@ -56,6 +58,10 @@ export default function OpsOnboarding() {
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <PackagePlus className="w-6 h-6" /> Onboarding queue
+            <InfoHint title="What lands here?" width="w-96">
+              <p>{NOTE.onboard}</p>
+              <p className="pt-1">Rows are grouped by item and ranked by <b>demand</b> (how many BOQs asked for it), so you expand the catalog where it pays off most. Mark <b>Onboarded</b> once you stock it, or <b>Dismiss</b> if it's not worth carrying.</p>
+            </InfoHint>
           </h1>
           <p className="text-sm text-muted-foreground">
             Materials contractors need that aren't in the catalog yet. Onboard the high-demand ones first.
