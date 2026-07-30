@@ -38,6 +38,7 @@ const OpsBriefings = lazy(() => import("./pages/ops/OpsBriefings.tsx"));
 const OpsAnomalies = lazy(() => import("./pages/ops/OpsAnomalies.tsx"));
 const OpsProjections = lazy(() => import("./pages/ops/OpsProjections.tsx"));
 const OpsOnboarding = lazy(() => import("./pages/ops/OpsOnboarding.tsx"));
+const OpsBoqTemplates = lazy(() => import("./pages/ops/OpsBoqTemplates.tsx"));
 
 const PageLoader = () => (
   <div className="min-h-screen bg-background flex items-center justify-center">
@@ -126,6 +127,7 @@ function AppRoutes() {
         <Route path="anomalies" element={<OpsAnomalies />} />
         <Route path="projections" element={<OpsProjections />} />
         <Route path="onboarding" element={<OpsOnboarding />} />
+        <Route path="boq-templates" element={<OpsBoqTemplates />} />
       </Route>
       {/* Anything else (storefront paths) → back to the main domain */}
       <Route path="*" element={<CrossDomainRedirect base={main} />} />
