@@ -471,6 +471,45 @@ export type Database = {
           },
         ]
       }
+      project_rooms: {
+        Row: {
+          count: number
+          created_at: string
+          electrical_points: number
+          height_ft: number
+          id: string
+          length_ft: number
+          name: string | null
+          project_id: string
+          room_type: string
+          width_ft: number
+        }
+        Insert: {
+          count?: number
+          created_at?: string
+          electrical_points?: number
+          height_ft?: number
+          id?: string
+          length_ft?: number
+          name?: string | null
+          project_id: string
+          room_type?: string
+          width_ft?: number
+        }
+        Update: {
+          count?: number
+          created_at?: string
+          electrical_points?: number
+          height_ft?: number
+          id?: string
+          length_ft?: number
+          name?: string | null
+          project_id?: string
+          room_type?: string
+          width_ft?: number
+        }
+        Relationships: []
+      }
       order_items: {
         Row: {
           created_at: string
