@@ -17,7 +17,7 @@ import {
   QtyBasisFields, EMPTY_QTY, qtyFromFormula, qtyToFormula, formulaLabel, type QtyState,
 } from "@/components/ops/qtyFormula";
 import { InfoHint } from "@/components/InfoHint";
-import { BoqExplainer } from "@/components/boq/BoqExplainer";
+import { BoqGuideHint } from "@/components/boq/BoqExplainer";
 import { QTY_BASES, NOTE } from "@/lib/boqGlossary";
 
 const PROJECT_TYPES = ["Residential", "Commercial", "Retail", "Office", "Hospital", "Other"];
@@ -68,6 +68,7 @@ export default function OpsBoqTemplates() {
               <p className="pt-1">Each item carries a <b>quantity formula</b> (how to size it from room dimensions) and an optional <b>catalog keyword/SKU</b>. Stocked items become orders; the rest become onboarding opportunities.</p>
               <p className="pt-1 text-xs">Tip: stages with no physical materials (Pre-Construction, Handover) are intentionally empty.</p>
             </InfoHint>
+            <BoqGuideHint />
           </h1>
           <p className="text-sm text-muted-foreground">
             The standard material checklist per stage that drives BOQ generation — independent of the catalog.
@@ -96,8 +97,6 @@ export default function OpsBoqTemplates() {
           </Dialog>
         </div>
       </div>
-
-      <BoqExplainer />
 
       {items && items.length === 0 && (
         <Card className="p-12 text-center text-muted-foreground">
