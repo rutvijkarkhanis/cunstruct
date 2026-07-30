@@ -1,9 +1,14 @@
 import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL = "https://dkgjsobfljqoggalivzt.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_hjMIhO09DS62uJCvhgJoOQ_SY_CZepJ";
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Catalog reads only — no auth. This client now shares the same Supabase
+// project as the main auth client, so disable session persistence/refresh to
+// avoid two GoTrue instances clobbering each other's tokens in localStorage.
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
 
 export type Product = {
   id: string;
