@@ -7,13 +7,18 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, Clock, Sparkles, Package, Truck, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Clock, Sparkles, Package, Truck, CheckCircle2, SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { recalcProjectVelocity, formatINR, autoGenerateForecastForCurrentStage } from "@/lib/forecastEngine";
+import { InfoHint } from "@/components/InfoHint";
+import { QUALITY_TIERS, NOTE } from "@/lib/boqGlossary";
+
+const PROJECT_TYPES = ["Residential", "Commercial", "Retail", "Office", "Hospital", "Other"];
 
 export default function MyProjectDetail() {
   const { id } = useParams<{ id: string }>();
@@ -84,6 +89,52 @@ export default function MyProjectDetail() {
   const [logProgress, setLogProgress] = useState(0);
   const [logNote, setLogNote] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // ---- Project basics (drive smart BOQ suggestions) ----------------------
+  const [basics, setBasics] = useState({
+    project_type: "", area_sqft: "", floors: "",
+    quality_tier: "standard", bedrooms: "", bathrooms: "", kitchens: "",
+  });
+  const [basicsLoaded, setBasicsLoaded] = useState(false);
+  const [savingBasics, setSavingBasics] = useState(false);
+  useEffect(() => {
+    if (project && !basicsLoaded) {
+      const p: any = project;
+      setBasics({
+        project_type: p.project_type ?? "",
+        area_sqft: p.area_sqft != null ? String(p.area_sqft) : "",
+        floors: p.floors != null ? String(p.floors) : "",
+        quality_tier: p.quality_tier ?? "standard",
+        bedrooms: p.bedrooms != null ? String(p.bedrooms) : "",
+        bathrooms: p.bathrooms != null ? String(p.bathrooms) : "",
+        kitchens: p.kitchens != null ? String(p.kitchens) : "",
+      });
+      setBasicsLoaded(true);
+    }
+  }, [project, basicsLoaded]);
+  const setB = (patch: Partial<typeof basics>) => setBasics((b) => ({ ...b, ...patch }));
+  const saveBasics = async () => {
+    setSavingBasics(true);
+    try {
+      const patch: any = {
+        project_type: basics.project_type || null,
+        area_sqft: basics.area_sqft ? Number(basics.area_sqft) : null,
+        floors: basics.floors ? Number(basics.floors) : null,
+        quality_tier: basics.quality_tier || "standard",
+        bedrooms: Number(basics.bedrooms) || 0,
+        bathrooms: Number(basics.bathrooms) || 0,
+        kitchens: Number(basics.kitchens) || 0,
+      };
+      const { error } = await supabase.from("projects").update(patch).eq("id", id!);
+      if (error) throw error;
+      toast.success("Project basics saved — they'll drive your BOQ suggestions");
+      qc.invalidateQueries({ queryKey: ["my-project", id] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save basics");
+    } finally {
+      setSavingBasics(false);
+    }
+  };
 
   // Fix #3: sync form to the server values whenever stage or progress changes
   // (removes the !logStageId guard that prevented re-sync after background refetches)
@@ -215,6 +266,96 @@ export default function MyProjectDetail() {
               )}
             </div>
           )}
+        </Card>
+
+        <Card className="p-5 space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="font-semibold flex items-center gap-1.5">
+                <SlidersHorizontal className="w-4 h-4 text-primary" /> Project basics
+                <InfoHint title="Why fill this in?">
+                  These few details power your Bill of Quantities. Built-up area sizes structural
+                  materials, the room counts auto-build your room list, and the quality tier tunes how
+                  much buffer we add. Fill it once — the BOQ screen does the rest.
+                </InfoHint>
+              </div>
+              <p className="text-xs text-muted-foreground">Drives smart suggestions on your BOQ screen</p>
+            </div>
+            <Button asChild variant="outline" size="sm" className="gap-1 shrink-0">
+              <Link to={`/my-projects/${id}/order`}><Package className="w-4 h-4" /> Build BOQ</Link>
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div>
+              <Label className="flex items-center gap-1">Type</Label>
+              <Select value={basics.project_type} onValueChange={(v) => setB({ project_type: v })}>
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>
+                  {PROJECT_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="flex items-center gap-1">
+                Built-up area
+                <InfoHint title="Built-up area (sq.ft)">
+                  The total constructed area. Drives all <b>per built-up sq.ft</b> materials —
+                  cement, sand, aggregate, steel. If left blank, we fall back to the floor area of
+                  your rooms.
+                </InfoHint>
+              </Label>
+              <Input type="number" min="0" className="mt-1 h-9" placeholder="sq.ft"
+                value={basics.area_sqft} onChange={(e) => setB({ area_sqft: e.target.value })} />
+            </div>
+            <div>
+              <Label>Floors</Label>
+              <Input type="number" min="0" className="mt-1 h-9" placeholder="e.g. 2"
+                value={basics.floors} onChange={(e) => setB({ floors: e.target.value })} />
+            </div>
+            <div className="col-span-2 sm:col-span-3">
+              <Label className="flex items-center gap-1">
+                Quality tier
+                <InfoHint title="Finish quality">
+                  {QUALITY_TIERS.map((t) => (
+                    <div key={t.key}><b>{t.label}:</b> {t.note}</div>
+                  ))}
+                </InfoHint>
+              </Label>
+              <Select value={basics.quality_tier} onValueChange={(v) => setB({ quality_tier: v })}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {QUALITY_TIERS.map((t) => <SelectItem key={t.key} value={t.key}>{t.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="flex items-center gap-1">
+                Bedrooms
+                <InfoHint title="Room counts">
+                  Bedrooms, bathrooms and kitchens let the BOQ screen <b>auto-generate your room
+                  list</b> with typical dimensions — so you can skip measuring every room to get a
+                  first estimate. You can fine-tune sizes afterwards.
+                </InfoHint>
+              </Label>
+              <Input type="number" min="0" className="mt-1 h-9"
+                value={basics.bedrooms} onChange={(e) => setB({ bedrooms: e.target.value })} />
+            </div>
+            <div>
+              <Label>Bathrooms</Label>
+              <Input type="number" min="0" className="mt-1 h-9"
+                value={basics.bathrooms} onChange={(e) => setB({ bathrooms: e.target.value })} />
+            </div>
+            <div>
+              <Label>Kitchens</Label>
+              <Input type="number" min="0" className="mt-1 h-9"
+                value={basics.kitchens} onChange={(e) => setB({ kitchens: e.target.value })} />
+            </div>
+          </div>
+
+          <Button onClick={saveBasics} disabled={savingBasics} size="sm">
+            {savingBasics ? "Saving…" : "Save basics"}
+          </Button>
         </Card>
 
         {!pending && (

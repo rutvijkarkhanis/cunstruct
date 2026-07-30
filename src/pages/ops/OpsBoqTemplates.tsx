@@ -16,6 +16,9 @@ import { toast } from "sonner";
 import {
   QtyBasisFields, EMPTY_QTY, qtyFromFormula, qtyToFormula, formulaLabel, type QtyState,
 } from "@/components/ops/qtyFormula";
+import { InfoHint } from "@/components/InfoHint";
+import { BoqExplainer } from "@/components/boq/BoqExplainer";
+import { QTY_BASES, NOTE } from "@/lib/boqGlossary";
 
 const PROJECT_TYPES = ["Residential", "Commercial", "Retail", "Office", "Hospital", "Other"];
 const ALL_TYPES = "__all__";
@@ -60,6 +63,11 @@ export default function OpsBoqTemplates() {
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <ClipboardList className="w-6 h-6" /> BOQ templates
+            <InfoHint title="What is a BOQ template?" width="w-96">
+              <p>A per-stage checklist of the standard materials a contractor needs — <b>independent of your catalog</b>. It's the master list the BOQ builder works from.</p>
+              <p className="pt-1">Each item carries a <b>quantity formula</b> (how to size it from room dimensions) and an optional <b>catalog keyword/SKU</b>. Stocked items become orders; the rest become onboarding opportunities.</p>
+              <p className="pt-1 text-xs">Tip: stages with no physical materials (Pre-Construction, Handover) are intentionally empty.</p>
+            </InfoHint>
           </h1>
           <p className="text-sm text-muted-foreground">
             The standard material checklist per stage that drives BOQ generation — independent of the catalog.
@@ -89,9 +97,15 @@ export default function OpsBoqTemplates() {
         </div>
       </div>
 
+      <BoqExplainer />
+
       {items && items.length === 0 && (
         <Card className="p-12 text-center text-muted-foreground">
           No checklist items for this stage yet. Add the standard materials contractors need here.
+          <div className="text-xs mt-2">
+            (Stages like Pre-Construction, Excavation, Final Finishing and Handover have no standard
+            materials, so they stay empty by design.)
+          </div>
         </Card>
       )}
 
@@ -205,13 +219,29 @@ function TemplateForm({ stages, defaultStageId, existing, onDone }: {
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <Label>Catalog match keyword</Label>
+          <Label className="flex items-center gap-1">
+            Catalog match keyword
+            <InfoHint title="Catalog match keyword">{NOTE.matchKeyword}</InfoHint>
+          </Label>
           <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="e.g. putty" />
         </div>
         <div>
           <Label>Sort order</Label>
           <Input type="number" value={sort} onChange={(e) => setSort(+e.target.value)} />
         </div>
+      </div>
+      <div className="flex items-center gap-1 pt-1">
+        <Label className="text-sm font-medium">Quantity formula</Label>
+        <InfoHint title="Quantity formula" width="w-96">
+          <p>{NOTE.qtyFormula}</p>
+          <div className="pt-1.5 space-y-1">
+            {QTY_BASES.map((b) => (
+              <div key={b.key} className="text-xs">
+                <code>{b.label}</code> — {b.plain}
+              </div>
+            ))}
+          </div>
+        </InfoHint>
       </div>
       <QtyBasisFields value={qty} onChange={setQty} />
       <Button type="submit" disabled={busy} className="w-full">
