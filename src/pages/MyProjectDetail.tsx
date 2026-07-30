@@ -219,11 +219,16 @@ export default function MyProjectDetail() {
 
         {!pending && (
           <Card className="p-5 space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="font-semibold">Upcoming materials</div>
                 <p className="text-xs text-muted-foreground">Planned by Cunstruct based on your pace</p>
               </div>
+              <Button asChild size="sm" className="gap-1 shrink-0">
+                <Link to={`/my-projects/${id}/order`}>
+                  <Package className="w-4 h-4" /> Order materials
+                </Link>
+              </Button>
             </div>
             {(!forecastItems || forecastItems.length === 0) ? (
               <p className="text-sm text-muted-foreground py-4 text-center">

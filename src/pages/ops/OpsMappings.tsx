@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { supabase as catalogSupabase } from "@/lib/supabase";
@@ -13,9 +13,12 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, DownloadCloud } from "lucide-react";
+import { Plus, Trash2, DownloadCloud, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { mapCategoryToStage } from "@/lib/stageMapping";
+import {
+  QtyBasisFields, EMPTY_QTY, qtyFromFormula, qtyToFormula, formulaLabel, type QtyState,
+} from "@/components/ops/qtyFormula";
 
 const PRIORITIES = ["Critical", "Recommended", "Optional"];
 
@@ -237,14 +240,28 @@ export default function OpsMappings() {
                 </div>
                 <div className="font-medium mt-1">{m.product_name ?? m.product_id}</div>
                 <div className="text-xs text-muted-foreground">
-                  Lead time: {m.lead_time_days}d · Trigger offset: {m.trigger_offset_days}d ·
-                  Buffer: {m.buffer_pct}% · Reliability: {Number(m.reliability_score) * 100}%
+                  Coverage:{" "}
+                  {(m as any).qty_formula && formulaLabel((m as any).qty_formula) !== "not set" ? (
+                    <span className="text-foreground font-medium">{formulaLabel((m as any).qty_formula)}</span>
+                  ) : (
+                    <span className="text-amber-600 dark:text-amber-400 font-medium">not set</span>
+                  )}
+                  {" "}· Buffer: {m.buffer_pct}% · Lead: {m.lead_time_days}d · Reliability: {Number(m.reliability_score) * 100}%
                 </div>
                 {m.notes && <div className="text-xs text-muted-foreground mt-1">{m.notes}</div>}
               </div>
-              <Button variant="ghost" size="icon" onClick={() => remove(m.id)}>
-                <Trash2 className="w-4 h-4" />
-              </Button>
+              <div className="flex items-center gap-1 shrink-0">
+                <EditMappingDialog
+                  mapping={m}
+                  onDone={() => {
+                    qc.invalidateQueries({ queryKey: ["mappings"] });
+                    qc.invalidateQueries({ queryKey: ["mapping-coverage"] });
+                  }}
+                />
+                <Button variant="ghost" size="icon" onClick={() => remove(m.id)}>
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
           </Card>
         ))}
@@ -252,6 +269,7 @@ export default function OpsMappings() {
     </div>
   );
 }
+
 
 function MappingForm({ stages, onDone, initialStageId = "" }: { stages: any[]; onDone: () => void; initialStageId?: string }) {
   const [stageId, setStageId] = useState(initialStageId);
@@ -267,6 +285,7 @@ function MappingForm({ stages, onDone, initialStageId = "" }: { stages: any[]; o
   const [stockReliability, setStockReliability] = useState(70);
   const [unit, setUnit] = useState("");
   const [notes, setNotes] = useState("");
+  const [qty, setQty] = useState<QtyState>(EMPTY_QTY);
   const [busy, setBusy] = useState(false);
 
   const { data: products } = useQuery({
@@ -300,6 +319,7 @@ function MappingForm({ stages, onDone, initialStageId = "" }: { stages: any[]; o
         buffer_days: bufferDays,
         stock_reliability_score: stockReliability,
         unit: unit || null,
+        qty_formula: qtyToFormula(qty),
         notes: notes || null,
       });
       if (error) throw error;
@@ -371,6 +391,8 @@ function MappingForm({ stages, onDone, initialStageId = "" }: { stages: any[]; o
         </div>
       </div>
 
+      <QtyBasisFields value={qty} onChange={setQty} />
+
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label>Lead time (days)</Label>
@@ -407,6 +429,77 @@ function MappingForm({ stages, onDone, initialStageId = "" }: { stages: any[]; o
         {busy ? "…" : "Add mapping"}
       </Button>
     </form>
+  );
+}
+
+function EditMappingDialog({ mapping, onDone }: { mapping: any; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [qty, setQty] = useState<QtyState>(() => qtyFromFormula(mapping.qty_formula));
+  const [buffer, setBuffer] = useState<string>(String(mapping.buffer_pct ?? 10));
+  const [unit, setUnit] = useState<string>(mapping.unit ?? "");
+  const [busy, setBusy] = useState(false);
+
+  // Re-seed from the row each time the dialog opens.
+  useEffect(() => {
+    if (open) {
+      setQty(qtyFromFormula(mapping.qty_formula));
+      setBuffer(String(mapping.buffer_pct ?? 10));
+      setUnit(mapping.unit ?? "");
+    }
+  }, [open, mapping]);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const { error } = await supabase
+        .from("stage_material_mapping")
+        .update({
+          qty_formula: qtyToFormula(qty),
+          buffer_pct: parseFloat(buffer) || 0,
+          unit: unit || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", mapping.id);
+      if (error) throw error;
+      toast.success("Coverage updated");
+      setOpen(false);
+      onDone();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="icon" title="Edit coverage / quantity">
+          <Pencil className="w-4 h-4" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Coverage · {mapping.product_name ?? mapping.product_id}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <QtyBasisFields value={qty} onChange={setQty} />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Wastage buffer %</Label>
+              <Input type="number" min="0" value={buffer} onChange={(e) => setBuffer(e.target.value)} />
+            </div>
+            <div>
+              <Label>Unit</Label>
+              <Input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="bags, m, pcs…" />
+            </div>
+          </div>
+          <Button onClick={save} disabled={busy} className="w-full">
+            {busy ? "Saving…" : "Save coverage"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

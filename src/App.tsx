@@ -26,6 +26,7 @@ const Auth = lazy(() => import("./pages/Auth.tsx"));
 // ── App-subdomain pages (projects + ops) ─────────────────────────────────────
 const MyProjects = lazy(() => import("./pages/MyProjects.tsx"));
 const MyProjectDetail = lazy(() => import("./pages/MyProjectDetail.tsx"));
+const MyProjectOrder = lazy(() => import("./pages/MyProjectOrder.tsx"));
 const OpsLayout = lazy(() => import("./components/ops/OpsLayout.tsx"));
 const OpsDashboard = lazy(() => import("./pages/ops/OpsDashboard.tsx"));
 const OpsProjects = lazy(() => import("./pages/ops/OpsProjects.tsx"));
@@ -36,6 +37,8 @@ const OpsForecasts = lazy(() => import("./pages/ops/OpsForecasts.tsx"));
 const OpsBriefings = lazy(() => import("./pages/ops/OpsBriefings.tsx"));
 const OpsAnomalies = lazy(() => import("./pages/ops/OpsAnomalies.tsx"));
 const OpsProjections = lazy(() => import("./pages/ops/OpsProjections.tsx"));
+const OpsOnboarding = lazy(() => import("./pages/ops/OpsOnboarding.tsx"));
+const OpsBoqTemplates = lazy(() => import("./pages/ops/OpsBoqTemplates.tsx"));
 
 const PageLoader = () => (
   <div className="min-h-screen bg-background flex items-center justify-center">
@@ -111,6 +114,7 @@ function AppRoutes() {
       <Route path="/auth" element={<Auth />} />
       <Route path="/my-projects" element={<MyProjects />} />
       <Route path="/my-projects/:id" element={<MyProjectDetail />} />
+      <Route path="/my-projects/:id/order" element={<MyProjectOrder />} />
       <Route path="/contractor/my-projects/:id" element={<MyProjectDetail />} />
       <Route path="/ops" element={<OpsLayout />}>
         <Route index element={<OpsDashboard />} />
@@ -122,6 +126,8 @@ function AppRoutes() {
         <Route path="briefings" element={<OpsBriefings />} />
         <Route path="anomalies" element={<OpsAnomalies />} />
         <Route path="projections" element={<OpsProjections />} />
+        <Route path="onboarding" element={<OpsOnboarding />} />
+        <Route path="boq-templates" element={<OpsBoqTemplates />} />
       </Route>
       {/* Anything else (storefront paths) → back to the main domain */}
       <Route path="*" element={<CrossDomainRedirect base={main} />} />

@@ -471,6 +471,159 @@ export type Database = {
           },
         ]
       }
+      boq_template: {
+        Row: {
+          created_at: string
+          id: string
+          item_name: string
+          match_keyword: string | null
+          product_id: string | null
+          project_type: string | null
+          qty_formula: Json | null
+          sort: number
+          stage_id: string
+          unit: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          item_name: string
+          match_keyword?: string | null
+          product_id?: string | null
+          project_type?: string | null
+          qty_formula?: Json | null
+          sort?: number
+          stage_id: string
+          unit?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          item_name?: string
+          match_keyword?: string | null
+          product_id?: string | null
+          project_type?: string | null
+          qty_formula?: Json | null
+          sort?: number
+          stage_id?: string
+          unit?: string | null
+        }
+        Relationships: []
+      }
+      catalog_gaps: {
+        Row: {
+          created_at: string
+          id: string
+          item_name: string
+          project_id: string | null
+          requested_qty: number | null
+          source: string
+          stage_id: string | null
+          status: string
+          unit: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          item_name: string
+          project_id?: string | null
+          requested_qty?: number | null
+          source?: string
+          stage_id?: string | null
+          status?: string
+          unit?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          item_name?: string
+          project_id?: string | null
+          requested_qty?: number | null
+          source?: string
+          stage_id?: string | null
+          status?: string
+          unit?: string | null
+        }
+        Relationships: []
+      }
+      project_rooms: {
+        Row: {
+          count: number
+          created_at: string
+          electrical_points: number
+          height_ft: number
+          id: string
+          length_ft: number
+          name: string | null
+          project_id: string
+          room_type: string
+          width_ft: number
+        }
+        Insert: {
+          count?: number
+          created_at?: string
+          electrical_points?: number
+          height_ft?: number
+          id?: string
+          length_ft?: number
+          name?: string | null
+          project_id: string
+          room_type?: string
+          width_ft?: number
+        }
+        Update: {
+          count?: number
+          created_at?: string
+          electrical_points?: number
+          height_ft?: number
+          id?: string
+          length_ft?: number
+          name?: string | null
+          project_id?: string
+          room_type?: string
+          width_ft?: number
+        }
+        Relationships: []
+      }
+      order_items: {
+        Row: {
+          created_at: string
+          id: string
+          line_total: number | null
+          order_id: string
+          product_id: string
+          product_name: string | null
+          qty: number
+          stage_id: string | null
+          unit: string | null
+          unit_price: number | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          line_total?: number | null
+          order_id: string
+          product_id: string
+          product_name?: string | null
+          qty?: number
+          stage_id?: string | null
+          unit?: string | null
+          unit_price?: number | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          line_total?: number | null
+          order_id?: string
+          product_id?: string
+          product_name?: string | null
+          qty?: number
+          stage_id?: string | null
+          unit?: string | null
+          unit_price?: number | null
+        }
+        Relationships: []
+      }
       sales_orders: {
         Row: {
           created_at: string
