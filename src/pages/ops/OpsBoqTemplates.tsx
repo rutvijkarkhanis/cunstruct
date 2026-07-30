@@ -17,6 +17,9 @@ import {
   QtyBasisFields, EMPTY_QTY, qtyFromFormula, qtyToFormula, formulaLabel, type QtyState,
 } from "@/components/ops/qtyFormula";
 
+const PROJECT_TYPES = ["Residential", "Commercial", "Retail", "Office", "Hospital", "Other"];
+const ALL_TYPES = "__all__";
+
 export default function OpsBoqTemplates() {
   const qc = useQueryClient();
   const [stageId, setStageId] = useState("");
@@ -97,7 +100,14 @@ export default function OpsBoqTemplates() {
           <Card key={it.id} className="p-4">
             <div className="flex items-center justify-between gap-4">
               <div className="min-w-0">
-                <div className="font-medium">{it.item_name}</div>
+                <div className="font-medium flex items-center gap-2">
+                  {it.item_name}
+                  <span className={`text-[10px] uppercase px-1.5 py-0.5 rounded ${
+                    it.project_type ? "bg-accent/20 text-amber-600 dark:text-amber-400" : "bg-muted text-muted-foreground"
+                  }`}>
+                    {it.project_type ?? "All types"}
+                  </span>
+                </div>
                 <div className="text-xs text-muted-foreground">
                   <span className="text-foreground font-medium">{formulaLabel(it.qty_formula)}</span>
                   {it.unit ? ` · ${it.unit}` : ""}
@@ -125,6 +135,7 @@ function TemplateForm({ stages, defaultStageId, existing, onDone }: {
   stages: any[]; defaultStageId: string; existing: any; onDone: () => void;
 }) {
   const [stageId, setStageId] = useState(existing?.stage_id ?? defaultStageId);
+  const [projectType, setProjectType] = useState<string>(existing?.project_type ?? ALL_TYPES);
   const [itemName, setItemName] = useState(existing?.item_name ?? "");
   const [unit, setUnit] = useState(existing?.unit ?? "");
   const [keyword, setKeyword] = useState(existing?.match_keyword ?? "");
@@ -139,6 +150,7 @@ function TemplateForm({ stages, defaultStageId, existing, onDone }: {
     try {
       const payload = {
         stage_id: stageId,
+        project_type: projectType === ALL_TYPES ? null : projectType,
         item_name: itemName.trim(),
         unit: unit || null,
         match_keyword: keyword || null,
@@ -160,14 +172,26 @@ function TemplateForm({ stages, defaultStageId, existing, onDone }: {
 
   return (
     <form onSubmit={submit} className="space-y-4 max-h-[70vh] overflow-y-auto">
-      <div>
-        <Label>Stage</Label>
-        <Select value={stageId} onValueChange={setStageId}>
-          <SelectTrigger><SelectValue placeholder="Select stage" /></SelectTrigger>
-          <SelectContent>
-            {stages.map((s) => <SelectItem key={s.id} value={s.id}>{s.sequence}. {s.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>Stage</Label>
+          <Select value={stageId} onValueChange={setStageId}>
+            <SelectTrigger><SelectValue placeholder="Select stage" /></SelectTrigger>
+            <SelectContent>
+              {stages.map((s) => <SelectItem key={s.id} value={s.id}>{s.sequence}. {s.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label>Project type</Label>
+          <Select value={projectType} onValueChange={setProjectType}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_TYPES}>All types</SelectItem>
+              {PROJECT_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>

@@ -124,18 +124,33 @@ export default function MyProjectOrder() {
     if (project?.current_stage_id && !stageId) setStageId(project.current_stage_id);
   }, [project?.current_stage_id, stageId]);
 
-  const { data: items, isLoading: itemsLoading } = useQuery({
-    queryKey: ["boq-template", stageId],
+  const projectType = (project as any)?.project_type ?? null;
+  const { data: rawItems, isLoading: itemsLoading } = useQuery({
+    queryKey: ["boq-template", stageId, projectType],
     enabled: !!stageId,
     queryFn: async () => {
-      const { data } = await supabase
+      let q = supabase
         .from("boq_template")
-        .select("id, item_name, match_keyword, unit, qty_formula, product_id, sort")
+        .select("id, item_name, match_keyword, unit, qty_formula, product_id, sort, project_type")
         .eq("stage_id", stageId)
         .order("sort");
+      // Generic items (no type) apply to everyone; type-specific items apply
+      // only to this project's type.
+      q = projectType ? q.or(`project_type.is.null,project_type.eq.${projectType}`) : q.is("project_type", null);
+      const { data } = await q;
       return data ?? [];
     },
   });
+
+  // A type-specific item overrides a generic one with the same name.
+  const items = useMemo(() => {
+    const byName = new Map<string, any>();
+    (rawItems ?? []).forEach((it: any) => {
+      const prev = byName.get(it.item_name);
+      if (!prev || (it.project_type && !prev.project_type)) byName.set(it.item_name, it);
+    });
+    return Array.from(byName.values()).sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
+  }, [rawItems]);
 
   // Resolve each template item to a catalog product (explicit id or keyword).
   const { data: catalogMatches } = useQuery({
