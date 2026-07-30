@@ -13,9 +13,9 @@ import {
 import { ArrowLeft, Minus, Plus, Send, Trash2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { formatINR } from "@/lib/forecastEngine";
-import { placeOrder, suggestQtyDetailed, type BoqLine } from "@/lib/boq";
+import { placeOrder, type BoqLine } from "@/lib/boq";
+import { computeBoqLine } from "@/lib/boqGenerate";
 import { computeDimensions, type Room } from "@/lib/dimensions";
-import { resolveCoverage, hasBasis } from "@/lib/coverageDefaults";
 import { logGaps, type GapItem } from "@/lib/catalogGaps";
 import { buildBriefingMessage, buildWhatsAppUrl } from "@/lib/whatsapp";
 import { InfoHint } from "@/components/InfoHint";
@@ -32,13 +32,6 @@ interface RoomRow extends Room {
 const blankRoom = (): RoomRow => ({
   name: "", room_type: "bedroom", length_ft: 10, width_ft: 10, height_ft: 10, count: 1, electrical_points: 4,
 });
-
-function matchProduct(item: any, products: any[]): any | null {
-  if (item.product_id) return products.find((p) => String(p.id) === String(item.product_id)) ?? null;
-  const kw = (item.match_keyword ?? "").toLowerCase();
-  if (!kw) return null;
-  return products.find((p) => (p.name ?? "").toLowerCase().includes(kw)) ?? null;
-}
 
 export default function MyProjectOrder() {
   const { id } = useParams<{ id: string }>();
@@ -202,19 +195,9 @@ export default function MyProjectOrder() {
   const [busy, setBusy] = useState(false);
 
   const lineFor = (item: any) => {
-    const match = matchProduct(item, catalogMatches ?? []);
-    const cover = resolveCoverage(item.item_name);
-    const formula = hasBasis(item.qty_formula) ? item.qty_formula : (cover ?? item.qty_formula ?? {});
-    // Quality tier nudges the wastage buffer up (premium) or down (economy).
-    const baseWastage = cover?.wastage_pct ?? 8;
-    const wastage = Math.max(0, Math.min(40, baseWastage + tierWastageDelta(tier)));
-    const detail = suggestQtyDetailed({ product_id: item.id, qty_formula: formula, buffer_pct: wastage }, dims, builtUp);
-    const qty = overrides[item.id] ?? detail.qty;
-    const inCatalog = !!match;
-    const price = match?.selling_price != null ? Number(match.selling_price)
-      : (formula.unit_price != null ? Number(formula.unit_price) : null);
-    const unit = item.unit ?? match?.unit ?? cover?.unit ?? "";
-    return { qty, price, unit, inCatalog, catalogProductId: match ? String(match.id) : null, explanation: detail.explanation };
+    const l = computeBoqLine(item, dims, builtUp, tier, catalogMatches ?? []);
+    // Mobile lets the contractor nudge quantities by hand; apply that override.
+    return { ...l, qty: overrides[item.id] ?? l.qty };
   };
 
   const setQ = (pid: string, v: number) => setOverrides((o) => ({ ...o, [pid]: Math.max(0, v) }));
