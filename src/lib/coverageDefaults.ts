@@ -15,14 +15,19 @@ export interface CoverageDefault extends QtyFormula {
 // First matching keyword wins — order specific before generic.
 const RULES: [RegExp, CoverageDefault][] = [
   // Finishes — wall area driven
-  [/\b(wall putty|putty)\b/i, { per_wall_sqft: 1 / 30, pack_size: 1, wastage_pct: 10, unit: "bag" }],
+  // Putty: a 40kg bag covers ~480–640 sq.ft over 2 coats (12–15 sq.ft/kg), so
+  // ~1 bag per 500 sq.ft — NOT 1/30 (that over-ordered putty ~16x). [birlawhite/civilsir]
+  [/\b(wall putty|putty)\b/i, { per_wall_sqft: 1 / 500, pack_size: 1, wastage_pct: 10, unit: "bag" }],
   [/\b(primer)\b/i, { per_wall_sqft: 1 / 90, wastage_pct: 10, unit: "L" }],
-  [/\b(emulsion|paint|distemper|enamel)\b/i, { per_wall_sqft: 1 / 55, wastage_pct: 10, unit: "L" }],
-  [/\b(plaster)\b/i, { per_wall_sqft: 1 / 40, pack_size: 1, wastage_pct: 12, unit: "bag" }],
+  // Emulsion: ~120 sq.ft/L/coat × 2 coats ≈ 60 sq.ft/L for the job. [asianpaints]
+  [/\b(emulsion|paint|distemper|enamel)\b/i, { per_wall_sqft: 1 / 60, wastage_pct: 10, unit: "L" }],
+  // Plaster (internal 12mm, 1:6): ~1 cement bag per ~110 sq.ft — not 1/40 (~3x over). [happho/civilsir]
+  [/\b(plaster)\b/i, { per_wall_sqft: 1 / 110, pack_size: 1, wastage_pct: 12, unit: "bag" }],
 
   // Flooring — floor area driven
   [/\b(tile adhesive|adhesive)\b/i, { per_floor_sqft: 1 / 40, pack_size: 1, wastage_pct: 10, unit: "bag" }],
-  [/\b(tile|vitrified|marble|granite|flooring|skirting)\b/i, { per_floor_sqft: 1.0, wastage_pct: 8, unit: "sq.ft" }],
+  // Tile cutting waste is really ~10% (15% for large-format/diagonal). [trybuildcalc]
+  [/\b(tile|vitrified|marble|granite|flooring|skirting)\b/i, { per_floor_sqft: 1.0, wastage_pct: 10, unit: "sq.ft" }],
 
   // Electrical — per point driven
   [/\b(wire|cable)\b/i, { per_point: 15, wastage_pct: 5, unit: "m" }],
@@ -32,17 +37,21 @@ const RULES: [RegExp, CoverageDefault][] = [
 
   // Plumbing / sanitary — per bathroom driven
   [/\b(wc|closet|toilet|wash ?basin|basin|cistern|shower|geyser|cp fitting)\b/i, { per_bathroom: 1, wastage_pct: 0, unit: "pc" }],
-  [/\b(cpvc|upvc|\bpipe\b)\b/i, { per_bathroom: 20, wastage_pct: 8, unit: "m" }],
+  // CPVC hot+cold supply is ~20–30 m per bathroom; use 25 as a safer mid. [studiomatrx/ashirvad]
+  [/\b(cpvc|upvc|\bpipe\b)\b/i, { per_bathroom: 25, wastage_pct: 8, unit: "m" }],
 
   // Doors & windows — per room
   [/\b(door|shutter|frame|hinge|handle)\b/i, { per_room: 1, wastage_pct: 0, unit: "pc" }],
 
   // Structural / masonry — built-up (per_sqft) driven
-  [/\b(cement)\b/i, { per_sqft: 0.4, pack_size: 1, wastage_pct: 5, unit: "bag" }],
+  // Cement: 0.4–0.5 bag/sq.ft; 0.45 is the working midpoint. [houseyog/civiconcepts]
+  [/\b(cement)\b/i, { per_sqft: 0.45, pack_size: 1, wastage_pct: 5, unit: "bag" }],
   [/\b(sand)\b/i, { per_sqft: 1.2, wastage_pct: 10, unit: "cft" }],
   [/\b(aggregate|grit|stone)\b/i, { per_sqft: 0.9, wastage_pct: 10, unit: "cft" }],
-  [/\b(tmt|rebar|steel|reinforc)\b/i, { per_sqft: 3.5, wastage_pct: 3, unit: "kg" }],
-  [/\b(brick|block|aac)\b/i, { per_sqft: 8, wastage_pct: 5, unit: "pc" }],
+  // TMT steel: residential norm is 4.0–4.5 kg/sq.ft; 3.5 was the slab-only floor. [steeloncall/civillead]
+  [/\b(tmt|rebar|steel|reinforc)\b/i, { per_sqft: 4.0, wastage_pct: 5, unit: "kg" }],
+  // Bricks per built-up sq.ft ≈ 5–5.5 (500–550 per 100 sq.ft); 8 was too high. [civilsir/lceted]
+  [/\b(brick|block|aac)\b/i, { per_sqft: 5.5, wastage_pct: 8, unit: "pc" }],
 ];
 
 /**
