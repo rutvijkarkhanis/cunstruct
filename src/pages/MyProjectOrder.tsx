@@ -19,7 +19,7 @@ import { resolveCoverage, hasBasis } from "@/lib/coverageDefaults";
 import { logGaps, type GapItem } from "@/lib/catalogGaps";
 import { buildBriefingMessage, buildWhatsAppUrl } from "@/lib/whatsapp";
 import { InfoHint } from "@/components/InfoHint";
-import { BoqExplainer } from "@/components/boq/BoqExplainer";
+import { BoqGuideHint } from "@/components/boq/BoqExplainer";
 import { suggestRooms, canSuggestRooms, tierWastageDelta, type ProjectBasics } from "@/lib/smartSuggest";
 import { NOTE } from "@/lib/boqGlossary";
 
@@ -290,13 +290,12 @@ export default function MyProjectOrder() {
           <div>
             <h1 className="text-xl font-bold flex items-center gap-1.5">
               Bill of quantities
-              <InfoHint title="What is a BOQ?">{NOTE.whatIsBoq}</InfoHint>
+              <BoqGuideHint />
             </h1>
             <p className="text-sm text-muted-foreground">
               Enter your rooms once — every material's quantity is calculated from the right dimension. In-catalog items can be ordered now; the rest we'll onboard.
             </p>
           </div>
-          <BoqExplainer />
         </div>
 
         {/* Rooms editor */}
