@@ -12,6 +12,7 @@ export interface DocLine {
   price: number | null;
   lineTotal: number;
   priced: boolean;
+  dsrCode?: string | null;
 }
 export interface DocStage {
   name: string;
@@ -49,9 +50,10 @@ export function buildBoqDocumentHtml(p: BoqDocPayload): string {
   ].filter(Boolean).join(" &nbsp;·&nbsp; ");
 
   const boqRows = p.stages.map((st) => `
-    <tr class="stage"><td colspan="3">${st.sequence}. ${esc(st.name)}</td></tr>
+    <tr class="stage"><td colspan="4">${st.sequence}. ${esc(st.name)}</td></tr>
     ${st.lines.map((l) => `
       <tr>
+        <td class="code">${l.dsrCode ? esc(l.dsrCode) : ""}</td>
         <td>${esc(l.name)}</td>
         <td class="num">${esc(l.qty)}</td>
         <td class="unit">${esc(l.unit)}</td>
@@ -96,6 +98,7 @@ export function buildBoqDocumentHtml(p: BoqDocPayload): string {
   td { padding:5px 8px; border-bottom:1px solid #f1f2f4; }
   td.num, th.num { text-align:right; white-space:nowrap; }
   td.unit { color:#889; width:70px; }
+  td.code, th.code { font-family:ui-monospace,Menlo,monospace; font-size:11px; color:#667; width:64px; white-space:nowrap; }
   tr.stage td { background:#f7f8fa; font-weight:700; font-size:12px; padding-top:9px; padding-bottom:9px; }
   tr.stage .sub { float:right; font-weight:700; }
   .total { display:flex; justify-content:flex-end; gap:18px; align-items:center; margin-top:12px; padding-top:12px; border-top:2px solid #1b2233; }
@@ -116,8 +119,8 @@ export function buildBoqDocumentHtml(p: BoqDocPayload): string {
 
   <h2>Bill of Quantities</h2>
   <table>
-    <thead><tr><th>Material</th><th class="num">Qty</th><th>Unit</th></tr></thead>
-    <tbody>${boqRows || `<tr><td colspan="3">No items.</td></tr>`}</tbody>
+    <thead><tr><th class="code">DSR</th><th>Material</th><th class="num">Qty</th><th>Unit</th></tr></thead>
+    <tbody>${boqRows || `<tr><td colspan="4">No items.</td></tr>`}</tbody>
   </table>
 
   <h2>Commercial Offer — what we can supply</h2>

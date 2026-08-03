@@ -21,6 +21,7 @@ import { suggestRooms, canSuggestRooms, tierWastageDelta, type ProjectBasics } f
 import { InfoHint } from "@/components/InfoHint";
 import { NOTE } from "@/lib/boqGlossary";
 import { ProductPicker, type PickedProduct } from "@/components/ops/ProductPicker";
+import { DsrPicker, type PickedDsr } from "@/components/ops/DsrPicker";
 import { openBoqDocument } from "@/lib/boqDocument";
 
 const ROOM_TYPES = ["bedroom", "bathroom", "kitchen", "living", "balcony", "room"];
@@ -35,8 +36,9 @@ const blankRoom = (): RoomRow => ({
   name: "", room_type: "bedroom", length_ft: 10, width_ft: 10, height_ft: 10, count: 1, electrical_points: 4,
 });
 
-interface Override { qty?: number; price?: number; productId?: string; productName?: string; unit?: string }
-interface CustomLine {
+interface DsrRef { dsrCode?: string; dsrDesc?: string; dsrUnit?: string; dsrRate?: number }
+interface Override extends DsrRef { qty?: number; price?: number; productId?: string; productName?: string; unit?: string }
+interface CustomLine extends DsrRef {
   id: string; stageId: string; item_name: string; unit: string; qty: number;
   price?: number; productId?: string; productName?: string;
 }
@@ -47,6 +49,7 @@ interface Line {
   name: string; qty: number; unit: string; price: number | null;
   priced: boolean; lineTotal: number; match: LineMatch;
   productName: string | null; explanation?: string;
+  dsrCode: string | null; dsrRate: number | null; dsrUnit: string | null;
 }
 
 const MATCH_BADGE: Record<LineMatch, { label: string; cls: string; icon: any }> = {
@@ -204,6 +207,7 @@ export default function OpsProjectBoq({
   const [removed, setRemoved] = useState<Record<string, boolean>>({});
   const [customLines, setCustomLines] = useState<CustomLine[]>([]);
   const [picker, setPicker] = useState<{ kind: "tmpl" | "custom"; id: string; query: string } | null>(null);
+  const [dsrPicker, setDsrPicker] = useState<{ kind: "tmpl" | "custom"; id: string; query: string } | null>(null);
 
   const patchOverride = (id: string, patch: Override) =>
     setOverrides((o) => ({ ...o, [id]: { ...o[id], ...patch } }));
@@ -223,6 +227,16 @@ export default function OpsProjectBoq({
     }
     toast.success(`Linked “${p.name}”`);
   };
+
+  const onPickDsr = (d: PickedDsr) => {
+    if (!dsrPicker) return;
+    const patch = { dsrCode: d.code, dsrDesc: d.description, dsrUnit: d.unit ?? undefined, dsrRate: d.rate ?? undefined };
+    if (dsrPicker.kind === "tmpl") patchOverride(dsrPicker.id, patch);
+    else patchCustom(dsrPicker.id, patch);
+    toast.success(`Linked DSR ${d.code}`);
+  };
+  const openDsrTmpl = (id: string, query: string) => setDsrPicker({ kind: "tmpl", id, query });
+  const openDsrCustom = (id: string, query: string) => setDsrPicker({ kind: "custom", id, query });
 
   const hasEdits = Object.keys(overrides).length > 0 || Object.values(removed).some(Boolean) || customLines.length > 0;
   const resetEdits = () => { setOverrides({}); setRemoved({}); setCustomLines([]); };
@@ -253,6 +267,7 @@ export default function OpsProjectBoq({
           key: it.id, refId: it.id, isCustom: false, name: it.item_name, qty,
           unit: ov.unit ?? c.unit, price, priced, lineTotal: priced ? Number(price) * qty : 0,
           match, productName: ov.productName ?? c.catalogProductName, explanation: c.explanation,
+          dsrCode: ov.dsrCode ?? null, dsrRate: ov.dsrRate ?? null, dsrUnit: ov.dsrUnit ?? null,
         };
       }).filter((l) => l.qty > 0);
 
@@ -262,6 +277,7 @@ export default function OpsProjectBoq({
           key: c.id, refId: c.id, isCustom: true, name: c.item_name, qty: c.qty,
           unit: c.unit, price: c.price ?? null, priced, lineTotal: priced ? Number(c.price) * c.qty : 0,
           match: c.productId ? "chosen" : "none", productName: c.productName ?? null,
+          dsrCode: c.dsrCode ?? null, dsrRate: c.dsrRate ?? null, dsrUnit: c.dsrUnit ?? null,
         };
       });
 
@@ -293,7 +309,7 @@ export default function OpsProjectBoq({
       stages: stageBlocks.map((b) => ({
         name: b.stage.name, sequence: b.stage.sequence,
         lines: b.lines.filter((l) => l.name.trim()).map((l) => ({
-          name: l.name, qty: l.qty, unit: l.unit, price: l.price, lineTotal: l.lineTotal, priced: l.priced,
+          name: l.name, qty: l.qty, unit: l.unit, price: l.price, lineTotal: l.lineTotal, priced: l.priced, dsrCode: l.dsrCode,
         })),
       })),
       offerTotal: grandTotal,
@@ -423,6 +439,7 @@ export default function OpsProjectBoq({
                   <thead><tr className="text-left text-xs text-muted-foreground border-b">
                     <th className="py-2 px-4 font-medium">Material</th>
                     <th className="py-2 px-3 font-medium w-40">Quantity</th>
+                    <th className="py-2 px-3 font-medium">DSR reference</th>
                     <th className="py-2 px-3 font-medium">Catalog product</th>
                     <th className="py-2 px-3 w-8" />
                   </tr></thead>
@@ -450,6 +467,18 @@ export default function OpsProjectBoq({
                                 ? <Input className="h-8 w-16" value={l.unit} placeholder="unit" onChange={(e) => patchCustom(l.refId, { unit: e.target.value })} />
                                 : <span className="text-xs text-muted-foreground">{l.unit}</span>}
                             </div>
+                          </td>
+                          <td className="py-1.5 px-3">
+                            <button
+                              onClick={() => l.isCustom ? openDsrCustom(l.refId, l.name) : openDsrTmpl(l.refId, l.name)}
+                              className="group inline-flex items-center gap-1.5 text-left max-w-[15rem]"
+                              title="Link an official DSR item (code + govt rate)"
+                            >
+                              <FileText className={`w-3.5 h-3.5 shrink-0 ${l.dsrCode ? "text-primary" : "text-muted-foreground/70"}`} />
+                              {l.dsrCode
+                                ? <span className="text-xs whitespace-nowrap"><code className="bg-muted px-1 rounded text-foreground">{l.dsrCode}</code>{l.dsrRate != null && <span className="text-muted-foreground"> · {formatINR(l.dsrRate)}/{l.dsrUnit}</span>}</span>
+                                : <span className="text-xs text-muted-foreground group-hover:text-foreground underline decoration-dotted">Link DSR…</span>}
+                            </button>
                           </td>
                           <td className="py-1.5 px-3">
                             <button
@@ -556,6 +585,13 @@ export default function OpsProjectBoq({
         onOpenChange={(o) => { if (!o) setPicker(null); }}
         initialQuery={picker?.query}
         onPick={onPick}
+      />
+      <DsrPicker
+        key={dsrPicker?.id ?? "dsr-none"}
+        open={!!dsrPicker}
+        onOpenChange={(o) => { if (!o) setDsrPicker(null); }}
+        initialQuery={dsrPicker?.query}
+        onPick={onPickDsr}
       />
     </div>
   );
