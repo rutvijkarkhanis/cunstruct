@@ -25,7 +25,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Plus, Building2, Trash2, Clock } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -291,13 +291,14 @@ function OnboardWizard({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState(false);
 
   const [stages, setStages] = useState<{ id: string; name: string; sequence: number }[]>([]);
+  const navigate = useNavigate();
 
   useEffect(() => {
     supabase.from("stage_master").select("id, name, sequence").order("sequence")
       .then(({ data }) => { if (data) setStages(data); });
   }, []);
 
-  const submit = async (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent, thenBoq = false) => {
     e.preventDefault();
     setBusy(true);
     try {
@@ -347,6 +348,10 @@ function OnboardWizard({ onDone }: { onDone: () => void }) {
         }
       }
       toast.success("Project onboarded");
+      if (thenBoq) {
+        navigate(`/ops/boq/new?project=${project.id}`);
+        return;
+      }
       onDone();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");
@@ -438,9 +443,15 @@ function OnboardWizard({ onDone }: { onDone: () => void }) {
           <Input type="date" value={estCompletion} onChange={(e) => setEstCompletion(e.target.value)} />
         </div>
       </div>
-      <Button type="submit" className="w-full" disabled={busy}>
-        {busy ? "Creating…" : "Create project"}
-      </Button>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <Button type="submit" variant="outline" className="flex-1" disabled={busy}>
+          {busy ? "Creating…" : "Create project"}
+        </Button>
+        <Button type="button" className="flex-1" disabled={busy}
+          onClick={(e) => submit(e as unknown as React.FormEvent, true)}>
+          {busy ? "Creating…" : "Create & build BOQ"}
+        </Button>
+      </div>
     </form>
   );
 }
