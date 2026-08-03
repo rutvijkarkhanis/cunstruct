@@ -61,7 +61,7 @@ def extract(paths):
                     continue
                 if not chapter:                      # still in front-matter
                     continue
-                if valid_code(s):
+                if valid_code(s) and int(s.split(".")[0]) == int(chapter.split(".")[0]):
                     flush()
                     cur = {"code": s, "chapter": chapter, "subhead": subhead,
                            "desc": [], "unit": "", "rate": ""}
