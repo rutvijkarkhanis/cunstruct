@@ -3,13 +3,14 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { specToIntents } from "@/lib/boqDsrGenerate";
+import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
 import type { Spec } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DsrItem { id: string; code: string; description: string | null; unit: string | null; rate: number | null; chapter: string | null; }
@@ -27,6 +28,7 @@ export default function OpsBoqBuilder() {
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
   const [showBrowser, setShowBrowser] = useState(false);
+  const [view, setView] = useState<"lines" | "materials">("lines");
 
   const { data: boq } = useQuery({
     queryKey: ["boq", id],
@@ -73,6 +75,31 @@ export default function OpsBoqBuilder() {
   });
 
   const refetchLines = () => qc.invalidateQueries({ queryKey: ["boq-lines", id] });
+
+  // AOR coefficients for the DSR codes present on this BOQ, for the material schedule.
+  const codes = useMemo(
+    () => [...new Set(lines.map((l) => l.dsr_code).filter(Boolean))] as string[],
+    [lines],
+  );
+  const { data: coeffs = [] } = useQuery({
+    queryKey: ["boq-coeffs", codes],
+    enabled: codes.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("dsr_coefficient")
+        .select("item_code, kind, resource, qty, unit, product_id").in("item_code", codes);
+      if (error) throw error;
+      return (data ?? []) as Coefficient[];
+    },
+  });
+
+  const schedule = useMemo(() => {
+    const byCode = new Map<string, Coefficient[]>();
+    for (const c of coeffs) { const a = byCode.get(c.item_code) ?? []; a.push(c); byCode.set(c.item_code, a); }
+    return explodeMaterials(
+      lines.map((l) => ({ dsr_code: l.dsr_code, qty: l.qty, included: l.included })),
+      byCode,
+    );
+  }, [lines, coeffs]);
 
   // Resolve an intent's keywords to the first matching DSR item (by code order).
   const matchDsr = (keywords: string[]): DsrItem | null => {
@@ -181,6 +208,12 @@ export default function OpsBoqBuilder() {
         <Button variant="outline" onClick={() => setShowBrowser((s) => !s)}>
           <Plus className="h-4 w-4 mr-2" />Add DSR item
         </Button>
+        <div className="ml-auto inline-flex rounded-md border p-0.5">
+          <Button size="sm" variant={view === "lines" ? "secondary" : "ghost"} onClick={() => setView("lines")}>Lines</Button>
+          <Button size="sm" variant={view === "materials" ? "secondary" : "ghost"} onClick={() => setView("materials")}>
+            <Layers className="h-4 w-4 mr-1" />Material schedule
+          </Button>
+        </div>
       </div>
 
       {showBrowser && (
@@ -212,7 +245,43 @@ export default function OpsBoqBuilder() {
         </Card>
       )}
 
-      {linesLoading ? (
+      {view === "materials" ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Material &amp; labour schedule</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Exploded from {schedule.matchedCodes} DSR code{schedule.matchedCodes === 1 ? "" : "s"} via the AOR.
+              {schedule.unmatchedCodes.length > 0 && ` ${schedule.unmatchedCodes.length} line${schedule.unmatchedCodes.length === 1 ? "" : "s"} have no AOR data yet.`}
+            </p>
+          </CardHeader>
+          <CardContent>
+            {schedule.rows.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6 text-center">
+                No AOR coefficients matched these lines. Generate lines with DSR codes, or the AOR has no data for them.
+              </p>
+            ) : (
+              (["material", "labour", "plant"] as const).map((kind) => {
+                const rows = schedule.rows.filter((r) => r.kind === kind);
+                if (!rows.length) return null;
+                return (
+                  <div key={kind} className="mb-4 last:mb-0">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">
+                      {kind === "material" ? "Materials" : kind === "labour" ? "Labour" : "Plant & machinery"}
+                    </div>
+                    {rows.map((r, i) => (
+                      <div key={i} className="grid grid-cols-[1fr_6rem_4rem] items-center gap-2 py-1.5 border-b last:border-0">
+                        <span className="text-sm">{r.resource}</span>
+                        <span className="text-sm tabular-nums text-right">{r.qty.toLocaleString("en-IN")}</span>
+                        <span className="text-xs text-muted-foreground">{r.unit}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })
+            )}
+          </CardContent>
+        </Card>
+      ) : linesLoading ? (
         <div className="p-8 flex justify-center"><Loader2 className="animate-spin" /></div>
       ) : lines.length === 0 ? (
         <Card><CardContent className="py-10 text-center text-muted-foreground">
