@@ -19,19 +19,29 @@ interface ProjectLite {
 /** BOQ questionnaire — captures the parameters generation uses to pull DSR items. */
 export default function OpsBoqNew() {
   const [params] = useSearchParams();
-  const projectId = params.get("project");
+  const urlProjectId = params.get("project");
   const navigate = useNavigate();
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(urlProjectId);
   const [project, setProject] = useState<ProjectLite | null>(null);
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [spec, setSpec] = useState<Spec>(() => defaultSpec());
   const [name, setName] = useState("BOQ");
   const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(!!projectId);
+  const [loading, setLoading] = useState(!!urlProjectId);
+
+  // When reached from the nav (no project in the URL), let the user attach one.
+  useEffect(() => {
+    if (urlProjectId) return;
+    supabase.from("projects").select("id, name").order("created_at", { ascending: false })
+      .then(({ data }) => { if (data) setProjects(data); });
+  }, [urlProjectId]);
 
   useEffect(() => {
-    if (!projectId) return;
+    if (!selectedProjectId) { setProject(null); return; }
+    setLoading(true);
     supabase.from("projects")
       .select("id, name, project_type, scope, floors, area_sqft")
-      .eq("id", projectId).single()
+      .eq("id", selectedProjectId).single()
       .then(({ data }) => {
         if (data) {
           setProject(data as ProjectLite);
@@ -41,7 +51,7 @@ export default function OpsBoqNew() {
         }
         setLoading(false);
       });
-  }, [projectId]);
+  }, [selectedProjectId]);
 
   const set = (key: string, value: SpecValue) => setSpec((s) => ({ ...s, [key]: value }));
 
@@ -80,7 +90,7 @@ export default function OpsBoqNew() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const { data, error } = await supabase.from("boq").insert({
-        project_id: projectId, name, spec, created_by: user?.id,
+        project_id: selectedProjectId, name, spec, created_by: user?.id,
       }).select("id").single();
       if (error) throw error;
       toast.success("BOQ questionnaire saved");
@@ -111,6 +121,20 @@ export default function OpsBoqNew() {
           </p>
         </div>
       </div>
+
+      {!urlProjectId && (
+        <div>
+          <Label className="text-xs text-muted-foreground">Attach to project (optional)</Label>
+          <Select value={selectedProjectId ?? "none"}
+            onValueChange={(v) => setSelectedProjectId(v === "none" ? null : v)}>
+            <SelectTrigger><SelectValue placeholder="Standalone BOQ" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Standalone (no project)</SelectItem>
+              {projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       <div>
         <Label>BOQ name</Label>
