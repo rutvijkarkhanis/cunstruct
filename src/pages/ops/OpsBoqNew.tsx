@@ -84,7 +84,7 @@ export default function OpsBoqNew() {
       }).select("id").single();
       if (error) throw error;
       toast.success("BOQ questionnaire saved");
-      navigate(projectId ? `/ops/projects/${projectId}` : "/ops/projects");
+      navigate(`/ops/boq/${data.id}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save");
     } finally {
