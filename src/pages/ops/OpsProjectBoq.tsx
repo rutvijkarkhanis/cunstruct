@@ -174,9 +174,20 @@ export default function OpsProjectBoq({
   const roomDims = useMemo(() => computeDimensions(rooms), [rooms]);
   const builtUp = area || roomDims.floorAreaSqft || null;
   const hasRooms = rooms.length > 0;
+  // Before rooms are drawn, fall back to built-up-area estimates so a built-up-
+  // only quote still lands sensible ballparks: floor area ≈ built-up, wall face
+  // area ≈ 3.2× built-up. Room counts (if set) feed the count-based bases so you
+  // can quote without drawing every room. Anything with a zero driver (e.g. no
+  // bathrooms) drops out cleanly rather than showing a misleading "1".
   const engineDims = useMemo(
-    () => ({ ...roomDims, floorAreaSqft: roomDims.floorAreaSqft || (builtUp ?? 0) }),
-    [roomDims, builtUp],
+    () => ({
+      ...roomDims,
+      floorAreaSqft: roomDims.floorAreaSqft || (builtUp ?? 0),
+      wallAreaSqft: roomDims.wallAreaSqft || (builtUp ?? 0) * 3.2,
+      rooms: roomDims.rooms || bedrooms + kitchens,
+      bathrooms: roomDims.bathrooms || bathrooms,
+    }),
+    [roomDims, builtUp, bedrooms, bathrooms, kitchens],
   );
   const projectType = project?.project_type ?? null;
 

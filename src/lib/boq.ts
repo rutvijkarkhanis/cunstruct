@@ -58,10 +58,12 @@ export function suggestQtyDetailed(m: BoqMapping, dims: Dimensions, builtUpSqft?
 
   let base: number | null = null;
   let detail = "";
+  let sawBasis = false; // a basis WAS specified (even if its dimension is 0)
 
   for (const b of BASES) {
     const ratio = f[b.key];
     if (ratio == null) continue;
+    sawBasis = true;
     // per_sqft prefers an explicit built-up area, else floor area.
     const dimVal = b.key === "per_sqft" && builtUpSqft != null ? Number(builtUpSqft) : Number(dims[b.dim]);
     if (!dimVal) continue;
@@ -79,6 +81,10 @@ export function suggestQtyDetailed(m: BoqMapping, dims: Dimensions, builtUpSqft?
   }
 
   if (base == null) {
+    // A basis was set but its driver is 0 (e.g. a per-bathroom item with no
+    // bathrooms yet) → genuinely nothing needed, so 0 drops the line. Only a
+    // total absence of any basis is a template gap that defaults to 1.
+    if (sawBasis) return { qty: 0, explanation: "basis is zero (no rooms/counts yet) — omitted", isFallback: false };
     return { qty: 1, explanation: "no coverage set — defaulted to 1", isFallback: true };
   }
 
