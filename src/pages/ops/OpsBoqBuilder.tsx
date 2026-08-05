@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { specToIntents } from "@/lib/boqDsrGenerate";
+import { generateLines } from "@/lib/boqDsrGenerate";
 import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
 import type { Spec } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
@@ -101,37 +101,35 @@ export default function OpsBoqBuilder() {
     );
   }, [lines, coeffs]);
 
-  // Resolve an intent's keywords to the first matching DSR item (by code order).
-  const matchDsr = (keywords: string[]): DsrItem | null => {
-    for (const it of dsrItems) {
-      const d = (it.description ?? "").toLowerCase();
-      if (keywords.some((k) => d.includes(k.toLowerCase()))) return it;
-    }
-    return null;
-  };
+  // Exact code → DSR item, for resolving generated lines (no fuzzy matching).
+  const byDsrCode = useMemo(() => {
+    const m = new Map<string, DsrItem>();
+    for (const it of dsrItems) m.set(it.code, it);
+    return m;
+  }, [dsrItems]);
 
   const generate = async () => {
     if (!boq) return;
     setBusy(true);
     try {
-      const intents = specToIntents(boq.spec ?? {}, {
+      const generated = generateLines(boq.spec ?? {}, {
         area_sqft: project?.area_sqft ?? null, floors: project?.floors ?? null,
       });
       // Regenerate auto lines; keep anything the user added by hand.
       await supabase.from("boq_line").delete().eq("boq_id", id).eq("source", "auto");
-      const rows = intents.map((it, i) => {
-        const m = matchDsr(it.keywords);
+      const rows = generated.map((g, i) => {
+        const dsr = byDsrCode.get(g.code);   // exact code lookup
         return {
-          boq_id: id, section: it.section, dsr_code: m?.code ?? null,
-          description: m?.description ?? `${it.label} (no DSR match)`,
-          unit: m?.unit ?? it.unitHint, qty: it.qty, dsr_rate: m?.rate ?? null,
+          boq_id: id, section: g.section, dsr_code: g.code,
+          description: dsr?.description ?? g.label,
+          unit: dsr?.unit ?? g.unit, qty: g.qty, dsr_rate: dsr?.rate ?? null,
           source: "auto", sort: i,
         };
       });
       const { error } = await supabase.from("boq_line").insert(rows);
       if (error) throw error;
-      const matched = rows.filter((r) => r.dsr_code).length;
-      toast.success(`Generated ${rows.length} lines · ${matched} matched to DSR`);
+      const priced = rows.filter((r) => r.dsr_rate != null).length;
+      toast.success(`Generated ${rows.length} lines · ${priced} priced from DSR`);
       refetchLines();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Generation failed");
