@@ -47,6 +47,13 @@ describe("suggestQty", () => {
     expect(r.isFallback).toBe(true);
   });
 
+  it("drops to 0 (not 1) when a basis is set but its driver is zero", () => {
+    // per_bathroom item with no bathrooms → genuinely nothing needed
+    const r = suggestQtyDetailed({ product_id: "x", qty_formula: { per_bathroom: 1 } }, dims({ bathrooms: 0 }));
+    expect(r.qty).toBe(0);
+    expect(r.isFallback).toBe(false);
+  });
+
   it("explains the derivation", () => {
     const r = suggestQtyDetailed({ product_id: "x", qty_formula: { per_wall_sqft: 0.02 }, buffer_pct: 10 }, dims({ wallAreaSqft: 340 }));
     expect(r.explanation).toContain("wall sq.ft");

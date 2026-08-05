@@ -60,6 +60,16 @@ const MATCH_BADGE: Record<LineMatch, { label: string; cls: string; icon: any }> 
 };
 
 /**
+ * Structural stages are sized off gross built-up area (concrete, steel, blocks —
+ * the volume of the structure). Everything downstream is finishing/services and
+ * is sized off the actual rooms. This split decides which basis feeds the qty
+ * engine per stage, so adding rooms moves finishing quantities but leaves the
+ * structural quote pinned to built-up area.
+ */
+const STRUCTURAL_STAGE = /excavation|foundation|footing|plinth|rcc|structure|concrete|masonry|brick|block/i;
+const isStructuralStage = (name?: string | null) => STRUCTURAL_STAGE.test(name ?? "");
+
+/**
  * Ops-side BOQ generation — the desktop onboarding flow, as a service.
  *
  * Input split by stage (built-up area×floors → structural; rooms → finishing).
@@ -164,9 +174,20 @@ export default function OpsProjectBoq({
   const roomDims = useMemo(() => computeDimensions(rooms), [rooms]);
   const builtUp = area || roomDims.floorAreaSqft || null;
   const hasRooms = rooms.length > 0;
+  // Before rooms are drawn, fall back to built-up-area estimates so a built-up-
+  // only quote still lands sensible ballparks: floor area ≈ built-up, wall face
+  // area ≈ 3.2× built-up. Room counts (if set) feed the count-based bases so you
+  // can quote without drawing every room. Anything with a zero driver (e.g. no
+  // bathrooms) drops out cleanly rather than showing a misleading "1".
   const engineDims = useMemo(
-    () => ({ ...roomDims, floorAreaSqft: roomDims.floorAreaSqft || (builtUp ?? 0) }),
-    [roomDims, builtUp],
+    () => ({
+      ...roomDims,
+      floorAreaSqft: roomDims.floorAreaSqft || (builtUp ?? 0),
+      wallAreaSqft: roomDims.wallAreaSqft || (builtUp ?? 0) * 3.2,
+      rooms: roomDims.rooms || bedrooms + kitchens,
+      bathrooms: roomDims.bathrooms || bathrooms,
+    }),
+    [roomDims, builtUp, bedrooms, bathrooms, kitchens],
   );
   const projectType = project?.project_type ?? null;
 
@@ -256,8 +277,11 @@ export default function OpsProjectBoq({
       });
       const items = Array.from(byName.values()).sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
 
+      // Structural stages quote from built-up area; finishing stages pass no
+      // built-up so per-sqft items fall through to the room-derived floor area.
+      const stageBuiltUp = isStructuralStage(stage.name) ? builtUp : null;
       const tmplLines: Line[] = items.filter((it) => !removed[it.id]).map((it) => {
-        const c = computeBoqLine(it, engineDims, builtUp, tier, catalogMatches ?? []);
+        const c = computeBoqLine(it, engineDims, stageBuiltUp, tier, catalogMatches ?? []);
         const ov = overrides[it.id] ?? {};
         const qty = ov.qty ?? c.qty;
         const price = ov.price ?? c.price;
