@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -17,6 +17,8 @@ import {
   ClipboardList,
   Calculator,
   LogOut,
+  Menu,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -37,6 +39,7 @@ const NAV = [
 export default function OpsLayout() {
   const { user, loading, isStaff, signOut } = useAuth();
   const navigate = useNavigate();
+  const [navOpen, setNavOpen] = useState(false); // mobile drawer
 
   const { data: pendingCount } = useQuery({
     queryKey: ["pending-review-count"],
@@ -72,19 +75,44 @@ export default function OpsLayout() {
   }
 
   return (
-    <div className="min-h-screen flex bg-background">
-      <aside className="w-60 border-r bg-card flex flex-col">
-        <div className="p-4 border-b">
-          <div className="font-bold text-lg">Cunstruct</div>
-          <div className="text-xs text-muted-foreground">Operations Console</div>
+    <div className="min-h-screen md:flex bg-background">
+      {/* Mobile top bar with hamburger — hidden on md+ where the sidebar is static */}
+      <div className="md:hidden sticky top-0 z-30 flex items-center gap-2 p-3 border-b bg-card">
+        <Button variant="ghost" size="icon" onClick={() => setNavOpen(true)} aria-label="Open menu">
+          <Menu className="w-5 h-5" />
+        </Button>
+        <div className="font-bold">Cunstruct</div>
+      </div>
+
+      {/* Backdrop when the drawer is open on mobile */}
+      {navOpen && (
+        <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => setNavOpen(false)} />
+      )}
+
+      <aside
+        className={cn(
+          "w-60 border-r bg-card flex flex-col",
+          "fixed inset-y-0 left-0 z-50 transition-transform md:static md:z-auto md:translate-x-0",
+          navOpen ? "translate-x-0" : "-translate-x-full",
+        )}
+      >
+        <div className="p-4 border-b flex items-start justify-between">
+          <div>
+            <div className="font-bold text-lg">Cunstruct</div>
+            <div className="text-xs text-muted-foreground">Operations Console</div>
+          </div>
+          <Button variant="ghost" size="icon" className="md:hidden -mr-2 -mt-1"
+            onClick={() => setNavOpen(false)} aria-label="Close menu">
+            <X className="w-5 h-5" />
+          </Button>
         </div>
-        <nav className="flex-1 p-2 space-y-1">
+        <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
           {NAV.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               end={item.end}
-              onClick={(e) => item.disabled && e.preventDefault()}
+              onClick={(e) => { if (item.disabled) e.preventDefault(); else setNavOpen(false); }}
               className={({ isActive }) =>
                 cn(
                   "flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors",
@@ -115,7 +143,7 @@ export default function OpsLayout() {
           </Button>
         </div>
       </aside>
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 min-w-0 overflow-auto">
         <Outlet />
       </main>
     </div>
