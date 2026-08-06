@@ -3,8 +3,9 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { generateLines } from "@/lib/boqDsrGenerate";
+import { stageForCode, STAGE_ORDER } from "@/lib/boqDsrCatalog";
 import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
-import { computeCommercials, openDsrQuote, type QuoteSection } from "@/lib/boqDsrDocument";
+import { computeCommercials, openDsrQuote, type QuoteSection, type QuoteStage } from "@/lib/boqDsrDocument";
 import type { Spec } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -121,16 +122,18 @@ export default function OpsBoqBuilder() {
       // load-all), so every generated line resolves its description/unit/rate.
       const codes = [...new Set(generated.map((g) => g.code))];
       const { data: dsrRows, error: dsrErr } = await supabase.from("dsr_item")
-        .select("code, description, unit, rate").in("code", codes);
+        .select("code, description, unit, rate, chapter").in("code", codes);
       if (dsrErr) throw dsrErr;
-      const byDsrCode = new Map<string, { code: string; description: string | null; unit: string | null; rate: number | null }>();
+      const byDsrCode = new Map<string, { code: string; description: string | null; unit: string | null; rate: number | null; chapter: string | null }>();
       for (const r of dsrRows ?? []) byDsrCode.set(r.code, r);
       // Regenerate auto lines; keep anything the user added by hand.
       await supabase.from("boq_line").delete().eq("boq_id", id).eq("source", "auto");
       const rows = generated.map((g, i) => {
         const dsr = byDsrCode.get(g.code);   // exact code lookup
         return {
-          boq_id: id, section: g.section, dsr_code: g.code,
+          // section holds the DSR sub-head (type of work); the construction
+          // stage is derived from the code at render/export time.
+          boq_id: id, section: dsr?.chapter ?? g.section, dsr_code: g.code,
           description: dsr?.description ?? g.label,
           unit: dsr?.unit ?? g.unit, qty: g.qty, dsr_rate: dsr?.rate ?? null,
           source: "auto", sort: i,
@@ -168,14 +171,25 @@ export default function OpsBoqBuilder() {
     refetchLines();
   };
 
-  const grouped = useMemo(() => {
-    const g = new Map<string, BoqLine[]>();
+  const sumIncl = (ls: BoqLine[]) => ls.filter((l) => l.included).reduce((s, l) => s + l.qty * (l.dsr_rate ?? 0), 0);
+
+  // Two-level grouping: construction stage → type of work (DSR sub-head) → lines.
+  const byStage = useMemo(() => {
+    const stages = new Map<string, Map<string, BoqLine[]>>();
     for (const l of lines) {
-      const s = l.section ?? "Other";
-      if (!g.has(s)) g.set(s, []);
-      g.get(s)!.push(l);
+      const st = stageForCode(l.dsr_code);
+      const sec = l.section ?? "Other";
+      if (!stages.has(st)) stages.set(st, new Map());
+      const secs = stages.get(st)!;
+      if (!secs.has(sec)) secs.set(sec, []);
+      secs.get(sec)!.push(l);
     }
-    return [...g.entries()];
+    return [...stages.entries()]
+      .sort((a, b) => STAGE_ORDER.indexOf(a[0]) - STAGE_ORDER.indexOf(b[0]))
+      .map(([stage, secs]) => {
+        const sections = [...secs.entries()].map(([name, ls]) => ({ name, lines: ls, subtotal: sumIncl(ls) }));
+        return { stage, sections, subtotal: sections.reduce((s, x) => s + x.subtotal, 0) };
+      });
   }, [lines]);
 
   const total = useMemo(() =>
@@ -195,23 +209,29 @@ export default function OpsBoqBuilder() {
   };
 
   const exportQuote = () => {
-    const sections: QuoteSection[] = grouped.map(([name, secLines]) => {
-      const incl = secLines.filter((l) => l.included);
-      return {
-        name,
-        subtotal: incl.reduce((s, l) => s + l.qty * (l.dsr_rate ?? 0), 0),
-        lines: incl.map((l) => ({
-          code: l.dsr_code, description: l.description ?? "", qty: l.qty, unit: l.unit ?? "",
+    const stages: QuoteStage[] = byStage.map((st) => {
+      let itemNo = 0;
+      const sections: QuoteSection[] = st.sections.map((sec) => ({
+        name: sec.name,
+        subtotal: sec.subtotal,
+        lines: sec.lines.filter((l) => l.included).map((l) => ({
+          itemNo: ++itemNo,
+          code: l.dsr_code, spec: l.description ?? "", qty: l.qty, unit: l.unit ?? "",
           rate: l.dsr_rate, amount: l.dsr_rate != null ? l.qty * l.dsr_rate : null,
         })),
-      };
-    }).filter((s) => s.lines.length > 0);
+      })).filter((s) => s.lines.length > 0);
+      return { name: st.stage, sections, subtotal: st.subtotal };
+    }).filter((st) => st.sections.length > 0);
+
     const ok = openDsrQuote({
       boqName: boq!.name,
       projectName: project?.name, clientName: project?.client_name, location: project?.location,
       builtUpSqft: project?.area_sqft, floors: project?.floors,
       generatedOn: new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }),
-      rateYear: "2023", sections, commercials,
+      rateYear: "2023",
+      stages,
+      abstract: stages.map((st) => ({ stage: st.name, amount: st.subtotal })),
+      commercials,
     });
     if (!ok) toast.error("Allow pop-ups to export the quote");
   };
@@ -343,39 +363,46 @@ export default function OpsBoqBuilder() {
           No lines yet. Generate from the questionnaire or add DSR items.
         </CardContent></Card>
       ) : (
-        grouped.map(([section, secLines]) => {
-          const secTotal = secLines.filter((l) => l.included).reduce((s, l) => s + l.qty * (l.dsr_rate ?? 0), 0);
-          return (
-            <Card key={section}>
-              <CardHeader className="pb-2 flex-row items-center justify-between">
-                <CardTitle className="text-base">{section}</CardTitle>
-                <span className="text-sm text-muted-foreground tabular-nums">{inr(secTotal)}</span>
-              </CardHeader>
-              <CardContent className="space-y-1">
-                {secLines.map((l) => (
-                  <div key={l.id} className={cn("grid grid-cols-[auto_1fr_auto] sm:grid-cols-[auto_1fr_5rem_5rem_6rem_auto] items-center gap-2 py-1.5 border-b last:border-0",
-                    !l.included && "opacity-40")}>
-                    <input type="checkbox" checked={l.included}
-                      onChange={(e) => updateLine(l.id, { included: e.target.checked })} />
-                    <div className="min-w-0">
-                      <div className="text-sm truncate">{l.description}</div>
-                      <div className="text-xs font-mono text-muted-foreground">{l.dsr_code ?? "no DSR code"}</div>
-                    </div>
-                    <Input type="number" className="h-8 hidden sm:block" defaultValue={l.qty}
-                      onBlur={(e) => { const v = Number(e.target.value); if (v !== l.qty) updateLine(l.id, { qty: v }); }} />
-                    <span className="text-xs text-muted-foreground hidden sm:block">{l.unit}</span>
-                    <span className="text-sm tabular-nums text-right hidden sm:block">
-                      {l.dsr_rate != null ? inr(l.qty * l.dsr_rate) : "—"}
-                    </span>
-                    <Button size="sm" variant="ghost" onClick={() => removeLine(l.id)}>
-                      <Trash2 className="h-4 w-4 text-muted-foreground" />
-                    </Button>
+        byStage.map(({ stage, sections, subtotal }, si) => (
+          <Card key={stage}>
+            <CardHeader className="pb-2 flex-row items-center justify-between">
+              <CardTitle className="text-base">
+                <span className="text-muted-foreground font-normal mr-2">Stage {si + 1}</span>{stage}
+              </CardTitle>
+              <span className="text-sm font-medium tabular-nums">{inr(subtotal)}</span>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {sections.map((sec) => (
+                <div key={sec.name}>
+                  <div className="flex items-center justify-between border-b pb-1 mb-1">
+                    <span className="text-xs uppercase tracking-wide text-muted-foreground">{sec.name}</span>
+                    <span className="text-xs text-muted-foreground tabular-nums">{inr(sec.subtotal)}</span>
                   </div>
-                ))}
-              </CardContent>
-            </Card>
-          );
-        })
+                  {sec.lines.map((l) => (
+                    <div key={l.id} className={cn("grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_5rem_4rem_6rem_auto] items-start gap-x-3 gap-y-1 py-2 border-b last:border-0",
+                      !l.included && "opacity-40")}>
+                      <input type="checkbox" className="mt-1" checked={l.included}
+                        onChange={(e) => updateLine(l.id, { included: e.target.checked })} />
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-mono text-accent-foreground/70 mb-0.5">{l.dsr_code ?? "no DSR code"}</div>
+                        <div className="text-[13px] leading-snug text-foreground/90">{l.description}</div>
+                      </div>
+                      <Input type="number" className="h-8 hidden sm:block" defaultValue={l.qty}
+                        onBlur={(e) => { const v = Number(e.target.value); if (v !== l.qty) updateLine(l.id, { qty: v }); }} />
+                      <span className="text-xs text-muted-foreground hidden sm:block pt-2">{l.unit}</span>
+                      <span className="text-sm tabular-nums text-right hidden sm:block pt-1.5">
+                        {l.dsr_rate != null ? inr(l.qty * l.dsr_rate) : "—"}
+                      </span>
+                      <Button size="sm" variant="ghost" className="h-7" onClick={() => removeLine(l.id)}>
+                        <Trash2 className="h-4 w-4 text-muted-foreground" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        ))
       )}
     </div>
   );

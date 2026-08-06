@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { DSR_CATALOG, buildContext } from "./boqDsrCatalog";
+import { DSR_CATALOG, buildContext, stageForCode, STAGE_ORDER } from "./boqDsrCatalog";
 import type { Spec } from "./boqSpec";
 
 // Read the DSR seed and assert every code the catalog references really exists.
@@ -34,6 +34,18 @@ describe("DSR catalog", () => {
   it("has unique item keys", () => {
     const keys = DSR_CATALOG.map((i) => i.key);
     expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("maps catalog codes to their construction stage, with a chapter fallback", () => {
+    expect(stageForCode("5.3")).toBe("RCC Superstructure");       // catalog
+    expect(stageForCode("6.4.2")).toBe("Masonry");
+    expect(stageForCode("11.41.2")).toBe("Flooring & Tiling");
+    expect(stageForCode("17.2.1")).toBe("Sanitary & Fixtures");
+    expect(stageForCode("13.1.2")).toBe("Plastering");            // catalog wins over ch-13 fallback
+    expect(stageForCode("13.999")).toBe("Painting");              // ch-13 fallback for a non-catalog code
+    expect(stageForCode("99.9")).toBe("Other Works");             // unknown chapter
+    expect(stageForCode(null)).toBe("Other Works");
+    expect(STAGE_ORDER).toContain("RCC Superstructure");
   });
 
   it("every enabled line yields a positive quantity for a typical house", () => {
