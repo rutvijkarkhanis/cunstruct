@@ -234,6 +234,58 @@ export function computeCommercials(works: number, i: CommercialInputs): QuoteCom
   };
 }
 
+// ---- Excel (CSV) export ----------------------------------------------------
+// A structured take-off the estimator prices their own way: quantities are
+// filled, "Your rate" starts from the DSR reference and is editable, and Amount
+// is a live Excel formula (Qty × Your rate) that recalculates as they retype.
+
+export interface CsvRow {
+  stage: string;
+  section: string;
+  itemNo: number | string;
+  code: string | null;
+  spec: string;
+  unit: string;
+  qty: number;
+  dsrRate: number | null;
+}
+
+const csvCell = (v: unknown) => {
+  const s = String(v ?? "");
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+export function buildBoqCsv(rows: CsvRow[], meta: { boqName: string; project?: string | null; generatedOn: string }): string {
+  const HEADER_LINE = 4; // title, meta, blank, header
+  const head = ["Stage", "Type of work", "Item", "DSR code", "Specification", "Unit", "Qty", "Rate (ref)", "Your rate", "Amount"];
+  const lines: string[] = [
+    csvCell(`Bill of Quantities — ${meta.boqName}`),
+    csvCell(`${meta.project ?? "Standalone"}  ·  ${meta.generatedOn}  ·  Rates: DSR 2023 (reference — edit "Your rate")`),
+    "",
+    head.map(csvCell).join(","),
+  ];
+  rows.forEach((r, i) => {
+    const ln = HEADER_LINE + 1 + i;            // this data row's spreadsheet line
+    const yourRate = r.dsrRate ?? "";          // pre-fill from DSR; blank for NS items
+    const amount = r.dsrRate != null ? `=G${ln}*I${ln}` : "";
+    lines.push([
+      r.stage, r.section, r.itemNo, r.code ?? "", r.spec, r.unit,
+      r.qty, r.dsrRate ?? "", yourRate, amount,
+    ].map(csvCell).join(","));
+  });
+  return lines.join("\r\n");
+}
+
+/** Trigger a client-side download of a .csv (opens in Excel). */
+export function downloadCsv(filename: string, csv: string): void {
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
 /** Open the quote in a new tab and trigger the print dialog. */
 export function openDsrQuote(p: DsrQuotePayload): boolean {
   const w = window.open("", "_blank");

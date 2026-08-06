@@ -5,21 +5,24 @@ import { supabase } from "@/integrations/supabase/client";
 import { generateLines } from "@/lib/boqDsrGenerate";
 import { stageForCode, STAGE_ORDER } from "@/lib/boqDsrCatalog";
 import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
-import { computeCommercials, openDsrQuote, type QuoteSection, type QuoteStage } from "@/lib/boqDsrDocument";
+import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, type QuoteSection, type QuoteStage, type CsvRow } from "@/lib/boqDsrDocument";
 import type { Spec } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search, Layers, FileDown } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search, Layers, FileDown, Sheet } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DsrItem { id: string; code: string; description: string | null; unit: string | null; rate: number | null; chapter: string | null; }
 interface BoqLine {
   id: string; section: string | null; dsr_code: string | null; description: string | null;
-  unit: string | null; qty: number; dsr_rate: number | null; included: boolean; source: string; sort: number;
+  unit: string | null; qty: number; dsr_rate: number | null; custom_rate: number | null;
+  included: boolean; source: string; sort: number;
 }
+/** The rate in effect: the estimator's case-specific override, else the DSR reference. */
+const effRate = (l: BoqLine) => l.custom_rate ?? l.dsr_rate;
 
 const inr = (n: number) => "₹" + Math.round(n).toLocaleString("en-IN");
 
@@ -76,7 +79,7 @@ export default function OpsBoqBuilder() {
     queryKey: ["boq-lines", id],
     queryFn: async () => {
       const { data, error } = await supabase.from("boq_line")
-        .select("id, section, dsr_code, description, unit, qty, dsr_rate, included, source, sort")
+        .select("id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, included, source, sort")
         .eq("boq_id", id).order("sort");
       if (error) throw error;
       return (data ?? []) as BoqLine[];
@@ -171,7 +174,7 @@ export default function OpsBoqBuilder() {
     refetchLines();
   };
 
-  const sumIncl = (ls: BoqLine[]) => ls.filter((l) => l.included).reduce((s, l) => s + l.qty * (l.dsr_rate ?? 0), 0);
+  const sumIncl = (ls: BoqLine[]) => ls.filter((l) => l.included).reduce((s, l) => s + l.qty * (effRate(l) ?? 0), 0);
 
   // Two-level grouping: construction stage → type of work (DSR sub-head) → lines.
   const byStage = useMemo(() => {
@@ -193,7 +196,7 @@ export default function OpsBoqBuilder() {
   }, [lines]);
 
   const total = useMemo(() =>
-    lines.filter((l) => l.included).reduce((sum, l) => sum + l.qty * (l.dsr_rate ?? 0), 0),
+    lines.filter((l) => l.included).reduce((sum, l) => sum + l.qty * (effRate(l) ?? 0), 0),
     [lines]);
 
   // Commercials (cost index, contingency, overhead, cess, GST) live in boq.spec
@@ -222,11 +225,10 @@ export default function OpsBoqBuilder() {
       const sections: QuoteSection[] = st.sections.map((sec) => ({
         name: sec.name,
         subtotal: sec.subtotal,
-        lines: sec.lines.filter((l) => l.included).map((l) => ({
-          itemNo: ++itemNo,
-          code: l.dsr_code, spec: l.description ?? "", qty: l.qty, unit: l.unit ?? "",
-          rate: l.dsr_rate, amount: l.dsr_rate != null ? l.qty * l.dsr_rate : null,
-        })),
+        lines: sec.lines.filter((l) => l.included).map((l) => {
+          const rate = effRate(l);
+          return { itemNo: ++itemNo, code: l.dsr_code, spec: l.description ?? "", qty: l.qty, unit: l.unit ?? "", rate, amount: rate != null ? l.qty * rate : null };
+        }),
       })).filter((s) => s.lines.length > 0);
       return { name: st.stage, sections, subtotal: st.subtotal };
     }).filter((st) => st.sections.length > 0);
@@ -242,6 +244,19 @@ export default function OpsBoqBuilder() {
       commercials,
     });
     if (!ok) toast.error("Allow pop-ups to export the quote");
+  };
+
+  const exportExcel = () => {
+    const rows: CsvRow[] = byStage.flatMap((st) => {
+      let n = 0;
+      return st.sections.flatMap((sec) => sec.lines.filter((l) => l.included).map((l) => ({
+        stage: st.stage, section: sec.name, itemNo: ++n, code: l.dsr_code,
+        spec: l.description ?? "", unit: l.unit ?? "", qty: l.qty, dsrRate: effRate(l),
+      })));
+    });
+    if (!rows.length) return toast.error("Nothing to export yet");
+    const gen = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+    downloadCsv(`${boq!.name.replace(/[^\w]+/g, "_")}_BOQ.csv`, buildBoqCsv(rows, { boqName: boq!.name, project: project?.name, generatedOn: gen }));
   };
 
   if (!boq) return <div className="p-8 flex justify-center"><Loader2 className="animate-spin" /></div>;
@@ -273,6 +288,9 @@ export default function OpsBoqBuilder() {
         </Button>
         <Button variant="outline" onClick={exportQuote} disabled={lines.length === 0}>
           <FileDown className="h-4 w-4 mr-2" />Export quote
+        </Button>
+        <Button variant="outline" onClick={exportExcel} disabled={lines.length === 0}>
+          <Sheet className="h-4 w-4 mr-2" />Export to Excel
         </Button>
         <div className="ml-auto inline-flex rounded-md border p-0.5">
           <Button size="sm" variant={view === "lines" ? "secondary" : "ghost"} onClick={() => setView("lines")}>Lines</Button>
@@ -389,26 +407,32 @@ export default function OpsBoqBuilder() {
                     <span className="text-xs uppercase tracking-wide text-muted-foreground">{sec.name}</span>
                     <span className="text-xs text-muted-foreground tabular-nums">{inr(sec.subtotal)}</span>
                   </div>
-                  {sec.lines.map((l) => (
-                    <div key={l.id} className={cn("grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_5rem_4rem_6rem_auto] items-start gap-x-3 gap-y-1 py-2 border-b last:border-0",
+                  {sec.lines.map((l) => {
+                    const rate = effRate(l);
+                    return (
+                    <div key={l.id} className={cn("grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_4.5rem_3rem_5rem_5.5rem_auto] items-start gap-x-3 gap-y-1 py-2 border-b last:border-0",
                       !l.included && "opacity-40")}>
                       <input type="checkbox" className="mt-1" checked={l.included}
                         onChange={(e) => updateLine(l.id, { included: e.target.checked })} />
                       <div className="min-w-0">
-                        <div className="text-[11px] font-mono text-accent-foreground/70 mb-0.5">{l.dsr_code ?? "no DSR code"}</div>
+                        <div className="text-[11px] font-mono text-accent-foreground/70 mb-0.5">{l.dsr_code ?? "NS · rate to be analysed"}</div>
                         <div className="text-[13px] leading-snug text-foreground/90">{l.description}</div>
                       </div>
                       <Input type="number" className="h-8 hidden sm:block" defaultValue={l.qty}
                         onBlur={(e) => { const v = Number(e.target.value); if (v !== l.qty) updateLine(l.id, { qty: v }); }} />
                       <span className="text-xs text-muted-foreground hidden sm:block pt-2">{l.unit}</span>
+                      <Input type="number" className="h-8 hidden sm:block" defaultValue={rate ?? ""} placeholder="rate"
+                        title={l.custom_rate != null ? "Your rate (overrides DSR)" : "DSR reference rate — edit to set your rate"}
+                        onBlur={(e) => { const v = e.target.value === "" ? null : Number(e.target.value); if (v !== rate) updateLine(l.id, { custom_rate: v }); }} />
                       <span className="text-sm tabular-nums text-right hidden sm:block pt-1.5">
-                        {l.dsr_rate != null ? inr(l.qty * l.dsr_rate) : "—"}
+                        {rate != null ? inr(l.qty * rate) : "—"}
                       </span>
                       <Button size="sm" variant="ghost" className="h-7" onClick={() => removeLine(l.id)}>
                         <Trash2 className="h-4 w-4 text-muted-foreground" />
                       </Button>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ))}
             </CardContent>
