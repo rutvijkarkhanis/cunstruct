@@ -155,6 +155,40 @@ export const DSR_CATALOG: CatalogItem[] = [
     qty: (c) => c.footprintSqm * 0.3, when: (s) => truthy(s.driveway) },
 ];
 
+// ---- Non-Schedule (NS) items -----------------------------------------------
+// Trades the civil DSR does not cover (electrical, water tanks/pumps, modular
+// kitchen). A real BOQ can't just drop these — it lists them as Non-Schedule
+// items whose rate is to be analysed from market / State PWD rates. We emit them
+// with no DSR code and no rate, grouped under a "Non-Schedule Items" heading.
+
+export interface NsItem {
+  key: string;
+  trade: string;
+  label: string;
+  unit: string;
+  qty: (c: QtyContext, spec: Spec) => number;
+  when?: (spec: Spec) => boolean;
+}
+
+export const NS_CATALOG: NsItem[] = [
+  { key: "elec_points", trade: "Electrical", label: "Concealed electrical wiring with light/fan/socket points, incl. switches & accessories", unit: "point",
+    qty: (c, s) => c.rooms * (s.elec_density === "premium" ? 12 : s.elec_density === "basic" ? 6 : 9) },
+  { key: "elec_db", trade: "Electrical", label: "MCB distribution board with MCBs/RCCB, complete", unit: "nos",
+    qty: () => 1 },
+  { key: "geyser_pt", trade: "Electrical", label: "Geyser power points (15A) with wiring", unit: "point",
+    qty: (c) => c.baths, when: (s) => truthy(s.geyser) },
+  { key: "elec_fixtures", trade: "Electrical", label: "Light fixtures, fans & fittings (supply & installation)", unit: "nos",
+    qty: (c) => c.rooms * 4, when: (s) => truthy(s.elec_fixtures) },
+  { key: "oht", trade: "Water Supply", label: "Overhead water storage tank (HDPE/Sintex) with fittings", unit: "nos",
+    qty: () => 1, when: (s) => truthy(s.oht) },
+  { key: "sump", trade: "Water Supply", label: "Underground water sump with fittings", unit: "nos",
+    qty: () => 1, when: (s) => truthy(s.sump) },
+  { key: "pump", trade: "Water Supply", label: "Water pump / pressure pump set", unit: "nos",
+    qty: () => 1, when: (s) => truthy(s.pump) },
+  { key: "modular", trade: "Kitchen", label: "Modular kitchen units (base + wall cabinets + accessories)", unit: "job",
+    qty: () => 1, when: (s) => truthy(s.modular) },
+];
+
 // ---- Construction-stage taxonomy -------------------------------------------
 // A real BOQ is read by stage (the sequence a site is built in), with the DSR
 // sub-head / trade as the "type of work" within each stage. Stage is derived
@@ -165,7 +199,7 @@ export const STAGE_ORDER = [
   "Site & Earthwork", "Foundation & Footings", "RCC Superstructure", "Masonry",
   "Waterproofing", "Internal Plumbing", "Plastering", "Flooring & Tiling",
   "Doors & Windows", "False Ceiling", "Painting", "Sanitary & Fixtures",
-  "External Works", "Other Works",
+  "External Works", "Non-Schedule Items", "Other Works",
 ];
 
 const SECTION_STAGE: Record<string, string> = {

@@ -3,15 +3,16 @@
 // fuzzy keyword matching that grabbed bridge piers and raised-access-floor systems
 // off any description containing "floor" or "cement".
 
-import { DSR_CATALOG, buildContext } from "./boqDsrCatalog";
+import { DSR_CATALOG, NS_CATALOG, buildContext } from "./boqDsrCatalog";
 import type { Spec } from "./boqSpec";
 
 export interface GeneratedLine {
   section: string;
-  code: string;    // exact DSR code — resolved against dsr_item, never fuzzy-matched
-  qty: number;     // in the DSR code's own unit
+  code: string | null;  // exact DSR code, or null for a Non-Schedule item
+  qty: number;          // in the code's own unit
   label: string;
   unit: string;
+  ns?: boolean;         // Non-Schedule item (rate to be analysed)
 }
 
 export interface ProjectBasics {
@@ -34,6 +35,13 @@ export function generateLines(spec: Spec, project: ProjectBasics): GeneratedLine
     if (qty <= 0) continue;
     const code = typeof item.code === "function" ? item.code(spec) : item.code;
     out.push({ section: item.section, code, qty, label: item.label, unit: item.unit });
+  }
+  // Non-Schedule items (electrical, tanks, pumps, modular) — no DSR code / rate.
+  for (const item of NS_CATALOG) {
+    if (item.when && !item.when(spec)) continue;
+    const qty = Math.round(item.qty(ctx, spec) * 100) / 100;
+    if (qty <= 0) continue;
+    out.push({ section: item.trade, code: null, qty, label: item.label, unit: item.unit, ns: true });
   }
   return out;
 }

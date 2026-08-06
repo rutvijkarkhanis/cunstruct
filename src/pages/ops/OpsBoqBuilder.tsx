@@ -120,7 +120,7 @@ export default function OpsBoqBuilder() {
       });
       // Fetch the live DSR rows for exactly the codes we need (not a capped
       // load-all), so every generated line resolves its description/unit/rate.
-      const codes = [...new Set(generated.map((g) => g.code))];
+      const codes = [...new Set(generated.map((g) => g.code).filter(Boolean))] as string[];
       const { data: dsrRows, error: dsrErr } = await supabase.from("dsr_item")
         .select("code, description, unit, rate, chapter").in("code", codes);
       if (dsrErr) throw dsrErr;
@@ -177,7 +177,7 @@ export default function OpsBoqBuilder() {
   const byStage = useMemo(() => {
     const stages = new Map<string, Map<string, BoqLine[]>>();
     for (const l of lines) {
-      const st = stageForCode(l.dsr_code);
+      const st = l.dsr_code ? stageForCode(l.dsr_code) : "Non-Schedule Items";
       const sec = l.section ?? "Other";
       if (!stages.has(st)) stages.set(st, new Map());
       const secs = stages.get(st)!;
@@ -196,15 +196,23 @@ export default function OpsBoqBuilder() {
     lines.filter((l) => l.included).reduce((sum, l) => sum + l.qty * (l.dsr_rate ?? 0), 0),
     [lines]);
 
-  // Commercials (overhead & GST) live in boq.spec so no migration is needed.
-  const overheadPct = Number((boq?.spec as Spec)?._overhead_pct ?? 15);
-  const gstPct = Number((boq?.spec as Spec)?._gst_pct ?? 18);
-  const commercials = useMemo(() => computeCommercials(total, overheadPct, gstPct), [total, overheadPct, gstPct]);
+  // Commercials (cost index, contingency, overhead, cess, GST) live in boq.spec
+  // so no migration is needed. Defaults follow common CPWD practice.
+  const spec = useMemo(() => (boq?.spec ?? {}) as Spec, [boq?.spec]);
+  const commercials = useMemo(() => {
+    const pct = (k: string, d: number) => Number(spec[k] ?? d);
+    return computeCommercials(total, {
+      costIndexPct: pct("_cost_index_pct", 0),
+      contingencyPct: pct("_contingency_pct", 3),
+      overheadPct: pct("_overhead_pct", 15),
+      cessPct: pct("_cess_pct", 1),
+      gstPct: pct("_gst_pct", 18),
+    });
+  }, [total, spec]);
 
-  const saveCommercials = async (patch: { _overhead_pct?: number; _gst_pct?: number }) => {
+  const saveCommercials = async (patch: Record<string, number>) => {
     if (!boq) return;
-    const spec = { ...(boq.spec ?? {}), ...patch };
-    await supabase.from("boq").update({ spec }).eq("id", id);
+    await supabase.from("boq").update({ spec: { ...(boq.spec ?? {}), ...patch } }).eq("id", id);
     qc.invalidateQueries({ queryKey: ["boq", id] });
   };
 
@@ -274,18 +282,21 @@ export default function OpsBoqBuilder() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-md bg-muted/40 px-3 py-2 text-sm">
-        <span className="text-muted-foreground">Commercials</span>
-        <label className="flex items-center gap-1.5">Overhead &amp; profit
-          <Input type="number" className="h-7 w-16" defaultValue={overheadPct}
-            onBlur={(e) => { const v = Number(e.target.value); if (v !== overheadPct) saveCommercials({ _overhead_pct: v }); }} />
-          <span className="text-muted-foreground">%</span>
-        </label>
-        <label className="flex items-center gap-1.5">GST
-          <Input type="number" className="h-7 w-16" defaultValue={gstPct}
-            onBlur={(e) => { const v = Number(e.target.value); if (v !== gstPct) saveCommercials({ _gst_pct: v }); }} />
-          <span className="text-muted-foreground">%</span>
-        </label>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md bg-muted/40 px-3 py-2 text-sm">
+        <span className="text-muted-foreground font-medium">Abstract</span>
+        {([
+          ["Cost index", "_cost_index_pct", commercials.costIndexPct],
+          ["Contingency", "_contingency_pct", commercials.contingencyPct],
+          ["Overhead", "_overhead_pct", commercials.overheadPct],
+          ["Cess", "_cess_pct", commercials.cessPct],
+          ["GST", "_gst_pct", commercials.gstPct],
+        ] as const).map(([label, key, val]) => (
+          <label key={key} className="flex items-center gap-1">{label}
+            <Input type="number" className="h-7 w-14" defaultValue={val}
+              onBlur={(e) => { const v = Number(e.target.value); if (v !== val) saveCommercials({ [key]: v }); }} />
+            <span className="text-muted-foreground">%</span>
+          </label>
+        ))}
         <span className="ml-auto text-muted-foreground">
           Grand total <b className="text-foreground tabular-nums">{inr(commercials.grandTotal)}</b>
         </span>

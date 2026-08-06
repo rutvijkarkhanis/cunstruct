@@ -26,13 +26,49 @@ export interface QuoteStage {
   sections: QuoteSection[];
   subtotal: number;
 }
-export interface QuoteCommercials {
-  subtotal: number;
-  overheadPct: number;
+export interface CommercialInputs {
+  costIndexPct: number;    // DSR is Delhi-base; location cost index added on top
+  contingencyPct: number;  // unforeseen site conditions (CPWD ~3–5%)
+  overheadPct: number;     // contractor overhead & profit
+  cessPct: number;         // statutory BOCW labour welfare cess (1%)
+  gstPct: number;          // GST on works contract (18%)
+}
+export interface QuoteCommercials extends CommercialInputs {
+  works: number;           // at DSR rates
+  costIndexAmt: number;
+  worksAdjusted: number;   // works + cost index
+  contingencyAmt: number;
   overheadAmt: number;
-  gstPct: number;
+  subTotal: number;        // worksAdjusted + contingency + overhead
+  cessAmt: number;
   gstAmt: number;
   grandTotal: number;
+  grandTotalWords: string;
+}
+
+const ONES = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
+  "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+const TENS = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+const two = (x: number) => x < 20 ? ONES[x] : (TENS[Math.floor(x / 10)] + (x % 10 ? " " + ONES[x % 10] : ""));
+const three = (x: number) => {
+  const h = Math.floor(x / 100), r = x % 100;
+  return (h ? ONES[h] + " Hundred" + (r ? " " : "") : "") + (r ? two(r) : "");
+};
+
+/** Amount in words, Indian numbering (crore / lakh / thousand). */
+export function amountInWords(amount: number): string {
+  let n = Math.round(amount);
+  if (n <= 0) return "Zero";
+  const crore = Math.floor(n / 10000000); n %= 10000000;
+  const lakh = Math.floor(n / 100000); n %= 100000;
+  const thousand = Math.floor(n / 1000); n %= 1000;
+  const parts = [
+    crore ? three(crore) + " Crore" : "",
+    lakh ? two(lakh) + " Lakh" : "",
+    thousand ? two(thousand) + " Thousand" : "",
+    n ? three(n) : "",
+  ].filter(Boolean);
+  return parts.join(" ");
 }
 export interface DsrQuotePayload {
   boqName: string;
@@ -86,15 +122,23 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload): string {
   }).join("");
 
   const abstractRows = p.abstract.map((a, i) => `
-    <tr><td class="no">${i + 1}</td><td>${esc(a.stage)}</td><td class="num">${inr(a.amount)}</td></tr>`).join("");
+    <tr><td class="no">${i + 1}</td><td>${esc(a.stage)}</td><td class="num">${
+      a.stage === "Non-Schedule Items" ? "Rate to be analysed" : inr(a.amount)
+    }</td></tr>`).join("");
 
   const c = p.commercials;
+  const row = (label: string, amt: number, show = true) =>
+    show ? `<tr><td>${label}</td><td class="num">${inr(amt)}</td></tr>` : "";
   const summary = `
     <table class="summary">
-      <tr><td>Works subtotal (DSR rates)</td><td class="num">${inr(c.subtotal)}</td></tr>
-      <tr><td>Overhead &amp; profit @ ${c.overheadPct}%</td><td class="num">${inr(c.overheadAmt)}</td></tr>
-      <tr><td>GST @ ${c.gstPct}%</td><td class="num">${inr(c.gstAmt)}</td></tr>
+      <tr><td>Cost of works (at DSR rates)</td><td class="num">${inr(c.works)}</td></tr>
+      ${row(`Add: Cost index @ ${c.costIndexPct}%`, c.costIndexAmt, c.costIndexPct !== 0)}
+      ${row(`Add: Contingencies @ ${c.contingencyPct}%`, c.contingencyAmt, c.contingencyPct !== 0)}
+      ${row(`Add: Overhead &amp; profit @ ${c.overheadPct}%`, c.overheadAmt, c.overheadPct !== 0)}
+      ${row(`Add: Labour cess @ ${c.cessPct}%`, c.cessAmt, c.cessPct !== 0)}
+      ${row(`Add: GST @ ${c.gstPct}%`, c.gstAmt, c.gstPct !== 0)}
       <tr class="grand"><td>Grand total</td><td class="num">${inr(c.grandTotal)}</td></tr>
+      <tr class="words"><td colspan="2">Rupees ${esc(c.grandTotalWords)} only</td></tr>
     </table>`;
 
   return `<!doctype html><html><head><meta charset="utf-8"><title>BOQ &amp; Quote — ${esc(p.boqName)}</title>
@@ -125,6 +169,7 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload): string {
   .summary td { border:none; padding:6px 8px; font-size:12.5px; color:#445; }
   .summary td.num { color:#1b2233; font-weight:600; }
   .summary tr.grand td { border-top:2px solid #1b2233; font-size:16px; font-weight:800; color:#1b2233; padding-top:10px; }
+  .summary tr.words td { font-style:italic; color:#556; font-size:11.5px; padding-top:2px; }
   .abstract { max-width:520px; }
   .abstract td { font-size:12.5px; }
   .foot { margin-top:26px; font-size:10px; color:#99a; border-top:1px solid #eee; padding-top:10px; line-height:1.5; }
@@ -156,21 +201,37 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload): string {
   ${summary}
 
   <div class="foot">
-    Rates are from the Delhi Schedule of Rates${p.rateYear ? ` ${esc(p.rateYear)}` : ""} and are composite (material + labour + plant).
-    Quantities are estimates derived from project parameters and standard coverage rates; final quantities are subject to detailed measurement on site.
-    Items are grouped by construction stage and type of work. This quote is indicative and valid for 15 days from the date above. Generated by Cunstruct.
+    <b>Basis &amp; conditions.</b> Rates are composite rates from the Delhi Schedule of Rates${p.rateYear ? ` ${esc(p.rateYear)}` : ""} (material + labour + plant),
+    adjusted by the stated cost index for location. Non-Schedule (NS) items, where shown, are outside the DSR and their rates are to be analysed
+    from prevailing market rates / State PWD schedules before finalisation.
+    <b>Quantities are approximate</b>, derived from project parameters and standard coverage; they are <b>subject to detailed measurement on site as per IS 1200</b>
+    and may vary. Items are grouped by construction stage and type of work. GST is on the works-contract value. This quote is indicative and valid for 15 days
+    from the date above. Generated by Cunstruct.
   </div>
 
   <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 250); };</script>
 </body></html>`;
 }
 
-/** Compute the commercial summary from a works subtotal + overhead/GST percentages. */
-export function computeCommercials(subtotal: number, overheadPct: number, gstPct: number): QuoteCommercials {
-  const overheadAmt = subtotal * (overheadPct / 100);
-  const taxable = subtotal + overheadAmt;
-  const gstAmt = taxable * (gstPct / 100);
-  return { subtotal, overheadPct, overheadAmt, gstPct, gstAmt, grandTotal: taxable + gstAmt };
+/**
+ * Compute the CPWD-style abstract of cost from the works value (at DSR rates)
+ * and the commercial percentages:
+ *   works → +cost index → +contingency → +overhead & profit → +cess → +GST.
+ */
+export function computeCommercials(works: number, i: CommercialInputs): QuoteCommercials {
+  const costIndexAmt = works * (i.costIndexPct / 100);
+  const worksAdjusted = works + costIndexAmt;
+  const contingencyAmt = worksAdjusted * (i.contingencyPct / 100);
+  const overheadAmt = worksAdjusted * (i.overheadPct / 100);
+  const subTotal = worksAdjusted + contingencyAmt + overheadAmt;
+  const cessAmt = subTotal * (i.cessPct / 100);
+  const taxable = subTotal + cessAmt;
+  const gstAmt = taxable * (i.gstPct / 100);
+  const grandTotal = taxable + gstAmt;
+  return {
+    ...i, works, costIndexAmt, worksAdjusted, contingencyAmt, overheadAmt,
+    subTotal, cessAmt, gstAmt, grandTotal, grandTotalWords: amountInWords(grandTotal),
+  };
 }
 
 /** Open the quote in a new tab and trigger the print dialog. */
