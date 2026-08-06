@@ -52,11 +52,19 @@ export default function OpsBoqBuilder() {
   });
 
   // All billable DSR items — used for both generation matching and the browser.
-  const { data: dsrItems = [] } = useQuery({
-    queryKey: ["dsr-items"],
+  // DSR catalog browser: search server-side (the table has 2,758 rows — loading
+  // them all silently truncated at Supabase's 1000-row cap, which is why half the
+  // generated lines couldn't find their rate).
+  const { data: searchResults = [] } = useQuery({
+    queryKey: ["dsr-search", search],
+    enabled: search.trim().length >= 2,
     queryFn: async () => {
+      const q = search.trim().replace(/[%,]/g, " ");
       const { data, error } = await supabase.from("dsr_item")
-        .select("id, code, description, unit, rate, chapter").eq("billable", true).order("code");
+        .select("id, code, description, unit, rate, chapter")
+        .eq("billable", true)
+        .or(`code.ilike.%${q}%,description.ilike.%${q}%`)
+        .limit(40);
       if (error) throw error;
       return (data ?? []) as DsrItem[];
     },
@@ -101,13 +109,6 @@ export default function OpsBoqBuilder() {
     );
   }, [lines, coeffs]);
 
-  // Exact code → DSR item, for resolving generated lines (no fuzzy matching).
-  const byDsrCode = useMemo(() => {
-    const m = new Map<string, DsrItem>();
-    for (const it of dsrItems) m.set(it.code, it);
-    return m;
-  }, [dsrItems]);
-
   const generate = async () => {
     if (!boq) return;
     setBusy(true);
@@ -115,6 +116,14 @@ export default function OpsBoqBuilder() {
       const generated = generateLines(boq.spec ?? {}, {
         area_sqft: project?.area_sqft ?? null, floors: project?.floors ?? null,
       });
+      // Fetch the live DSR rows for exactly the codes we need (not a capped
+      // load-all), so every generated line resolves its description/unit/rate.
+      const codes = [...new Set(generated.map((g) => g.code))];
+      const { data: dsrRows, error: dsrErr } = await supabase.from("dsr_item")
+        .select("code, description, unit, rate").in("code", codes);
+      if (dsrErr) throw dsrErr;
+      const byDsrCode = new Map<string, { code: string; description: string | null; unit: string | null; rate: number | null }>();
+      for (const r of dsrRows ?? []) byDsrCode.set(r.code, r);
       // Regenerate auto lines; keep anything the user added by hand.
       await supabase.from("boq_line").delete().eq("boq_id", id).eq("source", "auto");
       const rows = generated.map((g, i) => {
@@ -172,14 +181,6 @@ export default function OpsBoqBuilder() {
     lines.filter((l) => l.included).reduce((sum, l) => sum + l.qty * (l.dsr_rate ?? 0), 0),
     [lines]);
 
-  const searchResults = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return [];
-    return dsrItems.filter((it) =>
-      it.code.toLowerCase().includes(q) || (it.description ?? "").toLowerCase().includes(q)
-    ).slice(0, 40);
-  }, [search, dsrItems]);
-
   if (!boq) return <div className="p-8 flex justify-center"><Loader2 className="animate-spin" /></div>;
 
   return (
@@ -226,7 +227,7 @@ export default function OpsBoqBuilder() {
           <CardContent className="max-h-80 overflow-y-auto divide-y">
             {searchResults.length === 0 && (
               <p className="text-sm text-muted-foreground py-4 text-center">
-                {search ? "No matches" : `${dsrItems.length} DSR items — type to search`}
+                {search.trim().length >= 2 ? "No matches" : "Type at least 2 characters to search the DSR"}
               </p>
             )}
             {searchResults.map((it) => (

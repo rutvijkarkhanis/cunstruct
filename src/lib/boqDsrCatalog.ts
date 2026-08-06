@@ -67,13 +67,13 @@ export const DSR_CATALOG: CatalogItem[] = [
   { key: "pcc_bed", section: "Concrete", code: "4.1.8", label: "PCC 1:4:8 bed", unit: "cum",
     qty: (c) => c.footprintSqm * 0.1 },
   { key: "rcc", section: "RCC", code: "5.3", label: "RCC M-20 (slabs, beams, columns)", unit: "cum",
-    qty: (c) => c.floorSqm * 0.12 },
+    qty: (c) => c.floorSqm * 0.4 },      // ~0.04 m³/sqft built-up (framed structure)
   { key: "reinforcement", section: "RCC", code: "5.22.6", label: "TMT reinforcement steel", unit: "kg",
-    qty: (c) => c.floorSqm * 8 },       // ~8 kg/m² built-up (≈0.8 kg per kg? — editable)
+    qty: (c) => c.floorSqm * 38 },       // ~95 kg per m³ of RCC ≈ 3.5 kg/sqft
   { key: "formwork", section: "RCC", code: "5.9.3", label: "Centering & shuttering", unit: "sqm",
-    qty: (c) => c.floorSqm * 2.2 },
+    qty: (c) => c.floorSqm * 2.5 },
   { key: "masonry_230", section: "Masonry", code: "6.4.2", label: "230mm brick masonry CM 1:6", unit: "cum",
-    qty: (c, s) => c.wallSqm * (s.ext_wall === "6in" ? 0 : 0.23), when: (s) => s.ext_wall !== "6in" },
+    qty: (c) => (c.wallSqm / 2) * 0.23, when: (s) => s.ext_wall !== "6in" },  // wallSqm counts both faces
   { key: "masonry_115", section: "Masonry", code: "6.13.1", label: "115mm brick masonry", unit: "sqm",
     qty: (c) => c.wallSqm * 0.5, when: (s) => s.ext_wall === "6in" },
   { key: "grill", section: "Doors & Windows", code: "9.48.2", label: "MS window grills", unit: "kg",
@@ -90,16 +90,17 @@ export const DSR_CATALOG: CatalogItem[] = [
     qty: (c) => c.floorSqm * 0.08, when: (s) => truthy(s.skirting) },
 
   // ---- Plaster, paint, ceiling (verified: agent B) -----------------------
+  // Internal plaster and internal paint cover the same area, so they must match.
   { key: "internal_plaster", section: "Plastering", code: "13.1.2", label: "12mm internal plaster", unit: "sqm",
-    qty: (c) => c.wallSqm * 1.8 },
+    qty: (c) => c.wallSqm * 0.85 },
   { key: "external_plaster", section: "Plastering", code: "13.2.1", label: "External plaster", unit: "sqm",
     qty: (c) => c.perimeterM * 3 * c.floors },
   { key: "putty", section: "Painting", code: "13.80", label: "Wall putty", unit: "sqm",
-    qty: (c) => c.wallSqm * 2 },
+    qty: (c) => c.wallSqm * 0.85 },
   { key: "primer", section: "Painting", code: "13.85.3", label: "Interior primer", unit: "sqm",
-    qty: (c) => c.wallSqm * 2 },
+    qty: (c) => c.wallSqm * 0.85 },
   { key: "emulsion", section: "Painting", code: "13.82.2", label: "Interior emulsion", unit: "sqm",
-    qty: (c) => c.wallSqm * 2 },
+    qty: (c) => c.wallSqm * 0.85 },
   { key: "exterior_paint", section: "Painting", code: "13.46.1", label: "Exterior weatherproof paint", unit: "sqm",
     qty: (c) => c.perimeterM * 3 * c.floors },
   { key: "false_ceiling", section: "Ceiling", code: "12.45.1", label: "Gypsum false ceiling", unit: "sqm",
