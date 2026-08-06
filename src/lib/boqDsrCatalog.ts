@@ -155,3 +155,88 @@ export const DSR_CATALOG: CatalogItem[] = [
     qty: (c) => c.footprintSqm * 0.3, when: (s) => truthy(s.driveway) },
 ];
 
+// ---- Non-Schedule (NS) items -----------------------------------------------
+// Trades the civil DSR does not cover (electrical, water tanks/pumps, modular
+// kitchen). A real BOQ can't just drop these — it lists them as Non-Schedule
+// items whose rate is to be analysed from market / State PWD rates. We emit them
+// with no DSR code and no rate, grouped under a "Non-Schedule Items" heading.
+
+export interface NsItem {
+  key: string;
+  trade: string;
+  label: string;
+  unit: string;
+  qty: (c: QtyContext, spec: Spec) => number;
+  when?: (spec: Spec) => boolean;
+}
+
+export const NS_CATALOG: NsItem[] = [
+  { key: "elec_points", trade: "Electrical", label: "Concealed electrical wiring with light/fan/socket points, incl. switches & accessories", unit: "point",
+    qty: (c, s) => c.rooms * (s.elec_density === "premium" ? 12 : s.elec_density === "basic" ? 6 : 9) },
+  { key: "elec_db", trade: "Electrical", label: "MCB distribution board with MCBs/RCCB, complete", unit: "nos",
+    qty: () => 1 },
+  { key: "geyser_pt", trade: "Electrical", label: "Geyser power points (15A) with wiring", unit: "point",
+    qty: (c) => c.baths, when: (s) => truthy(s.geyser) },
+  { key: "elec_fixtures", trade: "Electrical", label: "Light fixtures, fans & fittings (supply & installation)", unit: "nos",
+    qty: (c) => c.rooms * 4, when: (s) => truthy(s.elec_fixtures) },
+  { key: "oht", trade: "Water Supply", label: "Overhead water storage tank (HDPE/Sintex) with fittings", unit: "nos",
+    qty: () => 1, when: (s) => truthy(s.oht) },
+  { key: "sump", trade: "Water Supply", label: "Underground water sump with fittings", unit: "nos",
+    qty: () => 1, when: (s) => truthy(s.sump) },
+  { key: "pump", trade: "Water Supply", label: "Water pump / pressure pump set", unit: "nos",
+    qty: () => 1, when: (s) => truthy(s.pump) },
+  { key: "modular", trade: "Kitchen", label: "Modular kitchen units (base + wall cabinets + accessories)", unit: "job",
+    qty: () => 1, when: (s) => truthy(s.modular) },
+];
+
+// ---- Construction-stage taxonomy -------------------------------------------
+// A real BOQ is read by stage (the sequence a site is built in), with the DSR
+// sub-head / trade as the "type of work" within each stage. Stage is derived
+// from a line's DSR code, so it needs no extra column and covers manual lines
+// (added from the catalog browser) via a chapter fallback.
+
+export const STAGE_ORDER = [
+  "Site & Earthwork", "Foundation & Footings", "RCC Superstructure", "Masonry",
+  "Waterproofing", "Internal Plumbing", "Plastering", "Flooring & Tiling",
+  "Doors & Windows", "False Ceiling", "Painting", "Sanitary & Fixtures",
+  "External Works", "Non-Schedule Items", "Other Works",
+];
+
+const SECTION_STAGE: Record<string, string> = {
+  "Earthwork": "Site & Earthwork", "Concrete": "Foundation & Footings", "RCC": "RCC Superstructure",
+  "Masonry": "Masonry", "Waterproofing": "Waterproofing", "Plumbing": "Internal Plumbing",
+  "Plastering": "Plastering", "Flooring": "Flooring & Tiling", "Kitchen": "Flooring & Tiling",
+  "Bathrooms": "Flooring & Tiling", "Doors & Windows": "Doors & Windows", "Ceiling": "False Ceiling",
+  "Painting": "Painting", "Sanitary": "Sanitary & Fixtures", "External": "External Works",
+};
+
+// Coarse fallback by DSR chapter number, for manually-added lines not in the catalog.
+const CHAPTER_STAGE: Record<string, string> = {
+  "1": "Site & Earthwork", "2": "Site & Earthwork", "3": "Foundation & Footings", "4": "Foundation & Footings",
+  "5": "RCC Superstructure", "6": "Masonry", "7": "Masonry", "8": "Flooring & Tiling", "9": "Doors & Windows",
+  "10": "Doors & Windows", "11": "Flooring & Tiling", "12": "False Ceiling", "13": "Painting",
+  "16": "External Works", "17": "Sanitary & Fixtures", "18": "Internal Plumbing", "19": "Internal Plumbing",
+  "21": "Doors & Windows", "22": "Waterproofing",
+};
+
+const CODE_SECTION: Record<string, string> = (() => {
+  const m: Record<string, string> = {};
+  const specs: Spec[] = [{}, { living_floor: "ceramic" }, { living_floor: "vitrified" }, { windows: "aluminium" }, { windows: "upvc" }];
+  // Keep the first occurrence — a code reused across sections (e.g. brick
+  // masonry 6.4.2 for both walls and compound wall) resolves to its primary use.
+  const put = (code: string, section: string) => { if (!(code in m)) m[code] = section; };
+  for (const it of DSR_CATALOG) {
+    if (typeof it.code === "string") put(it.code, it.section);
+    else for (const s of specs) put(it.code(s), it.section);
+  }
+  return m;
+})();
+
+/** Map a DSR code to the construction stage it belongs to. */
+export function stageForCode(code: string | null | undefined): string {
+  if (!code) return "Other Works";
+  const sec = CODE_SECTION[code];
+  if (sec && SECTION_STAGE[sec]) return SECTION_STAGE[sec];
+  return CHAPTER_STAGE[code.split(".")[0]] ?? "Other Works";
+}
+

@@ -11,7 +11,9 @@ describe("generateLines", () => {
     expect(codes.has("5.3")).toBe(true);    // RCC M-20
     expect(codes.has("6.4.2")).toBe(true);  // 230mm brick masonry
     expect(lines.every((l) => l.qty > 0)).toBe(true);
-    expect(lines.every((l) => !!l.code)).toBe(true);
+    // DSR lines carry an exact code; Non-Schedule lines carry none.
+    expect(lines.filter((l) => !l.ns).every((l) => !!l.code)).toBe(true);
+    expect(lines.some((l) => l.ns && l.code === null)).toBe(true);
   });
 
   it("gates optional scope on the questionnaire answers", () => {
