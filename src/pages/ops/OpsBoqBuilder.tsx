@@ -4,13 +4,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { generateLines } from "@/lib/boqDsrGenerate";
 import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
+import { computeCommercials, openDsrQuote, type QuoteSection } from "@/lib/boqDsrDocument";
 import type { Spec } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search, Layers } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search, Layers, FileDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DsrItem { id: string; code: string; description: string | null; unit: string | null; rate: number | null; chapter: string | null; }
@@ -45,8 +46,8 @@ export default function OpsBoqBuilder() {
     queryKey: ["boq-project", boq?.project_id],
     queryFn: async () => {
       const { data } = await supabase.from("projects")
-        .select("id, name, area_sqft, floors").eq("id", boq!.project_id!).single();
-      return data as { id: string; name: string; area_sqft: number | null; floors: number | null } | null;
+        .select("id, name, area_sqft, floors, client_name, location").eq("id", boq!.project_id!).single();
+      return data as { id: string; name: string; area_sqft: number | null; floors: number | null; client_name: string | null; location: string | null } | null;
     },
     enabled: !!boq?.project_id,
   });
@@ -181,6 +182,40 @@ export default function OpsBoqBuilder() {
     lines.filter((l) => l.included).reduce((sum, l) => sum + l.qty * (l.dsr_rate ?? 0), 0),
     [lines]);
 
+  // Commercials (overhead & GST) live in boq.spec so no migration is needed.
+  const overheadPct = Number((boq?.spec as Spec)?._overhead_pct ?? 15);
+  const gstPct = Number((boq?.spec as Spec)?._gst_pct ?? 18);
+  const commercials = useMemo(() => computeCommercials(total, overheadPct, gstPct), [total, overheadPct, gstPct]);
+
+  const saveCommercials = async (patch: { _overhead_pct?: number; _gst_pct?: number }) => {
+    if (!boq) return;
+    const spec = { ...(boq.spec ?? {}), ...patch };
+    await supabase.from("boq").update({ spec }).eq("id", id);
+    qc.invalidateQueries({ queryKey: ["boq", id] });
+  };
+
+  const exportQuote = () => {
+    const sections: QuoteSection[] = grouped.map(([name, secLines]) => {
+      const incl = secLines.filter((l) => l.included);
+      return {
+        name,
+        subtotal: incl.reduce((s, l) => s + l.qty * (l.dsr_rate ?? 0), 0),
+        lines: incl.map((l) => ({
+          code: l.dsr_code, description: l.description ?? "", qty: l.qty, unit: l.unit ?? "",
+          rate: l.dsr_rate, amount: l.dsr_rate != null ? l.qty * l.dsr_rate : null,
+        })),
+      };
+    }).filter((s) => s.lines.length > 0);
+    const ok = openDsrQuote({
+      boqName: boq!.name,
+      projectName: project?.name, clientName: project?.client_name, location: project?.location,
+      builtUpSqft: project?.area_sqft, floors: project?.floors,
+      generatedOn: new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }),
+      rateYear: "2023", sections, commercials,
+    });
+    if (!ok) toast.error("Allow pop-ups to export the quote");
+  };
+
   if (!boq) return <div className="p-8 flex justify-center"><Loader2 className="animate-spin" /></div>;
 
   return (
@@ -194,12 +229,13 @@ export default function OpsBoqBuilder() {
           </p>
         </div>
         <div className="text-right">
-          <div className="text-xs text-muted-foreground">BOQ value (DSR rates)</div>
-          <div className="text-xl font-semibold">{inr(total)}</div>
+          <div className="text-xs text-muted-foreground">Grand total (incl. GST)</div>
+          <div className="text-xl font-semibold">{inr(commercials.grandTotal)}</div>
+          <div className="text-xs text-muted-foreground">works {inr(total)}</div>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button onClick={generate} disabled={busy}>
           {busy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Wand2 className="h-4 w-4 mr-2" />}
           {lines.some((l) => l.source === "auto") ? "Regenerate from questionnaire" : "Generate from questionnaire"}
@@ -207,12 +243,32 @@ export default function OpsBoqBuilder() {
         <Button variant="outline" onClick={() => setShowBrowser((s) => !s)}>
           <Plus className="h-4 w-4 mr-2" />Add DSR item
         </Button>
+        <Button variant="outline" onClick={exportQuote} disabled={lines.length === 0}>
+          <FileDown className="h-4 w-4 mr-2" />Export quote
+        </Button>
         <div className="ml-auto inline-flex rounded-md border p-0.5">
           <Button size="sm" variant={view === "lines" ? "secondary" : "ghost"} onClick={() => setView("lines")}>Lines</Button>
           <Button size="sm" variant={view === "materials" ? "secondary" : "ghost"} onClick={() => setView("materials")}>
             <Layers className="h-4 w-4 mr-1" />Material schedule
           </Button>
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-md bg-muted/40 px-3 py-2 text-sm">
+        <span className="text-muted-foreground">Commercials</span>
+        <label className="flex items-center gap-1.5">Overhead &amp; profit
+          <Input type="number" className="h-7 w-16" defaultValue={overheadPct}
+            onBlur={(e) => { const v = Number(e.target.value); if (v !== overheadPct) saveCommercials({ _overhead_pct: v }); }} />
+          <span className="text-muted-foreground">%</span>
+        </label>
+        <label className="flex items-center gap-1.5">GST
+          <Input type="number" className="h-7 w-16" defaultValue={gstPct}
+            onBlur={(e) => { const v = Number(e.target.value); if (v !== gstPct) saveCommercials({ _gst_pct: v }); }} />
+          <span className="text-muted-foreground">%</span>
+        </label>
+        <span className="ml-auto text-muted-foreground">
+          Grand total <b className="text-foreground tabular-nums">{inr(commercials.grandTotal)}</b>
+        </span>
       </div>
 
       {showBrowser && (
