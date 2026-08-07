@@ -6,13 +6,14 @@ import { generateForDiscipline, disciplineByKey } from "@/lib/disciplines";
 import { computeDimensions } from "@/lib/dimensions";
 import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
 import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, type QuoteSubHead, type CsvRow } from "@/lib/boqDsrDocument";
+import { openIntakeForm } from "@/lib/boqIntakeForm";
 import type { Spec } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search, Layers, FileDown, Sheet, Ruler } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search, Layers, FileDown, Sheet, Ruler, ClipboardList } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DsrItem { id: string; code: string; description: string | null; unit: string | null; rate: number | null; chapter: string | null; }
@@ -56,8 +57,8 @@ export default function OpsBoqBuilder() {
     queryKey: ["boq-project", boq?.project_id],
     queryFn: async () => {
       const { data } = await supabase.from("projects")
-        .select("id, name, area_sqft, floors, client_name, location").eq("id", boq!.project_id!).single();
-      return data as { id: string; name: string; area_sqft: number | null; floors: number | null; client_name: string | null; location: string | null } | null;
+        .select("id, name, area_sqft, floors, client_name, location, project_type, scope").eq("id", boq!.project_id!).single();
+      return data as { id: string; name: string; area_sqft: number | null; floors: number | null; client_name: string | null; location: string | null; project_type: string | null; scope: string | null } | null;
     },
     enabled: !!boq?.project_id,
   });
@@ -305,6 +306,16 @@ export default function OpsBoqBuilder() {
     if (!ok) toast.error("Allow pop-ups to export");
   };
 
+  const printIntake = (blank: boolean) => {
+    const ok = openIntakeForm({
+      projectName: project?.name, projectType: project?.project_type, scope: project?.scope,
+      clientName: project?.client_name, location: project?.location,
+      builtUpSqft: project?.area_sqft, floors: project?.floors,
+      firmName, firmTagline, generatedOn: gen(), spec, rooms, blank,
+    });
+    if (!ok) toast.error("Allow pop-ups to print the form");
+  };
+
   const exportExcel = () => {
     const rows: CsvRow[] = bySubhead.flatMap((sh) =>
       sh.rows.filter(({ line }) => line.included).map(({ line, no }) => ({
@@ -353,6 +364,9 @@ export default function OpsBoqBuilder() {
             <Ruler className="h-4 w-4 mr-2" />Rooms{rooms.length ? ` (${rooms.length})` : ""}
           </Button>
         )}
+        <Button variant="outline" onClick={() => printIntake(false)} title="Printable project details form — pre-filled where known, blank lines to complete by hand">
+          <ClipboardList className="h-4 w-4 mr-2" />Intake form
+        </Button>
         <Button variant="outline" onClick={() => exportQuote(false)} disabled={lines.length === 0}>
           <FileDown className="h-4 w-4 mr-2" />Export quote
         </Button>
