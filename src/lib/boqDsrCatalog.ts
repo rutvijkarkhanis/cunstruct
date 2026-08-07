@@ -39,15 +39,32 @@ export interface CatalogItem {
 
 const SQFT_TO_SQM = 1 / 10.764;
 
-export function buildContext(spec: Spec, project: { area_sqft: number | null; floors: number | null }): QtyContext {
+/** Real room-derived dimensions (from computeDimensions), when rooms are entered. */
+export interface RoomDims {
+  floorAreaSqft: number;
+  wallAreaSqft: number;
+  bathrooms: number;
+  rooms: number;
+  points: number;
+}
+
+export function buildContext(
+  spec: Spec,
+  project: { area_sqft: number | null; floors: number | null },
+  dims?: RoomDims,
+): QtyContext {
   const builtUpSqft = project.area_sqft ?? 1000;
   const floors = Math.max(1, project.floors ?? 1);
-  const floorSqm = builtUpSqft * SQFT_TO_SQM;
+  // Prefer measured room areas; fall back to built-up-area heuristics when the
+  // project has no rooms entered yet (floor ≈ built-up, wall ≈ 3× floor).
+  const hasRooms = !!dims && dims.floorAreaSqft > 0;
+  const floorSqm = (hasRooms ? dims!.floorAreaSqft : builtUpSqft) * SQFT_TO_SQM;
   const footprintSqm = floorSqm / floors;
   const perimeterM = 4 * Math.sqrt(Math.max(1, footprintSqm));
-  const wallSqm = floorSqm * 3.0;
+  const wallSqm = hasRooms ? dims!.wallAreaSqft * SQFT_TO_SQM : floorSqm * 3.0;
   const n = (k: string, d = 0) => { const v = spec[k]; return typeof v === "number" ? v : v == null ? d : Number(v) || d; };
-  const beds = n("bedrooms", 2), baths = n("bathrooms", 2), kitchens = n("kitchens", 1), living = n("living", 1);
+  const beds = n("bedrooms", 2), kitchens = n("kitchens", 1), living = n("living", 1);
+  const baths = hasRooms && dims!.bathrooms > 0 ? dims!.bathrooms : n("bathrooms", 2);
   return {
     builtUpSqft, floors, floorSqm, footprintSqm, wallSqm, perimeterM,
     beds, baths, kitchens, living,

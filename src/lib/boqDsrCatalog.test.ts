@@ -48,6 +48,15 @@ describe("DSR catalog", () => {
     expect(STAGE_ORDER).toContain("RCC Superstructure");
   });
 
+  it("prefers measured room dimensions over built-up-area heuristics", () => {
+    const project = { area_sqft: 1000, floors: 1 };
+    const est = buildContext({}, project);
+    const measured = buildContext({}, project, { floorAreaSqft: 600, wallAreaSqft: 1800, bathrooms: 3, rooms: 5, points: 30 });
+    expect(measured.floorSqm).toBeLessThan(est.floorSqm);      // 600 sqft rooms < 1000 sqft built-up
+    expect(measured.wallSqm).toBeCloseTo(1800 / 10.764, 1);    // real wall area, not 3× floor
+    expect(measured.baths).toBe(3);                            // real bathroom count
+  });
+
   it("every enabled line yields a positive quantity for a typical house", () => {
     const spec: Spec = { bedrooms: 3, bathrooms: 2, kitchens: 1, living: 1, balconies: 2 };
     const ctx = buildContext(spec, { area_sqft: 1500, floors: 2 });

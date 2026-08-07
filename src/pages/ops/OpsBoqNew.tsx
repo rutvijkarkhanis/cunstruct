@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { BOQ_SPEC, defaultSpec, type SpecField, type Spec, type SpecValue } from "@/lib/boqSpec";
+import { DISCIPLINES } from "@/lib/disciplines";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +26,7 @@ export default function OpsBoqNew() {
   const [project, setProject] = useState<ProjectLite | null>(null);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [spec, setSpec] = useState<Spec>(() => defaultSpec());
+  const [discipline, setDiscipline] = useState("civil");
   const [name, setName] = useState("BOQ");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(!!urlProjectId);
@@ -90,7 +92,7 @@ export default function OpsBoqNew() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const { data, error } = await supabase.from("boq").insert({
-        project_id: selectedProjectId, name, spec, created_by: user?.id,
+        project_id: selectedProjectId, name, spec, discipline, created_by: user?.id,
       }).select("id").single();
       if (error) throw error;
       toast.success("BOQ questionnaire saved");
@@ -135,6 +137,19 @@ export default function OpsBoqNew() {
           </Select>
         </div>
       )}
+
+      <div>
+        <Label className="text-xs text-muted-foreground">Discipline</Label>
+        <Select value={discipline} onValueChange={setDiscipline}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {DISCIPLINES.map((d) => <SelectItem key={d.key} value={d.key}>{d.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground mt-1">
+          Civil generates from the DSR; MEP disciplines list standard items for you to rate case-by-case. Add one BOQ per discipline to a project.
+        </p>
+      </div>
 
       <div>
         <Label>BOQ name</Label>
