@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -143,7 +143,8 @@ export default function OpsBoqBuilder() {
     setBusy(true);
     try {
       const generated = generateForDiscipline(boq.discipline ?? "civil", boq.spec ?? {}, {
-        area_sqft: project?.area_sqft ?? null, floors: project?.floors ?? null,
+        area_sqft: project?.area_sqft ?? Number((boq.spec as Spec)?._area_sqft) || null,
+        floors: project?.floors ?? Number((boq.spec as Spec)?._floors) || null,
       }, hasRooms ? dims : undefined);
       // Fetch the live DSR rows for exactly the codes we need (not a capped
       // load-all), so every generated line resolves its description/unit/rate.
@@ -177,6 +178,17 @@ export default function OpsBoqBuilder() {
       setBusy(false);
     }
   };
+
+  // Output before input: a brand-new BOQ generates its draft on arrival, so you
+  // land on a full BOQ to react to — never an empty screen.
+  const autoGen = useRef(false);
+  useEffect(() => {
+    if (autoGen.current) return;
+    if (!boq || linesLoading || busy || lines.length > 0) return;
+    autoGen.current = true;
+    generate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boq, linesLoading, lines.length, busy]);
 
   const addFromCatalog = async (it: DsrItem) => {
     const { error } = await supabase.from("boq_line").insert({
