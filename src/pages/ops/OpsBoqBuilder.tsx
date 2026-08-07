@@ -298,6 +298,8 @@ export default function OpsBoqBuilder() {
       projectName: project?.name, clientName: project?.client_name, location: project?.location,
       builtUpSqft: project?.area_sqft, floors: project?.floors,
       generatedOn: gen(), rateYear: "2023",
+      projectType: project?.project_type,
+      flatsPerFloor: Number(spec._flats_per_floor ?? spec.flats_per_floor) || null,
       firmName, firmTagline, blankRates,
       subheads,
       abstract: subheads.map((sh) => ({ no: sh.no, name: sh.name, amount: sh.subtotal })),

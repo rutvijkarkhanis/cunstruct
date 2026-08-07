@@ -38,6 +38,8 @@ export const BOQ_SPEC: SpecSection[] = [
       { key: "quality_tier", label: "Overall quality", type: "select", default: "standard", options: TIER,
         help: "Sets default finishes and the wastage buffer." },
       { key: "plot_area", label: "Plot area", type: "number", suffix: "sqft" },
+      { key: "flats_per_floor", label: "Flats / units per floor", type: "number", default: 1,
+        help: "For multi-unit buildings; drives project-size context on the BOQ." },
       { key: "wall_material", label: "Wall material", type: "select", default: "red_brick",
         options: [sel("red_brick", "Red brick"), sel("aac_block", "AAC block"), sel("fly_ash", "Fly-ash brick")] },
       { key: "ext_wall", label: "External wall", type: "select", default: "9in",
