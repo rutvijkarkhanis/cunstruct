@@ -50,6 +50,8 @@ export interface DsrQuotePayload {
   floors?: number | null;
   generatedOn: string;
   rateYear?: string | null;
+  projectType?: string | null;   // residential / commercial — project-size context
+  flatsPerFloor?: number | null;
   firmName?: string | null;      // your own letterhead (architect firm); defaults to Cunstruct
   firmTagline?: string | null;
   blankRates?: boolean;          // issue for pricing: rates/amounts left blank
@@ -109,11 +111,15 @@ export function computeCommercials(works: number, i: CommercialInputs): QuoteCom
 }
 
 export function buildDsrQuoteHtml(p: DsrQuotePayload): string {
+  const flats = p.flatsPerFloor && p.flatsPerFloor > 1 ? `${p.flatsPerFloor} flats/floor` : "";
+  const units = p.floors && p.flatsPerFloor && p.flatsPerFloor > 1 ? ` (${p.floors * p.flatsPerFloor} units)` : "";
   const meta = [
     p.clientName ? `Client: ${esc(p.clientName)}` : "",
     p.location ? `Location: ${esc(p.location)}` : "",
+    p.projectType ? `Type: ${esc(p.projectType)}` : "",
+    p.floors ? `Floors: ${esc(p.floors)}${units}` : "",
+    flats,
     p.builtUpSqft ? `Built-up: ${esc(p.builtUpSqft)} sqft` : "",
-    p.floors ? `Floors: ${esc(p.floors)}` : "",
     p.rateYear ? `Basis: DSR ${esc(p.rateYear)}` : "",
   ].filter(Boolean).join(" &nbsp;·&nbsp; ");
 

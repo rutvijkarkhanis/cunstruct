@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { BOQ_SPEC, defaultSpec, type SpecField, type Spec, type SpecValue } from "@/lib/boqSpec";
 import { DISCIPLINES } from "@/lib/disciplines";
+import { openIntakeForm } from "@/lib/boqIntakeForm";
+import { ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -116,12 +118,20 @@ export default function OpsBoqNew() {
     <div className="max-w-3xl mx-auto p-4 md:p-6 space-y-4">
       <div className="flex items-center gap-2">
         <Button variant="ghost" size="sm" onClick={() => navigate(-1)}><ArrowLeft className="h-4 w-4" /></Button>
-        <div>
+        <div className="flex-1">
           <h1 className="text-lg font-semibold">BOQ questionnaire</h1>
           <p className="text-sm text-muted-foreground">
             {project ? project.name : "Standalone BOQ"} · {summary}
           </p>
         </div>
+        <Button variant="outline" size="sm" onClick={() => openIntakeForm({
+          projectName: project?.name, projectType: project?.project_type, scope: project?.scope,
+          builtUpSqft: project?.area_sqft, floors: project?.floors,
+          generatedOn: new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }),
+          spec, rooms: [], blank: true,
+        })}>
+          <ClipboardList className="h-4 w-4 mr-2" />Print blank form
+        </Button>
       </div>
 
       {!urlProjectId && (
