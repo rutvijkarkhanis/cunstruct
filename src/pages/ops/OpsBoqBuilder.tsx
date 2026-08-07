@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { generateLines } from "@/lib/boqDsrGenerate";
+import { generateForDiscipline, disciplineByKey } from "@/lib/disciplines";
 import { computeDimensions } from "@/lib/dimensions";
 import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
 import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, type QuoteSubHead, type CsvRow } from "@/lib/boqDsrDocument";
@@ -45,9 +45,9 @@ export default function OpsBoqBuilder() {
     queryKey: ["boq", id],
     queryFn: async () => {
       const { data, error } = await supabase.from("boq")
-        .select("id, name, status, project_id, spec").eq("id", id).single();
+        .select("id, name, status, project_id, spec, discipline").eq("id", id).single();
       if (error) throw error;
-      return data as { id: string; name: string; status: string; project_id: string | null; spec: Spec };
+      return data as { id: string; name: string; status: string; project_id: string | null; spec: Spec; discipline: string };
     },
     enabled: !!id,
   });
@@ -139,7 +139,7 @@ export default function OpsBoqBuilder() {
     if (!boq) return;
     setBusy(true);
     try {
-      const generated = generateLines(boq.spec ?? {}, {
+      const generated = generateForDiscipline(boq.discipline ?? "civil", boq.spec ?? {}, {
         area_sqft: project?.area_sqft ?? null, floors: project?.floors ?? null,
       }, hasRooms ? dims : undefined);
       // Fetch the live DSR rows for exactly the codes we need (not a capped
@@ -323,7 +323,8 @@ export default function OpsBoqBuilder() {
         <Button variant="ghost" size="sm" onClick={() => navigate(-1)}><ArrowLeft className="h-4 w-4" /></Button>
         <div className="flex-1">
           <h1 className="text-lg font-semibold">{boq.name}</h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground flex items-center gap-1.5 flex-wrap">
+            <Badge>{disciplineByKey(boq.discipline).name}</Badge>
             {project?.name ?? "Standalone"} · {lines.length} lines · <Badge variant="outline">{boq.status}</Badge>
           </p>
           <p className="text-xs mt-0.5">
