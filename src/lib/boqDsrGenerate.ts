@@ -3,7 +3,7 @@
 // fuzzy keyword matching that grabbed bridge piers and raised-access-floor systems
 // off any description containing "floor" or "cement".
 
-import { DSR_CATALOG, NS_CATALOG, buildContext } from "./boqDsrCatalog";
+import { DSR_CATALOG, NS_CATALOG, buildContext, type RoomDims } from "./boqDsrCatalog";
 import type { Spec } from "./boqSpec";
 
 export interface GeneratedLine {
@@ -26,8 +26,8 @@ export interface ProjectBasics {
  * and an exact DSR code. The builder resolves each code against dsr_item for its
  * live description, unit and rate.
  */
-export function generateLines(spec: Spec, project: ProjectBasics): GeneratedLine[] {
-  const ctx = buildContext(spec, { area_sqft: project.area_sqft, floors: project.floors });
+export function generateLines(spec: Spec, project: ProjectBasics, dims?: RoomDims): GeneratedLine[] {
+  const ctx = buildContext(spec, { area_sqft: project.area_sqft, floors: project.floors }, dims);
   const out: GeneratedLine[] = [];
   for (const item of DSR_CATALOG) {
     if (item.when && !item.when(spec)) continue;

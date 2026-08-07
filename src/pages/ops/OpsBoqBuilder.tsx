@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { generateLines } from "@/lib/boqDsrGenerate";
 import { stageForCode, STAGE_ORDER } from "@/lib/boqDsrCatalog";
+import { computeDimensions } from "@/lib/dimensions";
 import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
 import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, type QuoteSection, type QuoteStage, type CsvRow } from "@/lib/boqDsrDocument";
 import type { Spec } from "@/lib/boqSpec";
@@ -12,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search, Layers, FileDown, Sheet } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search, Layers, FileDown, Sheet, Ruler } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DsrItem { id: string; code: string; description: string | null; unit: string | null; rate: number | null; chapter: string | null; }
@@ -23,6 +24,12 @@ interface BoqLine {
 }
 /** The rate in effect: the estimator's case-specific override, else the DSR reference. */
 const effRate = (l: BoqLine) => l.custom_rate ?? l.dsr_rate;
+
+interface RoomRow {
+  id: string; name: string | null; room_type: string;
+  length_ft: number; width_ft: number; height_ft: number; count: number; electrical_points: number;
+}
+const ROOM_TYPES = ["room", "bedroom", "living", "kitchen", "bathroom", "balcony", "utility", "pooja"];
 
 const inr = (n: number) => "₹" + Math.round(n).toLocaleString("en-IN");
 
@@ -55,6 +62,21 @@ export default function OpsBoqBuilder() {
     },
     enabled: !!boq?.project_id,
   });
+
+  // Room-by-room dimensions drive accurate quantities (falls back to built-up
+  // heuristics when the project has no rooms). Shared with the template BOQ.
+  const { data: rooms = [] } = useQuery({
+    queryKey: ["boq-rooms", boq?.project_id],
+    enabled: !!boq?.project_id,
+    queryFn: async () => {
+      const { data } = await supabase.from("project_rooms")
+        .select("id, name, room_type, length_ft, width_ft, height_ft, count, electrical_points")
+        .eq("project_id", boq!.project_id!).order("created_at");
+      return (data ?? []) as RoomRow[];
+    },
+  });
+  const dims = useMemo(() => computeDimensions(rooms), [rooms]);
+  const hasRooms = rooms.length > 0;
 
   // All billable DSR items — used for both generation matching and the browser.
   // DSR catalog browser: search server-side (the table has 2,758 rows — loading
@@ -120,7 +142,7 @@ export default function OpsBoqBuilder() {
     try {
       const generated = generateLines(boq.spec ?? {}, {
         area_sqft: project?.area_sqft ?? null, floors: project?.floors ?? null,
-      });
+      }, hasRooms ? dims : undefined);
       // Fetch the live DSR rows for exactly the codes we need (not a capped
       // load-all), so every generated line resolves its description/unit/rate.
       const codes = [...new Set(generated.map((g) => g.code).filter(Boolean))] as string[];
@@ -219,6 +241,40 @@ export default function OpsBoqBuilder() {
     qc.invalidateQueries({ queryKey: ["boq", id] });
   };
 
+  // ---- Rooms editor (drives accurate quantities) --------------------------
+  const [showRooms, setShowRooms] = useState(false);
+  const [roomDraft, setRoomDraft] = useState<RoomRow[] | null>(null);
+  const [savingRooms, setSavingRooms] = useState(false);
+  const draftRooms = roomDraft ?? rooms;
+  const draftDims = useMemo(() => computeDimensions(draftRooms), [draftRooms]);
+  const editRoom = (i: number, patch: Partial<RoomRow>) =>
+    setRoomDraft((d) => (d ?? rooms).map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const addRoom = () =>
+    setRoomDraft((d) => [...(d ?? rooms), { id: crypto.randomUUID(), name: "", room_type: "bedroom", length_ft: 10, width_ft: 10, height_ft: 10, count: 1, electrical_points: 4 }]);
+  const delRoom = (i: number) => setRoomDraft((d) => (d ?? rooms).filter((_, idx) => idx !== i));
+  const saveRooms = async () => {
+    if (!boq?.project_id) return;
+    setSavingRooms(true);
+    try {
+      await supabase.from("project_rooms").delete().eq("project_id", boq.project_id);
+      if (draftRooms.length) {
+        const { error } = await supabase.from("project_rooms").insert(draftRooms.map((r) => ({
+          project_id: boq.project_id, name: r.name || null, room_type: r.room_type,
+          length_ft: r.length_ft, width_ft: r.width_ft, height_ft: r.height_ft,
+          count: r.count, electrical_points: r.electrical_points,
+        })));
+        if (error) throw error;
+      }
+      setRoomDraft(null);
+      qc.invalidateQueries({ queryKey: ["boq-rooms", boq.project_id] });
+      toast.success("Rooms saved — Regenerate to apply the new quantities");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save rooms");
+    } finally {
+      setSavingRooms(false);
+    }
+  };
+
   const exportQuote = () => {
     const stages: QuoteStage[] = byStage.map((st) => {
       let itemNo = 0;
@@ -270,6 +326,11 @@ export default function OpsBoqBuilder() {
           <p className="text-sm text-muted-foreground">
             {project?.name ?? "Standalone"} · {lines.length} lines · <Badge variant="outline">{boq.status}</Badge>
           </p>
+          <p className="text-xs mt-0.5">
+            {hasRooms
+              ? <span className="text-emerald-600 dark:text-emerald-400">Quantities from {rooms.length} rooms · {dims.floorAreaSqft.toLocaleString("en-IN")} sqft measured</span>
+              : <span className="text-amber-600 dark:text-amber-500">Quantities estimated from built-up area — add rooms for accuracy</span>}
+          </p>
         </div>
         <div className="text-right">
           <div className="text-xs text-muted-foreground">Grand total (incl. GST)</div>
@@ -286,6 +347,11 @@ export default function OpsBoqBuilder() {
         <Button variant="outline" onClick={() => setShowBrowser((s) => !s)}>
           <Plus className="h-4 w-4 mr-2" />Add DSR item
         </Button>
+        {boq.project_id && (
+          <Button variant={hasRooms ? "outline" : "default"} onClick={() => setShowRooms((s) => !s)}>
+            <Ruler className="h-4 w-4 mr-2" />Rooms{rooms.length ? ` (${rooms.length})` : ""}
+          </Button>
+        )}
         <Button variant="outline" onClick={exportQuote} disabled={lines.length === 0}>
           <FileDown className="h-4 w-4 mr-2" />Export quote
         </Button>
@@ -319,6 +385,59 @@ export default function OpsBoqBuilder() {
           Grand total <b className="text-foreground tabular-nums">{inr(commercials.grandTotal)}</b>
         </span>
       </div>
+
+      {showRooms && boq.project_id && (
+        <Card>
+          <CardHeader className="pb-2 flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-base">Rooms</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Drives finishing quantities. {draftDims.floorAreaSqft.toLocaleString("en-IN")} sqft floor · {draftDims.wallAreaSqft.toLocaleString("en-IN")} sqft wall · {draftDims.bathrooms} bath
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={addRoom}><Plus className="h-4 w-4 mr-1" />Add</Button>
+              <Button size="sm" onClick={saveRooms} disabled={savingRooms}>
+                {savingRooms && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}Save rooms
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            {draftRooms.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-3 text-center">No rooms yet — Add rooms so quantities are measured, not estimated.</p>
+            ) : (
+              <table className="w-full text-sm min-w-[560px]">
+                <thead><tr className="text-xs text-muted-foreground text-left">
+                  <th className="py-1 font-medium">Type</th><th className="font-medium">Label</th>
+                  <th className="font-medium w-14">L (ft)</th><th className="font-medium w-14">W (ft)</th>
+                  <th className="font-medium w-14">H (ft)</th><th className="font-medium w-12">Qty</th>
+                  <th className="font-medium w-14">Elec.</th><th></th>
+                </tr></thead>
+                <tbody>
+                  {draftRooms.map((r, i) => (
+                    <tr key={r.id} className="border-t">
+                      <td className="py-1 pr-2">
+                        <select className="h-8 rounded border bg-background px-1 text-sm" value={r.room_type}
+                          onChange={(e) => editRoom(i, { room_type: e.target.value })}>
+                          {ROOM_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </td>
+                      <td className="pr-2"><Input className="h-8" value={r.name ?? ""} placeholder="e.g. Master"
+                        onChange={(e) => editRoom(i, { name: e.target.value })} /></td>
+                      {(["length_ft", "width_ft", "height_ft", "count", "electrical_points"] as const).map((f) => (
+                        <td key={f} className="pr-1"><Input className="h-8" type="number" value={r[f]}
+                          onChange={(e) => editRoom(i, { [f]: Number(e.target.value) })} /></td>
+                      ))}
+                      <td><Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => delRoom(i)}>
+                        <Trash2 className="h-4 w-4 text-muted-foreground" /></Button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {showBrowser && (
         <Card>
