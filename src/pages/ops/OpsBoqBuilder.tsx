@@ -13,13 +13,14 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search, Layers, FileDown, Sheet, Ruler, ClipboardList } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search, Layers, FileDown, Sheet, Ruler, ClipboardList, Percent } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DsrItem { id: string; code: string; description: string | null; unit: string | null; rate: number | null; chapter: string | null; }
 interface BoqLine {
   id: string; section: string | null; dsr_code: string | null; description: string | null;
   unit: string | null; qty: number; dsr_rate: number | null; custom_rate: number | null;
+  cost: number | null;
   included: boolean; source: string; sort: number;
 }
 /** The rate in effect: the estimator's case-specific override, else the DSR reference. */
@@ -40,7 +41,8 @@ export default function OpsBoqBuilder() {
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
   const [showBrowser, setShowBrowser] = useState(false);
-  const [view, setView] = useState<"lines" | "materials">("lines");
+  const [view, setView] = useState<"lines" | "make" | "materials">("lines");
+  const [targetMargin, setTargetMargin] = useState(15);
 
   const { data: boq } = useQuery({
     queryKey: ["boq", id],
@@ -101,7 +103,7 @@ export default function OpsBoqBuilder() {
     queryKey: ["boq-lines", id],
     queryFn: async () => {
       const { data, error } = await supabase.from("boq_line")
-        .select("id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, included, source, sort")
+        .select("id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, cost, included, source, sort")
         .eq("boq_id", id).order("sort");
       if (error) throw error;
       return (data ?? []) as BoqLine[];
@@ -225,6 +227,17 @@ export default function OpsBoqBuilder() {
   const total = useMemo(() =>
     lines.filter((l) => l.included).reduce((sum, l) => sum + l.qty * (effRate(l) ?? 0), 0),
     [lines]);
+
+  // "Make" (margin) = quote − your cost, per line and overall.
+  const make = useMemo(() => {
+    let quote = 0, cost = 0, hasCost = false;
+    for (const l of lines) {
+      if (!l.included) continue;
+      quote += l.qty * (effRate(l) ?? 0);
+      if (l.cost != null) { cost += l.qty * l.cost; hasCost = true; }
+    }
+    return { quote, cost, make: quote - cost, marginPct: quote > 0 ? ((quote - cost) / quote) * 100 : 0, hasCost };
+  }, [lines]);
 
   // Commercials (cost index, contingency, overhead, cess, GST) live in boq.spec
   // so no migration is needed. Defaults follow common CPWD practice.
@@ -350,6 +363,11 @@ export default function OpsBoqBuilder() {
           <div className="text-xs text-muted-foreground">Grand total (incl. GST)</div>
           <div className="text-xl font-semibold">{inr(commercials.grandTotal)}</div>
           <div className="text-xs text-muted-foreground">works {inr(total)}</div>
+          {make.hasCost && (
+            <div className={cn("text-xs font-medium", make.marginPct >= targetMargin ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-500")}>
+              make {inr(make.make)} · {make.marginPct.toFixed(1)}%
+            </div>
+          )}
         </div>
       </div>
 
@@ -381,8 +399,11 @@ export default function OpsBoqBuilder() {
         </Button>
         <div className="ml-auto inline-flex rounded-md border p-0.5">
           <Button size="sm" variant={view === "lines" ? "secondary" : "ghost"} onClick={() => setView("lines")}>Lines</Button>
+          <Button size="sm" variant={view === "make" ? "secondary" : "ghost"} onClick={() => setView("make")}>
+            <Percent className="h-4 w-4 mr-1" />Make
+          </Button>
           <Button size="sm" variant={view === "materials" ? "secondary" : "ghost"} onClick={() => setView("materials")}>
-            <Layers className="h-4 w-4 mr-1" />Material schedule
+            <Layers className="h-4 w-4 mr-1" />Materials
           </Button>
         </div>
       </div>
@@ -498,7 +519,60 @@ export default function OpsBoqBuilder() {
         </Card>
       )}
 
-      {view === "materials" ? (
+      {view === "make" ? (
+        <Card>
+          <CardHeader className="pb-2 flex-row items-center justify-between gap-3">
+            <div>
+              <CardTitle className="text-base">Make (margin)</CardTitle>
+              <p className="text-xs text-muted-foreground">Enter your cost per unit; make = quote − cost. Lines below target are flagged.</p>
+            </div>
+            <label className="text-sm flex items-center gap-1.5 shrink-0">Target
+              <Input type="number" className="h-7 w-16" value={targetMargin}
+                onChange={(e) => setTargetMargin(Number(e.target.value))} /><span className="text-muted-foreground">%</span>
+            </label>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {bySubhead.map(({ no, name, rows }) => {
+              const incl = rows.filter(({ line }) => line.included);
+              const q = incl.reduce((s, { line }) => s + line.qty * (effRate(line) ?? 0), 0);
+              const c = incl.reduce((s, { line }) => s + line.qty * (line.cost ?? 0), 0);
+              const m = q - c, mp = q > 0 ? (m / q) * 100 : 0;
+              return (
+                <div key={name}>
+                  <div className="flex items-center justify-between border-b pb-1 mb-1">
+                    <span className="text-xs uppercase tracking-wide text-muted-foreground">{no}.00 {name}</span>
+                    <span className={cn("text-xs tabular-nums", mp >= targetMargin ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-500")}>{inr(m)} · {mp.toFixed(1)}%</span>
+                  </div>
+                  {incl.map(({ line: l, no: itemNo }) => {
+                    const rate = effRate(l) ?? 0;
+                    const lq = l.qty * rate, lc = l.qty * (l.cost ?? 0), lm = lq - lc;
+                    const mpct = lq > 0 ? (lm / lq) * 100 : 0;
+                    const below = l.cost != null && mpct < targetMargin;
+                    return (
+                      <div key={l.id} className="grid grid-cols-[1fr_4.5rem_4.5rem_5rem_auto] items-center gap-2 py-1 border-b last:border-0 text-sm">
+                        <span className="truncate text-[13px]"><span className="text-muted-foreground mr-1 font-mono text-[11px]">{itemNo}</span>{l.description}</span>
+                        <Input type="number" className="h-8" placeholder="cost" defaultValue={l.cost ?? ""}
+                          onBlur={(e) => { const v = e.target.value === "" ? null : Number(e.target.value); if (v !== l.cost) updateLine(l.id, { cost: v }); }} />
+                        <span className="text-xs text-muted-foreground text-right tabular-nums">@{inr(rate)}</span>
+                        <span className="text-right tabular-nums">{l.cost != null ? inr(lm) : "—"}</span>
+                        <span className={cn("text-right tabular-nums text-xs w-12", below ? "text-amber-600 dark:text-amber-500 font-medium" : "text-muted-foreground")}>
+                          {l.cost != null ? `${mpct.toFixed(0)}%` : "—"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+            <div className="mt-2 pt-2 border-t flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Quote {inr(make.quote)} · Cost {inr(make.cost)}</span>
+              <span className={cn("font-semibold tabular-nums", make.marginPct >= targetMargin ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-500")}>
+                Make {inr(make.make)} · {make.marginPct.toFixed(1)}%
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+      ) : view === "materials" ? (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Material &amp; labour schedule</CardTitle>
