@@ -27,22 +27,22 @@ describe("buildBoqCsv", () => {
 
   it("emits a header and a live Excel amount formula per priced row", () => {
     const csv = buildBoqCsv([
-      { stage: "RCC Superstructure", section: "RCC", itemNo: "1.1", code: "5.3", spec: "RCC M-20, cement, sand, aggregate", unit: "cum", qty: 13.4, dsrRate: 11505 },
+      { subhead: "4.00 RCC", itemNo: "4.01", code: "5.3", spec: "RCC M-20, cement, sand, aggregate", unit: "cum", qty: 13.4, rate: 11505 },
     ], meta);
     const lines = csv.split("\r\n");
     expect(lines[3]).toContain("Your rate");
-    // first data row is spreadsheet line 5 → Amount = Qty(G) × Your rate(I)
-    expect(lines[4]).toContain("=G5*I5");
+    // first data row is spreadsheet line 5 → Amount = Qty(F) × Your rate(H)
+    expect(lines[4]).toContain("=F5*H5");
     // a spec with commas is quoted
     expect(lines[4]).toContain('"RCC M-20, cement, sand, aggregate"');
   });
 
-  it("leaves rate and amount blank for Non-Schedule (unpriced) items", () => {
+  it("leaves amount blank for Non-Schedule (unpriced) items", () => {
     const csv = buildBoqCsv([
-      { stage: "Non-Schedule Items", section: "Electrical", itemNo: 1, code: null, spec: "Wiring points", unit: "point", qty: 30, dsrRate: null },
+      { subhead: "Electrical", itemNo: "1.01", code: null, spec: "Wiring points", unit: "point", qty: 30, rate: null },
     ], meta);
-    const row = csv.split("\r\n")[4].split(",");
-    expect(row[9]).toBe("");   // Amount column empty (no formula)
+    const cols = csv.split("\r\n")[4].split(",");
+    expect(cols[8]).toBe("");   // Amount column (9th) empty — no formula
   });
 });
 

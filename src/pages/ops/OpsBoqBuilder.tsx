@@ -3,10 +3,9 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { generateLines } from "@/lib/boqDsrGenerate";
-import { stageForCode, STAGE_ORDER } from "@/lib/boqDsrCatalog";
 import { computeDimensions } from "@/lib/dimensions";
 import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
-import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, type QuoteSection, type QuoteStage, type CsvRow } from "@/lib/boqDsrDocument";
+import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, type QuoteSubHead, type CsvRow } from "@/lib/boqDsrDocument";
 import type { Spec } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -198,22 +197,27 @@ export default function OpsBoqBuilder() {
 
   const sumIncl = (ls: BoqLine[]) => ls.filter((l) => l.included).reduce((s, l) => s + l.qty * (effRate(l) ?? 0), 0);
 
-  // Two-level grouping: construction stage → type of work (DSR sub-head) → lines.
-  const byStage = useMemo(() => {
-    const stages = new Map<string, Map<string, BoqLine[]>>();
+  // Group by DSR sub-head (type of work), ordered by chapter number — which is
+  // also the construction sequence. Each sub-head gets a number; items within
+  // are numbered <sub-head>.01, .02 … like a real tender BOQ. NS lines last.
+  const bySubhead = useMemo(() => {
+    const groups = new Map<string, BoqLine[]>();
     for (const l of lines) {
-      const st = l.dsr_code ? stageForCode(l.dsr_code) : "Non-Schedule Items";
       const sec = l.section ?? "Other";
-      if (!stages.has(st)) stages.set(st, new Map());
-      const secs = stages.get(st)!;
-      if (!secs.has(sec)) secs.set(sec, []);
-      secs.get(sec)!.push(l);
+      if (!groups.has(sec)) groups.set(sec, []);
+      groups.get(sec)!.push(l);
     }
-    return [...stages.entries()]
-      .sort((a, b) => STAGE_ORDER.indexOf(a[0]) - STAGE_ORDER.indexOf(b[0]))
-      .map(([stage, secs]) => {
-        const sections = [...secs.entries()].map(([name, ls]) => ({ name, lines: ls, subtotal: sumIncl(ls) }));
-        return { stage, sections, subtotal: sections.reduce((s, x) => s + x.subtotal, 0) };
+    const chapterNo = (ls: BoqLine[]) => {
+      const coded = ls.find((l) => l.dsr_code);
+      return coded ? parseInt(coded.dsr_code!.split(".")[0], 10) || 900 : 999;  // uncoded/NS last
+    };
+    return [...groups.entries()]
+      .sort((a, b) => chapterNo(a[1]) - chapterNo(b[1]) || a[0].localeCompare(b[0]))
+      .map(([name, ls], gi) => {
+        const no = gi + 1;
+        let item = 0;
+        const rows = ls.map((l) => ({ line: l, no: `${no}.${String(++item).padStart(2, "0")}` }));
+        return { no, name, rows, subtotal: sumIncl(ls) };
       });
   }, [lines]);
 
@@ -275,44 +279,37 @@ export default function OpsBoqBuilder() {
     }
   };
 
+  const gen = () => new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+
   const exportQuote = () => {
-    const stages: QuoteStage[] = byStage.map((st) => {
-      let itemNo = 0;
-      const sections: QuoteSection[] = st.sections.map((sec) => ({
-        name: sec.name,
-        subtotal: sec.subtotal,
-        lines: sec.lines.filter((l) => l.included).map((l) => {
-          const rate = effRate(l);
-          return { itemNo: ++itemNo, code: l.dsr_code, spec: l.description ?? "", qty: l.qty, unit: l.unit ?? "", rate, amount: rate != null ? l.qty * rate : null };
-        }),
-      })).filter((s) => s.lines.length > 0);
-      return { name: st.stage, sections, subtotal: st.subtotal };
-    }).filter((st) => st.sections.length > 0);
+    const subheads: QuoteSubHead[] = bySubhead.map((sh) => ({
+      no: sh.no, name: sh.name, subtotal: sh.subtotal,
+      lines: sh.rows.filter(({ line }) => line.included).map(({ line, no }) => {
+        const rate = effRate(line);
+        return { no, code: line.dsr_code, spec: line.description ?? "", qty: line.qty, unit: line.unit ?? "", rate, amount: rate != null ? line.qty * rate : null };
+      }),
+    })).filter((sh) => sh.lines.length > 0);
 
     const ok = openDsrQuote({
       boqName: boq!.name,
       projectName: project?.name, clientName: project?.client_name, location: project?.location,
       builtUpSqft: project?.area_sqft, floors: project?.floors,
-      generatedOn: new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }),
-      rateYear: "2023",
-      stages,
-      abstract: stages.map((st) => ({ stage: st.name, amount: st.subtotal })),
+      generatedOn: gen(), rateYear: "2023",
+      subheads,
+      abstract: subheads.map((sh) => ({ no: sh.no, name: sh.name, amount: sh.subtotal })),
       commercials,
     });
     if (!ok) toast.error("Allow pop-ups to export the quote");
   };
 
   const exportExcel = () => {
-    const rows: CsvRow[] = byStage.flatMap((st) => {
-      let n = 0;
-      return st.sections.flatMap((sec) => sec.lines.filter((l) => l.included).map((l) => ({
-        stage: st.stage, section: sec.name, itemNo: ++n, code: l.dsr_code,
-        spec: l.description ?? "", unit: l.unit ?? "", qty: l.qty, dsrRate: effRate(l),
+    const rows: CsvRow[] = bySubhead.flatMap((sh) =>
+      sh.rows.filter(({ line }) => line.included).map(({ line, no }) => ({
+        subhead: `${sh.no}.00 ${sh.name}`, itemNo: no, code: line.dsr_code,
+        spec: line.description ?? "", unit: line.unit ?? "", qty: line.qty, rate: effRate(line),
       })));
-    });
     if (!rows.length) return toast.error("Nothing to export yet");
-    const gen = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
-    downloadCsv(`${boq!.name.replace(/[^\w]+/g, "_")}_BOQ.csv`, buildBoqCsv(rows, { boqName: boq!.name, project: project?.name, generatedOn: gen }));
+    downloadCsv(`${boq!.name.replace(/[^\w]+/g, "_")}_BOQ.csv`, buildBoqCsv(rows, { boqName: boq!.name, project: project?.name, generatedOn: gen() }));
   };
 
   if (!boq) return <div className="p-8 flex justify-center"><Loader2 className="animate-spin" /></div>;
@@ -511,49 +508,43 @@ export default function OpsBoqBuilder() {
           No lines yet. Generate from the questionnaire or add DSR items.
         </CardContent></Card>
       ) : (
-        byStage.map(({ stage, sections, subtotal }, si) => (
-          <Card key={stage}>
+        bySubhead.map(({ no, name, rows, subtotal }) => (
+          <Card key={name}>
             <CardHeader className="pb-2 flex-row items-center justify-between">
               <CardTitle className="text-base">
-                <span className="text-muted-foreground font-normal mr-2">Stage {si + 1}</span>{stage}
+                <span className="text-muted-foreground font-normal mr-2 tabular-nums">{no}.00</span>{name}
               </CardTitle>
               <span className="text-sm font-medium tabular-nums">{inr(subtotal)}</span>
             </CardHeader>
-            <CardContent className="space-y-3">
-              {sections.map((sec) => (
-                <div key={sec.name}>
-                  <div className="flex items-center justify-between border-b pb-1 mb-1">
-                    <span className="text-xs uppercase tracking-wide text-muted-foreground">{sec.name}</span>
-                    <span className="text-xs text-muted-foreground tabular-nums">{inr(sec.subtotal)}</span>
-                  </div>
-                  {sec.lines.map((l) => {
-                    const rate = effRate(l);
-                    return (
-                    <div key={l.id} className={cn("grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_4.5rem_3rem_5rem_5.5rem_auto] items-start gap-x-3 gap-y-1 py-2 border-b last:border-0",
-                      !l.included && "opacity-40")}>
-                      <input type="checkbox" className="mt-1" checked={l.included}
-                        onChange={(e) => updateLine(l.id, { included: e.target.checked })} />
-                      <div className="min-w-0">
-                        <div className="text-[11px] font-mono text-accent-foreground/70 mb-0.5">{l.dsr_code ?? "NS · rate to be analysed"}</div>
-                        <div className="text-[13px] leading-snug text-foreground/90">{l.description}</div>
+            <CardContent className="space-y-0">
+              {rows.map(({ line: l, no: itemNo }) => {
+                const rate = effRate(l);
+                return (
+                  <div key={l.id} className={cn("grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_4.5rem_3rem_5rem_5.5rem_auto] items-start gap-x-3 gap-y-1 py-2 border-b last:border-0",
+                    !l.included && "opacity-40")}>
+                    <input type="checkbox" className="mt-1" checked={l.included}
+                      onChange={(e) => updateLine(l.id, { included: e.target.checked })} />
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-mono text-accent-foreground/70 mb-0.5">
+                        <span className="text-muted-foreground mr-1">{itemNo}</span>{l.dsr_code ?? "NS · rate to be analysed"}
                       </div>
-                      <Input type="number" className="h-8 hidden sm:block" defaultValue={l.qty}
-                        onBlur={(e) => { const v = Number(e.target.value); if (v !== l.qty) updateLine(l.id, { qty: v }); }} />
-                      <span className="text-xs text-muted-foreground hidden sm:block pt-2">{l.unit}</span>
-                      <Input type="number" className="h-8 hidden sm:block" defaultValue={rate ?? ""} placeholder="rate"
-                        title={l.custom_rate != null ? "Your rate (overrides DSR)" : "DSR reference rate — edit to set your rate"}
-                        onBlur={(e) => { const v = e.target.value === "" ? null : Number(e.target.value); if (v !== rate) updateLine(l.id, { custom_rate: v }); }} />
-                      <span className="text-sm tabular-nums text-right hidden sm:block pt-1.5">
-                        {rate != null ? inr(l.qty * rate) : "—"}
-                      </span>
-                      <Button size="sm" variant="ghost" className="h-7" onClick={() => removeLine(l.id)}>
-                        <Trash2 className="h-4 w-4 text-muted-foreground" />
-                      </Button>
+                      <div className="text-[13px] leading-snug text-foreground/90">{l.description}</div>
                     </div>
-                    );
-                  })}
-                </div>
-              ))}
+                    <Input type="number" className="h-8 hidden sm:block" defaultValue={l.qty}
+                      onBlur={(e) => { const v = Number(e.target.value); if (v !== l.qty) updateLine(l.id, { qty: v }); }} />
+                    <span className="text-xs text-muted-foreground hidden sm:block pt-2">{l.unit}</span>
+                    <Input type="number" className="h-8 hidden sm:block" defaultValue={rate ?? ""} placeholder="rate"
+                      title={l.custom_rate != null ? "Your rate (overrides DSR)" : "DSR reference rate — edit to set your rate"}
+                      onBlur={(e) => { const v = e.target.value === "" ? null : Number(e.target.value); if (v !== rate) updateLine(l.id, { custom_rate: v }); }} />
+                    <span className="text-sm tabular-nums text-right hidden sm:block pt-1.5">
+                      {rate != null ? inr(l.qty * rate) : "—"}
+                    </span>
+                    <Button size="sm" variant="ghost" className="h-7" onClick={() => removeLine(l.id)}>
+                      <Trash2 className="h-4 w-4 text-muted-foreground" />
+                    </Button>
+                  </div>
+                );
+              })}
             </CardContent>
           </Card>
         ))
