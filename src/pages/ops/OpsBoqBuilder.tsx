@@ -239,7 +239,7 @@ export default function OpsBoqBuilder() {
     });
   }, [total, spec]);
 
-  const saveCommercials = async (patch: Record<string, number>) => {
+  const saveCommercials = async (patch: Record<string, number | string>) => {
     if (!boq) return;
     await supabase.from("boq").update({ spec: { ...(boq.spec ?? {}), ...patch } }).eq("id", id);
     qc.invalidateQueries({ queryKey: ["boq", id] });
@@ -280,8 +280,10 @@ export default function OpsBoqBuilder() {
   };
 
   const gen = () => new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  const firmName = String(spec._firm_name ?? "").trim() || null;
+  const firmTagline = String(spec._firm_tagline ?? "").trim() || null;
 
-  const exportQuote = () => {
+  const exportQuote = (blankRates = false) => {
     const subheads: QuoteSubHead[] = bySubhead.map((sh) => ({
       no: sh.no, name: sh.name, subtotal: sh.subtotal,
       lines: sh.rows.filter(({ line }) => line.included).map(({ line, no }) => {
@@ -295,11 +297,12 @@ export default function OpsBoqBuilder() {
       projectName: project?.name, clientName: project?.client_name, location: project?.location,
       builtUpSqft: project?.area_sqft, floors: project?.floors,
       generatedOn: gen(), rateYear: "2023",
+      firmName, firmTagline, blankRates,
       subheads,
       abstract: subheads.map((sh) => ({ no: sh.no, name: sh.name, amount: sh.subtotal })),
       commercials,
     });
-    if (!ok) toast.error("Allow pop-ups to export the quote");
+    if (!ok) toast.error("Allow pop-ups to export");
   };
 
   const exportExcel = () => {
@@ -349,8 +352,12 @@ export default function OpsBoqBuilder() {
             <Ruler className="h-4 w-4 mr-2" />Rooms{rooms.length ? ` (${rooms.length})` : ""}
           </Button>
         )}
-        <Button variant="outline" onClick={exportQuote} disabled={lines.length === 0}>
+        <Button variant="outline" onClick={() => exportQuote(false)} disabled={lines.length === 0}>
           <FileDown className="h-4 w-4 mr-2" />Export quote
+        </Button>
+        <Button variant="outline" onClick={() => exportQuote(true)} disabled={lines.length === 0}
+          title="Rates left blank — issue to contractors to price">
+          <FileDown className="h-4 w-4 mr-2" />Blank BOQ
         </Button>
         <Button variant="outline" onClick={exportExcel} disabled={lines.length === 0}>
           <Sheet className="h-4 w-4 mr-2" />Export to Excel
@@ -381,6 +388,15 @@ export default function OpsBoqBuilder() {
         <span className="ml-auto text-muted-foreground">
           Grand total <b className="text-foreground tabular-nums">{inr(commercials.grandTotal)}</b>
         </span>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md bg-muted/40 px-3 py-2 text-sm">
+        <span className="text-muted-foreground font-medium">Letterhead</span>
+        <Input className="h-7 w-52" defaultValue={firmName ?? ""} placeholder="Your firm name (e.g. The Grid Architects)"
+          onBlur={(e) => saveCommercials({ _firm_name: e.target.value.trim() })} />
+        <Input className="h-7 w-64" defaultValue={firmTagline ?? ""} placeholder="Tagline (e.g. architects & interior designers)"
+          onBlur={(e) => saveCommercials({ _firm_tagline: e.target.value.trim() })} />
+        <span className="text-xs text-muted-foreground">Appears on the exported BOQ instead of Cunstruct</span>
       </div>
 
       {showRooms && boq.project_id && (

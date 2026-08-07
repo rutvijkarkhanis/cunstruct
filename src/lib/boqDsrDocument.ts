@@ -50,6 +50,9 @@ export interface DsrQuotePayload {
   floors?: number | null;
   generatedOn: string;
   rateYear?: string | null;
+  firmName?: string | null;      // your own letterhead (architect firm); defaults to Cunstruct
+  firmTagline?: string | null;
+  blankRates?: boolean;          // issue for pricing: rates/amounts left blank
   subheads: QuoteSubHead[];
   abstract: { no: number; name: string; amount: number }[];
   commercials: QuoteCommercials;
@@ -114,21 +117,24 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload): string {
     p.rateYear ? `Basis: DSR ${esc(p.rateYear)}` : "",
   ].filter(Boolean).join(" &nbsp;·&nbsp; ");
 
+  const blank = !!p.blankRates;
+  const money = (n: number | null) => (blank ? "" : inr(n));
+
   const rows = p.subheads.map((sh) => `
-    <tr class="sub"><td colspan="6">${sh.no}.00 &nbsp; ${esc(sh.name).toUpperCase()}<span class="ssub">${inr(sh.subtotal)}</span></td></tr>
+    <tr class="sub"><td colspan="6">${sh.no}.00 &nbsp; ${esc(sh.name).toUpperCase()}${blank ? "" : `<span class="ssub">${inr(sh.subtotal)}</span>`}</td></tr>
     ${sh.lines.map((l) => `
       <tr>
         <td class="no">${esc(l.no)}</td>
         <td class="spec">${l.code ? `<span class="code">${esc(l.code)}</span>` : ""}${esc(l.spec)}</td>
         <td class="num">${qtyFmt(l.qty)}</td>
         <td class="unit">${esc(l.unit)}</td>
-        <td class="num">${inr(l.rate)}</td>
-        <td class="num amt">${inr(l.amount)}</td>
+        <td class="num">${money(l.rate)}</td>
+        <td class="num amt">${money(l.amount)}</td>
       </tr>`).join("")}
   `).join("");
 
   const abstractRows = p.abstract.map((a) => `
-    <tr><td class="no">${a.no}.00</td><td>${esc(a.name)}</td><td class="num">${a.amount > 0 ? inr(a.amount) : "Rate to be analysed"}</td></tr>`).join("");
+    <tr><td class="no">${a.no}.00</td><td>${esc(a.name)}</td><td class="num">${blank ? "" : (a.amount > 0 ? inr(a.amount) : "Rate to be analysed")}</td></tr>`).join("");
 
   const c = p.commercials;
   const wrow = (label: string, amt: number, show = true) =>
@@ -145,6 +151,19 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload): string {
       <tr class="words"><td colspan="2">Rupees ${esc(c.grandTotalWords)} only</td></tr>
     </table>`;
 
+  const brandHtml = p.firmName ? esc(p.firmName) : `cun<span>struct</span>`;
+  const tagline = p.firmTagline ? `<div class="tagline">${esc(p.firmTagline)}</div>` : "";
+  const docTitle = blank ? "Bill of Quantities<br>(for pricing)" : "Bill of Quantities<br>&amp; Priced Quote";
+  const abstractSection = blank
+    ? `<div class="foot" style="margin-top:22px"><b>Rates to be quoted by bidder.</b> This schedule of quantities is issued for pricing — enter a rate against each item; amounts and totals will follow.</div>`
+    : `<div class="pagebreak"></div>
+       <h2>Abstract of Cost</h2>
+       <table class="abstract">
+         <thead><tr><th>Sub-head</th><th>Type of work</th><th class="num">Amount</th></tr></thead>
+         <tbody>${abstractRows}</tbody>
+       </table>
+       ${summary}`;
+
   return `<!doctype html><html><head><meta charset="utf-8"><title>BOQ — ${esc(p.boqName)}</title>
 <style>
   * { box-sizing: border-box; }
@@ -152,6 +171,7 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload): string {
   .head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid #f59e0b; padding-bottom:14px; margin-bottom:18px; }
   .brand { font-size:22px; font-weight:800; letter-spacing:-0.5px; }
   .brand span { color:#f59e0b; }
+  .tagline { font-size:11px; color:#778; margin-top:-2px; margin-bottom:2px; }
   .doc-title { text-align:right; font-size:12px; color:#667; }
   h1 { font-size:18px; margin:4px 0 2px; }
   .meta { font-size:11.5px; color:#556; margin-bottom:8px; }
@@ -180,11 +200,12 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload): string {
 </style></head><body>
   <div class="head">
     <div>
-      <div class="brand">cun<span>struct</span></div>
+      <div class="brand">${brandHtml}</div>
+      ${tagline}
       <h1>${esc(p.boqName)}</h1>
       <div class="meta">${meta}</div>
     </div>
-    <div class="doc-title">Bill of Quantities<br>&amp; Priced Quote<br>${esc(p.generatedOn)}</div>
+    <div class="doc-title">${docTitle}<br>${esc(p.generatedOn)}</div>
   </div>
 
   <h2>Bill of Quantities</h2>
@@ -195,13 +216,7 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload): string {
     <tbody>${rows || `<tr><td colspan="6">No items.</td></tr>`}</tbody>
   </table>
 
-  <div class="pagebreak"></div>
-  <h2>Abstract of Cost</h2>
-  <table class="abstract">
-    <thead><tr><th>Sub-head</th><th>Type of work</th><th class="num">Amount</th></tr></thead>
-    <tbody>${abstractRows}</tbody>
-  </table>
-  ${summary}
+  ${abstractSection}
 
   <div class="foot">
     <b>Basis &amp; conditions.</b> Rates are composite rates from the Delhi Schedule of Rates${p.rateYear ? ` ${esc(p.rateYear)}` : ""} (material + labour + plant),
