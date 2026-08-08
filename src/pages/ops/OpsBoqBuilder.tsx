@@ -7,13 +7,14 @@ import { computeDimensions } from "@/lib/dimensions";
 import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
 import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, type QuoteSubHead, type CsvRow } from "@/lib/boqDsrDocument";
 import { openIntakeForm } from "@/lib/boqIntakeForm";
+import { sanityForCode, countFlagged } from "@/lib/boqSanity";
 import type { Spec } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search, Layers, FileDown, Sheet, Ruler, ClipboardList, Percent } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search, Layers, FileDown, Sheet, Ruler, ClipboardList, Percent, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DsrItem { id: string; code: string; description: string | null; unit: string | null; rate: number | null; chapter: string | null; }
@@ -240,6 +241,10 @@ export default function OpsBoqBuilder() {
     lines.filter((l) => l.included).reduce((sum, l) => sum + l.qty * (effRate(l) ?? 0), 0),
     [lines]);
 
+  // Built-up area drives the sanity bands (project first, else the spec anchor).
+  const builtUp = project?.area_sqft ?? Number((boq?.spec as Spec)?._area_sqft) || 0;
+  const flaggedCount = useMemo(() => countFlagged(lines, builtUp), [lines, builtUp]);
+
   // "Make" (margin) = quote − your cost, per line and overall.
   const make = useMemo(() => {
     let quote = 0, cost = 0, hasCost = false;
@@ -365,10 +370,15 @@ export default function OpsBoqBuilder() {
             <Badge>{disciplineByKey(boq.discipline).name}</Badge>
             {project?.name ?? "Standalone"} · {lines.length} lines · <Badge variant="outline">{boq.status}</Badge>
           </p>
-          <p className="text-xs mt-0.5">
+          <p className="text-xs mt-0.5 flex items-center gap-2 flex-wrap">
             {hasRooms
               ? <span className="text-emerald-600 dark:text-emerald-400">Quantities from {rooms.length} rooms · {dims.floorAreaSqft.toLocaleString("en-IN")} sqft measured</span>
               : <span className="text-amber-600 dark:text-amber-500">Quantities estimated from built-up area — add rooms for accuracy</span>}
+            {flaggedCount > 0 && (
+              <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-500">
+                <AlertTriangle className="h-3 w-3" />{flaggedCount} to review
+              </span>
+            )}
           </p>
         </div>
         <div className="text-right">
@@ -638,14 +648,21 @@ export default function OpsBoqBuilder() {
             <CardContent className="space-y-0">
               {rows.map(({ line: l, no: itemNo }) => {
                 const rate = effRate(l);
+                const flag = sanityForCode(l.dsr_code, l.qty, builtUp);
+                const flagged = flag.level === "low" || flag.level === "high";
                 return (
                   <div key={l.id} className={cn("grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_4.5rem_3rem_5rem_5.5rem_auto] items-start gap-x-3 gap-y-1 py-2 border-b last:border-0",
                     !l.included && "opacity-40")}>
                     <input type="checkbox" className="mt-1" checked={l.included}
                       onChange={(e) => updateLine(l.id, { included: e.target.checked })} />
                     <div className="min-w-0">
-                      <div className="text-[11px] font-mono text-accent-foreground/70 mb-0.5">
-                        <span className="text-muted-foreground mr-1">{itemNo}</span>{l.dsr_code ?? "NS · rate to be analysed"}
+                      <div className="text-[11px] font-mono text-accent-foreground/70 mb-0.5 flex items-center gap-1">
+                        <span className="text-muted-foreground">{itemNo}</span>{l.dsr_code ?? "NS · rate to be analysed"}
+                        {flagged && (
+                          <span className="inline-flex items-center gap-0.5 text-amber-600 dark:text-amber-500 font-sans" title={flag.message ?? ""}>
+                            <AlertTriangle className="h-3 w-3" />{flag.level}
+                          </span>
+                        )}
                       </div>
                       <div className="text-[13px] leading-snug text-foreground/90">{l.description}</div>
                     </div>
