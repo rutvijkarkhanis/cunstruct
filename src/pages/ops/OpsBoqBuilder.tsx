@@ -144,8 +144,8 @@ export default function OpsBoqBuilder() {
     setBusy(true);
     try {
       const generated = generateForDiscipline(boq.discipline ?? "civil", boq.spec ?? {}, {
-        area_sqft: project?.area_sqft ?? Number((boq.spec as Spec)?._area_sqft) || null,
-        floors: project?.floors ?? Number((boq.spec as Spec)?._floors) || null,
+        area_sqft: project?.area_sqft ?? (Number((boq.spec as Spec)?._area_sqft) || null),
+        floors: project?.floors ?? (Number((boq.spec as Spec)?._floors) || null),
       }, hasRooms ? dims : undefined);
       // Fetch the live DSR rows for exactly the codes we need (not a capped
       // load-all), so every generated line resolves its description/unit/rate.
@@ -242,7 +242,7 @@ export default function OpsBoqBuilder() {
     [lines]);
 
   // Built-up area drives the sanity bands (project first, else the spec anchor).
-  const builtUp = project?.area_sqft ?? Number((boq?.spec as Spec)?._area_sqft) || 0;
+  const builtUp = project?.area_sqft ?? (Number((boq?.spec as Spec)?._area_sqft) || 0);
   const flaggedCount = useMemo(() => countFlagged(lines, builtUp), [lines, builtUp]);
 
   // "Make" (margin) = quote − your cost, per line and overall.
