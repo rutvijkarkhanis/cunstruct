@@ -8,11 +8,13 @@ import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
 import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, type QuoteSubHead, type CsvRow } from "@/lib/boqDsrDocument";
 import { openIntakeForm } from "@/lib/boqIntakeForm";
 import { sanityForCode, countFlagged } from "@/lib/boqSanity";
-import type { Spec } from "@/lib/boqSpec";
+import { BOQ_SPEC, type Spec, type SpecValue, type SpecField } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search, Layers, FileDown, Sheet, Ruler, ClipboardList, Percent, AlertTriangle, Eye, Presentation } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -32,6 +34,12 @@ interface RoomRow {
   length_ft: number; width_ft: number; height_ft: number; count: number; electrical_points: number;
 }
 const ROOM_TYPES = ["room", "bedroom", "living", "kitchen", "bathroom", "balcony", "utility", "pooja"];
+
+// The high-impact assumptions worth confirming with the contractor — the few
+// choices that actually move the number. Shown as plain-language cards.
+const CONFIRM_KEYS = ["quality_tier", "living_floor", "windows", "main_door", "false_ceiling", "cp_tier", "wp_terrace", "compound_wall"];
+const FIELD_BY_KEY: Record<string, SpecField> = {};
+for (const s of BOQ_SPEC) for (const f of s.fields) FIELD_BY_KEY[f.key] = f;
 
 const inr = (n: number) => "₹" + Math.round(n).toLocaleString("en-IN");
 
@@ -151,13 +159,13 @@ export default function OpsBoqBuilder() {
     );
   }, [lines, coeffs]);
 
-  const generate = async () => {
+  const runGenerate = async (useSpec: Spec) => {
     if (!boq) return;
     setBusy(true);
     try {
-      const generated = generateForDiscipline(boq.discipline ?? "civil", boq.spec ?? {}, {
-        area_sqft: project?.area_sqft ?? (Number((boq.spec as Spec)?._area_sqft) || null),
-        floors: project?.floors ?? (Number((boq.spec as Spec)?._floors) || null),
+      const generated = generateForDiscipline(boq.discipline ?? "civil", useSpec, {
+        area_sqft: project?.area_sqft ?? (Number(useSpec._area_sqft) || null),
+        floors: project?.floors ?? (Number(useSpec._floors) || null),
       }, hasRooms ? dims : undefined);
       // Fetch the live DSR rows for exactly the codes we need (not a capped
       // load-all), so every generated line resolves its description/unit/rate.
@@ -190,6 +198,17 @@ export default function OpsBoqBuilder() {
     } finally {
       setBusy(false);
     }
+  };
+  const generate = () => runGenerate(boq?.spec ?? {});
+
+  // Confirm queue: change one assumption and re-draft from it (the contractor
+  // reacts to a guess instead of filling a form).
+  const confirmChange = async (key: string, value: SpecValue) => {
+    if (!boq) return;
+    const newSpec = { ...(boq.spec ?? {}), [key]: value };
+    await supabase.from("boq").update({ spec: newSpec }).eq("id", id);
+    qc.setQueryData(["boq", id], (old: typeof boq | undefined) => (old ? { ...old, spec: newSpec } : old));
+    await runGenerate(newSpec);
   };
 
   // Output before input: a brand-new BOQ generates its draft on arrival, so you
@@ -448,6 +467,37 @@ export default function OpsBoqBuilder() {
           </Button>
         </div>
       </div>
+
+      {boq.discipline === "civil" && lines.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Confirm with the contractor</CardTitle>
+            <p className="text-xs text-muted-foreground">We assumed these — change any and the BOQ updates.</p>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {CONFIRM_KEYS.map((k) => {
+              const f = FIELD_BY_KEY[k];
+              if (!f) return null;
+              const v = (boq.spec as Spec)?.[k];
+              return (
+                <div key={k} className="flex items-center justify-between gap-2 rounded-md border px-3 py-1.5">
+                  <span className="text-sm">{f.label}</span>
+                  {f.type === "toggle" ? (
+                    <Switch checked={!!v} onCheckedChange={(c) => confirmChange(k, c)} />
+                  ) : (
+                    <Select value={(v as string) ?? undefined} onValueChange={(val) => confirmChange(k, val)}>
+                      <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {f.options!.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md bg-muted/40 px-3 py-2 text-sm">
         <span className="text-muted-foreground font-medium">Abstract</span>
