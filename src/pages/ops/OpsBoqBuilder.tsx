@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search, Layers, FileDown, Sheet, Ruler, ClipboardList, Percent, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search, Layers, FileDown, Sheet, Ruler, ClipboardList, Percent, AlertTriangle, Eye, Presentation } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DsrItem { id: string; code: string; description: string | null; unit: string | null; rate: number | null; chapter: string | null; }
@@ -44,6 +44,18 @@ export default function OpsBoqBuilder() {
   const [showBrowser, setShowBrowser] = useState(false);
   const [view, setView] = useState<"lines" | "make" | "materials">("lines");
   const [targetMargin, setTargetMargin] = useState(15);
+  // Present mode: strip every operator-only element so the screen can be turned
+  // to the contractor. Toggle with the button or the "p" key.
+  const [present, setPresent] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "p" && !e.metaKey && !e.ctrlKey && !(e.target as HTMLElement)?.closest("input,textarea,select,[contenteditable]")) {
+        setPresent((p) => !p);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const { data: boq } = useQuery({
     queryKey: ["boq", id],
@@ -370,22 +382,28 @@ export default function OpsBoqBuilder() {
             <Badge>{disciplineByKey(boq.discipline).name}</Badge>
             {project?.name ?? "Standalone"} · {lines.length} lines · <Badge variant="outline">{boq.status}</Badge>
           </p>
-          <p className="text-xs mt-0.5 flex items-center gap-2 flex-wrap">
-            {hasRooms
-              ? <span className="text-emerald-600 dark:text-emerald-400">Quantities from {rooms.length} rooms · {dims.floorAreaSqft.toLocaleString("en-IN")} sqft measured</span>
-              : <span className="text-amber-600 dark:text-amber-500">Quantities estimated from built-up area — add rooms for accuracy</span>}
-            {flaggedCount > 0 && (
-              <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-500">
-                <AlertTriangle className="h-3 w-3" />{flaggedCount} to review
-              </span>
-            )}
-          </p>
+          {!present && (
+            <p className="text-xs mt-0.5 flex items-center gap-2 flex-wrap">
+              {hasRooms
+                ? <span className="text-emerald-600 dark:text-emerald-400">Quantities from {rooms.length} rooms · {dims.floorAreaSqft.toLocaleString("en-IN")} sqft measured</span>
+                : <span className="text-amber-600 dark:text-amber-500">Quantities estimated from built-up area — add rooms for accuracy</span>}
+              {flaggedCount > 0 && (
+                <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-500">
+                  <AlertTriangle className="h-3 w-3" />{flaggedCount} to review
+                </span>
+              )}
+            </p>
+          )}
         </div>
+        <Button variant={present ? "default" : "outline"} size="sm" onClick={() => setPresent((p) => !p)}
+          title="Toggle a clean, contractor-facing view (or press P)">
+          {present ? <><Eye className="h-4 w-4 mr-2" />Exit present</> : <><Presentation className="h-4 w-4 mr-2" />Present</>}
+        </Button>
         <div className="text-right">
-          <div className="text-xs text-muted-foreground">Grand total (incl. GST)</div>
+          <div className="text-xs text-muted-foreground">{present ? "Estimate (incl. GST)" : "Grand total (incl. GST)"}</div>
           <div className="text-xl font-semibold">{inr(commercials.grandTotal)}</div>
-          <div className="text-xs text-muted-foreground">works {inr(total)}</div>
-          {make.hasCost && (
+          {!present && <div className="text-xs text-muted-foreground">works {inr(total)}</div>}
+          {!present && make.hasCost && (
             <div className={cn("text-xs font-medium", make.marginPct >= targetMargin ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-500")}>
               make {inr(make.make)} · {make.marginPct.toFixed(1)}%
             </div>
@@ -393,6 +411,7 @@ export default function OpsBoqBuilder() {
         </div>
       </div>
 
+      {!present && (<>
       <div className="flex flex-wrap items-center gap-2">
         <Button onClick={generate} disabled={busy}>
           {busy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Wand2 className="h-4 w-4 mr-2" />}
@@ -458,8 +477,9 @@ export default function OpsBoqBuilder() {
           onBlur={(e) => saveCommercials({ _firm_tagline: e.target.value.trim() })} />
         <span className="text-xs text-muted-foreground">Appears on the exported BOQ instead of Cunstruct</span>
       </div>
+      </>)}
 
-      {showRooms && boq.project_id && (
+      {!present && showRooms && boq.project_id && (
         <Card>
           <CardHeader className="pb-2 flex-row items-center justify-between">
             <div>
@@ -512,7 +532,7 @@ export default function OpsBoqBuilder() {
         </Card>
       )}
 
-      {showBrowser && (
+      {!present && showBrowser && (
         <Card>
           <CardHeader className="pb-2">
             <div className="relative">
@@ -541,7 +561,7 @@ export default function OpsBoqBuilder() {
         </Card>
       )}
 
-      {view === "make" ? (
+      {!present && view === "make" ? (
         <Card>
           <CardHeader className="pb-2 flex-row items-center justify-between gap-3">
             <div>
@@ -594,7 +614,7 @@ export default function OpsBoqBuilder() {
             </div>
           </CardContent>
         </Card>
-      ) : view === "materials" ? (
+      ) : !present && view === "materials" ? (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Material &amp; labour schedule</CardTitle>
@@ -647,9 +667,26 @@ export default function OpsBoqBuilder() {
             </CardHeader>
             <CardContent className="space-y-0">
               {rows.map(({ line: l, no: itemNo }) => {
+                if (present && !l.included) return null;
                 const rate = effRate(l);
+                const qtyTxt = l.qty.toLocaleString("en-IN", { maximumFractionDigits: 2 });
                 const flag = sanityForCode(l.dsr_code, l.qty, builtUp);
-                const flagged = flag.level === "low" || flag.level === "high";
+                const flagged = !present && (flag.level === "low" || flag.level === "high");
+                // Present: a clean, contractor-facing row — item · qty · unit · rate · amount.
+                if (present) {
+                  return (
+                    <div key={l.id} className="grid grid-cols-[1fr_4.5rem_3rem_5.5rem_6rem] items-start gap-x-3 py-1.5 border-b last:border-0">
+                      <div className="min-w-0">
+                        <span className="text-[11px] font-mono text-muted-foreground mr-1">{itemNo}</span>
+                        <span className="text-[13px] leading-snug text-foreground/90">{l.description}</span>
+                      </div>
+                      <span className="text-sm tabular-nums text-right">{qtyTxt}</span>
+                      <span className="text-xs text-muted-foreground">{l.unit}</span>
+                      <span className="text-sm tabular-nums text-right">{rate != null ? inr(rate) : "—"}</span>
+                      <span className="text-sm tabular-nums text-right font-medium">{rate != null ? inr(l.qty * rate) : "—"}</span>
+                    </div>
+                  );
+                }
                 return (
                   <div key={l.id} className={cn("grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_4.5rem_3rem_5rem_5.5rem_auto] items-start gap-x-3 gap-y-1 py-2 border-b last:border-0",
                     !l.included && "opacity-40")}>
