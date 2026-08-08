@@ -16,7 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search, Layers, FileDown, Sheet, Ruler, ClipboardList, Percent, AlertTriangle, Eye, Presentation } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search, Layers, FileDown, Sheet, Ruler, ClipboardList, Percent, AlertTriangle, Eye, Presentation, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DsrItem { id: string; code: string; description: string | null; unit: string | null; rate: number | null; chapter: string | null; }
@@ -150,14 +150,18 @@ export default function OpsBoqBuilder() {
     },
   });
 
-  const schedule = useMemo(() => {
-    const byCode = new Map<string, Coefficient[]>();
-    for (const c of coeffs) { const a = byCode.get(c.item_code) ?? []; a.push(c); byCode.set(c.item_code, a); }
-    return explodeMaterials(
-      lines.map((l) => ({ dsr_code: l.dsr_code, qty: l.qty, included: l.included })),
-      byCode,
-    );
-  }, [lines, coeffs]);
+  const coeffsByCode = useMemo(() => {
+    const m = new Map<string, Coefficient[]>();
+    for (const c of coeffs) { const a = m.get(c.item_code) ?? []; a.push(c); m.set(c.item_code, a); }
+    return m;
+  }, [coeffs]);
+
+  const schedule = useMemo(() => explodeMaterials(
+    lines.map((l) => ({ dsr_code: l.dsr_code, qty: l.qty, included: l.included })),
+    coeffsByCode,
+  ), [lines, coeffsByCode]);
+
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   const runGenerate = async (useSpec: Spec) => {
     if (!boq) return;
@@ -737,34 +741,64 @@ export default function OpsBoqBuilder() {
                     </div>
                   );
                 }
+                const isExp = expanded === l.id;
+                const breakdown = l.dsr_code ? (coeffsByCode.get(l.dsr_code) ?? []) : [];
                 return (
-                  <div key={l.id} className={cn("grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_4.5rem_3rem_5rem_5.5rem_auto] items-start gap-x-3 gap-y-1 py-2 border-b last:border-0",
-                    !l.included && "opacity-40")}>
-                    <input type="checkbox" className="mt-1" checked={l.included}
-                      onChange={(e) => updateLine(l.id, { included: e.target.checked })} />
-                    <div className="min-w-0">
-                      <div className="text-[11px] font-mono text-accent-foreground/70 mb-0.5 flex items-center gap-1">
-                        <span className="text-muted-foreground">{itemNo}</span>{l.dsr_code ?? "NS · rate to be analysed"}
-                        {flagged && (
-                          <span className="inline-flex items-center gap-0.5 text-amber-600 dark:text-amber-500 font-sans" title={flag.message ?? ""}>
-                            <AlertTriangle className="h-3 w-3" />{flag.level}
-                          </span>
-                        )}
+                  <div key={l.id} className={cn("border-b last:border-0", !l.included && "opacity-40")}>
+                    <div className="grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_4.5rem_3rem_5rem_5.5rem_auto] items-start gap-x-3 gap-y-1 py-2">
+                      <input type="checkbox" className="mt-1" checked={l.included}
+                        onChange={(e) => updateLine(l.id, { included: e.target.checked })} />
+                      <div className="min-w-0 cursor-pointer" onClick={() => setExpanded(isExp ? null : l.id)} title="Show how this line is derived">
+                        <div className="text-[11px] font-mono text-accent-foreground/70 mb-0.5 flex items-center gap-1">
+                          <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform", isExp && "rotate-180")} />
+                          <span className="text-muted-foreground">{itemNo}</span>{l.dsr_code ?? "NS · rate to be analysed"}
+                          {flagged && (
+                            <span className="inline-flex items-center gap-0.5 text-amber-600 dark:text-amber-500 font-sans" title={flag.message ?? ""}>
+                              <AlertTriangle className="h-3 w-3" />{flag.level}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[13px] leading-snug text-foreground/90">{l.description}</div>
                       </div>
-                      <div className="text-[13px] leading-snug text-foreground/90">{l.description}</div>
+                      <Input type="number" className="h-8 hidden sm:block" defaultValue={l.qty}
+                        onBlur={(e) => { const v = Number(e.target.value); if (v !== l.qty) updateLine(l.id, { qty: v }); }} />
+                      <span className="text-xs text-muted-foreground hidden sm:block pt-2">{l.unit}</span>
+                      <Input type="number" className="h-8 hidden sm:block" defaultValue={rate ?? ""} placeholder="rate"
+                        title={l.custom_rate != null ? "Your rate (overrides DSR)" : "DSR reference rate — edit to set your rate"}
+                        onBlur={(e) => { const v = e.target.value === "" ? null : Number(e.target.value); if (v !== rate) updateLine(l.id, { custom_rate: v }); }} />
+                      <span className="text-sm tabular-nums text-right hidden sm:block pt-1.5">
+                        {rate != null ? inr(l.qty * rate) : "—"}
+                      </span>
+                      <Button size="sm" variant="ghost" className="h-7" onClick={() => removeLine(l.id)}>
+                        <Trash2 className="h-4 w-4 text-muted-foreground" />
+                      </Button>
                     </div>
-                    <Input type="number" className="h-8 hidden sm:block" defaultValue={l.qty}
-                      onBlur={(e) => { const v = Number(e.target.value); if (v !== l.qty) updateLine(l.id, { qty: v }); }} />
-                    <span className="text-xs text-muted-foreground hidden sm:block pt-2">{l.unit}</span>
-                    <Input type="number" className="h-8 hidden sm:block" defaultValue={rate ?? ""} placeholder="rate"
-                      title={l.custom_rate != null ? "Your rate (overrides DSR)" : "DSR reference rate — edit to set your rate"}
-                      onBlur={(e) => { const v = e.target.value === "" ? null : Number(e.target.value); if (v !== rate) updateLine(l.id, { custom_rate: v }); }} />
-                    <span className="text-sm tabular-nums text-right hidden sm:block pt-1.5">
-                      {rate != null ? inr(l.qty * rate) : "—"}
-                    </span>
-                    <Button size="sm" variant="ghost" className="h-7" onClick={() => removeLine(l.id)}>
-                      <Trash2 className="h-4 w-4 text-muted-foreground" />
-                    </Button>
+                    {isExp && (
+                      <div className="ml-6 mb-2 rounded-md bg-muted/40 border p-3 text-xs space-y-2">
+                        <div className="flex gap-x-5 gap-y-1 flex-wrap">
+                          <span><span className="text-muted-foreground">Code </span><b>{l.dsr_code ?? "Non-schedule"}</b></span>
+                          <span><span className="text-muted-foreground">Qty </span>{l.qty.toLocaleString("en-IN", { maximumFractionDigits: 2 })} {l.unit}</span>
+                          <span><span className="text-muted-foreground">Rate </span>{l.dsr_rate != null ? inr(l.dsr_rate) : "—"}{l.custom_rate != null && <span className="text-emerald-600 dark:text-emerald-400"> → your {inr(l.custom_rate)}</span>}</span>
+                          <span><span className="text-muted-foreground">Amount </span><b>{rate != null ? inr(l.qty * rate) : "—"}</b></span>
+                        </div>
+                        {flag.message && <div className="text-amber-600 dark:text-amber-500">{flag.message}</div>}
+                        {breakdown.length > 0 && (
+                          <div>
+                            <div className="text-muted-foreground mb-1">Consumes (per AOR × {l.qty.toLocaleString("en-IN", { maximumFractionDigits: 2 })} {l.unit}):</div>
+                            <div className="grid grid-cols-[1fr_5rem_3rem] gap-x-3 gap-y-0.5">
+                              {breakdown.map((c, ci) => (
+                                <div key={ci} className="contents">
+                                  <span className="truncate">{c.resource}</span>
+                                  <span className="text-right tabular-nums">{(c.qty * l.qty).toLocaleString("en-IN", { maximumFractionDigits: 2 })}</span>
+                                  <span className="text-muted-foreground">{c.unit}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {!l.dsr_code && <div className="text-muted-foreground">Non-schedule item — rate to be set case-by-case.</div>}
+                      </div>
+                    )}
                   </div>
                 );
               })}
