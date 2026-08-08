@@ -16,7 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search, Layers, FileDown, Sheet, Ruler, ClipboardList, Percent, AlertTriangle, Eye, Presentation, ChevronDown } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search, Layers, FileDown, Sheet, Ruler, ClipboardList, Percent, AlertTriangle, Eye, Presentation, ChevronDown, UserCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DsrItem { id: string; code: string; description: string | null; unit: string | null; rate: number | null; chapter: string | null; }
@@ -69,9 +69,9 @@ export default function OpsBoqBuilder() {
     queryKey: ["boq", id],
     queryFn: async () => {
       const { data, error } = await supabase.from("boq")
-        .select("id, name, status, project_id, spec, discipline").eq("id", id).single();
+        .select("id, name, status, project_id, spec, discipline, contractor_id").eq("id", id).single();
       if (error) throw error;
-      return data as { id: string; name: string; status: string; project_id: string | null; spec: Spec; discipline: string };
+      return data as { id: string; name: string; status: string; project_id: string | null; spec: Spec; discipline: string; contractor_id: string | null };
     },
     enabled: !!id,
   });
@@ -84,6 +84,15 @@ export default function OpsBoqBuilder() {
       return data as { id: string; name: string; area_sqft: number | null; floors: number | null; client_name: string | null; location: string | null; project_type: string | null; scope: string | null } | null;
     },
     enabled: !!boq?.project_id,
+  });
+
+  const { data: contractor } = useQuery({
+    queryKey: ["boq-contractor", boq?.contractor_id],
+    enabled: !!boq?.contractor_id,
+    queryFn: async () => {
+      const { data } = await supabase.from("contractor_profile").select("id, name").eq("id", boq!.contractor_id!).single();
+      return data as { id: string; name: string } | null;
+    },
   });
 
   // Room-by-room dimensions drive accurate quantities (falls back to built-up
@@ -311,6 +320,16 @@ export default function OpsBoqBuilder() {
     qc.invalidateQueries({ queryKey: ["boq", id] });
   };
 
+  // Contractor memory: save this BOQ's choices as the contractor's usual (explicit,
+  // never silent — the operator decides when a preference is worth remembering).
+  const saveDefaults = async () => {
+    if (!boq?.contractor_id) return;
+    const { error } = await supabase.from("contractor_profile")
+      .update({ spec: boq.spec, updated_at: new Date().toISOString() }).eq("id", boq.contractor_id);
+    if (error) toast.error(error.message);
+    else toast.success(`Saved ${contractor?.name ?? "contractor"}'s usual choices`);
+  };
+
   // ---- Rooms editor (drives accurate quantities) --------------------------
   const [showRooms, setShowRooms] = useState(false);
   const [roomDraft, setRoomDraft] = useState<RoomRow[] | null>(null);
@@ -403,6 +422,7 @@ export default function OpsBoqBuilder() {
           <h1 className="text-lg font-semibold">{boq.name}</h1>
           <p className="text-sm text-muted-foreground flex items-center gap-1.5 flex-wrap">
             <Badge>{disciplineByKey(boq.discipline).name}</Badge>
+            {contractor && <Badge variant="secondary">{contractor.name}</Badge>}
             {project?.name ?? "Standalone"} · {lines.length} lines · <Badge variant="outline">{boq.status}</Badge>
           </p>
           {!present && (
@@ -451,6 +471,11 @@ export default function OpsBoqBuilder() {
         <Button variant="outline" onClick={() => printIntake(false)} title="Printable project details form — pre-filled where known, blank lines to complete by hand">
           <ClipboardList className="h-4 w-4 mr-2" />Intake form
         </Button>
+        {boq.contractor_id && (
+          <Button variant="outline" onClick={saveDefaults} title="Remember these choices for next time">
+            <UserCheck className="h-4 w-4 mr-2" />Save {contractor?.name ?? "contractor"}'s usual
+          </Button>
+        )}
         <Button variant="outline" onClick={() => exportQuote(false)} disabled={lines.length === 0}>
           <FileDown className="h-4 w-4 mr-2" />Export quote
         </Button>

@@ -36,11 +36,29 @@ export default function OpsBoqNew() {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(!!urlProjectId);
 
+  // Contractor memory
+  const [contractors, setContractors] = useState<{ id: string; name: string; spec: Spec }[]>([]);
+  const [contractorId, setContractorId] = useState<string | null>(null);
+  const [newContractor, setNewContractor] = useState("");
+
   useEffect(() => {
     if (urlProjectId) return;
     supabase.from("projects").select("id, name").order("created_at", { ascending: false })
       .then(({ data }) => { if (data) setProjects(data); });
   }, [urlProjectId]);
+
+  useEffect(() => {
+    supabase.from("contractor_profile").select("id, name, spec").order("name")
+      .then(({ data }) => { if (data) setContractors(data as { id: string; name: string; spec: Spec }[]); });
+  }, []);
+
+  // Applying a contractor overlays their usual choices on top of the archetype.
+  const pickContractor = (id: string) => {
+    setContractorId(id);
+    setNewContractor("");
+    const c = contractors.find((x) => x.id === id);
+    if (c) setSpec((s) => ({ ...s, ...c.spec }));
+  };
 
   useEffect(() => {
     if (!selectedProjectId) { setProject(null); return; }
@@ -102,8 +120,15 @@ export default function OpsBoqNew() {
     setBusy(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      // Resolve the contractor: existing selection, or create from a typed name.
+      let cid = contractorId;
+      if (!cid && newContractor.trim()) {
+        const { data: c } = await supabase.from("contractor_profile")
+          .insert({ name: newContractor.trim(), spec, created_by: user?.id }).select("id").single();
+        cid = c?.id ?? null;
+      }
       const { data, error } = await supabase.from("boq").insert({
-        project_id: selectedProjectId, name, spec, discipline, created_by: user?.id,
+        project_id: selectedProjectId, name, spec, discipline, contractor_id: cid, created_by: user?.id,
       }).select("id").single();
       if (error) throw error;
       // Land on the builder — it generates the draft on arrival (output before input).
@@ -187,6 +212,32 @@ export default function OpsBoqNew() {
             </SelectContent>
           </Select>
         </div>
+      </div>
+
+      {/* Contractor memory — pick a known contractor to pre-fill their usual choices */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs text-muted-foreground">Contractor</Label>
+          <Select value={contractorId ?? "none"} onValueChange={(v) => v === "none" ? setContractorId(null) : pickContractor(v)}>
+            <SelectTrigger><SelectValue placeholder="New / none" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">New / none</SelectItem>
+              {contractors.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        {!contractorId && (
+          <div>
+            <Label className="text-xs text-muted-foreground">…or add a new contractor</Label>
+            <Input value={newContractor} placeholder="Contractor name (saves their choices)"
+              onChange={(e) => setNewContractor(e.target.value)} />
+          </div>
+        )}
+        {contractorId && (
+          <div className="flex items-end text-xs text-emerald-600 dark:text-emerald-400 pb-2">
+            Pre-filled {contractors.find((c) => c.id === contractorId)?.name}'s usual choices — change any below.
+          </div>
+        )}
       </div>
 
       {!urlProjectId && (
