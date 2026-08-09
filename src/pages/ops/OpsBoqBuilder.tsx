@@ -35,13 +35,86 @@ interface RoomRow {
 }
 const ROOM_TYPES = ["room", "bedroom", "living", "kitchen", "bathroom", "balcony", "utility", "pooja"];
 
-// The high-impact assumptions worth confirming with the contractor — the few
-// choices that actually move the number. Shown as plain-language cards.
-const CONFIRM_KEYS = ["quality_tier", "living_floor", "windows", "main_door", "false_ceiling", "cp_tier", "wp_terrace", "compound_wall"];
+// The assumptions worth confirming, triaged so the queue reads like a triage,
+// not a questionnaire:
+//   must    — moves the number most; always asked (keep ≤4)
+//   default — pre-filled; shown as a summary line, expand only if wrong
+//   defer   — client-owned; keep a provisional value, mark "client will decide"
+type ConfirmTier = "must" | "default" | "defer";
+const CONFIRM_TIERS: { key: string; tier: ConfirmTier }[] = [
+  { key: "quality_tier", tier: "must" },
+  { key: "structure", tier: "must" },
+  { key: "compound_wall", tier: "must" },
+  { key: "windows", tier: "default" },
+  { key: "main_door", tier: "default" },
+  { key: "cp_tier", tier: "default" },
+  { key: "wp_terrace", tier: "default" },
+  { key: "living_floor", tier: "defer" },
+  { key: "false_ceiling", tier: "defer" },
+];
 const FIELD_BY_KEY: Record<string, SpecField> = {};
 for (const s of BOQ_SPEC) for (const f of s.fields) FIELD_BY_KEY[f.key] = f;
 
 const inr = (n: number) => "₹" + Math.round(n).toLocaleString("en-IN");
+
+// A single reversible change to the estimate — the unit of the session ledger.
+// Kept in memory for the meeting (defensible audit persistence is a P1).
+interface EstimateChange {
+  id: string; seq: number;
+  kind: "line" | "assumption" | "add" | "remove" | "commercial";
+  label: string; detail?: string;
+  totalBefore: number; totalAfter: number; delta: number;
+  forward: () => Promise<void>;   // (re-)apply
+  backward: () => Promise<void>;  // undo
+  at: number;
+}
+
+// Scope-first estimate framing so the headline number can never be misread as
+// the whole-project cost. A civil-only draft says so, on the same beat.
+function scopeLine(discipline: string): string {
+  if (discipline === "civil") return "Plumbing & electrical priced separately";
+  return "Civil & other trades priced separately";
+}
+function floorsLabel(floors: number | null | undefined): string | null {
+  if (!floors || floors < 1) return null;
+  return floors === 1 ? "Ground floor" : `G+${floors - 1}`;
+}
+const TIER_LABEL: Record<string, string> = { economy: "Basic finish", standard: "Standard finish", premium: "Premium finish" };
+
+// Count the headline number up on change — the frame lands with it, never a
+// naked figure. Respects reduced-motion.
+function useCountUp(value: number, ms = 450): number {
+  const [display, setDisplay] = useState(value);
+  const fromRef = useRef(value);
+  const startRef = useRef<number | null>(null);
+  useEffect(() => {
+    const reduced = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    if (reduced || value === fromRef.current) { setDisplay(value); fromRef.current = value; return; }
+    const from = fromRef.current;
+    let raf = 0;
+    const tick = (t: number) => {
+      if (startRef.current == null) startRef.current = t;
+      const p = Math.min(1, (t - startRef.current) / ms);
+      const eased = 1 - Math.pow(1 - p, 3);
+      setDisplay(from + (value - from) * eased);
+      if (p < 1) raf = requestAnimationFrame(tick);
+      else { fromRef.current = value; startRef.current = null; }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value, ms]);
+  return display;
+}
+
+const shortDesc = (l: { dsr_code: string | null; description: string | null }) =>
+  (l.description ?? l.dsr_code ?? "Line").slice(0, 30);
+
+// Level-2 "Why?" — the plain-language basis behind a line's quantity.
+function tierBasis(spec: Spec): string {
+  const struct = spec.structure === "load_bearing" ? "load-bearing" : "RCC-frame";
+  const tier = (TIER_LABEL[String(spec.quality_tier ?? "standard")] ?? "standard finish").toLowerCase();
+  return `Standard ${struct} assumption at ${tier}. The quantity scales with built-up area — change the quality tier or the quantity to adjust.`;
+}
 
 export default function OpsBoqBuilder() {
   const { id } = useParams<{ id: string }>();
@@ -53,17 +126,86 @@ export default function OpsBoqBuilder() {
   const [view, setView] = useState<"lines" | "make" | "materials">("lines");
   const [targetMargin, setTargetMargin] = useState(15);
   // Present mode: strip every operator-only element so the screen can be turned
-  // to the contractor. Toggle with the button or the "p" key.
+  // to the contractor. Entering is a deliberate act ("Show to client" or the "p"
+  // key); leaving needs an explicit Exit / Esc so a stray key can never flip
+  // internal figures back in front of the client mid-conversation.
   const [present, setPresent] = useState(false);
+  const enterPresent = () => { setView("lines"); setPresent(true); };
+  const exitPresent = () => setPresent(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "p" && !e.metaKey && !e.ctrlKey && !(e.target as HTMLElement)?.closest("input,textarea,select,[contenteditable]")) {
-        setPresent((p) => !p);
-      }
+      const inField = !!(e.target as HTMLElement)?.closest("input,textarea,select,[contenteditable]");
+      if (e.metaKey || e.ctrlKey || inField) return;
+      if (e.key === "p") { setView("lines"); setPresent(true); }   // p enters client view only
+      else if (e.key === "Escape") setPresent(false);              // explicit exit
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // Change ledger (in-memory, per meeting) — every assumption/rate/quantity move
+  // is recorded with its rupee delta, so the final number is defensible and any
+  // step is reversible. Entries [0,cursor) are applied; [cursor,) is the redo stack.
+  const [changes, setChanges] = useState<EstimateChange[]>([]);
+  const [cursor, setCursor] = useState(0);
+  const [firstTotal, setFirstTotal] = useState<number | null>(null);
+  const [showLedger, setShowLedger] = useState(true);
+  const [showDefaults, setShowDefaults] = useState(false);
+  const seqRef = useRef(0);
+
+  const fetchLinesNow = async (): Promise<BoqLine[]> => {
+    const { data } = await supabase.from("boq_line")
+      .select("id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, cost, included, source, sort")
+      .eq("boq_id", id).order("sort");
+    return (data ?? []) as BoqLine[];
+  };
+  const fetchSpecNow = async (): Promise<Spec> => {
+    const { data } = await supabase.from("boq").select("spec").eq("id", id).single();
+    return (data?.spec ?? {}) as Spec;
+  };
+  const grandOf = (ls: BoqLine[], sp: Spec) => {
+    const works = ls.filter((l) => l.included).reduce((s, l) => s + l.qty * (effRate(l) ?? 0), 0);
+    const pct = (k: string, d: number) => Number(sp[k] ?? d);
+    return computeCommercials(works, {
+      costIndexPct: pct("_cost_index_pct", 0), contingencyPct: pct("_contingency_pct", 3),
+      overheadPct: pct("_overhead_pct", 15), cessPct: pct("_cess_pct", 1), gstPct: pct("_gst_pct", 18),
+    }).grandTotal;
+  };
+  const setSpecKeys = async (patch: Spec): Promise<Spec> => {
+    const newSpec = { ...(await fetchSpecNow()), ...patch };
+    await supabase.from("boq").update({ spec: newSpec }).eq("id", id);
+    qc.setQueryData(["boq", id], (old: typeof boq | undefined) => (old ? { ...old, spec: newSpec } : old));
+    return newSpec;
+  };
+  // Wrap any mutation so it lands in the ledger with an honest before/after delta.
+  const commit = async (meta: { kind: EstimateChange["kind"]; label: string; detail?: string; forward: () => Promise<void>; backward: () => Promise<void> }) => {
+    const before = grandOf(await fetchLinesNow(), await fetchSpecNow());
+    await meta.forward();
+    const after = grandOf(await fetchLinesNow(), await fetchSpecNow());
+    const change: EstimateChange = {
+      id: crypto.randomUUID(), seq: ++seqRef.current, kind: meta.kind, label: meta.label, detail: meta.detail,
+      totalBefore: before, totalAfter: after, delta: after - before, forward: meta.forward, backward: meta.backward, at: Date.now(),
+    };
+    setChanges((prev) => [...prev.slice(0, cursor), change]);
+    setCursor((c) => c + 1);
+    setFirstTotal((t) => (t == null ? before : t));
+    if (Math.abs(change.delta) >= 1) {
+      const up = change.delta > 0;
+      toast(`${meta.label}${meta.detail ? " · " + meta.detail : ""}`, { description: `${up ? "+" : "−"}${inr(Math.abs(change.delta))}` });
+    }
+  };
+  const undo = async () => { if (cursor === 0 || busy) return; await changes[cursor - 1].backward(); setCursor(cursor - 1); };
+  const redo = async () => { if (cursor >= changes.length || busy) return; await changes[cursor].forward(); setCursor(cursor + 1); };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
+      if ((e.target as HTMLElement)?.closest("input,textarea,select,[contenteditable]")) return;
+      e.preventDefault();
+      if (e.shiftKey) redo(); else undo();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });  // rebind each render so undo/redo see fresh cursor/changes
 
   const { data: boq } = useQuery({
     queryKey: ["boq", id],
@@ -171,8 +313,12 @@ export default function OpsBoqBuilder() {
   ), [lines, coeffsByCode]);
 
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Progressive "Why?" — every line opens at Level 1 (a plain sentence) and the
+  // operator taps deeper only if asked. Resets whenever a different line opens.
+  const [whyLevel, setWhyLevel] = useState(1);
+  useEffect(() => { setWhyLevel(1); }, [expanded]);
 
-  const runGenerate = async (useSpec: Spec) => {
+  const runGenerate = async (useSpec: Spec, opts?: { silent?: boolean }) => {
     if (!boq) return;
     setBusy(true);
     try {
@@ -188,22 +334,39 @@ export default function OpsBoqBuilder() {
       if (dsrErr) throw dsrErr;
       const byDsrCode = new Map<string, { code: string; description: string | null; unit: string | null; rate: number | null; chapter: string | null }>();
       for (const r of dsrRows ?? []) byDsrCode.set(r.code, r);
+      // Regenerating changes QUANTITIES (what the spec drives) but must preserve
+      // the operator's own overrides — their rate, their cost, and any line they
+      // de-selected. Snapshot those (keyed by code + sub-head) before we delete,
+      // and re-apply them to the freshly generated rows. Without this, every
+      // "Confirm" silently wiped the estimator's rates.
+      const ovKey = (code: string | null, section: string | null) => `${code ?? ""}|${section ?? ""}`;
+      const { data: prevAuto } = await supabase.from("boq_line")
+        .select("dsr_code, section, custom_rate, cost, included").eq("boq_id", id).eq("source", "auto");
+      const overrides = new Map<string, { custom_rate: number | null; cost: number | null; included: boolean }>();
+      for (const p of (prevAuto ?? []) as { dsr_code: string | null; section: string | null; custom_rate: number | null; cost: number | null; included: boolean }[]) {
+        overrides.set(ovKey(p.dsr_code, p.section), { custom_rate: p.custom_rate, cost: p.cost, included: p.included });
+      }
       // Regenerate auto lines; keep anything the user added by hand.
       await supabase.from("boq_line").delete().eq("boq_id", id).eq("source", "auto");
       const rows = generated.map((g, i) => {
         const dsr = byDsrCode.get(g.code);   // exact code lookup
+        // section holds the DSR sub-head (type of work); the construction
+        // stage is derived from the code at render/export time.
+        const section = dsr?.chapter ?? g.section;
+        const ov = overrides.get(ovKey(g.code, section));
         return {
-          // section holds the DSR sub-head (type of work); the construction
-          // stage is derived from the code at render/export time.
-          boq_id: id, section: dsr?.chapter ?? g.section, dsr_code: g.code,
+          boq_id: id, section, dsr_code: g.code,
           description: dsr?.description ?? g.label,
           unit: dsr?.unit ?? g.unit, qty: g.qty, dsr_rate: dsr?.rate ?? null,
+          custom_rate: ov?.custom_rate ?? null,
+          cost: ov?.cost ?? null,
+          included: ov?.included ?? true,
           source: "auto", sort: i,
         };
       });
       const { error } = await supabase.from("boq_line").insert(rows);
       if (error) throw error;
-      toast.success(`Estimate ready — ${rows.length} items`);
+      if (!opts?.silent) toast.success(`Estimate ready — ${rows.length} items`);
       refetchLines();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Generation failed");
@@ -214,13 +377,32 @@ export default function OpsBoqBuilder() {
   const generate = () => runGenerate(boq?.spec ?? {});
 
   // Confirm queue: change one assumption and re-draft from it (the contractor
-  // reacts to a guess instead of filling a form).
+  // reacts to a guess instead of filling a form). Recorded in the ledger with the
+  // net rupee impact, and reversible.
   const confirmChange = async (key: string, value: SpecValue) => {
     if (!boq) return;
-    const newSpec = { ...(boq.spec ?? {}), [key]: value };
+    const prev = (boq.spec ?? {})[key];
+    const f = FIELD_BY_KEY[key];
+    const optLabel = (v: SpecValue) =>
+      f?.type === "toggle" ? (v ? "Yes" : "No") : (f?.options?.find((o) => o.value === v)?.label ?? String(v ?? "—"));
+    await commit({
+      kind: "assumption", label: f?.label ?? key, detail: `${optLabel(prev)} → ${optLabel(value)}`,
+      forward: async () => { const ns = await setSpecKeys({ [key]: value }); await runGenerate(ns, { silent: true }); },
+      backward: async () => { const ns = await setSpecKeys({ [key]: prev }); await runGenerate(ns, { silent: true }); },
+    });
+  };
+
+  // Defer a client-owned decision: keep the provisional value (so the total still
+  // holds) but mark it "client will decide". Stored as spec._deferred (an array in
+  // the jsonb — no schema change). No regenerate: the value hasn't changed.
+  const deferredKeys = (((boq?.spec as Record<string, unknown> | undefined)?._deferred as string[] | undefined) ?? []);
+  const toggleDefer = async (key: string) => {
+    if (!boq) return;
+    const cur = deferredKeys;
+    const next = cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key];
+    const newSpec = { ...(boq.spec ?? {}), _deferred: next } as unknown as Spec;
     await supabase.from("boq").update({ spec: newSpec }).eq("id", id);
     qc.setQueryData(["boq", id], (old: typeof boq | undefined) => (old ? { ...old, spec: newSpec } : old));
-    await runGenerate(newSpec);
   };
 
   // Output before input: a brand-new BOQ generates its draft on arrival, so you
@@ -235,23 +417,57 @@ export default function OpsBoqBuilder() {
   }, [boq, linesLoading, lines.length, busy]);
 
   const addFromCatalog = async (it: DsrItem) => {
-    const { error } = await supabase.from("boq_line").insert({
-      boq_id: id, section: it.chapter ?? "Other", dsr_code: it.code,
-      description: it.description, unit: it.unit, qty: 1, dsr_rate: it.rate,
-      source: "manual", sort: 999,
+    let newId: string | null = null;
+    await commit({
+      kind: "add", label: `Added ${it.code ?? shortDesc({ dsr_code: it.code, description: it.description })}`,
+      forward: async () => {
+        const { data, error } = await supabase.from("boq_line").insert({
+          boq_id: id, section: it.chapter ?? "Other", dsr_code: it.code,
+          description: it.description, unit: it.unit, qty: 1, dsr_rate: it.rate, source: "manual", sort: 999,
+        }).select("id").single();
+        if (error) { toast.error(error.message); return; }
+        newId = (data as { id: string }).id;
+        refetchLines();
+      },
+      backward: async () => { if (newId) { await supabase.from("boq_line").delete().eq("id", newId); refetchLines(); } },
     });
-    if (error) return toast.error(error.message);
-    toast.success(`Added ${it.code}`);
-    refetchLines();
   };
 
-  const updateLine = async (lineId: string, patch: Partial<BoqLine>) => {
+  const applyLinePatch = async (lineId: string, patch: Partial<BoqLine>) => {
     const { error } = await supabase.from("boq_line").update(patch).eq("id", lineId);
     if (error) toast.error(error.message); else refetchLines();
   };
+  const updateLine = async (lineId: string, patch: Partial<BoqLine>) => {
+    const line = lines.find((l) => l.id === lineId);
+    if (!line) { await applyLinePatch(lineId, patch); return; }
+    const prev: Partial<BoqLine> = {};
+    (Object.keys(patch) as (keyof BoqLine)[]).forEach((k) => { (prev as Record<string, unknown>)[k] = line[k]; });
+    let detail: string | undefined;
+    if ("custom_rate" in patch) { const r = effRate(line); detail = `rate ${r != null ? inr(r) : "—"} → ${patch.custom_rate != null ? inr(patch.custom_rate) : "—"}`; }
+    else if ("qty" in patch) detail = `${line.qty} → ${patch.qty} ${line.unit ?? ""}`.trim();
+    else if ("cost" in patch) detail = `cost ${patch.cost != null ? inr(patch.cost) : "—"}`;
+    else if ("included" in patch) detail = patch.included ? "included" : "removed from total";
+    await commit({
+      kind: "line", label: shortDesc(line), detail,
+      forward: async () => { await applyLinePatch(lineId, patch); },
+      backward: async () => { await applyLinePatch(lineId, prev); },
+    });
+  };
   const removeLine = async (lineId: string) => {
-    await supabase.from("boq_line").delete().eq("id", lineId);
-    refetchLines();
+    const line = lines.find((l) => l.id === lineId);
+    if (!line) { await supabase.from("boq_line").delete().eq("id", lineId); refetchLines(); return; }
+    await commit({
+      kind: "remove", label: `Removed ${line.dsr_code ?? shortDesc(line)}`,
+      forward: async () => { await supabase.from("boq_line").delete().eq("id", lineId); refetchLines(); },
+      backward: async () => {
+        await supabase.from("boq_line").insert({
+          id: line.id, boq_id: id, section: line.section, dsr_code: line.dsr_code, description: line.description,
+          unit: line.unit, qty: line.qty, dsr_rate: line.dsr_rate, custom_rate: line.custom_rate,
+          cost: line.cost, included: line.included, source: line.source, sort: line.sort,
+        });
+        refetchLines();
+      },
+    });
   };
 
   const sumIncl = (ls: BoqLine[]) => ls.filter((l) => l.included).reduce((s, l) => s + l.qty * (effRate(l) ?? 0), 0);
@@ -312,11 +528,23 @@ export default function OpsBoqBuilder() {
       gstPct: pct("_gst_pct", 18),
     });
   }, [total, spec]);
+  const displayGrand = useCountUp(commercials.grandTotal);
+  const netDelta = firstTotal != null ? commercials.grandTotal - firstTotal : 0;
 
   const saveCommercials = async (patch: Record<string, number | string>) => {
     if (!boq) return;
-    await supabase.from("boq").update({ spec: { ...(boq.spec ?? {}), ...patch } }).eq("id", id);
-    qc.invalidateQueries({ queryKey: ["boq", id] });
+    const keys = Object.keys(patch);
+    const isPct = keys.some((k) => k.endsWith("_pct"));
+    // Letterhead / tagline: no rupee impact — save quietly, don't clutter the ledger.
+    if (!isPct) { await setSpecKeys(patch as Spec); qc.invalidateQueries({ queryKey: ["boq", id] }); return; }
+    const prev: Record<string, SpecValue> = {};
+    keys.forEach((k) => { prev[k] = (boq.spec ?? {})[k]; });
+    const LABELS: Record<string, string> = { _cost_index_pct: "Cost index", _contingency_pct: "Contingency", _overhead_pct: "Overhead", _cess_pct: "Cess", _gst_pct: "GST" };
+    await commit({
+      kind: "commercial", label: LABELS[keys[0]] ?? "Commercials", detail: `${prev[keys[0]] ?? 0}% → ${patch[keys[0]]}%`,
+      forward: async () => { await setSpecKeys(patch as Spec); qc.invalidateQueries({ queryKey: ["boq", id] }); },
+      backward: async () => { await setSpecKeys(prev as Spec); qc.invalidateQueries({ queryKey: ["boq", id] }); },
+    });
   };
 
   // Contractor memory: save this BOQ's choices as the contractor's usual (explicit,
@@ -414,7 +642,15 @@ export default function OpsBoqBuilder() {
   if (!boq) return <div className="p-8 flex justify-center"><Loader2 className="animate-spin" /></div>;
 
   return (
-    <div className="max-w-5xl mx-auto p-4 md:p-6 space-y-4">
+    <div className={cn("max-w-5xl mx-auto p-4 md:p-6 space-y-4", present && "pt-16")}>
+      {present && (
+        <div className="fixed top-0 inset-x-0 z-50 flex items-center justify-between gap-2 bg-accent text-accent-foreground px-4 py-2 text-sm font-medium shadow-md">
+          <span className="inline-flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-current animate-pulse" />CLIENT VIEW — internal figures hidden
+          </span>
+          <Button size="sm" variant="secondary" onClick={exitPresent}>Exit client view</Button>
+        </div>
+      )}
       <div className="flex items-center gap-2">
         <Button variant="ghost" size="sm" onClick={() => navigate(-1)}><ArrowLeft className="h-4 w-4" /></Button>
         <div className="flex-1">
@@ -437,21 +673,42 @@ export default function OpsBoqBuilder() {
             </p>
           )}
         </div>
-        <Button variant={present ? "default" : "outline"} size="sm" onClick={() => setPresent((p) => !p)}
-          title="Toggle a clean, contractor-facing view (or press P)">
-          {present ? <><Eye className="h-4 w-4 mr-2" />Exit present</> : <><Presentation className="h-4 w-4 mr-2" />Present</>}
+        <Button variant={present ? "default" : "outline"} size="sm" onClick={() => (present ? exitPresent() : enterPresent())}
+          title="Show a clean, client-facing view (or press P; Esc to exit)">
+          {present ? <><Eye className="h-4 w-4 mr-2" />Exit client view</> : <><Presentation className="h-4 w-4 mr-2" />Show to client</>}
         </Button>
-        <div className="text-right">
-          <div className="text-xs text-muted-foreground">{present ? "Estimate (incl. GST)" : "Grand total (incl. GST)"}</div>
-          <div className="text-xl font-semibold">{inr(commercials.grandTotal)}</div>
-          {!present && <div className="text-xs text-muted-foreground">works {inr(total)}</div>}
+        {/* Scope-first estimate: the headline number can never read as the whole
+            project cost — its discipline and exclusions sit right on it. */}
+        <div className="text-right min-w-[11rem]">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            {disciplineByKey(boq.discipline).name} works estimate
+          </div>
+          <div className="text-2xl md:text-3xl font-semibold tabular-nums leading-tight">{inr(displayGrand)}</div>
+          {(() => {
+            const fl = floorsLabel(project?.floors ?? (Number((boq.spec as Spec)?._floors) || null));
+            const tier = TIER_LABEL[String((boq.spec as Spec)?.quality_tier ?? "standard")] ?? null;
+            const bits = [builtUp ? `${builtUp.toLocaleString("en-IN")} sqft` : null, fl, tier].filter(Boolean);
+            return bits.length ? <div className="text-[11px] text-muted-foreground">{bits.join(" · ")}</div> : null;
+          })()}
+          <div className="text-[11px] text-amber-600 dark:text-amber-500">{scopeLine(boq.discipline)}</div>
+          {!present && changes.length > 0 && firstTotal != null && Math.abs(netDelta) >= 1 && (
+            <div className={cn("text-[11px] font-medium", netDelta > 0 ? "text-amber-600 dark:text-amber-500" : "text-emerald-600 dark:text-emerald-400")}>
+              {netDelta > 0 ? "+" : "−"}{inr(Math.abs(netDelta))} since starting
+            </div>
+          )}
           {!present && make.hasCost && (
-            <div className={cn("text-xs font-medium", make.marginPct >= targetMargin ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-500")}>
+            <div className={cn("text-[11px] font-medium", make.marginPct >= targetMargin ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-500")}>
               make {inr(make.make)} · {make.marginPct.toFixed(1)}%
             </div>
           )}
         </div>
       </div>
+
+      {present && deferredKeys.length > 0 && (
+        <p className="text-xs text-muted-foreground border-l-2 border-accent pl-2">
+          Client to confirm: {deferredKeys.map((k) => FIELD_BY_KEY[k]?.label).filter(Boolean).join(", ")} — provisional rates shown.
+        </p>
+      )}
 
       {!present && (<>
       <div className="flex flex-wrap items-center gap-2">
@@ -496,36 +753,140 @@ export default function OpsBoqBuilder() {
         </div>
       </div>
 
-      {boq.discipline === "civil" && lines.length > 0 && (
+      {changes.length > 0 && (
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Confirm with the contractor</CardTitle>
-            <p className="text-xs text-muted-foreground">We assumed these — change any and the BOQ updates.</p>
+          <CardHeader className="pb-2 flex-row items-center justify-between gap-2">
+            <button className="text-left min-w-0" onClick={() => setShowLedger((s) => !s)}>
+              <CardTitle className="text-base flex items-center gap-2">
+                <ChevronDown className={cn("h-4 w-4 transition-transform", !showLedger && "-rotate-90")} />
+                Changes this session
+              </CardTitle>
+              <p className="text-xs text-muted-foreground ml-6">
+                {cursor} change{cursor === 1 ? "" : "s"}
+                {firstTotal != null && Math.abs(netDelta) >= 1 ? ` · net ${netDelta > 0 ? "+" : "−"}${inr(Math.abs(netDelta))}` : ""}
+              </p>
+            </button>
+            <div className="flex gap-2 shrink-0">
+              <Button size="sm" variant="outline" onClick={undo} disabled={cursor === 0 || busy}>Undo</Button>
+              <Button size="sm" variant="outline" onClick={redo} disabled={cursor >= changes.length || busy}>Redo</Button>
+            </div>
           </CardHeader>
-          <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {CONFIRM_KEYS.map((k) => {
-              const f = FIELD_BY_KEY[k];
-              if (!f) return null;
-              const v = (boq.spec as Spec)?.[k];
-              return (
-                <div key={k} className="flex items-center justify-between gap-2 rounded-md border px-3 py-1.5">
-                  <span className="text-sm">{f.label}</span>
-                  {f.type === "toggle" ? (
-                    <Switch checked={!!v} onCheckedChange={(c) => confirmChange(k, c)} />
-                  ) : (
-                    <Select value={(v as string) ?? undefined} onValueChange={(val) => confirmChange(k, val)}>
-                      <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {f.options!.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </div>
-              );
-            })}
-          </CardContent>
+          {showLedger && (
+            <CardContent className="space-y-0.5">
+              {changes.map((c, i) => {
+                const undone = i >= cursor;
+                return (
+                  <div key={c.id} className={cn("grid grid-cols-[1.5rem_1fr_auto] items-baseline gap-2 text-sm py-0.5", undone && "opacity-40")}>
+                    <span className="text-xs text-muted-foreground tabular-nums">{i + 1}.</span>
+                    <span className="min-w-0">
+                      <span className="font-medium">{c.label}</span>
+                      {c.detail ? <span className="text-muted-foreground"> · {c.detail}</span> : null}
+                    </span>
+                    <span className={cn("tabular-nums text-right", c.delta > 0 ? "text-amber-600 dark:text-amber-500" : c.delta < 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground")}>
+                      {c.delta === 0 ? "—" : `${c.delta > 0 ? "+" : "−"}${inr(Math.abs(c.delta))}`}
+                    </span>
+                  </div>
+                );
+              })}
+            </CardContent>
+          )}
         </Card>
       )}
+
+      {boq.discipline === "civil" && lines.length > 0 && (() => {
+        // A control for one assumption — the same Select/Switch reused across tiers.
+        const control = (k: string) => {
+          const f = FIELD_BY_KEY[k];
+          if (!f) return null;
+          const v = (boq.spec as Spec)?.[k];
+          return f.type === "toggle" ? (
+            <Switch checked={!!v} onCheckedChange={(c) => confirmChange(k, c)} />
+          ) : (
+            <Select value={(v as string) ?? undefined} onValueChange={(val) => confirmChange(k, val)}>
+              <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {f.options!.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          );
+        };
+        const optLabel = (k: string) => {
+          const f = FIELD_BY_KEY[k]; const v = (boq.spec as Spec)?.[k];
+          if (!f) return "";
+          return f.type === "toggle" ? (v ? "Yes" : "No") : (f.options?.find((o) => o.value === v)?.label ?? "—");
+        };
+        const inTier = (t: ConfirmTier) => CONFIRM_TIERS.filter((c) => c.tier === t && FIELD_BY_KEY[c.key]);
+        const musts = inTier("must"), defaults = inTier("default"), defers = inTier("defer");
+        return (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Confirm with the contractor</CardTitle>
+              <p className="text-xs text-muted-foreground">The few things that move the number — the rest we assumed.</p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {/* MUST — always visible, prominent */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {musts.map(({ key: k }) => (
+                  <div key={k} className="flex items-center justify-between gap-2 rounded-md border border-accent/60 bg-accent/5 px-3 py-1.5">
+                    <span className="text-sm font-medium">{FIELD_BY_KEY[k].label}</span>
+                    {control(k)}
+                  </div>
+                ))}
+              </div>
+
+              {/* DEFAULT — collapsed to a summary line; expand only if wrong */}
+              {defaults.length > 0 && (
+                <div className="rounded-md border">
+                  <button className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-left"
+                    onClick={() => setShowDefaults((s) => !s)}>
+                    <span className="text-xs uppercase tracking-wide text-muted-foreground">We assumed — tap to change</span>
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground min-w-0">
+                      <span className="truncate">{defaults.map(({ key: k }) => optLabel(k)).join(" · ")}</span>
+                      <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform", showDefaults && "rotate-180")} />
+                    </span>
+                  </button>
+                  {showDefaults && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 px-3 pb-2">
+                      {defaults.map(({ key: k }) => (
+                        <div key={k} className="flex items-center justify-between gap-2 rounded-md border px-3 py-1.5">
+                          <span className="text-sm">{FIELD_BY_KEY[k].label}</span>
+                          {control(k)}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* DEFER — client-owned; provisional value still totals */}
+              {defers.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Client will decide later</div>
+                  {defers.map(({ key: k }) => {
+                    const isDef = deferredKeys.includes(k);
+                    return (
+                      <div key={k} className="flex items-center justify-between gap-2 rounded-md border px-3 py-1.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-sm">{FIELD_BY_KEY[k].label}</span>
+                          {isDef && <Badge variant="outline" className="text-[10px]">provisional: {optLabel(k)}</Badge>}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {!isDef && control(k)}
+                          <Button size="sm" variant={isDef ? "secondary" : "ghost"} className="h-8"
+                            onClick={() => toggleDefer(k)}
+                            title={isDef ? "Decide now instead" : "Mark as client's decision — keeps a provisional rate"}>
+                            {isDef ? "Client deciding" : "Client will decide"}
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md bg-muted/40 px-3 py-2 text-sm">
         <span className="text-muted-foreground font-medium">Abstract</span>
@@ -797,32 +1158,78 @@ export default function OpsBoqBuilder() {
                         <Trash2 className="h-4 w-4 text-muted-foreground" />
                       </Button>
                     </div>
-                    {isExp && (
-                      <div className="ml-6 mb-2 rounded-md bg-muted/40 border p-3 text-xs space-y-2">
-                        <div className="flex gap-x-5 gap-y-1 flex-wrap">
-                          <span><span className="text-muted-foreground">Code </span><b>{l.dsr_code ?? "Non-schedule"}</b></span>
-                          <span><span className="text-muted-foreground">Qty </span>{l.qty.toLocaleString("en-IN", { maximumFractionDigits: 2 })} {l.unit}</span>
-                          <span><span className="text-muted-foreground">Rate </span>{l.dsr_rate != null ? inr(l.dsr_rate) : "—"}{l.custom_rate != null && <span className="text-emerald-600 dark:text-emerald-400"> → your {inr(l.custom_rate)}</span>}</span>
-                          <span><span className="text-muted-foreground">Amount </span><b>{rate != null ? inr(l.qty * rate) : "—"}</b></span>
-                        </div>
-                        {flag.message && <div className="text-amber-600 dark:text-amber-500">{flag.message}</div>}
-                        {breakdown.length > 0 && (
-                          <div>
-                            <div className="text-muted-foreground mb-1">Consumes (per AOR × {l.qty.toLocaleString("en-IN", { maximumFractionDigits: 2 })} {l.unit}):</div>
-                            <div className="grid grid-cols-[1fr_5rem_3rem] gap-x-3 gap-y-0.5">
-                              {breakdown.map((c, ci) => (
-                                <div key={ci} className="contents">
-                                  <span className="truncate">{c.resource}</span>
-                                  <span className="text-right tabular-nums">{(c.qty * l.qty).toLocaleString("en-IN", { maximumFractionDigits: 2 })}</span>
-                                  <span className="text-muted-foreground">{c.unit}</span>
-                                </div>
-                              ))}
-                            </div>
+                    {isExp && (() => {
+                      const r = effRate(l);
+                      const amount = r != null ? inr(l.qty * r) : "—";
+                      const coef = builtUp > 0 ? l.qty / builtUp : null;
+                      const maxWhy = l.dsr_code && breakdown.length > 0 ? 4 : 3;
+                      const nextLabel = whyLevel === 1 ? "How is this figured?" : whyLevel === 2 ? "Show the source" : "Full breakdown";
+                      return (
+                        <div className="ml-6 mb-2 rounded-md bg-muted/40 border p-3 text-xs space-y-2">
+                          {/* Level 1 — one plain sentence, no jargon */}
+                          <div className="text-[13px] text-foreground">
+                            {coef != null && r != null ? (
+                              <>{coef.toFixed(coef < 1 ? 3 : 2)} {l.unit}/sqft × {builtUp.toLocaleString("en-IN")} sqft × {inr(r)} = <b>{amount}</b></>
+                            ) : (
+                              <>{l.qty.toLocaleString("en-IN", { maximumFractionDigits: 2 })} {l.unit} × {r != null ? inr(r) : "—"} = <b>{amount}</b></>
+                            )}
+                            {l.custom_rate != null && <span className="text-emerald-600 dark:text-emerald-400"> (your rate)</span>}
                           </div>
-                        )}
-                        {!l.dsr_code && <div className="text-muted-foreground">Priced separately — set the rate case-by-case.</div>}
-                      </div>
-                    )}
+                          {flag.message && <div className="text-amber-600 dark:text-amber-500">{flag.message}</div>}
+
+                          {/* Level 2 — basis */}
+                          {whyLevel >= 2 && (
+                            <div className="text-muted-foreground border-t pt-2">{tierBasis(boq.spec as Spec)}</div>
+                          )}
+
+                          {/* Level 3 — provenance: quantity basis and rate source kept distinct */}
+                          {whyLevel >= 3 && (
+                            <div className="border-t pt-2 space-y-1">
+                              <div>
+                                <span className="text-muted-foreground">Quantity basis: </span>
+                                {l.dsr_code ? <>DSR/AOR methodology <span className="font-mono">— {l.dsr_code}</span></> : "Estimated (non-schedule item)"}
+                              </div>
+                              <div>
+                                <span className="text-muted-foreground">Rate: </span>
+                                {l.custom_rate != null ? (
+                                  <>Your rate <b>{inr(l.custom_rate)}</b>{l.dsr_rate != null && <span className="text-muted-foreground"> · DSR reference {inr(l.dsr_rate)}</span>}</>
+                                ) : (
+                                  <>DSR reference rate <b>{l.dsr_rate != null ? inr(l.dsr_rate) : "—"}</b></>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Level 4 — full material + labour analysis */}
+                          {whyLevel >= 4 && breakdown.length > 0 && (
+                            <div className="border-t pt-2">
+                              <div className="text-muted-foreground mb-1">Consumes (per AOR × {l.qty.toLocaleString("en-IN", { maximumFractionDigits: 2 })} {l.unit}):</div>
+                              <div className="grid grid-cols-[1fr_5rem_3rem] gap-x-3 gap-y-0.5">
+                                {breakdown.map((c, ci) => (
+                                  <div key={ci} className="contents">
+                                    <span className="truncate">{c.resource}</span>
+                                    <span className="text-right tabular-nums">{(c.qty * l.qty).toLocaleString("en-IN", { maximumFractionDigits: 2 })}</span>
+                                    <span className="text-muted-foreground">{c.unit}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="pt-1">
+                            {whyLevel < maxWhy ? (
+                              <button className="text-accent-foreground/80 underline underline-offset-2"
+                                onClick={(e) => { e.stopPropagation(); setWhyLevel((w) => Math.min(maxWhy, w + 1)); }}>
+                                {nextLabel}
+                              </button>
+                            ) : (
+                              <button className="text-muted-foreground underline underline-offset-2"
+                                onClick={(e) => { e.stopPropagation(); setWhyLevel(1); }}>Collapse</button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}
