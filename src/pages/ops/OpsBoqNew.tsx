@@ -153,7 +153,7 @@ export default function OpsBoqNew() {
         <Button variant="ghost" size="sm" onClick={() => navigate(-1)}><ArrowLeft className="h-4 w-4" /></Button>
         <div className="flex-1">
           <h1 className="text-lg font-semibold">New BOQ</h1>
-          <p className="text-sm text-muted-foreground">Pick a project like yours, adjust a couple of things, get a draft.</p>
+          <p className="text-sm text-muted-foreground">Pick a project like yours, adjust a couple of things, get an estimate.</p>
         </div>
         <Button variant="outline" size="sm" onClick={() => openIntakeForm({
           projectName: project?.name, projectType: project?.project_type, scope: project?.scope,
@@ -264,7 +264,7 @@ export default function OpsBoqNew() {
         <button type="button" onClick={() => setShowDetails((s) => !s)}
           className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
           <ChevronDown className={cn("h-4 w-4 transition-transform", showDetails && "rotate-180")} />
-          Fine-tune finishes &amp; details (optional)
+          Adjust finishes &amp; details (optional)
         </button>
         {showDetails && (
           <div className="space-y-4 mt-3">
@@ -287,7 +287,7 @@ export default function OpsBoqNew() {
         <Button variant="outline" onClick={() => navigate(-1)} disabled={busy}>Cancel</Button>
         <Button onClick={save} disabled={busy || !readyToBuild}>
           {busy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
-          Build draft BOQ
+          Prepare estimate
         </Button>
       </div>
     </div>

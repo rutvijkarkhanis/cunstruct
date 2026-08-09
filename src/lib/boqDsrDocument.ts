@@ -140,7 +140,7 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload): string {
   `).join("");
 
   const abstractRows = p.abstract.map((a) => `
-    <tr><td class="no">${a.no}.00</td><td>${esc(a.name)}</td><td class="num">${blank ? "" : (a.amount > 0 ? inr(a.amount) : "Rate to be analysed")}</td></tr>`).join("");
+    <tr><td class="no">${a.no}.00</td><td>${esc(a.name)}</td><td class="num">${blank ? "" : (a.amount > 0 ? inr(a.amount) : "To be priced")}</td></tr>`).join("");
 
   const c = p.commercials;
   const wrow = (label: string, amt: number, show = true) =>
