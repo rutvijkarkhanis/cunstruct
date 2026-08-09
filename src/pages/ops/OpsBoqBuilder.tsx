@@ -203,8 +203,7 @@ export default function OpsBoqBuilder() {
       });
       const { error } = await supabase.from("boq_line").insert(rows);
       if (error) throw error;
-      const priced = rows.filter((r) => r.dsr_rate != null).length;
-      toast.success(`Generated ${rows.length} lines · ${priced} priced from DSR`);
+      toast.success(`Estimate ready — ${rows.length} items`);
       refetchLines();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Generation failed");
@@ -458,10 +457,10 @@ export default function OpsBoqBuilder() {
       <div className="flex flex-wrap items-center gap-2">
         <Button onClick={generate} disabled={busy}>
           {busy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Wand2 className="h-4 w-4 mr-2" />}
-          {lines.some((l) => l.source === "auto") ? "Regenerate from questionnaire" : "Generate from questionnaire"}
+          {lines.some((l) => l.source === "auto") ? "Rebuild estimate" : "Prepare estimate"}
         </Button>
         <Button variant="outline" onClick={() => setShowBrowser((s) => !s)}>
-          <Plus className="h-4 w-4 mr-2" />Add DSR item
+          <Plus className="h-4 w-4 mr-2" />Add item
         </Button>
         {boq.project_id && (
           <Button variant={hasRooms ? "outline" : "default"} onClick={() => setShowRooms((s) => !s)}>
@@ -733,7 +732,7 @@ export default function OpsBoqBuilder() {
         <div className="p-8 flex justify-center"><Loader2 className="animate-spin" /></div>
       ) : lines.length === 0 ? (
         <Card><CardContent className="py-10 text-center text-muted-foreground">
-          No lines yet. Generate from the questionnaire or add DSR items.
+          No items yet — Prepare estimate, or add an item.
         </CardContent></Card>
       ) : (
         bySubhead.map(({ no, name, rows, subtotal }) => (
@@ -776,7 +775,7 @@ export default function OpsBoqBuilder() {
                       <div className="min-w-0 cursor-pointer" onClick={() => setExpanded(isExp ? null : l.id)} title="Show how this line is derived">
                         <div className="text-[11px] font-mono text-accent-foreground/70 mb-0.5 flex items-center gap-1">
                           <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform", isExp && "rotate-180")} />
-                          <span className="text-muted-foreground">{itemNo}</span>{l.dsr_code ?? "NS · rate to be analysed"}
+                          <span className="text-muted-foreground">{itemNo}</span>{l.dsr_code ?? "Priced separately"}
                           {flagged && (
                             <span className="inline-flex items-center gap-0.5 text-amber-600 dark:text-amber-500 font-sans" title={flag.message ?? ""}>
                               <AlertTriangle className="h-3 w-3" />{flag.level}
@@ -821,7 +820,7 @@ export default function OpsBoqBuilder() {
                             </div>
                           </div>
                         )}
-                        {!l.dsr_code && <div className="text-muted-foreground">Non-schedule item — rate to be set case-by-case.</div>}
+                        {!l.dsr_code && <div className="text-muted-foreground">Priced separately — set the rate case-by-case.</div>}
                       </div>
                     )}
                   </div>
