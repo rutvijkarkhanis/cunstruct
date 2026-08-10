@@ -78,3 +78,84 @@ export function unmatchedItems(lines: GeneratedLine[], summary?: DrawingSummary 
   const items = summary?.items?.filter((i) => i.match?.trim() && Number.isFinite(i.qty) && i.qty > 0) ?? [];
   return items.filter((it) => !lines.some((l) => matchesLine(it, l)));
 }
+
+// --- Paste-a-summary parsing -------------------------------------------------
+// The operator usually gets a drawing summary out of ChatGPT and pastes it in.
+// This turns that free text into editable DrawingItems: it pulls out (quantity,
+// item, room) triples from the common list shapes, sums the same item across
+// rooms, and records the breakdown as a note. It is deliberately forgiving and
+// never guesses a number that isn't written down — anything it can't read is
+// simply skipped, and every row it produces is reviewed before it's applied.
+
+const UNIT = "nos?|no\\.?|units?|pcs?|points?|locations?|places?|runs?|sets?|m|mtr|rmt|met(?:re|er)s?|sq\\.?\\s?ft|sqft|sq\\.?\\s?m|sqm";
+const SINGLE_QTY = new RegExp(`^(\\d+(?:\\.\\d+)?)\\s*(?:${UNIT})?\\.?$`, "i");
+const TRAILING_QTY = new RegExp(`^(.+?)[\\s:\\u2013-]+(\\d+(?:\\.\\d+)?)\\s*(?:${UNIT})?\\.?$`, "i");
+
+interface RawHit { qty: number; label: string; context?: string }
+
+const stripBullet = (s: string) => s.replace(/^[\s\-*\u2022]+/, "").replace(/^\(?\d+[.)]\s+/, "").trim();
+const cleanLabel = (s: string) => s.replace(/^[\s:\u2013,;.-]+|[\s:\u2013,;.-]+$/g, "").replace(/\s{2,}/g, " ").trim();
+const firstNumber = (s: string): number | null => { const m = s.match(/\d+(?:\.\d+)?/); return m ? Number(m[0]) : null; };
+
+// Drawing metadata that reads like "<word> <number>" but is a reference, not a
+// quantity ("page 1", "sheet 3", "rev 2") — never turn these into BOQ items.
+const REF_WORD = /^(pages?|sheets?|figs?|figures?|drawings?|dwg|revs?|revisions?|plates?|details?|scales?|grids?|levels?|notes?|refs?|items?|sr|s\.?\s?no|no)$/i;
+
+function pushHit(out: RawHit[], qty: number, rawLabel: string, context?: string) {
+  const label = cleanLabel(rawLabel);
+  if (!label || label.length < 2 || REF_WORD.test(label) || !(qty > 0)) return;
+  out.push({ qty, label, context });
+}
+
+function parseSegment(seg: string, context: string | undefined, out: RawHit[]) {
+  const s = stripBullet(seg);
+  if (!s) return;
+  let m = s.match(/^(\d+(?:\.\d+)?)\s*[\u00d7x*]\s*(.+)$/i);           // "8 × 6A sockets"
+  if (m) return pushHit(out, Number(m[1]), m[2], context);
+  m = s.match(TRAILING_QTY);                                            // "6M switchboards: 8 nos"
+  if (m) return pushHit(out, Number(m[2]), m[1], context);
+  m = s.match(/^(\d+(?:\.\d+)?)\s+([A-Za-z].*)$/);                      // "8 sockets" (label starts with a letter)
+  if (m) return pushHit(out, Number(m[1]), m[2], context);
+}
+
+function aggregate(hits: RawHit[]): DrawingItem[] {
+  const groups = new Map<string, RawHit[]>();
+  for (const h of hits) {
+    const key = h.label.toLowerCase().replace(/\s+/g, "").replace(/s$/, "");   // merge plural/singular
+    if (!key) continue;
+    const arr = groups.get(key);
+    if (arr) arr.push(h); else groups.set(key, [h]);
+  }
+  const items: DrawingItem[] = [];
+  for (const hs of groups.values()) {
+    const qty = hs.reduce((s, h) => s + h.qty, 0);
+    const anyCtx = hs.some((h) => h.context);
+    let note: string | undefined;
+    if (hs.length > 1 && anyCtx) note = hs.map((h) => `${h.qty}${h.context ? " " + h.context : ""}`).join(" + ");
+    else if (hs.length === 1 && hs[0].context) note = hs[0].context;
+    items.push({ match: hs[0].label, qty, derived: false, note });
+  }
+  return items;
+}
+
+/** Parse a pasted drawing summary into editable, reviewable DrawingItems. */
+export function parseDrawingSummary(text: string): DrawingItem[] {
+  const out: RawHit[] = [];
+  let context: string | undefined;
+  for (const rawLine of (text || "").split(/\r?\n/)) {
+    const line = stripBullet(rawLine);
+    if (!line) continue;
+    const ci = line.indexOf(":");
+    if (ci >= 0) {
+      const head = line.slice(0, ci).trim();
+      const rest = line.slice(ci + 1).trim();
+      if (!rest) { context = head || undefined; continue; }              // "Electrical:" / "Bedroom 1:" header
+      if (SINGLE_QTY.test(rest)) { pushHit(out, firstNumber(rest)!, head, context); continue; }  // "4M switchboards: 6 nos"
+      const local = head || context;                                     // "Living room: 8 × …" → head is the room
+      for (const seg of rest.split(/[,;]|\band\b/i)) parseSegment(seg, local, out);
+      continue;
+    }
+    for (const seg of line.split(/[,;]|\band\b/i)) parseSegment(seg, context, out);
+  }
+  return aggregate(out);
+}

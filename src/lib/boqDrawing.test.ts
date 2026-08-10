@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { applyDrawing, defaultBasis, unmatchedItems } from "./boqDrawing";
+import { applyDrawing, defaultBasis, parseDrawingSummary, unmatchedItems } from "./boqDrawing";
 import type { GeneratedLine } from "./boqDsrGenerate";
 
 const line = (over: Partial<GeneratedLine>): GeneratedLine => ({
@@ -50,5 +50,42 @@ describe("applyDrawing", () => {
   it("reports items that matched nothing", () => {
     const un = unmatchedItems(lines, { items: [{ match: "switchboard", qty: 6 }, { match: "steel", qty: 900 }] });
     expect(un.map((i) => i.match)).toEqual(["switchboard"]);
+  });
+});
+
+describe("parseDrawingSummary", () => {
+  const byMatch = (items: ReturnType<typeof parseDrawingSummary>, key: string) =>
+    items.find((i) => i.match.toLowerCase().replace(/\s+/g, "").replace(/s$/, "").includes(key));
+
+  it("parses the operator's electrical summary, summing counts across rooms", () => {
+    const text = `Electrical:
+- Living room: 8 × 6A sockets, 2 × 16A sockets, 1 × TV point, 1 × AC point
+- Bedroom 1: 6 × 6A sockets, 1 × 16A socket, 1 × TV point
+- 4M switchboards: 6 nos
+- 6M switchboards: 8 nos
+- Floor-to-ceiling conduits: 3 locations`;
+    const items = parseDrawingSummary(text);
+    expect(byMatch(items, "6asocket")?.qty).toBe(14);   // 8 + 6
+    expect(byMatch(items, "16asocket")?.qty).toBe(3);   // 2 + 1 (socket + sockets merged)
+    expect(byMatch(items, "tvpoint")?.qty).toBe(2);
+    expect(byMatch(items, "acpoint")?.qty).toBe(1);
+    expect(byMatch(items, "4mswitchboard")?.qty).toBe(6);
+    expect(byMatch(items, "6mswitchboard")?.qty).toBe(8);
+    expect(byMatch(items, "floor-to-ceilingconduit")?.qty).toBe(3);
+  });
+
+  it("records the per-room breakdown as a note", () => {
+    const items = parseDrawingSummary("Living room: 8 × 6A sockets\nBedroom 1: 6 × 6A sockets");
+    expect(byMatch(items, "6asocket")?.note).toBe("8 Living room + 6 Bedroom 1");
+  });
+
+  it("handles trailing-count and linear-length lines", () => {
+    const items = parseDrawingSummary("Conduit: 185 m\nLight points - 24");
+    expect(byMatch(items, "conduit")?.qty).toBe(185);
+    expect(byMatch(items, "lightpoint")?.qty).toBe(24);
+  });
+
+  it("does not invent numbers from headers or prose", () => {
+    expect(parseDrawingSummary("Electrical layout drawing, page 1\nNotes: see legend")).toEqual([]);
   });
 });
