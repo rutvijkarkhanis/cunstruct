@@ -8,7 +8,7 @@ import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
 import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, type QuoteSubHead, type CsvRow } from "@/lib/boqDsrDocument";
 import { openIntakeForm } from "@/lib/boqIntakeForm";
 import { sanityForCode, countFlagged } from "@/lib/boqSanity";
-import { BASIS_META, type DrawingItem, type DrawingSummary, type QtyBasis } from "@/lib/boqDrawing";
+import { BASIS_META, parseDrawingSummary, type DrawingItem, type DrawingSummary, type QtyBasis } from "@/lib/boqDrawing";
 import { BOQ_SPEC, type Spec, type SpecValue, type SpecField } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -424,6 +424,14 @@ export default function OpsBoqBuilder() {
     setDrawDraft((d) => (d ?? drawingItems).map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const addDraw = () => setDrawDraft((d) => [...(d ?? drawingItems), { match: "", qty: 0, derived: false, note: "" }]);
   const delDraw = (i: number) => setDrawDraft((d) => (d ?? drawingItems).filter((_, idx) => idx !== i));
+  const [pasteText, setPasteText] = useState("");
+  const parsePaste = () => {
+    const parsed = parseDrawingSummary(pasteText);
+    if (!parsed.length) { toast.error("Couldn't find any quantities in that text"); return; }
+    setDrawDraft((d) => [...(d ?? drawingItems).filter((r) => r.match.trim()), ...parsed]);
+    setPasteText("");
+    toast.success(`Parsed ${parsed.length} item${parsed.length === 1 ? "" : "s"} — review the match & quantity, then Apply`);
+  };
   const saveDrawing = async () => {
     if (!boq) return;
     const prev = ((boq.spec as Record<string, unknown>)?._drawing ?? null) as unknown;
@@ -978,6 +986,18 @@ export default function OpsBoqBuilder() {
             </div>
           </CardHeader>
           <CardContent className="overflow-x-auto">
+            <div className="mb-3 space-y-1.5">
+              <textarea
+                className="w-full min-h-[92px] rounded-md border bg-background px-3 py-2 text-sm"
+                placeholder={"Paste a drawing summary (e.g. from ChatGPT)…\n\nLiving room: 8 × 6A sockets, 2 × 16A sockets, 1 × TV point\n4M switchboards: 6 nos\nConduit: 185 m"}
+                value={pasteText} onChange={(e) => setPasteText(e.target.value)} />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" variant="secondary" onClick={parsePaste} disabled={!pasteText.trim()}>Parse into rows</Button>
+                <span className="text-[11px] text-muted-foreground">
+                  Turns the summary into editable rows below — same item summed across rooms. Review, then Apply.
+                </span>
+              </div>
+            </div>
             <datalist id="boq-line-match">
               {lines.map((l) => (
                 <option key={l.id} value={l.dsr_code ?? l.description ?? ""}>
@@ -1022,6 +1042,17 @@ export default function OpsBoqBuilder() {
                 </tbody>
               </table>
             )}
+            {(() => {
+              const um = drawRows.filter((r) => r.match.trim() && Number(r.qty) > 0 && !lines.some((l) =>
+                (l.dsr_code && l.dsr_code.toLowerCase() === r.match.trim().toLowerCase()) ||
+                (l.description ?? "").toLowerCase().includes(r.match.trim().toLowerCase())));
+              return um.length ? (
+                <p className="text-[11px] text-amber-600 dark:text-amber-500 mt-2">
+                  {um.length} row{um.length === 1 ? "" : "s"} don't match a BOQ item yet ({um.map((r) => r.match).join(", ")}) —
+                  edit the match term to words that appear in the item, or Add the item first. Unmatched rows won't apply.
+                </p>
+              ) : null;
+            })()}
             <p className="text-[11px] text-muted-foreground mt-2">
               "Counted" = you counted them on the drawing · "Derived" = worked out from measured dimensions. Both show as
               drawing-sourced in Why. Room-by-room dimensions go in <b>Rooms</b>; use this for explicit counts and lengths.
