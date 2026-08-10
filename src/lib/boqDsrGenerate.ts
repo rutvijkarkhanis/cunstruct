@@ -13,6 +13,8 @@ export interface GeneratedLine {
   label: string;
   unit: string;
   ns?: boolean;         // Non-Schedule item (rate to be analysed)
+  basis?: import("./boqDrawing").QtyBasis;  // where the quantity came from
+  note?: string;                            // provenance note (e.g. drawing summary)
 }
 
 export interface ProjectBasics {

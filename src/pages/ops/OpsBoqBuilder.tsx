@@ -8,6 +8,7 @@ import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
 import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, type QuoteSubHead, type CsvRow } from "@/lib/boqDsrDocument";
 import { openIntakeForm } from "@/lib/boqIntakeForm";
 import { sanityForCode, countFlagged } from "@/lib/boqSanity";
+import { BASIS_META, type DrawingItem, type DrawingSummary, type QtyBasis } from "@/lib/boqDrawing";
 import { BOQ_SPEC, type Spec, type SpecValue, type SpecField } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +25,7 @@ interface BoqLine {
   id: string; section: string | null; dsr_code: string | null; description: string | null;
   unit: string | null; qty: number; dsr_rate: number | null; custom_rate: number | null;
   cost: number | null;
+  basis: string | null; basis_note: string | null;
   included: boolean; source: string; sort: number;
 }
 /** The rate in effect: the estimator's case-specific override, else the DSR reference. */
@@ -155,7 +157,7 @@ export default function OpsBoqBuilder() {
 
   const fetchLinesNow = async (): Promise<BoqLine[]> => {
     const { data } = await supabase.from("boq_line")
-      .select("id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, cost, included, source, sort")
+      .select("id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, cost, basis, basis_note, included, source, sort")
       .eq("boq_id", id).order("sort");
     return (data ?? []) as BoqLine[];
   };
@@ -275,7 +277,7 @@ export default function OpsBoqBuilder() {
     queryKey: ["boq-lines", id],
     queryFn: async () => {
       const { data, error } = await supabase.from("boq_line")
-        .select("id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, cost, included, source, sort")
+        .select("id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, cost, basis, basis_note, included, source, sort")
         .eq("boq_id", id).order("sort");
       if (error) throw error;
       return (data ?? []) as BoqLine[];
@@ -360,6 +362,7 @@ export default function OpsBoqBuilder() {
           unit: dsr?.unit ?? g.unit, qty: g.qty, dsr_rate: dsr?.rate ?? null,
           custom_rate: ov?.custom_rate ?? null,
           cost: ov?.cost ?? null,
+          basis: g.basis ?? null, basis_note: g.note ?? null,
           included: ov?.included ?? true,
           source: "auto", sort: i,
         };
@@ -403,6 +406,30 @@ export default function OpsBoqBuilder() {
     const newSpec = { ...(boq.spec ?? {}), _deferred: next } as unknown as Spec;
     await supabase.from("boq").update({ spec: newSpec }).eq("id", id);
     qc.setQueryData(["boq", id], (old: typeof boq | undefined) => (old ? { ...old, spec: newSpec } : old));
+  };
+
+  // Drawing summary: the operator's measured/counted quantities from the drawings.
+  // Saved on spec._drawing; regeneration lets it override the generic heuristics.
+  const drawingItems = (((boq?.spec as Record<string, unknown> | undefined)?._drawing as DrawingSummary | undefined)?.items ?? []);
+  const [showDrawing, setShowDrawing] = useState(false);
+  const [drawDraft, setDrawDraft] = useState<DrawingItem[] | null>(null);
+  const drawRows = drawDraft ?? drawingItems;
+  const editDraw = (i: number, patch: Partial<DrawingItem>) =>
+    setDrawDraft((d) => (d ?? drawingItems).map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const addDraw = () => setDrawDraft((d) => [...(d ?? drawingItems), { match: "", qty: 0, derived: false, note: "" }]);
+  const delDraw = (i: number) => setDrawDraft((d) => (d ?? drawingItems).filter((_, idx) => idx !== i));
+  const saveDrawing = async () => {
+    if (!boq) return;
+    const prev = ((boq.spec as Record<string, unknown>)?._drawing ?? null) as unknown;
+    const clean = drawRows.filter((r) => r.match.trim() && Number(r.qty) > 0)
+      .map((r) => ({ match: r.match.trim(), qty: Number(r.qty), derived: !!r.derived, note: r.note?.trim() || undefined }));
+    await commit({
+      kind: "assumption", label: "Drawing measurements", detail: `${clean.length} applied`,
+      forward: async () => { const ns = await setSpecKeys({ _drawing: { items: clean } } as unknown as Spec); await runGenerate(ns, { silent: true }); },
+      backward: async () => { const ns = await setSpecKeys({ _drawing: prev } as unknown as Spec); await runGenerate(ns, { silent: true }); },
+    });
+    setDrawDraft(null);
+    toast.success("Drawing measurements applied");
   };
 
   // Output before input: a brand-new BOQ generates its draft on arrival, so you
@@ -670,6 +697,11 @@ export default function OpsBoqBuilder() {
                   <AlertTriangle className="h-3 w-3" />{flaggedCount} to review
                 </span>
               )}
+              {lines.some((l) => l.basis === "DRAWING_INPUT") && (
+                <span className="text-emerald-600 dark:text-emerald-400">
+                  {lines.filter((l) => l.basis === "DRAWING_INPUT").length} from drawing
+                </span>
+              )}
             </p>
           )}
         </div>
@@ -724,6 +756,10 @@ export default function OpsBoqBuilder() {
             <Ruler className="h-4 w-4 mr-2" />Rooms{rooms.length ? ` (${rooms.length})` : ""}
           </Button>
         )}
+        <Button variant={drawingItems.length ? "default" : "outline"} onClick={() => setShowDrawing((s) => !s)}
+          title="Enter measured quantities read off the drawings — they override the estimates">
+          <Ruler className="h-4 w-4 mr-2" />Drawing{drawingItems.length ? ` (${drawingItems.length})` : ""}
+        </Button>
         <Button variant="outline" onClick={() => printIntake(false)} title="Printable project details form — pre-filled where known, blank lines to complete by hand">
           <ClipboardList className="h-4 w-4 mr-2" />Intake form
         </Button>
@@ -917,6 +953,76 @@ export default function OpsBoqBuilder() {
         <span className="text-xs text-muted-foreground">Appears on the exported BOQ instead of Cunstruct</span>
       </div>
       </>)}
+
+      {!present && showDrawing && (
+        <Card>
+          <CardHeader className="pb-2 flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-base">Drawing measurements</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Quantities you measured or counted on the drawings. Each overrides the estimate for the matching
+                item and is marked drawing-sourced. Anything left out stays an estimate.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={addDraw}><Plus className="h-4 w-4 mr-1" />Add</Button>
+              <Button size="sm" onClick={saveDrawing} disabled={busy}>
+                {busy && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}Apply
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <datalist id="boq-line-match">
+              {lines.map((l) => (
+                <option key={l.id} value={l.dsr_code ?? l.description ?? ""}>
+                  {l.dsr_code ? `${l.dsr_code} — ` : ""}{l.description}
+                </option>
+              ))}
+            </datalist>
+            {drawRows.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-3 text-center">
+                No measurements yet — Add a row, pick an item (by DSR code or words like "16A"), enter the counted quantity.
+              </p>
+            ) : (
+              <table className="w-full text-sm min-w-[640px]">
+                <thead><tr className="text-xs text-muted-foreground text-left">
+                  <th className="py-1 font-medium">Item (DSR code or words)</th>
+                  <th className="font-medium w-20">Qty</th>
+                  <th className="font-medium w-28">Basis</th>
+                  <th className="font-medium">Note</th><th></th>
+                </tr></thead>
+                <tbody>
+                  {drawRows.map((r, i) => (
+                    <tr key={i} className="border-t">
+                      <td className="py-1 pr-2">
+                        <Input list="boq-line-match" className="h-8" value={r.match} placeholder='e.g. 16A · light point · 5.22.6'
+                          onChange={(e) => editDraw(i, { match: e.target.value })} />
+                      </td>
+                      <td className="pr-1"><Input className="h-8" type="number" value={r.qty || ""}
+                        onChange={(e) => editDraw(i, { qty: Number(e.target.value) })} /></td>
+                      <td className="pr-2">
+                        <select className="h-8 rounded border bg-background px-1 text-sm" value={r.derived ? "derived" : "counted"}
+                          onChange={(e) => editDraw(i, { derived: e.target.value === "derived" })}>
+                          <option value="counted">Counted</option>
+                          <option value="derived">Derived</option>
+                        </select>
+                      </td>
+                      <td className="pr-2"><Input className="h-8" value={r.note ?? ""} placeholder="e.g. 8×6A + 2×16A, living"
+                        onChange={(e) => editDraw(i, { note: e.target.value })} /></td>
+                      <td><Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => delDraw(i)}>
+                        <Trash2 className="h-4 w-4 text-muted-foreground" /></Button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <p className="text-[11px] text-muted-foreground mt-2">
+              "Counted" = you counted them on the drawing · "Derived" = worked out from measured dimensions. Both show as
+              drawing-sourced in Why. Room-by-room dimensions go in <b>Rooms</b>; use this for explicit counts and lengths.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {!present && showRooms && boq.project_id && (
         <Card>
@@ -1137,6 +1243,9 @@ export default function OpsBoqBuilder() {
                         <div className="text-[11px] font-mono text-accent-foreground/70 mb-0.5 flex items-center gap-1">
                           <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform", isExp && "rotate-180")} />
                           <span className="text-muted-foreground">{itemNo}</span>{l.dsr_code ?? "Priced separately"}
+                          {l.basis === "DRAWING_INPUT" && (
+                            <span className="text-emerald-600 dark:text-emerald-400 font-sans" title={l.basis_note ?? "From the drawing"}>drawing</span>
+                          )}
                           {flagged && (
                             <span className="inline-flex items-center gap-0.5 text-amber-600 dark:text-amber-500 font-sans" title={flag.message ?? ""}>
                               <AlertTriangle className="h-3 w-3" />{flag.level}
@@ -1185,10 +1294,18 @@ export default function OpsBoqBuilder() {
                           {/* Level 3 — provenance: quantity basis and rate source kept distinct */}
                           {whyLevel >= 3 && (
                             <div className="border-t pt-2 space-y-1">
-                              <div>
-                                <span className="text-muted-foreground">Quantity basis: </span>
-                                {l.dsr_code ? <>DSR/AOR methodology <span className="font-mono">— {l.dsr_code}</span></> : "Estimated (non-schedule item)"}
-                              </div>
+                              {(() => {
+                                const bm = l.basis ? BASIS_META[l.basis as QtyBasis] : null;
+                                const showCode = l.dsr_code && l.basis !== "HEURISTIC";
+                                return (
+                                  <div>
+                                    <span className="text-muted-foreground">Quantity basis: </span>
+                                    {bm ? bm.label : (l.dsr_code ? "DSR / AOR methodology" : "Estimated (non-schedule item)")}
+                                    {showCode && <span className="font-mono"> — {l.dsr_code}</span>}
+                                  </div>
+                                );
+                              })()}
+                              {l.basis_note && <div className="text-muted-foreground">Drawing note: {l.basis_note}</div>}
                               <div>
                                 <span className="text-muted-foreground">Rate: </span>
                                 {l.custom_rate != null ? (

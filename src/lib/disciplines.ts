@@ -6,6 +6,7 @@
 
 import { buildContext, type QtyContext, type RoomDims } from "./boqDsrCatalog";
 import { generateLines, type GeneratedLine, type ProjectBasics } from "./boqDsrGenerate";
+import { applyDrawing, defaultBasis, type DrawingSummary } from "./boqDrawing";
 import type { Spec } from "./boqSpec";
 
 export interface DiscItem {
@@ -105,16 +106,26 @@ export const disciplineByKey = (key: string) => DISCIPLINES.find((d) => d.key ==
 
 /** Generate BOQ lines for any discipline: civil via the DSR engine, MEP via its catalogue. */
 export function generateForDiscipline(key: string, spec: Spec, project: ProjectBasics, dims?: RoomDims): GeneratedLine[] {
-  if (key === "civil") return generateLines(spec, project, dims);
-  const disc = disciplineByKey(key);
-  if (!disc.items) return [];
-  const ctx = buildContext(spec, { area_sqft: project.area_sqft, floors: project.floors }, dims);
-  const out: GeneratedLine[] = [];
-  for (const it of disc.items) {
-    if (it.when && !it.when(spec)) continue;
-    const qty = Math.round(it.qty(ctx, spec) * 100) / 100;
-    if (qty <= 0) continue;
-    out.push({ section: it.section, code: it.code ?? null, qty, label: it.label, unit: it.unit, ns: !it.code });
+  let out: GeneratedLine[];
+  if (key === "civil") {
+    out = generateLines(spec, project, dims);
+  } else {
+    const disc = disciplineByKey(key);
+    if (!disc.items) return [];
+    const ctx = buildContext(spec, { area_sqft: project.area_sqft, floors: project.floors }, dims);
+    out = [];
+    for (const it of disc.items) {
+      if (it.when && !it.when(spec)) continue;
+      const qty = Math.round(it.qty(ctx, spec) * 100) / 100;
+      if (qty <= 0) continue;
+      out.push({ section: it.section, code: it.code ?? null, qty, label: it.label, unit: it.unit, ns: !it.code });
+    }
   }
-  return out;
+  // Stamp a fallback provenance on every line (measured rooms → derived; else
+  // coefficient/heuristic), then let the operator's drawing summary override the
+  // items it explicitly covers. Everything else keeps its assumption basis.
+  const hasRooms = !!dims;
+  out = out.map((l) => ({ ...l, basis: defaultBasis(l, hasRooms) }));
+  const summary = (spec as Record<string, unknown>)._drawing as DrawingSummary | undefined;
+  return applyDrawing(out, summary);
 }
