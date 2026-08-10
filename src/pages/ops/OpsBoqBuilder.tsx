@@ -412,6 +412,12 @@ export default function OpsBoqBuilder() {
   // Saved on spec._drawing; regeneration lets it override the generic heuristics.
   const drawingItems = (((boq?.spec as Record<string, unknown> | undefined)?._drawing as DrawingSummary | undefined)?.items ?? []);
   const [showDrawing, setShowDrawing] = useState(false);
+  const drawingRef = useRef<HTMLDivElement>(null);
+  // The card renders below a tall stack of cards, so scroll it into view when it
+  // opens — otherwise the button looks like it does nothing.
+  useEffect(() => {
+    if (showDrawing) drawingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [showDrawing]);
   const [drawDraft, setDrawDraft] = useState<DrawingItem[] | null>(null);
   const drawRows = drawDraft ?? drawingItems;
   const editDraw = (i: number, patch: Partial<DrawingItem>) =>
@@ -756,9 +762,9 @@ export default function OpsBoqBuilder() {
             <Ruler className="h-4 w-4 mr-2" />Rooms{rooms.length ? ` (${rooms.length})` : ""}
           </Button>
         )}
-        <Button variant={drawingItems.length ? "default" : "outline"} onClick={() => setShowDrawing((s) => !s)}
+        <Button variant={showDrawing || drawingItems.length ? "default" : "outline"} onClick={() => setShowDrawing((s) => !s)}
           title="Enter measured quantities read off the drawings — they override the estimates">
-          <Ruler className="h-4 w-4 mr-2" />Drawing{drawingItems.length ? ` (${drawingItems.length})` : ""}
+          <Ruler className="h-4 w-4 mr-2" />{showDrawing ? "Hide drawing" : "Drawing"}{!showDrawing && drawingItems.length ? ` (${drawingItems.length})` : ""}
         </Button>
         <Button variant="outline" onClick={() => printIntake(false)} title="Printable project details form — pre-filled where known, blank lines to complete by hand">
           <ClipboardList className="h-4 w-4 mr-2" />Intake form
@@ -955,7 +961,7 @@ export default function OpsBoqBuilder() {
       </>)}
 
       {!present && showDrawing && (
-        <Card>
+        <Card ref={drawingRef} className="ring-2 ring-accent/40 scroll-mt-4">
           <CardHeader className="pb-2 flex-row items-center justify-between">
             <div>
               <CardTitle className="text-base">Drawing measurements</CardTitle>
