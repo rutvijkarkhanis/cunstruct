@@ -48,8 +48,37 @@ describe("buildChatGptPrompt", () => {
   it("produces a self-contained prompt that forbids inventing quantities", () => {
     const p = buildChatGptPrompt();
     expect(p).toContain("DO NOT invent quantities");
-    expect(p).toContain("Requirement | Qty | Unit | Basis | Location / Note");
+    expect(p).toContain("Requirement | Qty | Unit | Basis | Location / Note | Scope");
     expect(p).toContain("PROJECT TYPE");
+  });
+  it("insists on counts and enumerates categories (fixes the qualitative-list miss)", () => {
+    const p = buildChatGptPrompt();
+    expect(p).toContain("give a number for each");
+    expect(p).toContain("AC points");
+    expect(p).toContain("switchboards");
+    expect(p).toContain("none seen");
+  });
+});
+
+describe("parseChatGptEvaluation — Scope column + none-seen", () => {
+  const e = parseChatGptEvaluation(`## DRAWING-SPECIFIC REQUIREMENTS
+Requirement | Qty | Unit | Basis | Location / Note | Scope
+--- | --- | --- | --- | --- | ---
+TV point | 1 | nos | Counted | Living / TV area | Works
+55" TV | 1 | nos | Counted | Living / TV area | Equipment
+Sprinkler | none seen | | | | Works`);
+  it("reads Works/Equipment scope and preserves location", () => {
+    expect(e.requirements.find((r) => r.match === "TV point")).toMatchObject({ qty: 1, note: "Living / TV area", equipment: false });
+    expect(e.requirements.find((r) => r.match === '55" TV')?.equipment).toBe(true);
+  });
+  it("skips a 'none seen' row (no invented quantity)", () => {
+    expect(e.requirements.some((r) => /sprinkler/i.test(r.match))).toBe(false);
+    expect(e.requirements.length).toBe(2);
+  });
+  it("Equipment scope flows through to an unpriced BOQ line", () => {
+    const lines = applyDrawing([], { items: e.requirements });
+    expect(lines.find((l) => l.label === '55" TV')?.included).toBe(false);
+    expect(lines.find((l) => l.label === "TV point")?.included).toBeUndefined();
   });
 });
 
