@@ -437,7 +437,7 @@ export default function OpsBoqBuilder() {
     if (!boq) return;
     const prev = ((boq.spec as Record<string, unknown>)?._drawing ?? null) as unknown;
     const clean = drawRows.filter((r) => r.match.trim() && Number(r.qty) > 0)
-      .map((r) => ({ match: r.match.trim(), qty: Number(r.qty), unit: r.unit?.trim() || undefined, basis: r.basis ?? "Counted", note: r.note?.trim() || undefined }));
+      .map((r) => ({ match: r.match.trim(), qty: Number(r.qty), unit: r.unit?.trim() || undefined, basis: r.basis ?? "Counted", equipment: r.equipment, note: r.note?.trim() || undefined }));
     await commit({
       kind: "assumption", label: "Drawing measurements", detail: `${clean.length} applied`,
       forward: async () => { const ns = await setSpecKeys({ _drawing: { items: clean } } as unknown as Spec); await runGenerate(ns, { silent: true }); },
@@ -1011,19 +1011,20 @@ export default function OpsBoqBuilder() {
                 No measurements yet — Add a row, name the requirement (a DSR code, or words like "16A socket"), enter the quantity.
               </p>
             ) : (
-              <table className="w-full text-sm min-w-[720px]">
+              <table className="w-full text-sm min-w-[820px]">
                 <thead><tr className="text-xs text-muted-foreground text-left">
                   <th className="py-1 font-medium">Requirement (DSR code or words)</th>
                   <th className="font-medium w-16">Qty</th>
                   <th className="font-medium w-16">Unit</th>
                   <th className="font-medium w-28">Basis</th>
                   <th className="font-medium">Location / Note</th>
+                  <th className="font-medium w-28">Type</th>
                   <th className="font-medium w-40">Catalogue</th><th></th>
                 </tr></thead>
                 <tbody>
                   {drawRows.map((r, i) => {
                     const valid = r.match.trim() && Number(r.qty) > 0;
-                    const equip = valid && isEquipment(r.match);
+                    const equip = valid && (r.equipment ?? isEquipment(r.match));
                     const cat = valid && !equip
                       ? findCatalogueMatch(r.match, lines.map((l) => ({ code: l.dsr_code, label: l.description ?? "" })))
                       : null;
@@ -1045,6 +1046,14 @@ export default function OpsBoqBuilder() {
                       </td>
                       <td className="pr-2"><Input className="h-8" value={r.note ?? ""} placeholder="e.g. Living / TV area"
                         onChange={(e) => editDraw(i, { note: e.target.value })} /></td>
+                      <td className="pr-2">
+                        <select className="h-8 rounded border bg-background px-1 text-sm" value={equip ? "equipment" : "works"}
+                          title="Works = contractor scope (priced) · Equipment = client-provided (not priced by default)"
+                          onChange={(e) => editDraw(i, { equipment: e.target.value === "equipment" })}>
+                          <option value="works">Works</option>
+                          <option value="equipment">Equipment</option>
+                        </select>
+                      </td>
                       <td className="pr-2 text-xs">
                         {!valid ? <span className="text-muted-foreground">—</span>
                           : equip ? <span className="text-amber-600 dark:text-amber-500" title="Client equipment — added as a line but not priced in works by default">client equipment</span>
