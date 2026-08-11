@@ -432,6 +432,12 @@ export default function OpsBoqBuilder() {
   useEffect(() => {
     if (showDrawing) drawingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [showDrawing]);
+  // Seeded from a ChatGPT evaluation (or a prior session): open the Drawing card
+  // once on arrival so the operator reviews the requirements.
+  const drawingOpened = useRef(false);
+  useEffect(() => {
+    if (!drawingOpened.current && drawingItems.length > 0) { drawingOpened.current = true; setShowDrawing(true); }
+  }, [drawingItems.length]);
   const [drawDraft, setDrawDraft] = useState<DrawingItem[] | null>(null);
   const drawRows = drawDraft ?? drawingItems;
   const editDraw = (i: number, patch: Partial<DrawingItem>) =>
