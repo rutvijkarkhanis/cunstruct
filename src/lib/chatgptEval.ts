@@ -90,39 +90,66 @@ export interface ChatGptEval {
   disciplines: string[];
   measurements: EvalMeasurement[];
   requirements: DrawingItem[];
+  /** Categories ChatGPT saw but did not count — surfaced as a reminder, never as quantities. */
+  keyInfo: string[];
   confidence: Record<string, string>;   // "project type" → "High" | "Medium" | "Low"
   confirmations: string[];
   /** true when at least one meaningful field was recognised. */
   ok: boolean;
 }
 
-const CANON: Record<string, string> = {
-  "DRAWING-SPECIFIC MEASUREMENTS": "MEASUREMENTS",
-  "DRAWING-SPECIFIC REQUIREMENTS": "REQUIREMENTS",
+// Exact heading labels → canonical section. Real ChatGPT output varies a lot
+// (## headings, **bold**, "Field: value" on one line, alternative names), so we
+// map generously. Exact matches win before any prefix match, so e.g. "IMPORTANT
+// DIMENSIONS" maps to MEASUREMENTS rather than being swallowed by "IMPORTANT".
+const ALIAS: Record<string, string> = {
+  "PROJECT TYPE": "PROJECT TYPE", "PROJECT ASSESSMENT": "IGNORE", "ASSESSMENT": "IGNORE",
+  "ARCHETYPE": "ARCHETYPE", "PROJECT ARCHETYPE": "ARCHETYPE",
+  "FLOORS": "FLOORS", "FLOORS/LEVELS": "FLOORS", "FLOORS / LEVELS": "FLOORS", "LEVELS": "FLOORS", "NUMBER OF FLOORS": "FLOORS",
+  "AREA": "AREA", "BUILT-UP AREA": "AREA", "BUILTUP AREA": "AREA", "CARPET AREA": "AREA",
+  "SPACES": "SPACES", "ROOMS": "SPACES", "SPACES/ROOMS": "SPACES", "SPACES / ROOMS": "SPACES", "ROOMS/SPACES": "SPACES",
+  "DISCIPLINES": "DISCIPLINES",
+  "MEASUREMENTS": "MEASUREMENTS", "DIMENSIONS": "MEASUREMENTS",
+  "DRAWING-SPECIFIC MEASUREMENTS": "MEASUREMENTS", "IMPORTANT DIMENSIONS": "MEASUREMENTS", "KEY DIMENSIONS": "MEASUREMENTS",
+  "REQUIREMENTS": "REQUIREMENTS", "DRAWING-SPECIFIC REQUIREMENTS": "REQUIREMENTS",
+  "DRAWING REQUIREMENTS": "REQUIREMENTS", "COUNTABLE REQUIREMENTS": "REQUIREMENTS",
+  "KEY DRAWING INFORMATION": "KEY INFO", "KEY DRAWING INFO": "KEY INFO", "KEY INFORMATION": "KEY INFO", "OBSERVATIONS": "KEY INFO",
+  "CONFIDENCE": "CONFIDENCE",
+  "CONFIRMATIONS": "CONFIRMATIONS", "CONFIRMATION": "CONFIRMATIONS", "TO CONFIRM": "CONFIRMATIONS", "VERIFY": "CONFIRMATIONS",
+  "IMPORTANT": "IGNORE", "NOTES": "IGNORE", "BOQ GENERATION RULES": "IGNORE", "RULES": "IGNORE", "SUMMARY": "IGNORE",
 };
-const SECTIONS = [
-  "PROJECT TYPE", "ARCHETYPE", "FLOORS", "AREA", "SPACES", "DISCIPLINES",
-  "DRAWING-SPECIFIC MEASUREMENTS", "MEASUREMENTS",
-  "DRAWING-SPECIFIC REQUIREMENTS", "REQUIREMENTS",
-  "CONFIDENCE", "CONFIRMATIONS", "IMPORTANT",
-];
+const PREFIX_CANON = ["PROJECT TYPE", "ARCHETYPE", "DISCIPLINES", "CONFIRMATIONS", "CONFIDENCE", "MEASUREMENTS", "REQUIREMENTS", "SPACES", "FLOORS", "AREA"];
 
-function headerName(line: string): string | null {
-  const t = line.replace(/[#*_>`]/g, "").replace(/:/g, "").trim().toUpperCase();
-  if (!t) return null;
-  const hit = SECTIONS.find((s) => t === s || t.startsWith(s + " ") || t.startsWith(s));
-  return hit ? (CANON[hit] ?? hit) : null;
+/** Is this line a section heading? Returns its canonical name + any inline value. */
+function headerInfo(line: string): { name: string; inline: string } | null {
+  const t = line.trim();
+  if (!t || /^[-*•]/.test(t)) return null;                     // bullets are content, never headings
+  if (/^[|:—–-]+$/.test(t.replace(/\s/g, ""))) return null;    // table separators
+  const decorated = /^#{1,6}\s/.test(t) || /^\*\*.+\*\*/.test(t.replace(/:.*$/, ""));
+  const bare = t.replace(/^#{1,6}\s*/, "").replace(/^>+\s*/, "").replace(/^\*\*|\*\*/g, "").trim();
+  const ci = bare.indexOf(":");
+  const labelRaw = (ci >= 0 ? bare.slice(0, ci) : bare).trim();
+  const inline = ci >= 0 ? bare.slice(ci + 1).trim() : "";
+  const label = labelRaw.replace(/[*_`#.]/g, "").replace(/\s+/g, " ").trim().toUpperCase();
+  if (!label) return null;
+  const words = labelRaw.split(/\s+/).length;
+  // Guard against treating ordinary prose as a heading.
+  if (!decorated) { if (ci < 0 && words > 5) return null; if (ci >= 0 && words > 6) return null; }
+  let name = ALIAS[label];
+  if (!name) name = PREFIX_CANON.find((c) => label === c || label.startsWith(c + " ") || label.startsWith(c + "/"));
+  return name ? { name, inline } : null;
 }
 
-/** Split the pasted response into { SECTION: text } — tolerant of #, **bold**, plain. */
+/** Split the pasted response into { SECTION: text }, keeping inline "Field: value". */
 function splitSections(text: string): Record<string, string> {
   const out: Record<string, string> = {};
   let current: string | null = null;
   const buf: string[] = [];
-  const flush = () => { if (current) out[current] = (out[current] ? out[current] + "\n" : "") + buf.join("\n").trim(); buf.length = 0; };
+  const flush = () => { if (current && current !== "IGNORE") out[current] = ((out[current] ? out[current] + "\n" : "") + buf.join("\n")).trim(); buf.length = 0; };
   for (const line of (text || "").split(/\r?\n/)) {
-    const h = headerName(line);
-    if (h) { flush(); current = h; } else if (current) buf.push(line);
+    const h = headerInfo(line);
+    if (h) { flush(); current = h.name; if (h.inline) buf.push(h.inline); }
+    else if (current) buf.push(line);
   }
   flush();
   return out;
@@ -187,7 +214,12 @@ function parseSpaces(sec?: string): EvalSpace[] {
 const DISCIPLINE_WORDS = ["Civil", "Architectural", "Electrical", "Plumbing", "HVAC", "Fire", "Furniture"];
 function parseDisciplines(sec?: string): string[] {
   if (!sec) return [];
-  return DISCIPLINE_WORDS.filter((d) => new RegExp(`\\b${d}\\b`, "i").test(sec));
+  const found = new Set<string>();
+  for (const line of sec.split(/\r?\n/)) {
+    if (/\b(not identified|not shown|not present|none|absent|n\/a|not applicable)\b/i.test(line)) continue;
+    for (const d of DISCIPLINE_WORDS) if (new RegExp(`\\b${d}\\b`, "i").test(line)) found.add(d);
+  }
+  return DISCIPLINE_WORDS.filter((d) => found.has(d));
 }
 
 function parseMeasurements(sec?: string): EvalMeasurement[] {
@@ -204,10 +236,18 @@ function parseMeasurements(sec?: string): EvalMeasurement[] {
       if (cols[0] && cols[1]) out.push({ label: cols[0], value: cols[1], note: cols.slice(2).join(" · ").trim() || undefined });
       continue;
     }
-    const m = line.match(/^(.+?)\s*[—–-]\s*(.+)$/);
+    // "Label: value" (colon, unambiguous) or "Label — value" (spaced dash)
+    let m = line.match(/^(.+?):\s*(.+)$/);
+    if (!m) m = line.match(/^(.+?)\s+[—–-]\s+(.+)$/);
     if (m && m[1] && m[2]) out.push({ label: m[1].trim(), value: m[2].trim() });
   }
   return out;
+}
+
+/** Categories/observations ChatGPT noted without a count — a reminder to count them. */
+function parseKeyInfo(sec?: string): string[] {
+  if (!sec) return [];
+  return sec.split(/\r?\n/).map((l) => l.trim().replace(/^[-*•]\s*/, "").trim()).filter((l) => l.length > 2);
 }
 
 function normBasis(s?: string): DrawingBasis {
@@ -282,10 +322,11 @@ export function parseChatGptEvaluation(text: string): ChatGptEval {
     disciplines: parseDisciplines(s["DISCIPLINES"]),
     measurements: parseMeasurements(s["MEASUREMENTS"]),
     requirements,
+    keyInfo: parseKeyInfo(s["KEY INFO"]),
     confidence: parseConfidence(s["CONFIDENCE"]),
     confirmations: parseConfirmations(s["CONFIRMATIONS"]),
     ok: false,
   };
-  eval_.ok = Boolean(projectType || eval_.archetypeKey || archetype || floors || area || spaces.length || requirements.length);
+  eval_.ok = Boolean(projectType || eval_.archetypeKey || archetype || floors || area || spaces.length || requirements.length || eval_.keyInfo.length);
   return eval_;
 }
