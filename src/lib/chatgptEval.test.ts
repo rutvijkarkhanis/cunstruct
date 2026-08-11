@@ -112,3 +112,74 @@ describe("parseChatGptEvaluation — resilience", () => {
     expect(parseChatGptEvaluation("Sorry, I can't open that image.").ok).toBe(false);
   });
 });
+
+// The exact response a real operator pasted — inline "Field: value", alternative
+// section names (KEY DRAWING INFORMATION, IMPORTANT DIMENSIONS), negated disciplines.
+const REAL = `PROJECT ASSESSMENT
+
+Project Type: Residential
+Archetype: 4 BHK Apartment
+Floors/Levels: 1 represented level
+Area: Not stated on drawing. Do not assume.
+
+SPACES
+- Living / family living area — 1
+- Dining area — 1
+- Kitchen — 1
+- Bedrooms — 4
+- Bathrooms / toilets — 4 identifiable
+- Entrance / foyer — 1
+- Staircase — 1
+- Storage / wardrobe areas — multiple
+
+DISCIPLINES
+- Architectural
+- Furniture / Interior
+- Electrical
+- Plumbing / Sanitary — partial
+- HVAC — partial
+- Civil — limited
+- Fire — not identified
+
+KEY DRAWING INFORMATION
+- 55" TV indicated
+- 6A electrical points shown
+- 16A electrical points shown
+- Multiple AC provisions shown
+- Inline exhaust provisions shown
+
+IMPORTANT DIMENSIONS
+- Switchboard heights: 10.5", 21", 24", 30", 42", 45", 48", 51", 72"
+- TV size: 55"
+- BOS offset: 4"
+
+BOQ GENERATION RULES
+- Do not invent quantities where symbols are ambiguous.`;
+
+describe("parseChatGptEvaluation — real operator response (regression for lost fields)", () => {
+  const e = parseChatGptEvaluation(REAL);
+  it("captures inline Field: value (previously lost → shown as '—')", () => {
+    expect(e.projectType).toBe("Residential");
+    expect(e.archetype).toBe("4 BHK");
+    expect(e.archetypeKey).toBe("villa");
+    expect(e.floors).toBe(1);
+    expect(e.area).toBeNull();                 // "Not stated" → never invented
+    expect(e.ok).toBe(true);
+  });
+  it("captures spaces without inventing the ones with no count", () => {
+    expect(e.spaces).toContainEqual({ name: "Bedrooms", qty: 4 });
+    expect(e.spaces.some((s) => /storage/i.test(s.name))).toBe(false);   // "multiple" → no number → skipped
+  });
+  it("excludes a discipline explicitly marked not identified", () => {
+    expect(e.disciplines).toContain("Electrical");
+    expect(e.disciplines).not.toContain("Fire");    // "Fire — not identified"
+  });
+  it("routes IMPORTANT DIMENSIONS to measurements, not requirements", () => {
+    expect(e.measurements.map((m) => m.label)).toEqual(expect.arrayContaining(["Switchboard heights", "TV size", "BOS offset"]));
+    expect(e.requirements.length).toBe(0);          // no counted table → no invented quantities
+  });
+  it("surfaces KEY DRAWING INFORMATION as an un-counted reminder", () => {
+    expect(e.keyInfo.some((k) => /6A electrical points/i.test(k))).toBe(true);
+    expect(e.keyInfo.some((k) => /AC provisions/i.test(k))).toBe(true);
+  });
+});

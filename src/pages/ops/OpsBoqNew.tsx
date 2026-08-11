@@ -297,6 +297,16 @@ export default function OpsBoqNew() {
                 </ul>
               </div>
             )}
+            {evalData.keyInfo.length > 0 && (
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-2">
+                <div className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-1">
+                  Seen on the drawing but not counted by ChatGPT — add the quantities in the Drawing step
+                </div>
+                <ul className="text-xs text-amber-700 dark:text-amber-400 space-y-0.5">
+                  {evalData.keyInfo.map((k, i) => <li key={i}>• {k}</li>)}
+                </ul>
+              </div>
+            )}
             {evalData.confirmations.length > 0 && (
               <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-2">
                 <div className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-1">Confirm before generating</div>
