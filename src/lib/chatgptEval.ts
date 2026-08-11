@@ -59,12 +59,27 @@ List useful measurements the Cunstruct operator should consider. Keep dimensions
 Do not convert a dimension into a quantity unless the drawing explicitly supports that calculation.
 
 ## DRAWING-SPECIFIC REQUIREMENTS
-Identify countable project requirements. Return them as:
-Requirement | Qty | Unit | Basis | Location / Note
-Use Basis of Counted, Measured, Derived or Assumed. Only use Assumed when absolutely necessary and clearly label it. Examples:
-TV point | 1 | nos | Counted | Living / TV area
-6A socket | 4 | nos | Counted | Bedroom 1
-Wall plaster | 120 | sqft | Derived | Bedroom 1
+Count the actual symbols on the drawing and return a row for EVERY countable requirement. Do NOT summarise as "shown", "multiple" or "indicated" — give a number for each. If a category is clearly present but you cannot count it confidently, still return a row with your best count, set Basis = Assumed, and add a confirmation below.
+
+Return a markdown table with exactly these columns:
+Requirement | Qty | Unit | Basis | Location / Note | Scope
+
+- Basis: Counted, Measured, Derived or Assumed (Assumed only when unavoidable, and flag it).
+- Location: the room if identifiable, otherwise write "Location unclear" — never guess a room.
+- Scope: "Works" for contractor work (points, sockets, conduit, provisions) or "Equipment" for client-supplied items (the TV, projector, appliances themselves — not their electrical points).
+
+Actively look for and count each of these where the discipline appears in the drawing:
+- Electrical: lighting points; 6A sockets; 16A points; AC points; TV points; audio/speaker points; exhaust points (there may be several); switchboards (and module sizes); floor points / floor boxes; floor-to-ceiling conduits; appliance points (dishwasher, washing machine, oven, fridge, geyser); projector points; blind/curtain provisions.
+- Plumbing: WC; wash basin; shower; sink; floor traps; water & waste points.
+- HVAC: AC units; AC points; exhaust; ducting.
+- Fire: detectors; sprinklers; alarm points; extinguishers.
+- Architectural / Civil: doors; windows; grills; wardrobes; counters.
+For any category clearly not present, write a row of "none seen" rather than omitting it silently.
+
+Examples:
+TV point | 1 | nos | Counted | Living / TV area | Works
+6A socket | 4 | nos | Counted | Bedroom 1 | Works
+55" TV | 1 | nos | Counted | Living / TV area | Equipment
 
 ## CONFIDENCE
 Give confidence (High / Medium / Low) for: Project type, Archetype, Floors, Area, Major space identification.
@@ -266,15 +281,22 @@ function parseRequirements(sec?: string): DrawingItem[] {
   for (let line of sec.split(/\r?\n/)) {
     line = line.trim().replace(/^[-*•]\s*/, "");
     if (!line) continue;
+    if (/\bnone seen\b|\bnot present\b|\bnot applicable\b/i.test(line)) continue;   // explicit "no items" rows
     if (line.includes("|")) {
       const cols = line.split("|").map((c) => c.trim());
       if (cols[0] === "") cols.shift();
       if (cols[cols.length - 1] === "") cols.pop();
       if (/^requirement$/i.test(cols[0] ?? "") || cols.every((c) => /^:?-{2,}:?$/.test(c) || c === "")) continue;
-      const [req, qtyRaw, unit, basisRaw, ...rest] = cols;
+      const [req, qtyRaw, unit, basisRaw] = cols;
+      const rest = cols.slice(4);
       const qty = Number((qtyRaw || "").match(/[\d.]+/)?.[0]);
       if (req && qty > 0) {
-        items.push({ match: req, qty, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), note: rest.join(" · ").trim() || undefined });
+        // A trailing Works/Equipment cell is the Scope column — the rest is the location/note.
+        let equipment: boolean | undefined;
+        if (rest.length && /^(works?|equipment|client(?:\s*supplied)?)$/i.test(rest[rest.length - 1])) {
+          equipment = /equip|client/i.test(rest.pop() as string);
+        }
+        items.push({ match: req, qty, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, note: rest.join(" · ").trim() || undefined });
       } else if (req) {
         loose.push(line.replace(/\|/g, " "));
       }
