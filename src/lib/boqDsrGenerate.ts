@@ -16,6 +16,7 @@ export interface GeneratedLine {
   basis?: import("./boqDrawing").QtyBasis;  // where the quantity came from
   note?: string;                            // provenance note (e.g. drawing summary)
   included?: boolean;                       // default inclusion (client equipment → false)
+  drawing?: import("./boqDrawing").LineDrawingMeta;  // structured drawing-summary provenance
 }
 
 export interface ProjectBasics {

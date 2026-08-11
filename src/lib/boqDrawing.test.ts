@@ -30,11 +30,27 @@ describe("applyDrawing", () => {
     expect(out[0].basis).toBe("DRAWING_INPUT");
   });
 
-  it("matches by description substring, case-insensitive, and carries a traceable note", () => {
+  it("matches by description substring and carries structured drawing meta", () => {
     const out = applyDrawing(lines, { items: [{ match: "16a", qty: 12, note: "Living / TV area" }] });
     expect(out[1].qty).toBe(12);
     expect(out[1].basis).toBe("DRAWING_INPUT");
-    expect(out[1].note).toBe("Counted · Living / TV area");
+    expect(out[1].note).toBe("Living / TV area");
+    expect(out[1].drawing).toMatchObject({ basis: "Counted", location: "Living / TV area", scope: "works" });
+  });
+
+  it("carries the room-wise breakdown into the line's structured meta", () => {
+    const items = parseDrawingSummary("Bedroom 1:\n- 6A socket — 4\nBedroom 2:\n- 6A socket — 6");
+    const socket = applyDrawing([], { items }).find((l) => l.label === "6A socket");
+    expect(socket?.qty).toBe(10);
+    expect(socket?.drawing?.location).toBe("Bedroom 1 (4), Bedroom 2 (6)");
+    expect(socket?.drawing?.rooms).toEqual([{ location: "Bedroom 1", qty: 4 }, { location: "Bedroom 2", qty: 6 }]);
+  });
+
+  it("supersedes the generic points allowance when the drawing itemises points (no double count)", () => {
+    const out = applyDrawing(lines, { items: [{ match: "16A point", qty: 5 }, { match: "6A socket", qty: 8 }] });
+    const generic = out.find((l) => l.label === "Light / fan points");
+    expect(generic?.included).toBe(false);      // superseded → dropped from the total
+    expect(generic?.basis).toBe("HEURISTIC");    // shows as Assumed
   });
 
   it("Derived basis → drawing-derived; Assumed → heuristic", () => {
