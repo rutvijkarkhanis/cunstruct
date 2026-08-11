@@ -8,7 +8,7 @@ import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
 import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, type QuoteSubHead, type CsvRow } from "@/lib/boqDsrDocument";
 import { openIntakeForm } from "@/lib/boqIntakeForm";
 import { sanityForCode, countFlagged } from "@/lib/boqSanity";
-import { BASIS_META, findCatalogueMatch, isEquipment, parseDrawingSummary, type DrawingBasis, type DrawingItem, type DrawingSummary, type LineDrawingMeta, type QtyBasis } from "@/lib/boqDrawing";
+import { BASIS_META, categoryCovered, DRAWING_CHECKLIST, findCatalogueMatch, isEquipment, parseDrawingSummary, type DrawingBasis, type DrawingItem, type DrawingSummary, type LineDrawingMeta, type QtyBasis } from "@/lib/boqDrawing";
 import { BOQ_SPEC, type Spec, type SpecValue, type SpecField } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -437,6 +437,8 @@ export default function OpsBoqBuilder() {
   const editDraw = (i: number, patch: Partial<DrawingItem>) =>
     setDrawDraft((d) => (d ?? drawingItems).map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const addDraw = () => setDrawDraft((d) => [...(d ?? drawingItems), { match: "", qty: 0, unit: "nos", basis: "Counted", note: "" }]);
+  const addDrawWith = (label: string) => setDrawDraft((d) => [...(d ?? drawingItems), { match: label, qty: 0, unit: "nos", basis: "Counted", note: "" }]);
+  const [showChecklist, setShowChecklist] = useState(false);
   const delDraw = (i: number) => setDrawDraft((d) => (d ?? drawingItems).filter((_, idx) => idx !== i));
   const [pasteText, setPasteText] = useState("");
   const parsePaste = () => {
@@ -993,6 +995,9 @@ export default function OpsBoqBuilder() {
               </p>
             </div>
             <div className="flex gap-2">
+              <Button size="sm" variant={showChecklist ? "secondary" : "outline"} onClick={() => setShowChecklist((s) => !s)}>
+                <ClipboardList className="h-4 w-4 mr-1" />Checklist
+              </Button>
               <Button size="sm" variant="outline" onClick={addDraw}><Plus className="h-4 w-4 mr-1" />Add</Button>
               <Button size="sm" onClick={saveDrawing} disabled={busy}>
                 {busy && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}Apply
@@ -1012,6 +1017,35 @@ export default function OpsBoqBuilder() {
                 </span>
               </div>
             </div>
+
+            {showChecklist && (() => {
+              const dk = boq.discipline ?? "civil";
+              const groups = [...DRAWING_CHECKLIST].sort((a, b) => (a.key === dk ? 0 : 1) - (b.key === dk ? 0 : 1));
+              const rowMatches = drawRows.map((r) => r.match).filter(Boolean);
+              return (
+                <div className="mb-3 rounded-md border bg-muted/30 p-3 space-y-2">
+                  <p className="text-[11px] text-muted-foreground">
+                    Reminder only — categories commonly visible on a drawing. Adding one drops an <b>empty</b> row for you to fill;
+                    it never invents a quantity. Nothing here changes the BOQ until you enter a quantity and Apply.
+                  </p>
+                  {groups.map((grp) => (
+                    <div key={grp.key}>
+                      <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">{grp.discipline}</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {grp.categories.map((c) => categoryCovered(c, rowMatches) ? (
+                          <span key={c} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">✓ {c}</span>
+                        ) : (
+                          <button key={c} type="button" onClick={() => addDrawWith(c)}
+                            className="text-[11px] px-2 py-0.5 rounded-full border hover:bg-accent" title="Add an empty row for this category">
+                            + {c}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
             <datalist id="boq-line-match">
               {lines.map((l) => (
                 <option key={l.id} value={l.dsr_code ?? l.description ?? ""}>
