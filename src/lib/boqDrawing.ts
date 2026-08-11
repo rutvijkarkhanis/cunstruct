@@ -34,6 +34,16 @@ export interface DrawingItem {
   equipment?: boolean;
   /** Location / note, e.g. "Living / TV area" or "Bedroom 1 (4), Bedroom 2 (6)". */
   note?: string;
+  /** Structured per-room breakdown preserved when identical items are consolidated. */
+  rooms?: { location: string; qty: number }[];
+}
+
+/** Structured drawing provenance carried onto a BOQ line (persisted as jsonb). */
+export interface LineDrawingMeta {
+  basis: DrawingBasis;
+  location?: string;
+  scope: "works" | "equipment";
+  rooms?: { location: string; qty: number }[];
 }
 
 /** The operator's basis → the line-level quantity provenance. */
@@ -127,18 +137,29 @@ const matchesLine = (it: DrawingItem, l: GeneratedLine): boolean =>
  * still added as a valid, priceable line (null code = No Catalogue Match) rather
  * than being dropped or forced into a wrong item. We never invent a quantity.
  */
+// Generic catch-all MEP allowance the itemised drawing points replace (so it
+// isn't double-counted): the "concealed wiring for light/fan/… points" line.
+const GENERIC_POINTS = /(light|fan|call).{0,20}point|concealed wiring.{0,30}point|point.{0,20}modular switch/i;
+const looksLikePoint = (label: string) =>
+  /\b(\d+\s*a\b|socket|light\s*point|fan\s*point|power\s*point|floor\s*point|tv\s*point|projector\s*point|audio\s*point|conduit)\b/i.test(label);
+
 export function applyDrawing(lines: GeneratedLine[], summary?: DrawingSummary | null): GeneratedLine[] {
   const items = summary?.items?.filter((i) => i.match?.trim() && Number.isFinite(i.qty) && i.qty > 0);
   if (!items?.length) return lines;
-  // Traceable provenance carried onto the line: "Counted · Living / TV area".
-  const traced = (it: DrawingItem) => `${it.basis ?? "Counted"}${it.note?.trim() ? " · " + it.note.trim() : ""}`;
+  const metaOf = (it: DrawingItem, equip: boolean): LineDrawingMeta => ({
+    basis: it.basis ?? "Counted",
+    location: it.note?.trim() || undefined,
+    scope: equip ? "equipment" : "works",
+    rooms: it.rooms,
+  });
   const used = new Set<number>();
   const out = lines.map((l) => {
     const idx = items.findIndex((it) => matchesLine(it, l));
     if (idx < 0) return l;
     used.add(idx);
     const it = items[idx];
-    return { ...l, qty: it.qty, basis: toQtyBasis(it.basis), note: traced(it) };
+    const equip = it.equipment ?? isEquipment(it.match);
+    return { ...l, qty: it.qty, basis: toQtyBasis(it.basis), note: it.note?.trim() || undefined, drawing: metaOf(it, equip), included: equip ? false : l.included };
   });
   items.forEach((it, i) => {
     if (used.has(i)) return;
@@ -146,10 +167,23 @@ export function applyDrawing(lines: GeneratedLine[], summary?: DrawingSummary | 
     out.push({
       section: it.section?.trim() || (equip ? "Client equipment (excluded)" : "Drawing items"),
       code: null, qty: it.qty, label: it.match.trim(), unit: it.unit?.trim() || "nos", ns: true,
-      basis: toQtyBasis(it.basis), note: traced(it),
+      basis: toQtyBasis(it.basis), note: it.note?.trim() || undefined, drawing: metaOf(it, equip),
       included: equip ? false : undefined,   // client equipment isn't contractor works
     });
   });
+  // #5 — prevent double-counting: when the drawing itemises electrical points, the
+  // generic catch-all points allowance is superseded. Mark it Assumed and drop it
+  // from the total (operator can re-include if it is genuinely separate scope).
+  const itemisesPoints = items.some((it) => looksLikePoint(it.match) && !(it.equipment ?? isEquipment(it.match)));
+  if (itemisesPoints) {
+    for (let i = 0; i < out.length; i++) {
+      const l = out[i];
+      if (l.drawing || !l.label) continue;            // never touch drawing-derived lines
+      if (GENERIC_POINTS.test(l.label)) {
+        out[i] = { ...l, included: false, basis: "HEURISTIC", note: "Superseded by itemised drawing points" };
+      }
+    }
+  }
   return out;
 }
 
@@ -232,9 +266,10 @@ function aggregate(hits: RawHit[]): DrawingItem[] {
     let note: string | undefined;
     if (hs.length > 1 && withCtx.length) note = hs.map((h) => `${h.context ?? "unspecified"} (${h.qty})`).join(", ");
     else if (hs.length === 1 && hs[0].context) note = hs[0].context;
+    const rooms = withCtx.length ? withCtx.map((h) => ({ location: h.context as string, qty: h.qty })) : undefined;
     items.push({
       match: hs[0].label, qty, unit, basis: "Counted",
-      equipment: isEquipment(hs[0].label) || undefined, note,
+      equipment: isEquipment(hs[0].label) || undefined, note, rooms,
     });
   }
   return items;

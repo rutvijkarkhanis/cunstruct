@@ -8,7 +8,7 @@ import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
 import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, type QuoteSubHead, type CsvRow } from "@/lib/boqDsrDocument";
 import { openIntakeForm } from "@/lib/boqIntakeForm";
 import { sanityForCode, countFlagged } from "@/lib/boqSanity";
-import { BASIS_META, findCatalogueMatch, isEquipment, parseDrawingSummary, type DrawingBasis, type DrawingItem, type DrawingSummary, type QtyBasis } from "@/lib/boqDrawing";
+import { BASIS_META, findCatalogueMatch, isEquipment, parseDrawingSummary, type DrawingBasis, type DrawingItem, type DrawingSummary, type LineDrawingMeta, type QtyBasis } from "@/lib/boqDrawing";
 import { BOQ_SPEC, type Spec, type SpecValue, type SpecField } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,8 +26,20 @@ interface BoqLine {
   unit: string | null; qty: number; dsr_rate: number | null; custom_rate: number | null;
   cost: number | null;
   basis: string | null; basis_note: string | null;
+  drawing: LineDrawingMeta | null;
   included: boolean; source: string; sort: number;
 }
+
+/** Drawing provenance appended to the item description in every output. */
+const drawingSuffix = (l: { drawing: LineDrawingMeta | null }, opts?: { short?: boolean }): string => {
+  const d = l.drawing;
+  if (!d) return "";
+  const parts = opts?.short
+    ? [d.location, d.scope === "equipment" ? "by client" : null]
+    : [d.location, d.basis, d.scope === "equipment" ? "Client equipment" : null];
+  const kept = parts.filter(Boolean) as string[];
+  return kept.length ? ` — ${kept.join(" · ")}` : "";
+};
 /** The rate in effect: the estimator's case-specific override, else the DSR reference. */
 const effRate = (l: BoqLine) => l.custom_rate ?? l.dsr_rate;
 
@@ -157,7 +169,7 @@ export default function OpsBoqBuilder() {
 
   const fetchLinesNow = async (): Promise<BoqLine[]> => {
     const { data } = await supabase.from("boq_line")
-      .select("id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, cost, basis, basis_note, included, source, sort")
+      .select("id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, cost, basis, basis_note, drawing, included, source, sort")
       .eq("boq_id", id).order("sort");
     return (data ?? []) as BoqLine[];
   };
@@ -277,7 +289,7 @@ export default function OpsBoqBuilder() {
     queryKey: ["boq-lines", id],
     queryFn: async () => {
       const { data, error } = await supabase.from("boq_line")
-        .select("id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, cost, basis, basis_note, included, source, sort")
+        .select("id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, cost, basis, basis_note, drawing, included, source, sort")
         .eq("boq_id", id).order("sort");
       if (error) throw error;
       return (data ?? []) as BoqLine[];
@@ -364,6 +376,7 @@ export default function OpsBoqBuilder() {
           custom_rate: ov?.custom_rate ?? null,
           cost: ov?.cost ?? null,
           basis: g.basis ?? null, basis_note: g.note ?? null,
+          drawing: g.drawing ?? null,
           included: ov?.included ?? g.included ?? true,   // client equipment defaults out; operator can include
           source: "auto", sort: i,
         };
@@ -642,7 +655,7 @@ export default function OpsBoqBuilder() {
       no: sh.no, name: sh.name, subtotal: sh.subtotal,
       lines: sh.rows.filter(({ line }) => line.included).map(({ line, no }) => {
         const rate = effRate(line);
-        return { no, code: line.dsr_code, spec: line.description ?? "", qty: line.qty, unit: line.unit ?? "", rate, amount: rate != null ? line.qty * rate : null };
+        return { no, code: line.dsr_code, spec: (line.description ?? "") + drawingSuffix(line), qty: line.qty, unit: line.unit ?? "", rate, amount: rate != null ? line.qty * rate : null };
       }),
     })).filter((sh) => sh.lines.length > 0);
 
@@ -675,7 +688,7 @@ export default function OpsBoqBuilder() {
     const rows: CsvRow[] = bySubhead.flatMap((sh) =>
       sh.rows.filter(({ line }) => line.included).map(({ line, no }) => ({
         subhead: `${sh.no}.00 ${sh.name}`, itemNo: no, code: line.dsr_code,
-        spec: line.description ?? "", unit: line.unit ?? "", qty: line.qty, rate: effRate(line),
+        spec: (line.description ?? "") + drawingSuffix(line), unit: line.unit ?? "", qty: line.qty, rate: effRate(line),
       })));
     if (!rows.length) return toast.error("Nothing to export yet");
     downloadCsv(`${boq!.name.replace(/[^\w]+/g, "_")}_BOQ.csv`, buildBoqCsv(rows, { boqName: boq!.name, project: project?.name, generatedOn: gen() }));
@@ -1277,7 +1290,7 @@ export default function OpsBoqBuilder() {
                     <div key={l.id} className="grid grid-cols-[1fr_4.5rem_3rem_5.5rem_6rem] items-start gap-x-3 py-1.5 border-b last:border-0">
                       <div className="min-w-0">
                         <span className="text-[11px] font-mono text-muted-foreground mr-1">{itemNo}</span>
-                        <span className="text-[13px] leading-snug text-foreground/90">{l.description}</span>
+                        <span className="text-[13px] leading-snug text-foreground/90">{l.description}<span className="text-muted-foreground">{drawingSuffix(l, { short: true })}</span></span>
                       </div>
                       <span className="text-sm tabular-nums text-right">{qtyTxt}</span>
                       <span className="text-xs text-muted-foreground">{l.unit}</span>
@@ -1306,7 +1319,7 @@ export default function OpsBoqBuilder() {
                             </span>
                           )}
                         </div>
-                        <div className="text-[13px] leading-snug text-foreground/90">{l.description}</div>
+                        <div className="text-[13px] leading-snug text-foreground/90">{l.description}<span className="text-muted-foreground">{drawingSuffix(l)}</span></div>
                       </div>
                       <Input type="number" className="h-8 hidden sm:block" defaultValue={l.qty}
                         onBlur={(e) => { const v = Number(e.target.value); if (v !== l.qty) updateLine(l.id, { qty: v }); }} />
@@ -1359,9 +1372,12 @@ export default function OpsBoqBuilder() {
                                   </div>
                                 );
                               })()}
-                              {l.basis_note && (l.basis === "DRAWING_INPUT" || l.basis === "DRAWING_DERIVED") && (
-                                <div className="text-muted-foreground">Source: Drawing summary · {l.basis_note}</div>
+                              {l.drawing && (
+                                <div className="text-muted-foreground">
+                                  Source: Drawing summary · {[l.drawing.basis, l.drawing.location, l.drawing.scope === "equipment" ? "Client equipment (excluded)" : "Works"].filter(Boolean).join(" · ")}
+                                </div>
                               )}
+                              {!l.drawing && l.basis_note && <div className="text-muted-foreground">{l.basis_note}</div>}
                               <div>
                                 <span className="text-muted-foreground">Rate: </span>
                                 {!l.dsr_code ? (
