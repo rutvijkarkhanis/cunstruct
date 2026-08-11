@@ -10,6 +10,18 @@
 
 import { parseDrawingSummary, type DrawingBasis, type DrawingItem } from "./boqDrawing";
 
+// Spec keys seeded from a ChatGPT evaluation (drawing requirements, measurements,
+// spaces, provenance). They must survive a spec reset — e.g. when the operator
+// changes the archetype after the evaluation — or the parsed requirements are lost.
+export const SEED_CARRY_KEYS = ["_drawing", "_measurements", "_spaces", "_source", "_area_type"] as const;
+
+/** Copy the ChatGPT-seed keys from `current` onto a freshly built base spec. */
+export function carrySeed<T extends Record<string, unknown>>(next: T, current: Record<string, unknown> | undefined): T {
+  if (!current) return next;
+  for (const k of SEED_CARRY_KEYS) if (current[k] !== undefined) (next as Record<string, unknown>)[k] = current[k];
+  return next;
+}
+
 /** The prompt Cunstruct hands the operator to paste into ChatGPT (with the drawing). */
 export function buildChatGptPrompt(): string {
   return `I am using Cunstruct to prepare a construction BOQ.
