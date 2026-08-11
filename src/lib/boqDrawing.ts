@@ -275,6 +275,26 @@ function aggregate(hits: RawHit[]): DrawingItem[] {
   return items;
 }
 
+// --- Completeness checklist --------------------------------------------------
+// A reminder of categories commonly visible on a drawing that operators forget.
+// It is NOT an estimation engine: it never creates a BOQ item or a quantity —
+// picking a category only drops an empty row for the operator to fill.
+export const DRAWING_CHECKLIST: { discipline: string; key: string; categories: string[] }[] = [
+  { discipline: "Electrical", key: "electrical", categories: ["Lighting point", "6A socket", "16A socket", "AC point", "TV point", "Audio point", "Exhaust point", "Switchboard", "Floor point", "Floor box", "Conduit", "Appliance point", "Geyser point"] },
+  { discipline: "Plumbing", key: "plumbing", categories: ["WC", "Wash basin", "Shower", "Sink", "Floor trap", "Water point", "Waste point", "Pipe length"] },
+  { discipline: "HVAC", key: "hvac", categories: ["AC unit", "AC point", "Refrigerant piping", "Drain piping", "Ducting", "Diffuser", "Exhaust point"] },
+  { discipline: "Fire", key: "fire", categories: ["Detector", "Sprinkler", "Fire alarm point", "Hose reel", "Extinguisher"] },
+  { discipline: "Architectural / Civil", key: "civil", categories: ["Flooring", "Wall tiles", "Skirting", "Plaster", "Paint", "Ceiling", "Door", "Window", "Grill", "Waterproofing"] },
+];
+
+const catKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "").replace(/s$/, "");
+/** Has the operator already entered a row for this checklist category? (loose) */
+export function categoryCovered(category: string, rowMatches: string[]): boolean {
+  const c = catKey(category);
+  if (!c) return false;
+  return rowMatches.some((m) => { const k = catKey(m); return !!k && (k.includes(c) || c.includes(k)); });
+}
+
 /** Parse a pasted drawing summary (list or prose) into editable DrawingItems. */
 export function parseDrawingSummary(text: string): DrawingItem[] {
   const out: RawHit[] = [];

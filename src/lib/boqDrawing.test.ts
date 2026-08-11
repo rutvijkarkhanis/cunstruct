@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { applyDrawing, defaultBasis, findCatalogueMatch, noCatalogueMatch, parseDrawingSummary } from "./boqDrawing";
+import { applyDrawing, categoryCovered, defaultBasis, findCatalogueMatch, noCatalogueMatch, parseDrawingSummary } from "./boqDrawing";
 import type { GeneratedLine } from "./boqDsrGenerate";
 
 const line = (over: Partial<GeneratedLine>): GeneratedLine => ({
@@ -160,5 +160,13 @@ describe("parseDrawingSummary", () => {
 
   it("does not invent numbers from headers or prose", () => {
     expect(parseDrawingSummary("Electrical layout drawing, page 1\nNotes: see legend")).toEqual([]);
+  });
+});
+
+describe("categoryCovered (completeness checklist — reminder only)", () => {
+  it("marks a category covered when a row loosely matches; otherwise not", () => {
+    expect(categoryCovered("6A socket", ["6A socket", "16A point"])).toBe(true);
+    expect(categoryCovered("AC point", ["AC points"])).toBe(true);          // plural/singular
+    expect(categoryCovered("Exhaust point", ["6A socket", "TV point"])).toBe(false);
   });
 });
