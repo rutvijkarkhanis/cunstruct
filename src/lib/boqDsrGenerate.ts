@@ -15,6 +15,7 @@ export interface GeneratedLine {
   ns?: boolean;         // Non-Schedule item (rate to be analysed)
   basis?: import("./boqDrawing").QtyBasis;  // where the quantity came from
   note?: string;                            // provenance note (e.g. drawing summary)
+  included?: boolean;                       // default inclusion (client equipment → false)
 }
 
 export interface ProjectBasics {
