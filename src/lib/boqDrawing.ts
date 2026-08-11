@@ -15,20 +15,42 @@ import type { GeneratedLine } from "./boqDsrGenerate";
 /** Where a quantity came from — most trustworthy first. */
 export type QtyBasis = "DRAWING_INPUT" | "DRAWING_DERIVED" | "DSR_AOR" | "HEURISTIC";
 
-/** One measured/counted requirement the operator entered from a drawing. */
+/** How the operator arrived at the quantity. */
+export type DrawingBasis = "Counted" | "Measured" | "Derived" | "Assumed";
+
+/** One requirement the operator entered from the drawing summary. */
 export interface DrawingItem {
   /** The requirement — a DSR code, or a description of the work/item. */
   match: string;
-  /** The measured or counted quantity, in the item's own unit. */
+  /** The quantity, in the item's own unit. */
   qty: number;
   /** Unit for a requirement that has no catalogue match (defaults to nos). */
   unit?: string;
   /** Sub-head for a no-match line (defaults to "Drawing items"). */
   section?: string;
-  /** true = calculated from drawing measurements; false = explicitly counted/stated. */
-  derived?: boolean;
-  /** Operator note, e.g. "8×6A + 2×16A sockets across living + 2 beds". */
+  /** Counted / Measured / Derived / Assumed (defaults to Counted). */
+  basis?: DrawingBasis;
+  /** Client equipment (e.g. the TV itself) — not contractor works, not priced by default. */
+  equipment?: boolean;
+  /** Location / note, e.g. "Living / TV area" or "Bedroom 1 (4), Bedroom 2 (6)". */
   note?: string;
+}
+
+/** The operator's basis → the line-level quantity provenance. */
+export function toQtyBasis(b?: DrawingBasis): QtyBasis {
+  if (b === "Derived") return "DRAWING_DERIVED";
+  if (b === "Assumed") return "HEURISTIC";
+  return "DRAWING_INPUT";   // Counted / Measured — straight from the drawing
+}
+
+// Client equipment vs contractor works. Only clear equipment nouns with no
+// "work" word (point/socket/provision/wiring…) are treated as equipment, so a
+// "TV point" or "55\" TV provision" stays contractor works and only a bare
+// "55\" TV" / "Projector" / "Projector screen" is flagged as client-provided.
+const EQUIP_WORD = /\b(tv|television|projector|screen|washing\s*machine|dishwasher|refrigerator|fridge|microwave|oven|hob|dryer|speakers?|soundbar|amplifier|home\s*theat(?:re|er))\b/i;
+const WORK_WORD = /\b(point|socket|outlet|wiring|conduit|cabling|provision|switch|switchboard|board|panel|earthing|db|light|fixture|fitting|pipe|piping|plumbing|drain|tap|faucet|valve|duct)\b/i;
+export function isEquipment(label: string): boolean {
+  return EQUIP_WORD.test(label) && !WORK_WORD.test(label);
 }
 
 /** The drawing summary, stored on boq.spec._drawing (jsonb — no migration). */
@@ -108,20 +130,24 @@ const matchesLine = (it: DrawingItem, l: GeneratedLine): boolean =>
 export function applyDrawing(lines: GeneratedLine[], summary?: DrawingSummary | null): GeneratedLine[] {
   const items = summary?.items?.filter((i) => i.match?.trim() && Number.isFinite(i.qty) && i.qty > 0);
   if (!items?.length) return lines;
+  // Traceable provenance carried onto the line: "Counted · Living / TV area".
+  const traced = (it: DrawingItem) => `${it.basis ?? "Counted"}${it.note?.trim() ? " · " + it.note.trim() : ""}`;
   const used = new Set<number>();
   const out = lines.map((l) => {
     const idx = items.findIndex((it) => matchesLine(it, l));
     if (idx < 0) return l;
     used.add(idx);
     const it = items[idx];
-    return { ...l, qty: it.qty, basis: (it.derived ? "DRAWING_DERIVED" : "DRAWING_INPUT") as QtyBasis, note: it.note?.trim() || undefined };
+    return { ...l, qty: it.qty, basis: toQtyBasis(it.basis), note: traced(it) };
   });
   items.forEach((it, i) => {
     if (used.has(i)) return;
+    const equip = it.equipment ?? isEquipment(it.match);
     out.push({
-      section: it.section?.trim() || "Drawing items",
+      section: it.section?.trim() || (equip ? "Client equipment (excluded)" : "Drawing items"),
       code: null, qty: it.qty, label: it.match.trim(), unit: it.unit?.trim() || "nos", ns: true,
-      basis: (it.derived ? "DRAWING_DERIVED" : "DRAWING_INPUT") as QtyBasis, note: it.note?.trim() || undefined,
+      basis: toQtyBasis(it.basis), note: traced(it),
+      included: equip ? false : undefined,   // client equipment isn't contractor works
     });
   });
   return out;
@@ -143,7 +169,16 @@ export function noCatalogueMatch(lines: GeneratedLine[], summary?: DrawingSummar
 
 const UNIT = "nos?|no\\.?|units?|pcs?|points?|locations?|places?|runs?|sets?|m|mtr|rmt|met(?:re|er)s?|sq\\.?\\s?ft|sqft|sq\\.?\\s?m|sqm";
 const SINGLE_QTY = new RegExp(`^(\\d+(?:\\.\\d+)?)\\s*(${UNIT})?\\.?$`, "i");
-const TRAILING_QTY = new RegExp(`^(.+?)[\\s:\\u2013-]+(\\d+(?:\\.\\d+)?)\\s*(${UNIT})?\\.?$`, "i");
+// separators include hyphen, en-dash and em-dash ("TV point — 1")
+const TRAILING_QTY = new RegExp(`^(.+?)[\\s:\\u2013\\u2014-]+(\\d+(?:\\.\\d+)?)\\s*(${UNIT})?\\.?$`, "i");
+const SEG_SPLIT = /[,;]|\band\b/i;
+
+const WORDNUM: Record<string, string> = {
+  one: "1", two: "2", three: "3", four: "4", five: "5", six: "6",
+  seven: "7", eight: "8", nine: "9", ten: "10", eleven: "11", twelve: "12",
+};
+const wordsToDigits = (s: string) =>
+  s.replace(/\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/gi, (m) => WORDNUM[m.toLowerCase()]);
 
 interface RawHit { qty: number; label: string; context?: string; unit?: string }
 
@@ -173,9 +208,9 @@ function parseSegment(seg: string, context: string | undefined, out: RawHit[]) {
   if (!s) return;
   let m = s.match(/^(\d+(?:\.\d+)?)\s*[\u00d7x*]\s*(.+)$/i);           // "8 × 6A sockets"
   if (m) return pushHit(out, Number(m[1]), m[2], context);
-  m = s.match(TRAILING_QTY);                                            // "Conduit: 185 m" / "6M switchboards: 8 nos"
+  m = s.match(TRAILING_QTY);                                            // "TV point — 1" / "Conduit: 185 m"
   if (m) return pushHit(out, Number(m[2]), m[1], context, unitFrom(m[3]));
-  m = s.match(/^(\d+(?:\.\d+)?)\s+([A-Za-z].*)$/);                      // "8 sockets" (label starts with a letter)
+  m = s.match(/^(\d+(?:\.\d+)?)\s+(\S.*)$/);                            // "8 6A sockets" / "1 TV point" (item may start with a digit)
   if (m) return pushHit(out, Number(m[1]), m[2], context);
 }
 
@@ -190,35 +225,49 @@ function aggregate(hits: RawHit[]): DrawingItem[] {
   const items: DrawingItem[] = [];
   for (const hs of groups.values()) {
     const qty = hs.reduce((s, h) => s + h.qty, 0);
-    const anyCtx = hs.some((h) => h.context);
-    const unit = hs.find((h) => h.unit)?.unit;
+    const unit = hs.find((h) => h.unit)?.unit ?? "nos";
+    const withCtx = hs.filter((h) => h.context);
+    // Preserve location: one place → the place; several → each place with its count.
     let note: string | undefined;
-    if (hs.length > 1 && anyCtx) note = hs.map((h) => `${h.qty}${h.context ? " " + h.context : ""}`).join(" + ");
-    else if (hs.length === 1 && hs[0].context) note = hs[0].context;
-    items.push({ match: hs[0].label, qty, unit, derived: false, note });
+    if (withCtx.length > 1) note = hs.map((h) => `${h.context ?? "—"} (${h.qty})`).join(", ");
+    else if (withCtx.length === 1) note = withCtx[0].context;
+    items.push({
+      match: hs[0].label, qty, unit, basis: "Counted",
+      equipment: isEquipment(hs[0].label) || undefined, note,
+    });
   }
   return items;
 }
 
-/** Parse a pasted drawing summary into editable, reviewable DrawingItems. */
+/** Parse a pasted drawing summary (list or prose) into editable DrawingItems. */
 export function parseDrawingSummary(text: string): DrawingItem[] {
   const out: RawHit[] = [];
   let context: string | undefined;
   for (const rawLine of (text || "").split(/\r?\n/)) {
-    const line = stripBullet(rawLine);
-    if (!line) continue;
-    const ci = line.indexOf(":");
-    if (ci >= 0) {
-      const head = line.slice(0, ci).trim();
-      const rest = line.slice(ci + 1).trim();
-      if (!rest) { context = head || undefined; continue; }              // "Electrical:" / "Bedroom 1:" header
-      const sm = rest.match(SINGLE_QTY);
-      if (sm) { pushHit(out, Number(sm[1]), head, context, unitFrom(sm[2])); continue; }  // "Conduit: 185 m" / "4M switchboards: 6 nos"
-      const local = head || context;                                     // "Living room: 8 × …" → head is the room
-      for (const seg of rest.split(/[,;]|\band\b/i)) parseSegment(seg, local, out);
-      continue;
+    // Split prose into sentences too ("…AC point. Bedroom 1 has…"), but never at
+    // a decimal/DSR-code dot (only split when a non-digit precedes the dot).
+    for (const chunk of rawLine.split(/(?<=\D)\.\s+/)) {
+      const line = wordsToDigits(stripBullet(chunk));
+      if (!line) continue;
+      const ci = line.indexOf(":");
+      if (ci >= 0) {
+        const head = line.slice(0, ci).trim();
+        const rest = line.slice(ci + 1).trim();
+        if (!rest) { context = head || undefined; continue; }            // "Electrical:" / "Bedroom 1:" header
+        const sm = rest.match(SINGLE_QTY);
+        if (sm) { pushHit(out, Number(sm[1]), head, context, unitFrom(sm[2])); continue; }  // "Conduit: 185 m"
+        const local = head || context;                                   // "Living room: 8 × …" → head is the room
+        for (const seg of rest.split(SEG_SPLIT)) parseSegment(seg, local, out);
+        continue;
+      }
+      // Natural language: "Living room has 8 6A sockets, 2 16A sockets and one TV point"
+      const hm = line.match(/^(.{2,50}?)\s+(?:has|have|contains?|with)\s+(.+)$/i);
+      if (hm && /\d/.test(hm[2])) {
+        for (const seg of hm[2].split(SEG_SPLIT)) parseSegment(seg, hm[1].trim(), out);
+        continue;
+      }
+      for (const seg of line.split(SEG_SPLIT)) parseSegment(seg, context, out);
     }
-    for (const seg of line.split(/[,;]|\band\b/i)) parseSegment(seg, context, out);
   }
   return aggregate(out);
 }

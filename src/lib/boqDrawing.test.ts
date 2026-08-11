@@ -30,16 +30,24 @@ describe("applyDrawing", () => {
     expect(out[0].basis).toBe("DRAWING_INPUT");
   });
 
-  it("matches by description substring, case-insensitive, and carries the note", () => {
-    const out = applyDrawing(lines, { items: [{ match: "16a", qty: 12, note: "8+2+2 counted" }] });
+  it("matches by description substring, case-insensitive, and carries a traceable note", () => {
+    const out = applyDrawing(lines, { items: [{ match: "16a", qty: 12, note: "Living / TV area" }] });
     expect(out[1].qty).toBe(12);
     expect(out[1].basis).toBe("DRAWING_INPUT");
-    expect(out[1].note).toBe("8+2+2 counted");
+    expect(out[1].note).toBe("Counted · Living / TV area");
   });
 
-  it("derived flag → drawing-derived basis", () => {
-    const out = applyDrawing(lines, { items: [{ match: "light", qty: 18, derived: true }] });
-    expect(out[2].basis).toBe("DRAWING_DERIVED");
+  it("Derived basis → drawing-derived; Assumed → heuristic", () => {
+    expect(applyDrawing(lines, { items: [{ match: "light", qty: 18, basis: "Derived" }] })[2].basis).toBe("DRAWING_DERIVED");
+    expect(applyDrawing(lines, { items: [{ match: "light", qty: 18, basis: "Assumed" }] })[2].basis).toBe("HEURISTIC");
+  });
+
+  it("client equipment becomes a line that is not priced by default", () => {
+    const out = applyDrawing(lines, { items: [{ match: "55\" TV", qty: 1 }] });
+    const tv = out.find((l) => l.label === "55\" TV");
+    expect(tv?.included).toBe(false);
+    const point = applyDrawing(lines, { items: [{ match: "TV point", qty: 1 }] }).find((l) => l.label === "TV point");
+    expect(point?.included).toBeUndefined();   // contractor works — priced normally
   });
 
   it("never invents: ignores blank/zero items and leaves lines untouched", () => {
@@ -96,9 +104,27 @@ describe("parseDrawingSummary", () => {
     expect(byMatch(items, "floor-to-ceilingconduit")?.qty).toBe(3);
   });
 
-  it("records the per-room breakdown as a note", () => {
-    const items = parseDrawingSummary("Living room: 8 × 6A sockets\nBedroom 1: 6 × 6A sockets");
-    expect(byMatch(items, "6asocket")?.note).toBe("8 Living room + 6 Bedroom 1");
+  it("preserves locations when consolidating across rooms", () => {
+    const items = parseDrawingSummary("Bedroom 1:\n- 6A socket — 4\nBedroom 2:\n- 6A socket — 6");
+    const s = byMatch(items, "6asocket");
+    expect(s?.qty).toBe(10);
+    expect(s?.note).toBe("Bedroom 1 (4), Bedroom 2 (6)");
+  });
+
+  it("parses natural-language prose with word-numbers and 'has'", () => {
+    const items = parseDrawingSummary(
+      "Living room has 8 6A sockets, 2 16A sockets, one TV point and one AC point. Bedroom 1 has 6 6A sockets and one TV point.");
+    expect(byMatch(items, "6asocket")?.qty).toBe(14);   // 8 living + 6 bedroom
+    expect(byMatch(items, "16asocket")?.qty).toBe(2);   // living only
+    expect(byMatch(items, "tvpoint")?.qty).toBe(2);     // 1 living + 1 bedroom
+    expect(byMatch(items, "acpoint")?.qty).toBe(1);
+  });
+
+  it("flags client equipment but not the matching works item", () => {
+    const items = parseDrawingSummary("55\" TV — 1\nTV point — 1\nProjector screen — 1");
+    expect(byMatch(items, "tv")?.equipment).toBe(true);            // 55" TV
+    expect(byMatch(items, "tvpoint")?.equipment).toBeFalsy();      // TV point = works
+    expect(byMatch(items, "projectorscreen")?.equipment).toBe(true);
   });
 
   it("handles trailing-count and linear-length lines", () => {

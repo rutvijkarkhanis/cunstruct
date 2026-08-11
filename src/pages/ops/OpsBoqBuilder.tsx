@@ -8,7 +8,7 @@ import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
 import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, type QuoteSubHead, type CsvRow } from "@/lib/boqDsrDocument";
 import { openIntakeForm } from "@/lib/boqIntakeForm";
 import { sanityForCode, countFlagged } from "@/lib/boqSanity";
-import { BASIS_META, findCatalogueMatch, parseDrawingSummary, type DrawingItem, type DrawingSummary, type QtyBasis } from "@/lib/boqDrawing";
+import { BASIS_META, findCatalogueMatch, isEquipment, parseDrawingSummary, type DrawingBasis, type DrawingItem, type DrawingSummary, type QtyBasis } from "@/lib/boqDrawing";
 import { BOQ_SPEC, type Spec, type SpecValue, type SpecField } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -364,7 +364,7 @@ export default function OpsBoqBuilder() {
           custom_rate: ov?.custom_rate ?? null,
           cost: ov?.cost ?? null,
           basis: g.basis ?? null, basis_note: g.note ?? null,
-          included: ov?.included ?? true,
+          included: ov?.included ?? g.included ?? true,   // client equipment defaults out; operator can include
           source: "auto", sort: i,
         };
       });
@@ -423,7 +423,7 @@ export default function OpsBoqBuilder() {
   const drawRows = drawDraft ?? drawingItems;
   const editDraw = (i: number, patch: Partial<DrawingItem>) =>
     setDrawDraft((d) => (d ?? drawingItems).map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
-  const addDraw = () => setDrawDraft((d) => [...(d ?? drawingItems), { match: "", qty: 0, derived: false, note: "" }]);
+  const addDraw = () => setDrawDraft((d) => [...(d ?? drawingItems), { match: "", qty: 0, unit: "nos", basis: "Counted", note: "" }]);
   const delDraw = (i: number) => setDrawDraft((d) => (d ?? drawingItems).filter((_, idx) => idx !== i));
   const [pasteText, setPasteText] = useState("");
   const parsePaste = () => {
@@ -437,7 +437,7 @@ export default function OpsBoqBuilder() {
     if (!boq) return;
     const prev = ((boq.spec as Record<string, unknown>)?._drawing ?? null) as unknown;
     const clean = drawRows.filter((r) => r.match.trim() && Number(r.qty) > 0)
-      .map((r) => ({ match: r.match.trim(), qty: Number(r.qty), derived: !!r.derived, note: r.note?.trim() || undefined }));
+      .map((r) => ({ match: r.match.trim(), qty: Number(r.qty), unit: r.unit?.trim() || undefined, basis: r.basis ?? "Counted", note: r.note?.trim() || undefined }));
     await commit({
       kind: "assumption", label: "Drawing measurements", detail: `${clean.length} applied`,
       forward: async () => { const ns = await setSpecKeys({ _drawing: { items: clean } } as unknown as Spec); await runGenerate(ns, { silent: true }); },
@@ -1016,19 +1016,21 @@ export default function OpsBoqBuilder() {
                   <th className="py-1 font-medium">Requirement (DSR code or words)</th>
                   <th className="font-medium w-16">Qty</th>
                   <th className="font-medium w-16">Unit</th>
-                  <th className="font-medium w-24">Basis</th>
-                  <th className="font-medium">Note</th>
-                  <th className="font-medium w-36">Catalogue</th><th></th>
+                  <th className="font-medium w-28">Basis</th>
+                  <th className="font-medium">Location / Note</th>
+                  <th className="font-medium w-40">Catalogue</th><th></th>
                 </tr></thead>
                 <tbody>
                   {drawRows.map((r, i) => {
-                    const cat = r.match.trim() && Number(r.qty) > 0
+                    const valid = r.match.trim() && Number(r.qty) > 0;
+                    const equip = valid && isEquipment(r.match);
+                    const cat = valid && !equip
                       ? findCatalogueMatch(r.match, lines.map((l) => ({ code: l.dsr_code, label: l.description ?? "" })))
                       : null;
                     return (
                     <tr key={i} className="border-t">
                       <td className="py-1 pr-2">
-                        <Input list="boq-line-match" className="h-8" value={r.match} placeholder='e.g. 16A socket · light point · 5.22.6'
+                        <Input list="boq-line-match" className="h-8" value={r.match} placeholder='e.g. 16A socket · TV point · 5.22.6'
                           onChange={(e) => editDraw(i, { match: e.target.value })} />
                       </td>
                       <td className="pr-1"><Input className="h-8" type="number" value={r.qty || ""}
@@ -1036,16 +1038,16 @@ export default function OpsBoqBuilder() {
                       <td className="pr-1"><Input className="h-8" value={r.unit ?? ""} placeholder="nos"
                         onChange={(e) => editDraw(i, { unit: e.target.value })} /></td>
                       <td className="pr-2">
-                        <select className="h-8 rounded border bg-background px-1 text-sm" value={r.derived ? "derived" : "counted"}
-                          onChange={(e) => editDraw(i, { derived: e.target.value === "derived" })}>
-                          <option value="counted">Counted</option>
-                          <option value="derived">Derived</option>
+                        <select className="h-8 rounded border bg-background px-1 text-sm" value={r.basis ?? "Counted"}
+                          onChange={(e) => editDraw(i, { basis: e.target.value as DrawingBasis })}>
+                          {(["Counted", "Measured", "Derived", "Assumed"] as const).map((b) => <option key={b} value={b}>{b}</option>)}
                         </select>
                       </td>
-                      <td className="pr-2"><Input className="h-8" value={r.note ?? ""} placeholder="e.g. 8×6A + 2×16A, living"
+                      <td className="pr-2"><Input className="h-8" value={r.note ?? ""} placeholder="e.g. Living / TV area"
                         onChange={(e) => editDraw(i, { note: e.target.value })} /></td>
                       <td className="pr-2 text-xs">
-                        {!r.match.trim() || !(Number(r.qty) > 0) ? <span className="text-muted-foreground">—</span>
+                        {!valid ? <span className="text-muted-foreground">—</span>
+                          : equip ? <span className="text-amber-600 dark:text-amber-500" title="Client equipment — added as a line but not priced in works by default">client equipment</span>
                           : cat ? <span className="text-emerald-600 dark:text-emerald-400" title={cat.code ? `${cat.code} — ${cat.label}` : cat.label}>→ links to a catalogue item</span>
                           : <span className="text-amber-600 dark:text-amber-500">＋ new item (no match)</span>}
                       </td>
@@ -1057,10 +1059,11 @@ export default function OpsBoqBuilder() {
               </table>
             )}
             <p className="text-[11px] text-muted-foreground mt-2">
-              Every requirement becomes a BOQ line. <span className="text-emerald-600 dark:text-emerald-400">Links to a catalogue item</span> →
-              priced from the DSR; <span className="text-amber-600 dark:text-amber-500">new item (no match)</span> → kept as a valid line you price
-              yourself (nothing is dropped or forced). "Counted" vs "Derived" both show as drawing-sourced in Why.
-              Room-by-room dimensions go in <b>Rooms</b>; use this for explicit counts and lengths.
+              Paste plain or as a list — locations are kept and the same item is summed across rooms. Every requirement becomes a
+              BOQ line: <span className="text-emerald-600 dark:text-emerald-400">links to a catalogue item</span> → priced from the DSR;
+              <span className="text-amber-600 dark:text-amber-500"> new item (no match)</span> → a valid line you price yourself;
+              <span className="text-amber-600 dark:text-amber-500"> client equipment</span> (the TV itself, a projector) → added but not priced in works.
+              Basis is Counted / Measured / Derived / Assumed. Room-by-room dimensions go in <b>Rooms</b>.
             </p>
           </CardContent>
         </Card>
@@ -1347,7 +1350,9 @@ export default function OpsBoqBuilder() {
                                   </div>
                                 );
                               })()}
-                              {l.basis_note && <div className="text-muted-foreground">Drawing note: {l.basis_note}</div>}
+                              {l.basis_note && (l.basis === "DRAWING_INPUT" || l.basis === "DRAWING_DERIVED") && (
+                                <div className="text-muted-foreground">Source: Drawing summary · {l.basis_note}</div>
+                              )}
                               <div>
                                 <span className="text-muted-foreground">Rate: </span>
                                 {!l.dsr_code ? (
