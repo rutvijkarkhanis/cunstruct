@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildChatGptPrompt, parseChatGptEvaluation } from "./chatgptEval";
+import { buildChatGptPrompt, disciplineForBoq, parseChatGptEvaluation } from "./chatgptEval";
 import { applyDrawing } from "./boqDrawing";
 
 const STRUCTURED = `## PROJECT TYPE
@@ -45,18 +45,33 @@ TV point | 1 | nos | Counted | Living / TV area
 - Confirm whether the study is intended as a bedroom.`;
 
 describe("buildChatGptPrompt", () => {
-  it("produces a self-contained prompt that forbids inventing quantities", () => {
+  it("carries the source-boundary rule and the not-assessable / conservative principles", () => {
     const p = buildChatGptPrompt();
-    expect(p).toContain("DO NOT invent quantities");
+    expect(p).toContain("Source boundary");
+    expect(p).toMatch(/ONLY use the drawing supplied/i);
+    expect(p).toContain("Not assessable from supplied drawing");
+    expect(p).toContain("UNKNOWN IS BETTER THAN INVENTED");
     expect(p).toContain("Requirement | Qty | Unit | Basis | Location / Note | Scope");
-    expect(p).toContain("PROJECT TYPE");
   });
-  it("insists on counts and enumerates categories (fixes the qualitative-list miss)", () => {
+  it("mentions external documents only to forbid them, never to instruct consulting them", () => {
     const p = buildChatGptPrompt();
-    expect(p).toContain("give a number for each");
+    expect(p).toMatch(/Do not reference[^]*architectural schedules/i);        // prohibition present
+    expect(p).toMatch(/Never ask me to check a schedule, CAD file/i);          // confirmation-section prohibition
+    expect(p).not.toContain("against the architectural schedule");            // the BAD pattern is absent
+    expect(p).not.toContain("Verify against the plumbing drawing");
+  });
+  it("keeps specifications out of the quantity field and dimensions out of quantities", () => {
+    const p = buildChatGptPrompt();
+    expect(p).toMatch(/Do not put a specification .*into the quantity field/i);
+    expect(p).toMatch(/dimension .*is a measurement, never a quantity/i);
+  });
+  it("asks for the identified-vs-not-assessable discipline split and the category checklist", () => {
+    const p = buildChatGptPrompt();
+    expect(p).toContain("Identified in drawing:");
+    expect(p).toContain("Not assessable:");
     expect(p).toContain("AC points");
     expect(p).toContain("switchboards");
-    expect(p).toContain("none seen");
+    expect(p).toContain("None seen");
   });
 });
 
@@ -79,6 +94,67 @@ Sprinkler | none seen | | | | Works`);
     const lines = applyDrawing([], { items: e.requirements });
     expect(lines.find((l) => l.label === '55" TV')?.included).toBe(false);
     expect(lines.find((l) => l.label === "TV point")?.included).toBeUndefined();
+  });
+});
+
+describe("Refinement — not-assessable, measurement/requirement separation, discipline prefill", () => {
+  it("a 'Not assessable' row never becomes a drawing quantity (kept separate)", () => {
+    const e = parseChatGptEvaluation(`## DRAWING-SPECIFIC REQUIREMENTS
+Requirement | Qty | Unit | Basis | Location / Note | Scope
+--- | --- | --- | --- | --- | ---
+TV point | 1 | nos | Counted | Living | Works
+Floor trap |  |  | Not assessable | plumbing symbols not legible | Works
+Water point | 4 | nos | Not assessable | not legible | Works`);
+    expect(e.requirements.map((r) => r.match)).toEqual(["TV point"]);           // only the counted one
+    expect(e.notAssessable).toEqual(expect.arrayContaining(["Floor trap", "Water point"]));
+    // even a numbered 'Not assessable' row must not enter the priced BOQ
+    const lines = applyDrawing([], { items: e.requirements });
+    expect(lines.some((l) => /water point|floor trap/i.test(l.label ?? ""))).toBe(false);
+  });
+
+  it("'16A' is a specification, not a quantity", () => {
+    const e = parseChatGptEvaluation(`## DRAWING-SPECIFIC REQUIREMENTS
+16A socket | 6 | nos | Counted | Kitchen | Works`);
+    const s = e.requirements.find((r) => /16A socket/i.test(r.match));
+    expect(s?.qty).toBe(6);                 // qty is 6, not 16
+    expect(s?.match).toBe("16A socket");    // the 16A stays in the requirement text
+  });
+
+  it("a dimension line ('4\" from BOS') stays a measurement, never a requirement quantity", () => {
+    const e = parseChatGptEvaluation(`## DRAWING-SPECIFIC MEASUREMENTS
+- Geyser point offset — 4" from BOS
+- AC point specification — 16A, on ceiling
+## DRAWING-SPECIFIC REQUIREMENTS
+Geyser electrical point | 1 | nos | Counted | Bathroom | Works`);
+    expect(e.measurements.map((m) => m.label)).toEqual(expect.arrayContaining(["Geyser point offset", "AC point specification"]));
+    expect(e.requirements.some((r) => /4"|BOS|specification/i.test(r.match))).toBe(false);   // no spec/dimension became a requirement
+    expect(e.requirements.find((r) => /geyser/i.test(r.match))?.qty).toBe(1);                 // the point itself is a requirement
+  });
+
+  it("disciplines: identified prefill; 'not assessable' / negated excluded; operator-mappable", () => {
+    const e = parseChatGptEvaluation(`## DISCIPLINES
+Identified in drawing:
+- Electrical
+- Furniture
+- Architectural
+Not assessable:
+- Fire
+- Plumbing`);
+    expect(e.disciplines).toEqual(expect.arrayContaining(["Electrical", "Architectural", "Furniture"]));
+    expect(e.disciplines).not.toContain("Fire");
+    expect(e.disciplines).not.toContain("Plumbing");
+    expect(disciplineForBoq(e.disciplines)).toBe("civil");    // Architectural → civil BOQ base
+    expect(disciplineForBoq(["Electrical"])).toBe("electrical");
+  });
+
+  it("'no fire symbols identified' does not preselect Fire", () => {
+    const e = parseChatGptEvaluation("## DISCIPLINES\n- Electrical\n- Fire: no fire-system symbols clearly identified");
+    expect(e.disciplines).toContain("Electrical");
+    expect(e.disciplines).not.toContain("Fire");
+  });
+
+  it("missing area stays Not provided", () => {
+    expect(parseChatGptEvaluation("## AREA\nNot provided").area).toBeNull();
   });
 });
 

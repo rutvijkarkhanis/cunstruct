@@ -5,7 +5,7 @@ import { BOQ_SPEC, defaultSpec, type SpecField, type Spec, type SpecValue } from
 import { DISCIPLINES } from "@/lib/disciplines";
 import { ARCHETYPES, archetypeSpec } from "@/lib/archetypes";
 import { openIntakeForm } from "@/lib/boqIntakeForm";
-import { buildChatGptPrompt, carrySeed, parseChatGptEvaluation, type ChatGptEval } from "@/lib/chatgptEval";
+import { buildChatGptPrompt, carrySeed, disciplineForBoq, parseChatGptEvaluation, type ChatGptEval } from "@/lib/chatgptEval";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -64,6 +64,8 @@ export default function OpsBoqNew() {
     (base as Record<string, unknown>)._source = "chatgpt";
     setSpec(base);
     setArch(e.archetypeKey ?? null);
+    const disc = disciplineForBoq(e.disciplines);   // prefill from actual drawing evidence
+    if (disc) setDiscipline(disc);
     if (!project) setName(`${a?.label ?? e.projectType ?? "Project"} — BOQ`);
     setEvalData(e);
     setStage("anchor");
@@ -279,8 +281,9 @@ export default function OpsBoqNew() {
             </div>
             {evalData.disciplines.length > 0 && (
               <div className="flex flex-wrap gap-1.5 items-center">
-                <span className="text-xs text-muted-foreground">Disciplines:</span>
+                <span className="text-xs text-muted-foreground">Disciplines identified in drawing:</span>
                 {evalData.disciplines.map((d) => <Badge key={d} variant="secondary" className="text-[11px]">{d}</Badge>)}
+                <span className="text-[11px] text-muted-foreground">— BOQ discipline prefilled below; change it if needed.</span>
               </div>
             )}
             {evalData.spaces.length > 0 && (
@@ -307,6 +310,14 @@ export default function OpsBoqNew() {
                 <ul className="text-xs text-amber-700 dark:text-amber-400 space-y-0.5">
                   {evalData.keyInfo.map((k, i) => <li key={i}>• {k}</li>)}
                 </ul>
+              </div>
+            )}
+            {evalData.notAssessable.length > 0 && (
+              <div className="rounded-md border p-2">
+                <div className="text-xs font-medium text-muted-foreground mb-1">Not assessable from the supplied drawing (not priced — add manually if needed)</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {evalData.notAssessable.map((n, i) => <Badge key={i} variant="outline" className="text-[11px]">{n}</Badge>)}
+                </div>
               </div>
             )}
             {evalData.confirmations.length > 0 && (

@@ -26,81 +26,78 @@ export function carrySeed<T extends Record<string, unknown>>(next: T, current: R
 export function buildChatGptPrompt(): string {
   return `I am using Cunstruct to prepare a construction BOQ.
 
+Source boundary:
+You may ONLY use the drawing supplied in this conversation. Do not assume any other project documents exist. Do not reference, cite, or ask me to consult CAD files, architectural schedules, legends, specifications, plumbing/fire/electrical/interior drawings, or any other document unless it has actually been supplied here. If something cannot be established from the supplied drawing, say "Not assessable from supplied drawing." Never ask me to obtain another document.
+
 Analyse the attached project drawing and return a structured project assessment that I can paste directly back into Cunstruct.
 
-Your job is to understand the drawing and identify the project's characteristics and important drawing-specific information.
-
-DO NOT generate a BOQ.
-DO NOT generate prices.
-DO NOT provide DSR rates.
-DO NOT invent quantities.
-DO NOT make unsupported assumptions.
+Core rules:
+- DO NOT generate a BOQ, prices, or DSR rates.
+- UNKNOWN IS BETTER THAN INVENTED. Be conservative: do not invent quantities or make unsupported assumptions.
+- Never create an "Assumed" quantity from an unclear, illegible, ambiguous or partially visible symbol. Either Count it when the drawing clearly supports it, or mark it "Not assessable from supplied drawing" and leave the quantity blank.
+- Do not put a specification (e.g. 16A, 20A, "on ceiling", "concealed") into the quantity field. Keep specifications in the requirement text or the Location / Note.
+- Keep dimensions separate from quantities. A dimension (51", 4" from BOS, 10'-8") is a measurement, never a quantity.
 
 Determine:
 
 ## PROJECT TYPE
-Choose the closest: Residential, Commercial, Retail, Office, Hospitality, Other.
+Closest of: Residential, Commercial, Retail, Office, Hospitality, Other.
 
 ## ARCHETYPE
-Choose the closest: 1 BHK, 2 BHK, 3 BHK, 4 BHK, Villa, Duplex, Apartment, Shop, Office, Other.
-If none fits, describe the closest archetype.
+Closest of: 1 BHK, 2 BHK, 3 BHK, 4 BHK, Villa, Duplex, Apartment, Shop, Office, Other. If none fits, describe the closest.
 
 ## FLOORS
-Identify the number of floors / levels represented in the drawing.
+Number of floors / levels represented. If unclear from the supplied drawing, say "Not assessable from supplied drawing."
 
 ## AREA
-Provide built-up area, carpet area or covered area only when explicitly stated or reliably derivable.
-Clearly identify which type of area it is. Do not invent an area.
+Give built-up / carpet / covered area ONLY if it is explicitly stated or reliably measurable from the supplied drawing (say which type). Otherwise write exactly "Not provided" — do not estimate it and do not ask me to fetch it from another document.
 
 ## SPACES
-List identifiable rooms / spaces and quantities, e.g.
-- Living room — 1
-- Kitchen — 1
+Identifiable rooms / spaces and counts, e.g.
 - Bedroom — 3
-- Bathroom — 3
+- Kitchen — 1
+Do not present a space as more certain than the drawing supports; if unsure, lower its confidence and add a confirmation.
 
 ## DISCIPLINES
-Identify disciplines represented in the drawing: Civil, Architectural, Electrical, Plumbing, HVAC, Fire, Furniture, Other.
+Split into two lists, based ONLY on the supplied drawing (Civil, Architectural, Electrical, Plumbing, HVAC, Fire, Furniture):
+Identified in drawing: <disciplines that have actual scope/evidence in this drawing>
+Not assessable: <disciplines with no clear evidence in this drawing>
 
 ## DRAWING-SPECIFIC MEASUREMENTS
-List useful measurements the Cunstruct operator should consider. Keep dimensions separate from quantities, e.g.
-- Wall length — 10'-8"
-- Switchboard height — 51"
+Dimensions and specifications ONLY — never quantities. e.g.
+- Switchboard heights — 10.5", 21", 51", 72"
 - TV size — 55"
-- Offset — 4" from BOS
-Do not convert a dimension into a quantity unless the drawing explicitly supports that calculation.
+- Geyser point offset — 4" from BOS
+- AC point specification — 16A, on ceiling
 
 ## DRAWING-SPECIFIC REQUIREMENTS
-Count the actual symbols on the drawing and return a row for EVERY countable requirement. Do NOT summarise as "shown", "multiple" or "indicated" — give a number for each. If a category is clearly present but you cannot count it confidently, still return a row with your best count, set Basis = Assumed, and add a confirmation below.
-
-Return a markdown table with exactly these columns:
+Countable requirements you can actually count, measure or derive from the supplied drawing. Return a markdown table with exactly these columns:
 Requirement | Qty | Unit | Basis | Location / Note | Scope
-
-- Basis: Counted, Measured, Derived or Assumed (Assumed only when unavoidable, and flag it).
-- Location: the room if identifiable, otherwise write "Location unclear" — never guess a room.
+- Basis: Counted (visible symbols), Measured (an explicit measurement), Derived (from measurements in the drawing), or "Not assessable" (the drawing does not support it — leave Qty blank).
+- Location: the room if identifiable, otherwise "Location unclear". Never guess a room.
 - Scope: "Works" for contractor work (points, sockets, conduit, provisions) or "Equipment" for client-supplied items (the TV, projector, appliances themselves — not their electrical points).
 
-Actively look for and count each of these where the discipline appears in the drawing:
-- Electrical: lighting points; 6A sockets; 16A points; AC points; TV points; audio/speaker points; exhaust points (there may be several); switchboards (and module sizes); floor points / floor boxes; floor-to-ceiling conduits; appliance points (dishwasher, washing machine, oven, fridge, geyser); projector points; blind/curtain provisions.
+Check each category below and return, for EACH, one of: (a) Identified + quantity, (b) None seen, or (c) Not assessable from supplied drawing. "None seen" means it is not in THIS drawing — not that the project does not need it.
+- Electrical: lighting points; 6A sockets; 16A points; AC points; TV points; audio points; exhaust points; switchboards (+ module config); floor points / floor boxes; conduits; appliance points (dishwasher, washing machine, oven, fridge, geyser); projector points; blind provisions.
 - Plumbing: WC; wash basin; shower; sink; floor traps; water & waste points.
 - HVAC: AC units; AC points; exhaust; ducting.
 - Fire: detectors; sprinklers; alarm points; extinguishers.
 - Architectural / Civil: doors; windows; grills; wardrobes; counters.
-For any category clearly not present, write a row of "none seen" rather than omitting it silently.
 
 Examples:
 TV point | 1 | nos | Counted | Living / TV area | Works
-6A socket | 4 | nos | Counted | Bedroom 1 | Works
+Geyser electrical point | 1 | nos | Counted | Bathroom | Works
 55" TV | 1 | nos | Counted | Living / TV area | Equipment
+Floor trap |  |  | Not assessable | plumbing symbols not legible | Works
 
 ## CONFIDENCE
-Give confidence (High / Medium / Low) for: Project type, Archetype, Floors, Area, Major space identification.
+High / Medium / Low for: Project type, Archetype, Floors, Area, Major space identification.
 
 ## CONFIRMATIONS
-List anything the Cunstruct operator should verify before generating the BOQ. If the drawing is ambiguous, do not guess.
+Only questions that can be resolved from the supplied drawing or by my own judgement. Base every question on what is visible in the supplied drawing. Never ask me to check a schedule, CAD file, or another drawing that was not supplied. e.g. "Confirm whether the 8 A.C annotations represent 8 electrical AC points, 8 equipment locations, or both."
 
 ## IMPORTANT
-The human operator makes the final decision. Do not silently infer information not supported by the drawing. Return a clean structured response that can be pasted directly into Cunstruct.`;
+UNKNOWN IS BETTER THAN INVENTED. The human operator makes the final decision. Return a clean structured response that can be pasted directly into Cunstruct.`;
 }
 
 export interface EvalArea { value: number; type: string; raw: string }
@@ -117,6 +114,8 @@ export interface ChatGptEval {
   disciplines: string[];
   measurements: EvalMeasurement[];
   requirements: DrawingItem[];
+  /** Requirements ChatGPT could not assess from the drawing — shown, never priced. */
+  notAssessable: string[];
   /** Categories ChatGPT saw but did not count — surfaced as a reminder, never as quantities. */
   keyInfo: string[];
   confidence: Record<string, string>;   // "project type" → "High" | "Medium" | "Low"
@@ -239,12 +238,26 @@ function parseSpaces(sec?: string): EvalSpace[] {
 }
 
 const DISCIPLINE_WORDS = ["Civil", "Architectural", "Electrical", "Plumbing", "HVAC", "Fire", "Furniture"];
+const hasDiscipline = (l: string) => DISCIPLINE_WORDS.some((d) => new RegExp(`\\b${d}\\b`, "i").test(l));
+/** Disciplines with actual evidence in the drawing — the "Identified" list, and
+ *  never the "Not assessable" / negated ones (so Fire-not-seen isn't preselected). */
 function parseDisciplines(sec?: string): string[] {
   if (!sec) return [];
   const found = new Set<string>();
-  for (const line of sec.split(/\r?\n/)) {
-    if (/\b(not identified|not shown|not present|none|absent|n\/a|not applicable)\b/i.test(line)) continue;
-    for (const d of DISCIPLINE_WORDS) if (new RegExp(`\\b${d}\\b`, "i").test(line)) found.add(d);
+  let mode: "include" | "exclude" = "include";
+  for (const raw of sec.split(/\r?\n/)) {
+    const l = raw.trim();
+    if (!l) continue;
+    // Sub-headers that carry no discipline word switch the mode for following lines.
+    if (!hasDiscipline(l)) {
+      if (/identified/i.test(l)) mode = "include";
+      else if (/not assessable|not identified|not present/i.test(l)) mode = "exclude";
+      continue;
+    }
+    // Inline negation on a discipline line, e.g. "Fire — not identified" / "no fire symbols".
+    const negated = /\bnot (assessable|identified|shown|present|applicable|clear)\b|\bnone\b|\bn\/a\b|\babsent\b|\bno\s+[\w/-]+\s+(symbol|scope|evidence|system|layout|point|fitting)/i.test(l);
+    if (mode === "exclude" || negated) continue;
+    for (const d of DISCIPLINE_WORDS) if (new RegExp(`\\b${d}\\b`, "i").test(l)) found.add(d);
   }
   return DISCIPLINE_WORDS.filter((d) => found.has(d));
 }
@@ -285,14 +298,22 @@ function normBasis(s?: string): DrawingBasis {
   return "Counted";
 }
 
-/** Requirements table → DrawingItems (reusing the drawing-summary schema). */
-function parseRequirements(sec?: string): DrawingItem[] {
-  if (!sec) return [];
+const reqName = (line: string): string => (line.includes("|")
+  ? (line.split("|").map((c) => c.trim()).filter(Boolean)[0] ?? line)
+  : line).replace(/[—–:-].*$/, "").trim();
+
+/** Requirements table → DrawingItems (reusing the drawing-summary schema), plus
+ *  the requirements ChatGPT could not assess (kept OUT of the priced BOQ). */
+function parseRequirements(sec?: string): { items: DrawingItem[]; notAssessable: string[] } {
+  if (!sec) return { items: [], notAssessable: [] };
   const items: DrawingItem[] = [];
+  const notAssessable: string[] = [];
   const loose: string[] = [];
   for (let line of sec.split(/\r?\n/)) {
     line = line.trim().replace(/^[-*•]\s*/, "");
     if (!line) continue;
+    // "Not assessable" must NEVER become a drawing quantity — record it, don't count it.
+    if (/\bnot assessable\b/i.test(line)) { const n = reqName(line); if (n && !/^requirement$/i.test(n)) notAssessable.push(n); continue; }
     if (/\bnone seen\b|\bnot present\b|\bnot applicable\b/i.test(line)) continue;   // explicit "no items" rows
     if (line.includes("|")) {
       const cols = line.split("|").map((c) => c.trim());
@@ -317,7 +338,7 @@ function parseRequirements(sec?: string): DrawingItem[] {
     loose.push(line);
   }
   if (loose.length) items.push(...parseDrawingSummary(loose.join("\n")));
-  return items;
+  return { items, notAssessable };
 }
 
 function parseConfidence(sec?: string): Record<string, string> {
@@ -342,7 +363,8 @@ export function parseChatGptEvaluation(text: string): ChatGptEval {
   const s = splitSections(text);
   const projectType = firstOf(s["PROJECT TYPE"], ["Residential", "Commercial", "Retail", "Office", "Hospitality", "Other"]);
   const archetype = firstOf(s["ARCHETYPE"], ["1 BHK", "2 BHK", "3 BHK", "4 BHK", "Villa", "Duplex", "Apartment", "Shop", "Office"]);
-  const requirements = parseRequirements(s["REQUIREMENTS"]);
+  const req = parseRequirements(s["REQUIREMENTS"]);
+  const requirements = req.items;
   const spaces = parseSpaces(s["SPACES"]);
   const area = parseArea(s["AREA"]);
   const floors = parseFloors(s["FLOORS"]);
@@ -356,11 +378,21 @@ export function parseChatGptEvaluation(text: string): ChatGptEval {
     disciplines: parseDisciplines(s["DISCIPLINES"]),
     measurements: parseMeasurements(s["MEASUREMENTS"]),
     requirements,
+    notAssessable: req.notAssessable,
     keyInfo: parseKeyInfo(s["KEY INFO"]),
     confidence: parseConfidence(s["CONFIDENCE"]),
     confirmations: parseConfirmations(s["CONFIRMATIONS"]),
     ok: false,
   };
-  eval_.ok = Boolean(projectType || eval_.archetypeKey || archetype || floors || area || spaces.length || requirements.length || eval_.keyInfo.length);
+  eval_.ok = Boolean(projectType || eval_.archetypeKey || archetype || floors || area || spaces.length || requirements.length || eval_.keyInfo.length || eval_.notAssessable.length);
   return eval_;
+}
+
+/** Map ChatGPT's identified disciplines to a single BOQ discipline key for the
+ *  Anchor prefill (Architectural/Civil → civil, Furniture → none), preferring
+ *  the discipline with the most tangible BOQ scope. Operator can change it. */
+export function disciplineForBoq(disciplines: string[]): string | undefined {
+  const map: Record<string, string> = { Civil: "civil", Architectural: "civil", Electrical: "electrical", Plumbing: "plumbing", HVAC: "hvac", Fire: "fire" };
+  const keys = new Set(disciplines.map((d) => map[d]).filter(Boolean));
+  return ["civil", "electrical", "plumbing", "hvac", "fire"].find((k) => keys.has(k));
 }
