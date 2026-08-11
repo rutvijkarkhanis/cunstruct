@@ -5,7 +5,7 @@ import { BOQ_SPEC, defaultSpec, type SpecField, type Spec, type SpecValue } from
 import { DISCIPLINES } from "@/lib/disciplines";
 import { ARCHETYPES, archetypeSpec } from "@/lib/archetypes";
 import { openIntakeForm } from "@/lib/boqIntakeForm";
-import { buildChatGptPrompt, parseChatGptEvaluation, type ChatGptEval } from "@/lib/chatgptEval";
+import { buildChatGptPrompt, carrySeed, parseChatGptEvaluation, type ChatGptEval } from "@/lib/chatgptEval";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -124,7 +124,9 @@ export default function OpsBoqNew() {
     const a = ARCHETYPES.find((x) => x.key === key);
     if (!a) return;
     setArch(key);
-    setSpec(archetypeSpec(a));
+    // Rebuild the base spec for the new archetype but keep the ChatGPT seed
+    // (drawing requirements, measurements, provenance) — never drop it.
+    setSpec((s) => carrySeed(archetypeSpec(a) as unknown as Record<string, unknown>, s as unknown as Record<string, unknown>) as unknown as Spec);
     if (!project) setName(`${a.label} — BOQ`);
   };
 

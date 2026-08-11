@@ -450,15 +450,15 @@ export default function OpsBoqBuilder() {
   const parsePaste = () => {
     const parsed = parseDrawingSummary(pasteText);
     if (!parsed.length) { toast.error("Couldn't find any quantities in that text"); return; }
-    setDrawDraft((d) => [...(d ?? drawingItems).filter((r) => r.match.trim()), ...parsed]);
+    setDrawDraft((d) => [...(d ?? drawingItems).filter((r) => (r.match ?? "").trim()), ...parsed]);
     setPasteText("");
     toast.success(`Parsed ${parsed.length} item${parsed.length === 1 ? "" : "s"} — review the match & quantity, then Apply`);
   };
   const saveDrawing = async () => {
     if (!boq) return;
     const prev = ((boq.spec as Record<string, unknown>)?._drawing ?? null) as unknown;
-    const clean = drawRows.filter((r) => r.match.trim() && Number(r.qty) > 0)
-      .map((r) => ({ match: r.match.trim(), qty: Number(r.qty), unit: r.unit?.trim() || undefined, basis: r.basis ?? "Counted", equipment: r.equipment, note: r.note?.trim() || undefined }));
+    const clean = drawRows.filter((r) => (r.match ?? "").trim() && Number(r.qty) > 0)
+      .map((r) => ({ match: (r.match ?? "").trim(), qty: Number(r.qty), unit: r.unit?.trim() || undefined, basis: r.basis ?? "Counted", equipment: r.equipment, note: r.note?.trim() || undefined }));
     await commit({
       kind: "assumption", label: "Drawing measurements", detail: `${clean.length} applied`,
       forward: async () => { const ns = await setSpecKeys({ _drawing: { items: clean } } as unknown as Spec); await runGenerate(ns, { silent: true }); },
@@ -1076,7 +1076,7 @@ export default function OpsBoqBuilder() {
                 </tr></thead>
                 <tbody>
                   {drawRows.map((r, i) => {
-                    const valid = r.match.trim() && Number(r.qty) > 0;
+                    const valid = (r.match ?? "").trim() && Number(r.qty) > 0;
                     const equip = valid && (r.equipment ?? isEquipment(r.match));
                     const cat = valid && !equip
                       ? findCatalogueMatch(r.match, lines.map((l) => ({ code: l.dsr_code, label: l.description ?? "" })))

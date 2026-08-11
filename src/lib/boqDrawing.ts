@@ -115,11 +115,14 @@ export function matchesCandidate(matchText: string, cand: { code: string | null;
   if (cand.code && cand.code.toLowerCase() === key) return true;      // exact DSR code typed
   const it = norm(matchText), ln = norm(cand.label);
   if (!it || !ln) return false;
-  if (ln.includes(it)) return true;                                   // normalised substring
+  if (ln.includes(it)) return true;                                   // normalised substring (full phrase)
+  const word = (w: string) => new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(ln);
   const sizes = it.match(/\d+[am]\b/g) ?? [];
-  if (sizes.length) return sizes.every((t) => ln.includes(t));        // amperage/size must all appear
+  // Whole-word matching only — otherwise "AC point" wrongly matches "compACtion"
+  // / "accessories" and silently overrides an unrelated line's quantity.
+  if (sizes.length) return sizes.every((t) => word(t));               // amperage/size (e.g. 16a, 4m)
   const words = it.split(" ").filter((w) => w.length >= 2 && !GENERIC.has(w));
-  return words.length > 0 && words.every((w) => ln.includes(w));      // else all distinctive words must appear
+  return words.length > 0 && words.every((w) => word(w));             // else all distinctive words as whole words
 }
 
 /** The best catalogue (DSR) match for a requirement, or null (No Catalogue Match). */
