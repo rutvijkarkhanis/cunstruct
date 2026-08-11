@@ -227,10 +227,11 @@ function aggregate(hits: RawHit[]): DrawingItem[] {
     const qty = hs.reduce((s, h) => s + h.qty, 0);
     const unit = hs.find((h) => h.unit)?.unit ?? "nos";
     const withCtx = hs.filter((h) => h.context);
-    // Preserve location: one place → the place; several → each place with its count.
+    // Preserve the room-wise breakdown whenever identical items are consolidated
+    // across locations: one hit → its place; several → each place with its count.
     let note: string | undefined;
-    if (withCtx.length > 1) note = hs.map((h) => `${h.context ?? "—"} (${h.qty})`).join(", ");
-    else if (withCtx.length === 1) note = withCtx[0].context;
+    if (hs.length > 1 && withCtx.length) note = hs.map((h) => `${h.context ?? "unspecified"} (${h.qty})`).join(", ");
+    else if (hs.length === 1 && hs[0].context) note = hs[0].context;
     items.push({
       match: hs[0].label, qty, unit, basis: "Counted",
       equipment: isEquipment(hs[0].label) || undefined, note,

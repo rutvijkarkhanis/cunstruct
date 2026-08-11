@@ -50,6 +50,15 @@ describe("applyDrawing", () => {
     expect(point?.included).toBeUndefined();   // contractor works — priced normally
   });
 
+  it("honours an explicit Works/Equipment override over auto-detection", () => {
+    // auto-detected works, but operator marks it equipment → not priced
+    const asEquip = applyDrawing(lines, { items: [{ match: "special panel", qty: 1, equipment: true }] }).find((l) => l.label === "special panel");
+    expect(asEquip?.included).toBe(false);
+    // auto-detected equipment, but operator marks it works → priced
+    const asWorks = applyDrawing(lines, { items: [{ match: "55\" TV", qty: 1, equipment: false }] }).find((l) => l.label === "55\" TV");
+    expect(asWorks?.included).toBeUndefined();
+  });
+
   it("never invents: ignores blank/zero items and leaves lines untouched", () => {
     const out = applyDrawing(lines, { items: [{ match: "", qty: 5 }, { match: "steel", qty: 0 }] });
     expect(out.map((l) => l.qty)).toEqual([800, 10, 20]);
