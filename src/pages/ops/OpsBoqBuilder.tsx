@@ -8,7 +8,7 @@ import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
 import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, type QuoteSubHead, type CsvRow } from "@/lib/boqDsrDocument";
 import { openIntakeForm } from "@/lib/boqIntakeForm";
 import { sanityForCode, countFlagged } from "@/lib/boqSanity";
-import { BASIS_META, parseDrawingSummary, type DrawingItem, type DrawingSummary, type QtyBasis } from "@/lib/boqDrawing";
+import { BASIS_META, findCatalogueMatch, parseDrawingSummary, type DrawingItem, type DrawingSummary, type QtyBasis } from "@/lib/boqDrawing";
 import { BOQ_SPEC, type Spec, type SpecValue, type SpecField } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -341,12 +341,12 @@ export default function OpsBoqBuilder() {
       // de-selected. Snapshot those (keyed by code + sub-head) before we delete,
       // and re-apply them to the freshly generated rows. Without this, every
       // "Confirm" silently wiped the estimator's rates.
-      const ovKey = (code: string | null, section: string | null) => `${code ?? ""}|${section ?? ""}`;
+      const ovKey = (code: string | null, section: string | null, desc: string | null) => `${code ?? ""}|${section ?? ""}|${desc ?? ""}`;
       const { data: prevAuto } = await supabase.from("boq_line")
-        .select("dsr_code, section, custom_rate, cost, included").eq("boq_id", id).eq("source", "auto");
+        .select("dsr_code, section, description, custom_rate, cost, included").eq("boq_id", id).eq("source", "auto");
       const overrides = new Map<string, { custom_rate: number | null; cost: number | null; included: boolean }>();
-      for (const p of (prevAuto ?? []) as { dsr_code: string | null; section: string | null; custom_rate: number | null; cost: number | null; included: boolean }[]) {
-        overrides.set(ovKey(p.dsr_code, p.section), { custom_rate: p.custom_rate, cost: p.cost, included: p.included });
+      for (const p of (prevAuto ?? []) as { dsr_code: string | null; section: string | null; description: string | null; custom_rate: number | null; cost: number | null; included: boolean }[]) {
+        overrides.set(ovKey(p.dsr_code, p.section, p.description), { custom_rate: p.custom_rate, cost: p.cost, included: p.included });
       }
       // Regenerate auto lines; keep anything the user added by hand.
       await supabase.from("boq_line").delete().eq("boq_id", id).eq("source", "auto");
@@ -355,10 +355,11 @@ export default function OpsBoqBuilder() {
         // section holds the DSR sub-head (type of work); the construction
         // stage is derived from the code at render/export time.
         const section = dsr?.chapter ?? g.section;
-        const ov = overrides.get(ovKey(g.code, section));
+        const desc = dsr?.description ?? g.label;
+        const ov = overrides.get(ovKey(g.code, section, desc));
         return {
           boq_id: id, section, dsr_code: g.code,
-          description: dsr?.description ?? g.label,
+          description: desc,
           unit: dsr?.unit ?? g.unit, qty: g.qty, dsr_rate: dsr?.rate ?? null,
           custom_rate: ov?.custom_rate ?? null,
           cost: ov?.cost ?? null,
@@ -1007,25 +1008,33 @@ export default function OpsBoqBuilder() {
             </datalist>
             {drawRows.length === 0 ? (
               <p className="text-sm text-muted-foreground py-3 text-center">
-                No measurements yet — Add a row, pick an item (by DSR code or words like "16A"), enter the counted quantity.
+                No measurements yet — Add a row, name the requirement (a DSR code, or words like "16A socket"), enter the quantity.
               </p>
             ) : (
-              <table className="w-full text-sm min-w-[640px]">
+              <table className="w-full text-sm min-w-[720px]">
                 <thead><tr className="text-xs text-muted-foreground text-left">
-                  <th className="py-1 font-medium">Item (DSR code or words)</th>
-                  <th className="font-medium w-20">Qty</th>
-                  <th className="font-medium w-28">Basis</th>
-                  <th className="font-medium">Note</th><th></th>
+                  <th className="py-1 font-medium">Requirement (DSR code or words)</th>
+                  <th className="font-medium w-16">Qty</th>
+                  <th className="font-medium w-16">Unit</th>
+                  <th className="font-medium w-24">Basis</th>
+                  <th className="font-medium">Note</th>
+                  <th className="font-medium w-36">Catalogue</th><th></th>
                 </tr></thead>
                 <tbody>
-                  {drawRows.map((r, i) => (
+                  {drawRows.map((r, i) => {
+                    const cat = r.match.trim() && Number(r.qty) > 0
+                      ? findCatalogueMatch(r.match, lines.map((l) => ({ code: l.dsr_code, label: l.description ?? "" })))
+                      : null;
+                    return (
                     <tr key={i} className="border-t">
                       <td className="py-1 pr-2">
-                        <Input list="boq-line-match" className="h-8" value={r.match} placeholder='e.g. 16A · light point · 5.22.6'
+                        <Input list="boq-line-match" className="h-8" value={r.match} placeholder='e.g. 16A socket · light point · 5.22.6'
                           onChange={(e) => editDraw(i, { match: e.target.value })} />
                       </td>
                       <td className="pr-1"><Input className="h-8" type="number" value={r.qty || ""}
                         onChange={(e) => editDraw(i, { qty: Number(e.target.value) })} /></td>
+                      <td className="pr-1"><Input className="h-8" value={r.unit ?? ""} placeholder="nos"
+                        onChange={(e) => editDraw(i, { unit: e.target.value })} /></td>
                       <td className="pr-2">
                         <select className="h-8 rounded border bg-background px-1 text-sm" value={r.derived ? "derived" : "counted"}
                           onChange={(e) => editDraw(i, { derived: e.target.value === "derived" })}>
@@ -1035,27 +1044,23 @@ export default function OpsBoqBuilder() {
                       </td>
                       <td className="pr-2"><Input className="h-8" value={r.note ?? ""} placeholder="e.g. 8×6A + 2×16A, living"
                         onChange={(e) => editDraw(i, { note: e.target.value })} /></td>
+                      <td className="pr-2 text-xs">
+                        {!r.match.trim() || !(Number(r.qty) > 0) ? <span className="text-muted-foreground">—</span>
+                          : cat ? <span className="text-emerald-600 dark:text-emerald-400" title={cat.code ? `${cat.code} — ${cat.label}` : cat.label}>→ links to a catalogue item</span>
+                          : <span className="text-amber-600 dark:text-amber-500">＋ new item (no match)</span>}
+                      </td>
                       <td><Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => delDraw(i)}>
                         <Trash2 className="h-4 w-4 text-muted-foreground" /></Button></td>
                     </tr>
-                  ))}
+                  );})}
                 </tbody>
               </table>
             )}
-            {(() => {
-              const um = drawRows.filter((r) => r.match.trim() && Number(r.qty) > 0 && !lines.some((l) =>
-                (l.dsr_code && l.dsr_code.toLowerCase() === r.match.trim().toLowerCase()) ||
-                (l.description ?? "").toLowerCase().includes(r.match.trim().toLowerCase())));
-              return um.length ? (
-                <p className="text-[11px] text-amber-600 dark:text-amber-500 mt-2">
-                  {um.length} row{um.length === 1 ? "" : "s"} don't match a BOQ item yet ({um.map((r) => r.match).join(", ")}) —
-                  edit the match term to words that appear in the item, or Add the item first. Unmatched rows won't apply.
-                </p>
-              ) : null;
-            })()}
             <p className="text-[11px] text-muted-foreground mt-2">
-              "Counted" = you counted them on the drawing · "Derived" = worked out from measured dimensions. Both show as
-              drawing-sourced in Why. Room-by-room dimensions go in <b>Rooms</b>; use this for explicit counts and lengths.
+              Every requirement becomes a BOQ line. <span className="text-emerald-600 dark:text-emerald-400">Links to a catalogue item</span> →
+              priced from the DSR; <span className="text-amber-600 dark:text-amber-500">new item (no match)</span> → kept as a valid line you price
+              yourself (nothing is dropped or forced). "Counted" vs "Derived" both show as drawing-sourced in Why.
+              Room-by-room dimensions go in <b>Rooms</b>; use this for explicit counts and lengths.
             </p>
           </CardContent>
         </Card>
@@ -1345,7 +1350,11 @@ export default function OpsBoqBuilder() {
                               {l.basis_note && <div className="text-muted-foreground">Drawing note: {l.basis_note}</div>}
                               <div>
                                 <span className="text-muted-foreground">Rate: </span>
-                                {l.custom_rate != null ? (
+                                {!l.dsr_code ? (
+                                  l.custom_rate != null
+                                    ? <>Your rate <b>{inr(l.custom_rate)}</b> · <span className="text-amber-600 dark:text-amber-500">no catalogue match</span></>
+                                    : <span className="text-amber-600 dark:text-amber-500">No catalogue match — set your rate</span>
+                                ) : l.custom_rate != null ? (
                                   <>Your rate <b>{inr(l.custom_rate)}</b>{l.dsr_rate != null && <span className="text-muted-foreground"> · DSR reference {inr(l.dsr_rate)}</span>}</>
                                 ) : (
                                   <>DSR reference rate <b>{l.dsr_rate != null ? inr(l.dsr_rate) : "—"}</b></>

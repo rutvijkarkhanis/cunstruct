@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { applyDrawing, defaultBasis, parseDrawingSummary, unmatchedItems } from "./boqDrawing";
+import { applyDrawing, defaultBasis, findCatalogueMatch, noCatalogueMatch, parseDrawingSummary } from "./boqDrawing";
 import type { GeneratedLine } from "./boqDsrGenerate";
 
 const line = (over: Partial<GeneratedLine>): GeneratedLine => ({
@@ -42,14 +42,36 @@ describe("applyDrawing", () => {
     expect(out[2].basis).toBe("DRAWING_DERIVED");
   });
 
-  it("never invents: leaves untouched lines and ignores blank/zero items", () => {
+  it("never invents: ignores blank/zero items and leaves lines untouched", () => {
     const out = applyDrawing(lines, { items: [{ match: "", qty: 5 }, { match: "steel", qty: 0 }] });
     expect(out.map((l) => l.qty)).toEqual([800, 10, 20]);
   });
 
-  it("reports items that matched nothing", () => {
-    const un = unmatchedItems(lines, { items: [{ match: "switchboard", qty: 6 }, { match: "steel", qty: 900 }] });
+  it("links synonyms semantically — '16 amp power point' ≈ '(16A) … sockets'", () => {
+    const out = applyDrawing(lines, { items: [{ match: "16 amp power point", qty: 9 }] });
+    expect(out.length).toBe(lines.length);            // linked, not added
+    expect(out.find((l) => (l.label ?? "").includes("16A"))?.qty).toBe(9);
+  });
+
+  it("adds an unmatched requirement as its own No-Catalogue-Match line", () => {
+    const out = applyDrawing(lines, { items: [{ match: "4M switchboards", qty: 6, unit: "nos" }] });
+    expect(out.length).toBe(lines.length + 1);
+    const added = out.find((l) => l.label === "4M switchboards");
+    expect(added?.code).toBeNull();
+    expect(added?.qty).toBe(6);
+    expect(added?.ns).toBe(true);
+    expect(added?.basis).toBe("DRAWING_INPUT");
+  });
+
+  it("reports requirements with no catalogue match", () => {
+    const un = noCatalogueMatch(lines, { items: [{ match: "switchboard", qty: 6 }, { match: "steel", qty: 900 }] });
     expect(un.map((i) => i.match)).toEqual(["switchboard"]);
+  });
+
+  it("findCatalogueMatch returns the matched candidate or null", () => {
+    const cands = lines.map((l) => ({ code: l.code, label: l.label }));
+    expect(findCatalogueMatch("16A socket", cands)?.label).toContain("16A");
+    expect(findCatalogueMatch("4M switchboard", cands)).toBeNull();
   });
 });
 
