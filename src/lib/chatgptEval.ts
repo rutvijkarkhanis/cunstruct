@@ -24,7 +24,7 @@ export function carrySeed<T extends Record<string, unknown>>(next: T, current: R
 
 /** The prompt Cunstruct hands the operator to paste into ChatGPT (with the drawing). */
 export function buildChatGptPrompt(): string {
-  return `I am using Cunstruct to prepare a construction BOQ.
+  return `I am using Cunstruct to prepare a construction BOQ. Perform a comprehensive PROJECT SCOPE INVENTORY of the attached drawing FIRST, then return the structured assessment below. Capture the WHOLE scope of work the drawing shows — not only the electrical / MEP points, but the architectural, interior and joinery scope too (feature walls, wardrobes, wine racks, consoles, counters, TV units, entrance features, panelling, false ceilings, etc.). Inventory everything relevant, not every label.
 
 Source boundary:
 You may ONLY use the drawing supplied in this conversation. Do not assume any other project documents exist. Do not reference, cite, or ask me to consult CAD files, architectural schedules, legends, specifications, plumbing/fire/electrical/interior drawings, or any other document unless it has actually been supplied here. If something cannot be established from the supplied drawing, say "Not assessable from supplied drawing." Never ask me to obtain another document.
@@ -35,8 +35,10 @@ Core rules:
 - DO NOT generate a BOQ, prices, or DSR rates.
 - UNKNOWN IS BETTER THAN INVENTED. Be conservative: do not invent quantities or make unsupported assumptions.
 - Never create an "Assumed" quantity from an unclear, illegible, ambiguous or partially visible symbol. Either Count it when the drawing clearly supports it, or mark it "Not assessable from supplied drawing" and leave the quantity blank.
+- DO NOT DROP an item just because you cannot quantify it. If a feature is clearly drawn but its quantity, area, size or material is not given (e.g. a feature wall, a wardrobe run, an entrance feature), you must still RETAIN it as scope, leave Qty blank, and set Status to "Identified — Needs detail". Silently omitting identified scope is worse than flagging it.
 - Do not put a specification (e.g. 16A, 20A, "on ceiling", "concealed") into the quantity field. Keep specifications in the requirement text or the Location / Note.
 - Keep dimensions separate from quantities. A dimension (51", 4" from BOS, 10'-8") is a measurement, never a quantity.
+- Keep specifications separate from quantities and from measurements. A specification (16A, matte laminate, veneer finish) describes an item; it is never a count.
 
 Determine:
 
@@ -71,24 +73,30 @@ Dimensions and specifications ONLY — never quantities. e.g.
 - AC point specification — 16A, on ceiling
 
 ## DRAWING-SPECIFIC REQUIREMENTS
-Countable requirements you can actually count, measure or derive from the supplied drawing. Return a markdown table with exactly these columns:
-Requirement | Qty | Unit | Basis | Location / Note | Scope
-- Basis: Counted (visible symbols), Measured (an explicit measurement), Derived (from measurements in the drawing), or "Not assessable" (the drawing does not support it — leave Qty blank).
+Every item of scope you can see in the drawing — quantified where the drawing supports it, and RETAINED but flagged where it does not. Return a markdown table with exactly these columns:
+Requirement | Qty | Unit | Basis | Location / Note | Scope | Status
+- Qty: the count/measure only when the drawing clearly supports it; otherwise leave BLANK (never guess, never put a spec or a dimension here).
+- Basis: Counted (visible symbols), Measured (an explicit measurement), Derived (from measurements in the drawing), or "Not assessable" (the drawing does not support a number — leave Qty blank).
 - Location: the room if identifiable, otherwise "Location unclear". Never guess a room.
-- Scope: "Works" for contractor work (points, sockets, conduit, provisions) or "Equipment" for client-supplied items (the TV, projector, appliances themselves — not their electrical points).
+- Scope: "Works" for contractor work (points, sockets, conduit, provisions, AND fixed joinery / built-ins such as wardrobes, feature walls, counters, TV units, panelling), "Equipment" for loose client-supplied items (the TV, projector, appliances themselves — not their electrical points or the joinery around them), or "Needs confirmation" when Works-vs-Equipment cannot be told from the drawing.
+- Status: "Quantified" (Qty filled from the drawing), "Identified — Needs detail" (clearly drawn but not quantifiable yet — Qty blank), or "Not assessable" (cannot even be confirmed present).
 
 Check each category below and return, for EACH, one of: (a) Identified + quantity, (b) None seen, or (c) Not assessable from supplied drawing. "None seen" means it is not in THIS drawing — not that the project does not need it.
 - Electrical: lighting points; 6A sockets; 16A points; AC points; TV points; audio points; exhaust points; switchboards (+ module config); floor points / floor boxes; conduits; appliance points (dishwasher, washing machine, oven, fridge, geyser); projector points; blind provisions.
 - Plumbing: WC; wash basin; shower; sink; floor traps; water & waste points.
 - HVAC: AC units; AC points; exhaust; ducting.
 - Fire: detectors; sprinklers; alarm points; extinguishers.
-- Architectural / Civil: doors; windows; grills; wardrobes; counters.
+- Architectural / Civil: doors; windows; grills; partitions; false ceiling; flooring / skirting; wall finishes / cladding.
+- Interior / Joinery (fixed works — inventory these even when unquantified): feature walls; wardrobes; TV units / TV panelling; wine racks; consoles; counters / vanities; kitchen platform & storage; entrance features; wall panelling; loose furniture (mark as Equipment).
 
 Examples:
-TV point | 1 | nos | Counted | Living / TV area | Works
-Geyser electrical point | 1 | nos | Counted | Bathroom | Works
-55" TV | 1 | nos | Counted | Living / TV area | Equipment
-Floor trap |  |  | Not assessable | plumbing symbols not legible | Works
+TV point | 1 | nos | Counted | Living / TV area | Works | Quantified
+Geyser electrical point | 1 | nos | Counted | Bathroom | Works | Quantified
+55" TV | 1 | nos | Counted | Living / TV area | Equipment | Quantified
+Feature wall |  |  | Not assessable | Living, behind sofa | Works | Identified — Needs detail
+Wardrobe |  |  | Not assessable | Master bedroom | Works | Identified — Needs detail
+Entrance feature |  |  | Not assessable | Entrance / foyer | Works | Identified — Needs detail
+Floor trap |  |  | Not assessable | plumbing symbols not legible | Works | Not assessable
 
 ## CONFIDENCE
 High / Medium / Low for: Project type, Archetype, Floors, Area, Major space identification.
@@ -97,7 +105,7 @@ High / Medium / Low for: Project type, Archetype, Floors, Area, Major space iden
 Only questions that can be resolved from the supplied drawing or by my own judgement. Base every question on what is visible in the supplied drawing. Never ask me to check a schedule, CAD file, or another drawing that was not supplied. e.g. "Confirm whether the 8 A.C annotations represent 8 electrical AC points, 8 equipment locations, or both."
 
 ## IMPORTANT
-UNKNOWN IS BETTER THAN INVENTED. The human operator makes the final decision. Return a clean structured response that can be pasted directly into Cunstruct.`;
+UNKNOWN IS BETTER THAN INVENTED. Retain identified scope even when you cannot quantify it (Status "Identified — Needs detail") — do not drop it. The human operator makes the final decision. Return a clean structured response that can be pasted directly into Cunstruct.`;
 }
 
 export interface EvalArea { value: number; type: string; raw: string }
@@ -114,6 +122,10 @@ export interface ChatGptEval {
   disciplines: string[];
   measurements: EvalMeasurement[];
   requirements: DrawingItem[];
+  /** Scope clearly identified in the drawing but not yet quantifiable (feature
+   *  wall, wardrobe, entrance feature). Retained and shown — never priced until
+   *  the operator adds a quantity — so identified scope is never silently dropped. */
+  needsDetail: DrawingItem[];
   /** Requirements ChatGPT could not assess from the drawing — shown, never priced. */
   notAssessable: string[];
   /** Categories ChatGPT saw but did not count — surfaced as a reminder, never as quantities. */
@@ -302,43 +314,74 @@ const reqName = (line: string): string => (line.includes("|")
   ? (line.split("|").map((c) => c.trim()).filter(Boolean)[0] ?? line)
   : line).replace(/[—–:-].*$/, "").trim();
 
-/** Requirements table → DrawingItems (reusing the drawing-summary schema), plus
- *  the requirements ChatGPT could not assess (kept OUT of the priced BOQ). */
-function parseRequirements(sec?: string): { items: DrawingItem[]; notAssessable: string[] } {
-  if (!sec) return { items: [], notAssessable: [] };
+const SCOPE_CELL = /^(works?|equipment|client(?:[-\s]*supplied)?|needs?[-\s]*confirmation)$/i;
+const STATUS_CELL = /needs?[-\s]*detail|^\W*identified\b|^\W*quantified\b|not\s*assessable/i;
+const NEEDS_DETAIL = /needs?[-\s]*detail|^\W*identified\b/i;
+
+/** From the trailing table cells (after req|qty|unit|basis), tease apart the
+ *  Scope column, the Status column and the free-text Location / Note — regardless
+ *  of the order ChatGPT emits them in. */
+function splitTail(rest: string[]): { equipment?: boolean; note?: string; status?: string } {
+  let equipment: boolean | undefined;
+  let status: string | undefined;
+  const noteParts: string[] = [];
+  for (const c of rest) {
+    if (!c) continue;
+    if (status === undefined && STATUS_CELL.test(c)) { status = c; continue; }
+    if (equipment === undefined && SCOPE_CELL.test(c)) {
+      equipment = /equip|client/i.test(c);   // "Works" / "Needs confirmation" → not equipment
+      continue;
+    }
+    noteParts.push(c);
+  }
+  return { equipment, note: noteParts.join(" · ").trim() || undefined, status };
+}
+
+/** Requirements table → DrawingItems (reusing the drawing-summary schema). Splits
+ *  into three buckets: priced items (a real quantity), "Identified — Needs detail"
+ *  scope that is kept and shown but NEVER priced until the operator quantifies it,
+ *  and the requirements ChatGPT could not assess at all. */
+function parseRequirements(sec?: string): { items: DrawingItem[]; needsDetail: DrawingItem[]; notAssessable: string[] } {
+  if (!sec) return { items: [], needsDetail: [], notAssessable: [] };
   const items: DrawingItem[] = [];
+  const needsDetail: DrawingItem[] = [];
   const notAssessable: string[] = [];
   const loose: string[] = [];
   for (let line of sec.split(/\r?\n/)) {
     line = line.trim().replace(/^[-*•]\s*/, "");
     if (!line) continue;
-    // "Not assessable" must NEVER become a drawing quantity — record it, don't count it.
-    if (/\bnot assessable\b/i.test(line)) { const n = reqName(line); if (n && !/^requirement$/i.test(n)) notAssessable.push(n); continue; }
-    if (/\bnone seen\b|\bnot present\b|\bnot applicable\b/i.test(line)) continue;   // explicit "no items" rows
+    // "None seen / not present" answers to the category checklist are not scope.
+    if (/\bnone seen\b|\bnot present\b|\bnot applicable\b/i.test(line)) continue;
     if (line.includes("|")) {
       const cols = line.split("|").map((c) => c.trim());
       if (cols[0] === "") cols.shift();
       if (cols[cols.length - 1] === "") cols.pop();
       if (/^requirement$/i.test(cols[0] ?? "") || cols.every((c) => /^:?-{2,}:?$/.test(c) || c === "")) continue;
       const [req, qtyRaw, unit, basisRaw] = cols;
-      const rest = cols.slice(4);
+      if (!req) continue;
       const qty = Number((qtyRaw || "").match(/[\d.]+/)?.[0]);
-      if (req && qty > 0) {
-        // A trailing Works/Equipment cell is the Scope column — the rest is the location/note.
-        let equipment: boolean | undefined;
-        if (rest.length && /^(works?|equipment|client(?:\s*supplied)?)$/i.test(rest[rest.length - 1])) {
-          equipment = /equip|client/i.test(rest.pop() as string);
-        }
-        items.push({ match: req, qty, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, note: rest.join(" · ").trim() || undefined });
-      } else if (req) {
-        loose.push(line.replace(/\|/g, " "));
+      const { equipment, note, status } = splitTail(cols.slice(4));
+      const basisNA = /\bnot\s*assessable\b/i.test(basisRaw ?? "");
+      if (NEEDS_DETAIL.test(status ?? "")) {
+        // Clearly drawn but not quantifiable — RETAIN as scope (qty 0 = unpriced),
+        // even when the Basis cell itself reads "Not assessable". Status wins.
+        needsDetail.push({ match: req, qty: 0, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, note });
+      } else if (qty > 0 && !basisNA) {
+        // A trustworthy quantified requirement flows into the priced Drawing engine.
+        items.push({ match: req, qty, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, note });
+      } else {
+        // Blank quantity, or a quantity the drawing itself does not support
+        // ("Not assessable" basis) — recorded, never priced.
+        notAssessable.push(req);
       }
       continue;
     }
+    // Loose (non-table) lines: "Not assessable" prose is recorded, never counted.
+    if (/\bnot assessable\b/i.test(line)) { const n = reqName(line); if (n && !/^requirement$/i.test(n)) notAssessable.push(n); continue; }
     loose.push(line);
   }
   if (loose.length) items.push(...parseDrawingSummary(loose.join("\n")));
-  return { items, notAssessable };
+  return { items, needsDetail, notAssessable };
 }
 
 function parseConfidence(sec?: string): Record<string, string> {
@@ -378,13 +421,14 @@ export function parseChatGptEvaluation(text: string): ChatGptEval {
     disciplines: parseDisciplines(s["DISCIPLINES"]),
     measurements: parseMeasurements(s["MEASUREMENTS"]),
     requirements,
+    needsDetail: req.needsDetail,
     notAssessable: req.notAssessable,
     keyInfo: parseKeyInfo(s["KEY INFO"]),
     confidence: parseConfidence(s["CONFIDENCE"]),
     confirmations: parseConfirmations(s["CONFIRMATIONS"]),
     ok: false,
   };
-  eval_.ok = Boolean(projectType || eval_.archetypeKey || archetype || floors || area || spaces.length || requirements.length || eval_.keyInfo.length || eval_.notAssessable.length);
+  eval_.ok = Boolean(projectType || eval_.archetypeKey || archetype || floors || area || spaces.length || requirements.length || eval_.needsDetail.length || eval_.keyInfo.length || eval_.notAssessable.length);
   return eval_;
 }
 
