@@ -780,9 +780,9 @@ export default function OpsBoqBuilder() {
 
       {!present && (<>
       <div className="flex flex-wrap items-center gap-2">
-        <Button onClick={generate} disabled={busy}>
+        <Button onClick={() => (drawDraft ? saveDrawing() : generate())} disabled={busy}>
           {busy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Wand2 className="h-4 w-4 mr-2" />}
-          {lines.some((l) => l.source === "auto") ? "Rebuild estimate" : "Prepare estimate"}
+          {drawDraft ? "Apply drawing & rebuild" : lines.some((l) => l.source === "auto") ? "Rebuild estimate" : "Prepare estimate"}
         </Button>
         <Button variant="outline" onClick={() => setShowBrowser((s) => !s)}>
           <Plus className="h-4 w-4 mr-2" />Add item
