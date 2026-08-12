@@ -58,7 +58,11 @@ export default function OpsBoqNew() {
     if (e.area?.value) base._area_sqft = e.area.value;
     if (e.floors) base._floors = e.floors;
     if (e.area?.type) base._area_type = e.area.type;
-    if (e.requirements.length) (base as Record<string, unknown>)._drawing = { items: e.requirements };
+    // Priced requirements + "Identified — Needs detail" scope both become editable
+    // drawing rows. The needs-detail rows carry qty 0, so they surface in the
+    // Drawing step for the operator to quantify but are never priced until then.
+    const drawItems = [...e.requirements, ...e.needsDetail];
+    if (drawItems.length) (base as Record<string, unknown>)._drawing = { items: drawItems };
     if (e.measurements.length) (base as Record<string, unknown>)._measurements = e.measurements;
     if (e.spaces.length) (base as Record<string, unknown>)._spaces = e.spaces;
     (base as Record<string, unknown>)._source = "chatgpt";
@@ -309,6 +313,18 @@ export default function OpsBoqNew() {
                 </div>
                 <ul className="text-xs text-amber-700 dark:text-amber-400 space-y-0.5">
                   {evalData.keyInfo.map((k, i) => <li key={i}>• {k}</li>)}
+                </ul>
+              </div>
+            )}
+            {evalData.needsDetail.length > 0 && (
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-2">
+                <div className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-1">
+                  Identified in the drawing — needs detail (retained as scope; add a quantity in the Drawing step, not priced until you do)
+                </div>
+                <ul className="text-xs text-amber-700 dark:text-amber-400 space-y-0.5">
+                  {evalData.needsDetail.map((d, i) => (
+                    <li key={i}>• {d.match}{d.note ? ` — ${d.note}` : ""}{d.equipment ? " · client equipment" : ""}</li>
+                  ))}
                 </ul>
               </div>
             )}
