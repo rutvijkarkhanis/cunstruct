@@ -104,6 +104,18 @@ Wine rack |  |  | Not assessable | Dining, feature niche | Works | Identified �
     expect(items.find((i) => /tv/i.test(i.match))?.qty).toBe(1);
   });
 
+  it("loose 'not assessable' prose yields clean item names — no boilerplate/fragments", () => {
+    const e = parseChatGptEvaluation(`## DRAWING-SPECIFIC REQUIREMENTS
+- Grills — Not assessable from supplied drawing
+- Exact loose-furniture procurement scope is not assessable
+- Not assessable from supplied drawing.
+- Grills — not assessable`);
+    expect(e.notAssessable).toContain("Grills");
+    expect(e.notAssessable).toContain("Exact loose-furniture procurement scope");   // kept whole, not "Exact loose"
+    expect(e.notAssessable).not.toContain("Not assessable from supplied drawing.");  // boilerplate dropped
+    expect(e.notAssessable.filter((n) => n === "Grills")).toHaveLength(1);           // de-duplicated
+  });
+
   it("10b. existing BOQ generation from priced requirements is unchanged", () => {
     const e = parseChatGptEvaluation(`${REQ_HEADER}
 TV point | 1 | nos | Counted | Living / TV area | Works | Quantified

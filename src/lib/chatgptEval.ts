@@ -310,9 +310,17 @@ function normBasis(s?: string): DrawingBasis {
   return "Counted";
 }
 
-const reqName = (line: string): string => (line.includes("|")
-  ? (line.split("|").map((c) => c.trim()).filter(Boolean)[0] ?? line)
-  : line).replace(/[—–:-].*$/, "").trim();
+/** The scope name from a loose "<item> — not assessable …" prose line, or null
+ *  when the line is just the boilerplate phrase with no item in front of it (so
+ *  "Not assessable from supplied drawing." is never recorded as a fake item).
+ *  Unlike a naive split it keeps internal hyphens ("loose-furniture"), so a wrapped
+ *  phrase is not truncated to a meaningless fragment. */
+function looseNotAssessableName(line: string): string | null {
+  const before = line.replace(/\s*\b(?:is|are|was|were|:)?\s*(?:not assessable|cannot be assessed)\b[^]*$/i, "").trim();
+  const n = before.replace(/^[-*•\s]+/, "").replace(/[\s:,;—–-]+$/, "").trim();
+  if (n.length < 3 || /^(requirement|approximate|exact|quantit\w*)$/i.test(n)) return null;
+  return n;
+}
 
 const SCOPE_CELL = /^(works?|equipment|client(?:[-\s]*supplied)?|needs?[-\s]*confirmation)$/i;
 const STATUS_CELL = /needs?[-\s]*detail|^\W*identified\b|^\W*quantified\b|not\s*assessable/i;
@@ -377,11 +385,15 @@ function parseRequirements(sec?: string): { items: DrawingItem[]; needsDetail: D
       continue;
     }
     // Loose (non-table) lines: "Not assessable" prose is recorded, never counted.
-    if (/\bnot assessable\b/i.test(line)) { const n = reqName(line); if (n && !/^requirement$/i.test(n)) notAssessable.push(n); continue; }
+    if (/\bnot assessable\b|\bcannot be assessed\b/i.test(line)) { const n = looseNotAssessableName(line); if (n) notAssessable.push(n); continue; }
     loose.push(line);
   }
   if (loose.length) items.push(...parseDrawingSummary(loose.join("\n")));
-  return { items, needsDetail, notAssessable };
+  // Collapse exact duplicates (case-insensitive) — ChatGPT often repeats a
+  // category both in its checklist and again in a summary line.
+  const seen = new Set<string>();
+  const dedupNA = notAssessable.filter((n) => { const k = n.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
+  return { items, needsDetail, notAssessable: dedupNA };
 }
 
 function parseConfidence(sec?: string): Record<string, string> {
