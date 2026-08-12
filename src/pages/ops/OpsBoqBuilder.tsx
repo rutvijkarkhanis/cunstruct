@@ -43,6 +43,21 @@ const drawingSuffix = (l: { drawing: LineDrawingMeta | null }, opts?: { short?: 
 /** The rate in effect: the estimator's case-specific override, else the DSR reference. */
 const effRate = (l: BoqLine) => l.custom_rate ?? l.dsr_rate;
 
+// The provenance columns (basis / basis_note / drawing) come from migrations that
+// may not be run on every deployment. Select them when present, but fall back to
+// the base columns if they are missing so the builder never breaks on a stale DB.
+const LINE_COLS = "id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, cost, basis, basis_note, drawing, included, source, sort";
+const LINE_COLS_BASE = "id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, cost, included, source, sort";
+const missingCol = (msg?: string) => !!msg && /\b(drawing|basis|basis_note)\b|schema cache|could not find|does not exist/i.test(msg);
+async function selectBoqLines(boqId: string): Promise<BoqLine[]> {
+  let r = await supabase.from("boq_line").select(LINE_COLS).eq("boq_id", boqId).order("sort");
+  if (r.error && missingCol(r.error.message)) {
+    r = await supabase.from("boq_line").select(LINE_COLS_BASE).eq("boq_id", boqId).order("sort");
+  }
+  if (r.error) throw r.error;
+  return (r.data ?? []) as BoqLine[];
+}
+
 interface RoomRow {
   id: string; name: string | null; room_type: string;
   length_ft: number; width_ft: number; height_ft: number; count: number; electrical_points: number;
@@ -167,12 +182,7 @@ export default function OpsBoqBuilder() {
   const [showDefaults, setShowDefaults] = useState(false);
   const seqRef = useRef(0);
 
-  const fetchLinesNow = async (): Promise<BoqLine[]> => {
-    const { data } = await supabase.from("boq_line")
-      .select("id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, cost, basis, basis_note, drawing, included, source, sort")
-      .eq("boq_id", id).order("sort");
-    return (data ?? []) as BoqLine[];
-  };
+  const fetchLinesNow = async (): Promise<BoqLine[]> => (id ? selectBoqLines(id) : []);
   const fetchSpecNow = async (): Promise<Spec> => {
     const { data } = await supabase.from("boq").select("spec").eq("id", id).single();
     return (data?.spec ?? {}) as Spec;
@@ -287,13 +297,7 @@ export default function OpsBoqBuilder() {
 
   const { data: lines = [], isLoading: linesLoading } = useQuery({
     queryKey: ["boq-lines", id],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("boq_line")
-        .select("id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, cost, basis, basis_note, drawing, included, source, sort")
-        .eq("boq_id", id).order("sort");
-      if (error) throw error;
-      return (data ?? []) as BoqLine[];
-    },
+    queryFn: async () => selectBoqLines(id!),
     enabled: !!id,
   });
 
@@ -381,7 +385,15 @@ export default function OpsBoqBuilder() {
           source: "auto", sort: i,
         };
       });
-      const { error } = await supabase.from("boq_line").insert(rows);
+      let { error } = await supabase.from("boq_line").insert(rows);
+      // Provenance columns (basis / basis_note / drawing) are added by migrations
+      // that may not be run yet — never let a missing optional column abort the
+      // estimate. Retry once without them so the BOQ still generates.
+      if (error && /\b(drawing|basis|basis_note)\b|schema cache|could not find|does not exist/i.test(error.message)) {
+        const stripped = rows.map((r) => { const c = { ...r } as Record<string, unknown>; delete c.basis; delete c.basis_note; delete c.drawing; return c; });
+        ({ error } = await supabase.from("boq_line").insert(stripped));
+        if (!error && !opts?.silent) toast.message("Estimate ready — run the boq_line.drawing / basis migration to keep drawing provenance");
+      }
       if (error) throw error;
       if (!opts?.silent) toast.success(`Estimate ready — ${rows.length} items`);
       refetchLines();
