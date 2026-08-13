@@ -116,6 +116,18 @@ Wine rack |  |  | Not assessable | Dining, feature niche | Works | Identified â€
     expect(e.notAssessable.filter((n) => n === "Grills")).toHaveLength(1);           // de-duplicated
   });
 
+  it("a trailing 'KEY RULE FOR CUNSTRUCT' meta block never leaks into confirmations", () => {
+    const e = parseChatGptEvaluation(`## CONFIRMATIONS
+1. Confirm whether the 71 SB annotations are separate switchboards.
+2. Confirm the extent of the feature wall.
+
+KEY RULE FOR CUNSTRUCT
+Do not convert dimensions/specifications into quantities. Where Qty is blank, retain the item as identified scope and resolve manually rather than assuming a quantity.`);
+    expect(e.confirmations).toHaveLength(2);
+    expect(e.confirmations.some((c) => /KEY RULE|convert dimensions|Qty is blank/i.test(c))).toBe(false);
+    expect(e.confirmations[0]).toContain("71 SB");
+  });
+
   it("10b. existing BOQ generation from priced requirements is unchanged", () => {
     const e = parseChatGptEvaluation(`${REQ_HEADER}
 TV point | 1 | nos | Counted | Living / TV area | Works | Quantified

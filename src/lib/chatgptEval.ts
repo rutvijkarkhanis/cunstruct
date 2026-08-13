@@ -178,6 +178,12 @@ function headerInfo(line: string): { name: string; inline: string } | null {
   return name ? { name, inline } : null;
 }
 
+// Trailing meta blocks ChatGPT sometimes echoes back — a "KEY RULE FOR CUNSTRUCT"
+// header, or an instruction line ("Do not convert dimensions into quantities…").
+// They are not project data and must never leak into the last real section
+// (usually CONFIRMATIONS). Hitting one closes the current section.
+const STOP_MARKER = /^(key\s+rules?|rules?\s+for\s+cunstruct|for\s+cunstruct|do not\s+(convert|invent|assume|create|generate|put)|where\s+qty\s+is\s+blank)\b/i;
+
 /** Split the pasted response into { SECTION: text }, keeping inline "Field: value". */
 function splitSections(text: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -187,6 +193,7 @@ function splitSections(text: string): Record<string, string> {
   for (const line of (text || "").split(/\r?\n/)) {
     const h = headerInfo(line);
     if (h) { flush(); current = h.name; if (h.inline) buf.push(h.inline); }
+    else if (STOP_MARKER.test(line.trim().replace(/^[-*•]\s*/, ""))) { flush(); current = "IGNORE"; }
     else if (current) buf.push(line);
   }
   flush();
