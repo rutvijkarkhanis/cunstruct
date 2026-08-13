@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildChatGptPrompt, parseChatGptEvaluation } from "./chatgptEval";
+import { buildChatGptPrompt, disciplineFromEvidence, parseChatGptEvaluation } from "./chatgptEval";
 import { applyDrawing, parseDrawingSummary } from "./boqDrawing";
 
 // The project-scope-inventory refinement: ChatGPT must inventory the WHOLE scope
@@ -126,6 +126,42 @@ Do not convert dimensions/specifications into quantities. Where Qty is blank, re
     expect(e.confirmations).toHaveLength(2);
     expect(e.confirmations.some((c) => /KEY RULE|convert dimensions|Qty is blank/i.test(c))).toBe(false);
     expect(e.confirmations[0]).toContain("71 SB");
+  });
+
+  it("discipline prefill follows the itemised evidence, not just the discipline list", () => {
+    // An electrical-heavy interior drawing whose 'identified disciplines' still
+    // lists Architectural/Civil must prefill Electrical, not default to Civil.
+    const e = parseChatGptEvaluation(`## DISCIPLINES
+Identified in drawing:
+- Civil
+- Architectural
+- Electrical
+- Furniture
+## DRAWING-SPECIFIC REQUIREMENTS
+Requirement | Qty | Unit | Basis | Location / Note | Scope | Status
+--- | --- | --- | --- | --- | --- | ---
+6A socket | 42 | nos | Counted | Throughout | Works | Quantified
+16A socket | 12 | nos | Counted | Kitchen | Works | Quantified
+Switchboard | 71 | nos | Counted | Throughout | Works | Quantified
+TV point | 3 | nos | Counted | Living | Works | Quantified
+AC point | 8 | nos | Counted | Bedrooms | Works | Quantified
+Feature wall |  |  | Not assessable | Living | Works | Identified — Needs detail`);
+    expect(disciplineFromEvidence(e)).toBe("electrical");
+  });
+
+  it("classifies ambiguous items sensibly and falls back when there is no evidence", () => {
+    const acUnit = parseChatGptEvaluation(`## DRAWING-SPECIFIC REQUIREMENTS
+AC outdoor unit | 2 | nos | Counted | Terrace | Works | Quantified
+Refrigerant piping | 40 | m | Measured | Terrace | Works | Quantified`);
+    expect(disciplineFromEvidence(acUnit)).toBe("hvac");
+    const plumbing = parseChatGptEvaluation(`## DRAWING-SPECIFIC REQUIREMENTS
+WC | 4 | nos | Counted | Bathrooms | Works | Quantified
+Floor trap | 6 | nos | Counted | Bathrooms | Works | Quantified
+Water point | 8 | nos | Counted | Bathrooms | Works | Quantified`);
+    expect(disciplineFromEvidence(plumbing)).toBe("plumbing");
+    // no items → fall back to the identified-discipline mapping
+    const noItems = parseChatGptEvaluation("## DISCIPLINES\nIdentified in drawing:\n- Plumbing");
+    expect(disciplineFromEvidence(noItems)).toBe("plumbing");
   });
 
   it("10b. existing BOQ generation from priced requirements is unchanged", () => {

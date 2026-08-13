@@ -459,3 +459,37 @@ export function disciplineForBoq(disciplines: string[]): string | undefined {
   const keys = new Set(disciplines.map((d) => map[d]).filter(Boolean));
   return ["civil", "electrical", "plumbing", "hvac", "fire"].find((k) => keys.has(k));
 }
+
+/** Classify one requirement label into a BOQ discipline (interior/architectural
+ *  → civil, since interior joinery is priced under civil). Order matters: the
+ *  more specific tests run first so "AC point" reads electrical, "AC unit" HVAC,
+ *  and "floor trap"/"water point" plumbing rather than being swallowed by the
+ *  broad electrical "point" test. */
+function classifyDiscipline(label: string): string {
+  const l = (label || "").toLowerCase();
+  if (/\b(detector|sprinkler|fire\s*alarm|extinguisher|hose\s*reel|hydrant|smoke)\b/.test(l)) return "fire";
+  if (/\b(duct|ducting|diffuser|refrigerant|vrv|vrf|cassette)\b/.test(l) || /\bac\b[^]*\bunit\b|\bunit\b[^]*\bac\b/.test(l)) return "hvac";
+  if (/\b(wc|water\s*closet|wash\s*basin|basin|shower|sink|floor\s*trap|waste|drain|soil\s*pipe|faucet|tap|sanitary|cp\s*fitting)\b/.test(l) || /\bwater\b/.test(l)) return "plumbing";
+  if (/\b(point|socket|switch\s*board|sb|switch|light|lighting|conduit|wiring|db|power|tv|audio|cctv|data|floor\s*box|geyser|projector|exhaust|cp)\b/.test(l) || /\b\d+\s*a\b/.test(l)) return "electrical";
+  return "civil";   // doors, windows, walls, feature walls, wardrobes, flooring, joinery…
+}
+
+/** The BOQ discipline the drawing's itemised scope is actually dominated by —
+ *  counted across the real requirement + needs-detail rows, not just the coarse
+ *  "identified disciplines" list (which always contained Architectural and so
+ *  always defaulted to Civil). Falls back to the identified-list mapping when
+ *  there are no items to weigh. The operator can still change it. */
+export function disciplineFromEvidence(e: Pick<ChatGptEval, "requirements" | "needsDetail" | "disciplines">): string | undefined {
+  const counts: Record<string, number> = {};
+  for (const it of [...e.requirements, ...e.needsDetail]) {
+    if (!it.match?.trim()) continue;
+    const k = classifyDiscipline(it.match);
+    counts[k] = (counts[k] ?? 0) + 1;
+  }
+  const ranked = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  if (!ranked.length) return disciplineForBoq(e.disciplines);
+  const top = ranked[0][1];
+  // On a tie, keep a stable, sensible order rather than object-key order.
+  const winners = ranked.filter(([, n]) => n === top).map(([k]) => k);
+  return ["electrical", "plumbing", "hvac", "fire", "civil"].find((k) => winners.includes(k)) ?? winners[0];
+}

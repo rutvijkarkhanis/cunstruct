@@ -5,7 +5,7 @@ import { BOQ_SPEC, defaultSpec, type SpecField, type Spec, type SpecValue } from
 import { DISCIPLINES } from "@/lib/disciplines";
 import { ARCHETYPES, archetypeSpec } from "@/lib/archetypes";
 import { openIntakeForm } from "@/lib/boqIntakeForm";
-import { buildChatGptPrompt, carrySeed, disciplineForBoq, parseChatGptEvaluation, type ChatGptEval } from "@/lib/chatgptEval";
+import { buildChatGptPrompt, carrySeed, disciplineFromEvidence, parseChatGptEvaluation, type ChatGptEval } from "@/lib/chatgptEval";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -68,7 +68,7 @@ export default function OpsBoqNew() {
     (base as Record<string, unknown>)._source = "chatgpt";
     setSpec(base);
     setArch(e.archetypeKey ?? null);
-    const disc = disciplineForBoq(e.disciplines);   // prefill from actual drawing evidence
+    const disc = disciplineFromEvidence(e);   // prefill from the itemised drawing scope, not just the discipline list
     if (disc) setDiscipline(disc);
     if (!project) setName(`${a?.label ?? e.projectType ?? "Project"} — BOQ`);
     setEvalData(e);
@@ -202,12 +202,14 @@ export default function OpsBoqNew() {
       <div className="flex items-center gap-2">
         <Button variant="ghost" size="sm" onClick={() => navigate(-1)}><ArrowLeft className="h-4 w-4" /></Button>
         <div className="flex-1">
-          <h1 className="text-lg font-semibold">Analyse your drawing with ChatGPT</h1>
+          <h1 className="text-lg font-semibold">Analyse your drawing with ChatGPT <span className="text-sm font-normal text-muted-foreground">(optional)</span></h1>
           <p className="text-sm text-muted-foreground">
-            Cunstruct prepares the prompt. Copy it, open ChatGPT, attach your drawing, paste the prompt, then paste ChatGPT's evaluation back here.
+            Have a drawing? Analyse it with ChatGPT for a scope-aware head start. No drawing — or estimating from a project like this one? Skip straight to the estimate.
           </p>
         </div>
-        <Button variant="ghost" size="sm" onClick={() => { setEvalData(null); setStage("anchor"); }}>Skip ChatGPT analysis</Button>
+        <Button variant="default" size="sm" onClick={() => { setEvalData(null); setStage("anchor"); }}>
+          Skip &amp; build estimate
+        </Button>
       </div>
 
       <Card>
