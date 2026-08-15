@@ -82,9 +82,21 @@ You may ONLY use the drawing supplied in this conversation. Do not assume any ot
 
 Core rules:
 - DO NOT generate a BOQ, prices, or DSR rates.
-- UNKNOWN IS BETTER THAN INVENTED. Never invent a quantity, room count, area, or material.
-- DO NOT DROP identified scope. If a feature is clearly drawn but not quantifiable (a wardrobe, feature wall, entrance feature), still return it with "qty": null and "status": "Identified — Needs detail". Silently omitting identified scope is worse than flagging it.
-- Count a quantity only when the drawing clearly supports it; otherwise "qty": null and "basis": "Not assessable".
+- COUNT WHAT YOU CAN SEE. Visually inspect the supplied drawing/image and COUNT every symbol the drawing lets you count. OCR/extracted text is only supplementary — architectural and electrical drawings contain symbols OCR cannot read, so you MUST inspect the image itself. Counting visible symbols is NOT "inventing"; refusing to count clearly-drawn symbols under-reports the project and is wrong. Return the MAXIMUM defensible quantity the drawing supports.
+- COUNTABLE ≠ MEASURABLE. If an item can be COUNTED but its dimension / area / running length is not given, still COUNT it: set "qty" to the count, "unit" to "nos", "basis" to "Counted" (or "Visually counted from drawing"), "status" to "Quantified", and put the missing measurement in "note" (e.g. "Running length not established", "Area/material not established"). Do NOT downgrade a countable item to "Identified — Needs detail" just because a dimension is missing. Examples: 5 wardrobes shown → qty 5, status Quantified, note "Running length not established"; 1 feature wall → qty 1, status Quantified, note "Area/material not established"; 5 WCs → qty 5, status Quantified.
+- UNKNOWN IS BETTER THAN INVENTED applies ONLY to true unknowns: never fabricate a number for a symbol you cannot actually see. Use "qty": null and "status": "Identified — Needs detail" ONLY when a symbol is genuinely too ambiguous to count even after a careful visual pass.
+- Do NOT use generic residential assumptions, template defaults, or room-count inference. Do NOT infer a quantity from the number of rooms. Every quantity must come from the drawing itself.
+- Keep quantities, dimensions and specifications separate: a dimension (51", 10'-8") or specification (16A, matte laminate) goes in "measurements" or "note", never in "qty".
+
+Counting workflow (do this BEFORE writing the JSON):
+1. Read the drawing's legend / symbol key.
+2. Identify every relevant symbol type.
+3. Divide the floor into rooms / zones.
+4. Count each symbol room-by-room; record the room in "location".
+5. Sum the per-room counts.
+6. Do a SECOND visual pass to catch missed symbols.
+7. Cross-check the totals against the legend and annotations.
+8. Only then output the JSON.
 
 Field guidance:
 - project_type: closest of Residential, Commercial, Retail, Office, Hospitality, Other.
@@ -96,11 +108,17 @@ Field guidance:
 - spaces[]: every identifiable room / space, with "qty" when the drawing supports a count.
 - disciplines: "identified" lists ONLY disciplines with actual scope/evidence in this drawing (from Civil, Architectural, Electrical, Plumbing, HVAC, Fire, Furniture); "not_assessable" lists the rest. Do NOT list a discipline as identified just because it could exist.
 - measurements[]: dimensions and specifications ONLY (switchboard heights, TV size, offsets) — never quantities.
-- requirements[]: EVERY item of scope you can see — quantified where the drawing supports it, RETAINED with "qty": null and "status": "Identified — Needs detail" where it does not. Cover electrical (points/sockets/AC/TV/switchboards/appliance & geyser points), plumbing (WC/basin/shower/sink/floor traps), HVAC, fire, architectural/civil (doors/windows/grills/false ceiling/flooring/finishes) and interior joinery (feature walls, wardrobes, TV units, counters, kitchen platform & storage, entrance features). Per requirement:
-  - allocation: the BOQ bucket ("Floor 1", "Common Area", …).
+- requirements[]: EVERY item of scope you can see — quantified wherever the drawing lets you count it. Count each symbol type SEPARATELY; do NOT collapse different symbols into one generic "electrical point". Cover at least:
+  - Electrical: 6A sockets; 16A sockets; combined sockets; switchboards (SB1/SB2/SB3…); DB / distribution board; ceiling lights; tube lights; fans; AC points; TV points; cable-TV points; audio points; floor points; floor boxes; geyser points; exhaust / inline exhaust; calling bell; appliance points; projector; screen; blind provisions; conduits.
+  - Plumbing: WC; wash basin; shower; bathtub; floor trap; sink; water points; waste points; geyser plumbing; washing machine; dishwasher; other visible fixtures.
+  - Architectural: main doors; internal doors; sliding/folding/UPVC doors; windows; ventilators; balconies; partitions; gates; railings; stairs; lifts.
+  - Interior / joinery (fixed works — COUNT each unit even when running length is unknown): wardrobes; WICs; dress units; mirror units; study units; TV units / panels; consoles; storage units; kitchen base & overhead cabinets; tall units; island; counters; wine racks; shoe storage; feature walls; pooja units; bed-back panels; vanity; crockery units; locker/utility storage; other fixed joinery.
+  - Loose equipment (still count): TV; projector; projector screen; audio equipment; blinds; loose furniture — mark "scope": "Equipment" when clearly loose / client-supplied.
+  Per requirement:
+  - allocation: the BOQ bucket. Private apartment scope → "Floor X" (this drawing: "Floor 1"). Shared/common scope (lifts, lobbies, common corridors, staircases, security, common services) → "Common Area" — identify it but keep it out of the private-floor buckets.
   - basis: "Counted" | "Measured" | "Derived" | "Not assessable".
-  - scope: "Works" (contractor work incl. fixed joinery / built-ins) | "Equipment" (loose client-supplied items like the TV/appliances themselves) | "Needs confirmation".
-  - status: "Quantified" | "Identified — Needs detail" | "Not assessable".
+  - scope: "Works" (contractor work incl. fixed joinery / built-ins) | "Equipment" (loose client-supplied items) | "Needs confirmation".
+  - status: "Quantified" (a count is present) | "Identified — Needs detail" (genuinely uncountable) | "Not assessable".
 - category_summary: per discipline, a "status" ("Identified" | "None seen" | "Not assessable") plus any "items" you want to flag.
 - confidence: "High" | "Medium" | "Low" for project_type, archetype, floor, area, major_spaces, overall_scope.
 - confirmations[]: only questions resolvable from the supplied drawing.
@@ -493,13 +511,15 @@ function parseRequirements(sec?: string): { items: DrawingItem[]; needsDetail: D
       if (!req) continue;
       const qty = Number((qtyRaw || "").match(/[\d.]+/)?.[0]);
       const basisNA = /\bnot\s*assessable\b/i.test(basisRaw ?? "");
-      if (NEEDS_DETAIL.test(status)) {
-        // Clearly drawn but not quantifiable — RETAIN as scope (qty 0 = unpriced),
-        // even when the Basis cell itself reads "Not assessable". Status wins.
-        needsDetail.push({ match: req, qty: 0, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, note, allocation: alloc });
-      } else if (qty > 0 && !basisNA) {
-        // A trustworthy quantified requirement flows into the priced Drawing engine.
+      // COUNTABLE ≠ MEASURABLE: a present count wins over the status wording. An
+      // item the model counted (qty > 0) is Quantified even if it is tagged
+      // "Identified — Needs detail" because its dimensions/running-length are
+      // unknown — that missing measurement lives in the note, never in the qty.
+      if (qty > 0 && !basisNA) {
         items.push({ match: req, qty, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, note, allocation: alloc });
+      } else if (NEEDS_DETAIL.test(status)) {
+        // Identified scope with no usable count yet — RETAIN (qty 0 = unpriced).
+        needsDetail.push({ match: req, qty: 0, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, note, allocation: alloc });
       } else {
         // Blank quantity, or a quantity the drawing itself does not support
         // ("Not assessable" basis) — recorded, never priced.
@@ -628,8 +648,11 @@ function requirementsFromJson(v: unknown): { items: DrawingItem[]; needsDetail: 
     const note = [jstr(o.location), jstr(o.note)].filter(Boolean).join(" · ") || undefined;
     const qty = jnum(o.qty);
     const basisNA = /not\s*assessable/i.test(basisRaw);
-    if (NEEDS_DETAIL.test(status)) needsDetail.push({ match, qty: 0, unit, basis, equipment, note, allocation });
-    else if (qty != null && qty > 0 && !basisNA) items.push({ match, qty, unit, basis, equipment, note, allocation });
+    // COUNTABLE ≠ MEASURABLE: a present count (qty > 0) means Quantified, even if
+    // the model tagged the row "Identified — Needs detail" for a missing
+    // dimension/area. The missing measurement stays in the note, not the qty.
+    if (qty != null && qty > 0 && !basisNA) items.push({ match, qty, unit, basis, equipment, note, allocation });
+    else if (NEEDS_DETAIL.test(status)) needsDetail.push({ match, qty: 0, unit, basis, equipment, note, allocation });
     else notAssessable.push(match);
   }
   const seen = new Set<string>();
@@ -768,11 +791,29 @@ export function roomsFromSpaces(spaces: EvalSpace[]): Partial<Record<(typeof ROO
   return out;
 }
 
+/** The BOQ allocation bucket this evaluation is for (e.g. "Floor 1"). */
+export function boqBucketOf(e: Pick<ChatGptEval, "boqAllocation" | "floor">): string | undefined {
+  return e.boqAllocation?.trim() || (e.floor != null ? `Floor ${e.floor}` : undefined);
+}
+
+/** Does a requirement's allocation belong in THIS BOQ's bucket? Unallocated items
+ *  belong everywhere; a named bucket that differs (another floor, or "Common Area"
+ *  when this BOQ is a private floor) is excluded — so a per-floor BOQ never prices
+ *  common-area or other-floor scope. Matching is loose ("Floor 1" ≈ "floor1"). */
+export function itemBelongsToBoq(itemAllocation: string | undefined, boqBucket: string | undefined): boolean {
+  const a = (itemAllocation ?? "").trim().toLowerCase().replace(/\s+/g, "");
+  if (!a) return true;                     // unallocated → belongs to whatever BOQ this is
+  const b = (boqBucket ?? "").trim().toLowerCase().replace(/\s+/g, "");
+  if (!b) return true;                     // BOQ itself has no bucket → keep everything
+  return a === b;
+}
+
 /** Build the New-BOQ spec from a parsed evaluation. This is the single mapping
  *  point where the drawing evaluation becomes the SOURCE OF TRUTH:
  *   - room counts come only from the identified spaces (blank when unnamed);
  *   - area / floor / area-type come from the drawing when it states them;
- *   - all requirements (priced + "needs detail") flow into the Drawing section;
+ *   - only requirements allocated to THIS BOQ's bucket flow in (common-area and
+ *     other-floor scope is identified but never priced into a private floor);
  *   - generic template values fill ONLY genuinely-missing fields (finishes,
  *     structure, toggles), never a room count or a value the drawing established.
  *  Everything remains editable downstream — the operator's edits win over this. */
@@ -793,8 +834,10 @@ export function specFromEvaluation(e: ChatGptEval): Spec {
 
   // Priced requirements + "Identified — Needs detail" scope both become editable
   // drawing rows; needs-detail rows carry qty 0 so they surface for quantifying
-  // but are never priced until the operator fills them in.
-  const drawItems = [...e.requirements, ...e.needsDetail];
+  // but are never priced until the operator fills them in. Only rows allocated to
+  // THIS BOQ's bucket are included — common-area / other-floor scope is dropped.
+  const bucket = boqBucketOf(e);
+  const drawItems = [...e.requirements, ...e.needsDetail].filter((it) => itemBelongsToBoq(it.allocation, bucket));
   if (drawItems.length) (base as Record<string, unknown>)._drawing = { items: drawItems };
   if (e.measurements.length) (base as Record<string, unknown>)._measurements = e.measurements;
   if (e.spaces.length) (base as Record<string, unknown>)._spaces = e.spaces;

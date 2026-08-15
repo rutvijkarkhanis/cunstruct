@@ -5,7 +5,8 @@ import { BOQ_SPEC, defaultSpec, type SpecField, type Spec, type SpecValue } from
 import { DISCIPLINES } from "@/lib/disciplines";
 import { ARCHETYPES, archetypeSpec } from "@/lib/archetypes";
 import { openIntakeForm } from "@/lib/boqIntakeForm";
-import { buildChatGptPrompt, carrySeed, disciplineFromEvidence, parseChatGptEvaluation, roomsFromSpaces, specFromEvaluation, type ChatGptEval } from "@/lib/chatgptEval";
+import { buildChatGptPrompt, carrySeed, disciplineFromEvidence, extractJson, parseChatGptEvaluation, roomsFromSpaces, specFromEvaluation, type ChatGptEval } from "@/lib/chatgptEval";
+import type { DrawingSummary } from "@/lib/boqDrawing";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,6 +46,7 @@ export default function OpsBoqNew() {
   const [copied, setCopied] = useState(false);
   const [evalData, setEvalData] = useState<ChatGptEval | null>(null);
   const [rawResponse, setRawResponse] = useState("");
+  const [debugSpec, setDebugSpec] = useState<Spec | null>(null);
 
   const copyPrompt = async () => {
     try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2500); }
@@ -67,12 +69,22 @@ export default function OpsBoqNew() {
   };
 
   const analyseEvaluation = () => {
+    // Full pipeline trace for debugging: raw response → extracted JSON → parsed
+    // evaluation → final DrawingItem rows → spec. Open the browser console (or the
+    // "Parsed data" panel below) to inspect every stage and where a field is lost.
+    const extracted = extractJson(pasteText);
     const e = parseChatGptEvaluation(pasteText);
-    // Debug aid: the exact raw response and the parsed object, before mapping. Open
-    // the browser console (or the "Parsed data" panel below) to inspect what the
-    // parser extracted and where a field is being lost.
-    console.log("[Cunstruct] raw ChatGPT response:\n", pasteText, "\n[Cunstruct] parsed evaluation:", e);
+    const spec = specFromEvaluation(e);
+    const drawingRows = ((spec._drawing as DrawingSummary | undefined)?.items) ?? [];
+    console.groupCollapsed?.("[Cunstruct] drawing-evaluation pipeline");
+    console.log("1. RAW MODEL RESPONSE:\n", pasteText);
+    console.log("2. EXTRACTED JSON:", extracted);
+    console.log("3. PARSED EVALUATION (ChatGptEval):", e);
+    console.log("4. FINAL DrawingItem ROWS (allocated to this BOQ):", drawingRows);
+    console.log("5. SPEC FROM EVALUATION:", spec);
+    console.groupEnd?.();
     setRawResponse(pasteText);
+    setDebugSpec(spec);
     if (!e.ok) { toast.error("Couldn't identify structured project information from this response."); return; }
     applyEval(e);
     toast.success("Evaluation structured — review the project setup below");
@@ -281,12 +293,24 @@ export default function OpsBoqNew() {
               <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Parsed data &amp; raw response (debug)</summary>
               <div className="mt-2 space-y-2">
                 <div>
-                  <div className="text-[11px] font-medium text-muted-foreground mb-1">Parsed evaluation object</div>
+                  <div className="text-[11px] font-medium text-muted-foreground mb-1">3 · Parsed evaluation object (ChatGptEval)</div>
                   <pre className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-2 text-[10px] leading-snug whitespace-pre-wrap">{JSON.stringify(evalData, null, 2)}</pre>
                 </div>
+                {debugSpec != null && (
+                  <>
+                    <div>
+                      <div className="text-[11px] font-medium text-muted-foreground mb-1">4 · Final DrawingItem rows (allocated to this BOQ)</div>
+                      <pre className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-2 text-[10px] leading-snug whitespace-pre-wrap">{JSON.stringify((debugSpec._drawing as { items?: unknown[] } | undefined)?.items ?? [], null, 2)}</pre>
+                    </div>
+                    <div>
+                      <div className="text-[11px] font-medium text-muted-foreground mb-1">5 · Spec generated from evaluation</div>
+                      <pre className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-2 text-[10px] leading-snug whitespace-pre-wrap">{JSON.stringify(debugSpec, null, 2)}</pre>
+                    </div>
+                  </>
+                )}
                 {rawResponse && (
                   <div>
-                    <div className="text-[11px] font-medium text-muted-foreground mb-1">Raw response pasted into the parser</div>
+                    <div className="text-[11px] font-medium text-muted-foreground mb-1">1 · Raw response pasted into the parser</div>
                     <pre className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-2 text-[10px] leading-snug whitespace-pre-wrap">{rawResponse}</pre>
                   </div>
                 )}
@@ -340,7 +364,7 @@ export default function OpsBoqNew() {
             {evalData.keyInfo.length > 0 && (
               <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-2">
                 <div className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-1">
-                  Seen on the drawing but not counted by ChatGPT — add the quantities in the Drawing step
+                  Drawing-derived scope and quantities — review before applying to the BOQ.
                 </div>
                 <ul className="text-xs text-amber-700 dark:text-amber-400 space-y-0.5">
                   {evalData.keyInfo.map((k, i) => <li key={i}>• {k}</li>)}
@@ -350,7 +374,7 @@ export default function OpsBoqNew() {
             {evalData.needsDetail.length > 0 && (
               <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-2">
                 <div className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-1">
-                  Identified in the drawing — needs detail (retained as scope; add a quantity in the Drawing step, not priced until you do)
+                  Identified in the drawing — awaiting detail (retained as scope; refine in the Drawing section, not priced until quantified)
                 </div>
                 <ul className="text-xs text-amber-700 dark:text-amber-400 space-y-0.5">
                   {evalData.needsDetail.map((d, i) => (
@@ -378,7 +402,7 @@ export default function OpsBoqNew() {
             {(evalData.requirements.length + evalData.needsDetail.length) > 0 && (
               <div className="text-xs text-muted-foreground">
                 {evalData.requirements.length + evalData.needsDetail.length} drawing requirement{(evalData.requirements.length + evalData.needsDetail.length) === 1 ? "" : "s"} captured
-                {evalData.needsDetail.length > 0 && ` (${evalData.requirements.length} quantified · ${evalData.needsDetail.length} identified, awaiting a quantity)`} — you'll review and edit them all in the <b>Drawing</b> section of the builder before they're applied.
+                {evalData.needsDetail.length > 0 && ` (${evalData.requirements.length} quantified · ${evalData.needsDetail.length} identified for review)`} — review them all in the <b>Drawing</b> section of the builder before they're applied.
               </div>
             )}
           </CardContent>
