@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildChatGptPrompt, disciplineForBoq, parseChatGptEvaluation, roomsFromSpaces, specFromEvaluation } from "./chatgptEval";
+import { buildChatGptPrompt, disciplineForBoq, extractJson, parseChatGptEvaluation, roomsFromSpaces, specFromEvaluation } from "./chatgptEval";
 import { applyDrawing } from "./boqDrawing";
 
 const STRUCTURED = `## PROJECT TYPE
@@ -44,34 +44,39 @@ TV point | 1 | nos | Counted | Living / TV area
 ## CONFIRMATIONS
 - Confirm whether the study is intended as a bedroom.`;
 
-describe("buildChatGptPrompt", () => {
-  it("carries the source-boundary rule and the not-assessable / conservative principles", () => {
+describe("buildChatGptPrompt — strict JSON contract", () => {
+  it("demands one strict JSON object and forbids markdown / fences / prose", () => {
+    const p = buildChatGptPrompt();
+    expect(p).toMatch(/Return ONLY one valid JSON object/i);
+    expect(p).toMatch(/No markdown/i);
+    expect(p).toMatch(/No code fences|No `{3}json/i);
+    expect(p).toMatch(/No explanatory text before or after/i);
+  });
+  it("embeds the exact schema keys the parser expects", () => {
+    const p = buildChatGptPrompt();
+    for (const key of ["project_type", "archetype", "floor", "boq_allocation", "floor_scope",
+      "area", "area_type", "spaces", "disciplines", "measurements", "requirements",
+      "category_summary", "confidence", "confirmations"]) {
+      expect(p, `schema missing key ${key}`).toContain(`"${key}"`);
+    }
+    // the JSON template must actually be valid JSON once the "a | b | null" hint
+    // strings are treated as plain strings
+    expect(p).toContain('"identified"');
+    expect(p).toContain('"status": "Identified — Needs detail"');
+  });
+  it("carries the source-boundary rule and the conservative principles", () => {
     const p = buildChatGptPrompt();
     expect(p).toContain("Source boundary");
     expect(p).toMatch(/ONLY use the drawing supplied/i);
-    expect(p).toContain("Not assessable from supplied drawing");
     expect(p).toContain("UNKNOWN IS BETTER THAN INVENTED");
-    expect(p).toContain("Requirement | Qty | Unit | Basis | Location / Note | Scope");
+    expect(p).toMatch(/"qty" is a number or null/i);   // spec/dimension never in qty
   });
   it("mentions external documents only to forbid them, never to instruct consulting them", () => {
     const p = buildChatGptPrompt();
     expect(p).toMatch(/Do not reference[^]*architectural schedules/i);        // prohibition present
-    expect(p).toMatch(/Never ask me to check a schedule, CAD file/i);          // confirmation-section prohibition
+    expect(p).toMatch(/Never ask me to obtain or check another document/i);   // no external-doc chase
     expect(p).not.toContain("against the architectural schedule");            // the BAD pattern is absent
     expect(p).not.toContain("Verify against the plumbing drawing");
-  });
-  it("keeps specifications out of the quantity field and dimensions out of quantities", () => {
-    const p = buildChatGptPrompt();
-    expect(p).toMatch(/Do not put a specification .*into the quantity field/i);
-    expect(p).toMatch(/dimension .*is a measurement, never a quantity/i);
-  });
-  it("asks for the identified-vs-not-assessable discipline split and the category checklist", () => {
-    const p = buildChatGptPrompt();
-    expect(p).toContain("Identified in drawing:");
-    expect(p).toContain("Not assessable:");
-    expect(p).toContain("AC points");
-    expect(p).toContain("switchboards");
-    expect(p).toContain("None seen");
   });
 });
 
@@ -155,6 +160,106 @@ Not assessable:
 
   it("missing area stays Not provided", () => {
     expect(parseChatGptEvaluation("## AREA\nNot provided").area).toBeNull();
+  });
+});
+
+describe("strict JSON contract (primary format)", () => {
+  const JSON_EVAL = `{
+    "project_type": "Residential",
+    "archetype": "Apartment",
+    "floor": 1,
+    "boq_allocation": "Floor 1",
+    "floor_scope": "First Floor / Floor 1 private apartment",
+    "area": null,
+    "area_type": null,
+    "spaces": [
+      { "name": "Master Bedroom", "qty": 1, "basis": "Counted", "note": "" },
+      { "name": "Bedroom", "qty": 1, "basis": "Counted", "note": "" },
+      { "name": "Bathroom", "qty": 2, "basis": "Counted", "note": "" },
+      { "name": "Kitchen", "qty": 1, "basis": "Counted", "note": "" },
+      { "name": "Living / dining", "qty": 1, "basis": "Counted", "note": "" },
+      { "name": "Balcony", "qty": 1, "basis": "Counted", "note": "" }
+    ],
+    "disciplines": { "identified": ["Architectural", "Electrical", "Plumbing"], "not_assessable": ["Fire"] },
+    "measurements": [
+      { "name": "Room dimension", "value": "10'-8\\" x 12'-4\\"", "location": "Master Bedroom" }
+    ],
+    "requirements": [
+      { "allocation": "Floor 1", "requirement": "WC", "qty": 4, "unit": "nos", "basis": "Counted", "location": "Private bathrooms", "note": "", "scope": "Works", "status": "Quantified" },
+      { "allocation": "Floor 1", "requirement": "Wash basin", "qty": 3, "unit": "nos", "basis": "Counted", "location": "Bathrooms", "note": "", "scope": "Works", "status": "Quantified" },
+      { "allocation": "Floor 1", "requirement": "Wardrobe", "qty": null, "unit": null, "basis": "Not assessable", "location": "Master Bedroom", "note": "", "scope": "Works", "status": "Identified — Needs detail" },
+      { "allocation": "Floor 1", "requirement": "TV unit", "qty": null, "unit": null, "basis": "Not assessable", "location": "Living", "note": "", "scope": "Works", "status": "Identified — Needs detail" },
+      { "allocation": "Floor 1", "requirement": "Floor trap", "qty": null, "unit": null, "basis": "Not assessable", "location": "not legible", "note": "", "scope": "Works", "status": "Not assessable" }
+    ],
+    "category_summary": {
+      "electrical": { "status": "Identified", "items": ["6A points shown"] },
+      "fire": { "status": "Not assessable", "items": [] }
+    },
+    "confidence": { "project_type": "High", "archetype": "High", "floor": "High", "area": "Low", "major_spaces": "High" },
+    "confirmations": ["Confirm the door schedule count."]
+  }`;
+  const e = parseChatGptEvaluation(JSON_EVAL);
+
+  it("reads the headline fields (archetype Apartment, floor 1, allocation) — the previously-broken ones", () => {
+    expect(e.ok).toBe(true);
+    expect(e.projectType).toBe("Residential");
+    expect(e.archetype).toBe("Apartment");
+    expect(e.archetypeKey).toBe("apartment_floor");
+    expect(e.floor).toBe(1);
+    expect(e.boqAllocation).toBe("Floor 1");
+    expect(e.floorScope).toBe("First Floor / Floor 1 private apartment");
+    expect(e.area).toBeNull();
+  });
+  it("preserves spaces, disciplines, measurements, confidence, confirmations", () => {
+    expect(e.spaces).toContainEqual({ name: "Master Bedroom", qty: 1 });
+    expect(e.disciplines).toEqual(["Architectural", "Electrical", "Plumbing"]);
+    expect(e.disciplines).not.toContain("Fire");
+    expect(e.measurements[0]).toMatchObject({ label: "Room dimension", note: "Master Bedroom" });
+    expect(e.confidence["archetype"]).toBe("High");
+    expect(e.confidence["floors"]).toBe("High");          // aliased for the UI
+    expect(e.confirmations).toEqual(["Confirm the door schedule count."]);
+    expect(e.keyInfo).toContain("6A points shown");
+  });
+  it("splits requirements into quantified / needs-detail / not-assessable, keeping allocation", () => {
+    expect(e.requirements.map((r) => r.match).sort()).toEqual(["WC", "Wash basin"]);
+    expect(e.requirements.find((r) => r.match === "WC")).toMatchObject({ qty: 4, unit: "nos", allocation: "Floor 1" });
+    expect(e.needsDetail.map((r) => r.match).sort()).toEqual(["TV unit", "Wardrobe"]);
+    expect(e.needsDetail.every((r) => r.allocation === "Floor 1")).toBe(true);
+    expect(e.notAssessable).toEqual(["Floor trap"]);
+  });
+  it("specFromEvaluation drives room counts from the drawing spaces, not the template", () => {
+    const spec = specFromEvaluation(e);
+    expect(spec.bedrooms).toBe(2);
+    expect(spec.bathrooms).toBe(2);
+    expect(spec.kitchens).toBe(1);
+    expect(spec.living).toBe(1);
+    expect(spec.balconies).toBe(1);
+    expect(spec.bedrooms).not.toBe(6);
+    expect(spec._floors).toBe(1);
+    expect(spec._boq_allocation).toBe("Floor 1");
+    const items = (spec._drawing as { items: unknown[] }).items;
+    expect(items.length).toBe(4);   // 2 quantified + 2 needs-detail flow into the Drawing section
+  });
+
+  it("tolerates ```json fences and stray prose around the object", () => {
+    const wrapped = "Here is the assessment:\n\n```json\n{ \"archetype\": \"Apartment\", \"floor\": 2, \"requirements\": [] }\n```\nLet me know if you need changes.";
+    const w = parseChatGptEvaluation(wrapped);
+    expect(w.archetype).toBe("Apartment");
+    expect(w.floor).toBe(2);
+    expect(w.ok).toBe(true);
+  });
+  it("reads a numeric area with area_type", () => {
+    const a = parseChatGptEvaluation('{ "archetype": "3 BHK", "area": 1850, "area_type": "carpet" }');
+    expect(a.area).toEqual({ value: 1850, type: "carpet", raw: "1850" });
+    expect(a.archetypeKey).toBe("3bhk");
+  });
+  it("falls back to the markdown parser when the response is not JSON", () => {
+    const md = parseChatGptEvaluation("## PROJECT TYPE\nResidential\n## ARCHETYPE\n3 BHK");
+    expect(md.projectType).toBe("Residential");
+    expect(md.archetypeKey).toBe("3bhk");
+  });
+  it("extractJson returns null for non-JSON text", () => {
+    expect(extractJson("Sorry, I can't read that drawing.")).toBeNull();
   });
 });
 

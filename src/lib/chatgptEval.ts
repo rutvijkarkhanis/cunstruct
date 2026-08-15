@@ -29,96 +29,86 @@ export function carrySeed<T extends Record<string, unknown>>(next: T, current: R
   return next;
 }
 
+// The exact JSON shape Cunstruct parses. Kept as a literal template in the prompt
+// so ChatGPT fills it verbatim (null / [] for anything the drawing doesn't establish).
+const PROMPT_SCHEMA = `{
+  "project_type": "Residential | Commercial | Retail | Office | Hospitality | Other | null",
+  "archetype": "1 BHK | 2 BHK | 3 BHK | 4 BHK | Villa | Duplex | Apartment | Shop | Office | Other | null",
+  "floor": 1,
+  "boq_allocation": "Floor 1 | Floor 2 | Common Area | null",
+  "floor_scope": "First Floor / Floor 1 private apartment",
+  "area": null,
+  "area_type": "built-up | carpet | covered | null",
+  "spaces": [
+    { "name": "Master Bedroom", "qty": 1, "basis": "Counted", "note": "" }
+  ],
+  "disciplines": {
+    "identified": ["Architectural", "Electrical"],
+    "not_assessable": ["Fire"]
+  },
+  "measurements": [
+    { "name": "Room dimension", "value": "10'-8\\" x 12'-4\\"", "location": "Master Bedroom" }
+  ],
+  "requirements": [
+    { "allocation": "Floor 1", "requirement": "WC", "qty": 4, "unit": "nos", "basis": "Counted", "location": "Private bathrooms", "note": "", "scope": "Works", "status": "Quantified" },
+    { "allocation": "Floor 1", "requirement": "Wardrobe", "qty": null, "unit": null, "basis": "Not assessable", "location": "Master Bedroom", "note": "", "scope": "Works", "status": "Identified — Needs detail" }
+  ],
+  "category_summary": {
+    "electrical": { "status": "Identified", "items": [] },
+    "plumbing": { "status": "Identified", "items": [] },
+    "hvac": { "status": "Identified", "items": [] },
+    "fire": { "status": "Not assessable", "items": [] },
+    "architectural_civil": { "status": "Identified", "items": [] },
+    "interior_joinery": { "status": "Identified", "items": [] }
+  },
+  "confidence": {
+    "project_type": "High", "archetype": "High", "floor": "High",
+    "area": "Low", "major_spaces": "High", "overall_scope": "Medium"
+  },
+  "confirmations": []
+}`;
+
 /** The prompt Cunstruct hands the operator to paste into ChatGPT (with the drawing). */
 export function buildChatGptPrompt(): string {
-  return `I am using Cunstruct to prepare a construction BOQ. Perform a comprehensive PROJECT SCOPE INVENTORY of the attached drawing FIRST, then return the structured assessment below. Capture the WHOLE scope of work the drawing shows — not only the electrical / MEP points, but the architectural, interior and joinery scope too (feature walls, wardrobes, wine racks, consoles, counters, TV units, entrance features, panelling, false ceilings, etc.). Inventory everything relevant, not every label.
+  return `I am using Cunstruct to prepare a construction BOQ. Perform a comprehensive PROJECT SCOPE INVENTORY of the attached drawing, capturing the WHOLE scope of work it shows — not only the electrical / MEP points, but the architectural, interior and joinery scope too (feature walls, wardrobes, counters, TV units, entrance features, panelling, false ceilings, etc.). Then return the assessment as ONE STRICT JSON OBJECT.
+
+OUTPUT CONTRACT (critical):
+- Return ONLY one valid JSON object. No markdown. No code fences. No \`\`\`json. No headings. No explanatory text before or after the JSON.
+- Use EXACTLY the keys shown in the schema below. If a value is unknown, use null (or an empty array []). Never guess.
+- "qty" is a number or null ONLY. Never put a specification (16A, matte laminate) or a dimension (51", 10'-8") in "qty" — those belong in "measurements" or in the requirement text / "note".
 
 Source boundary:
-You may ONLY use the drawing supplied in this conversation. Do not assume any other project documents exist. Do not reference, cite, or ask me to consult CAD files, architectural schedules, legends, specifications, plumbing/fire/electrical/interior drawings, or any other document unless it has actually been supplied here. If something cannot be established from the supplied drawing, say "Not assessable from supplied drawing." Never ask me to obtain another document.
-
-Analyse the attached project drawing and return a structured project assessment that I can paste directly back into Cunstruct.
+You may ONLY use the drawing supplied in this conversation. Do not assume any other project documents exist. Do not reference, cite, or ask me to consult CAD files, architectural schedules, legends, specifications, or any other drawing unless it has actually been supplied here. If something cannot be established from the supplied drawing, use null and set the relevant "basis"/"status" to "Not assessable". Never ask me to obtain or check another document.
 
 Core rules:
 - DO NOT generate a BOQ, prices, or DSR rates.
-- UNKNOWN IS BETTER THAN INVENTED. Be conservative: do not invent quantities or make unsupported assumptions.
-- Never create an "Assumed" quantity from an unclear, illegible, ambiguous or partially visible symbol. Either Count it when the drawing clearly supports it, or mark it "Not assessable from supplied drawing" and leave the quantity blank.
-- DO NOT DROP an item just because you cannot quantify it. If a feature is clearly drawn but its quantity, area, size or material is not given (e.g. a feature wall, a wardrobe run, an entrance feature), you must still RETAIN it as scope, leave Qty blank, and set Status to "Identified — Needs detail". Silently omitting identified scope is worse than flagging it.
-- Do not put a specification (e.g. 16A, 20A, "on ceiling", "concealed") into the quantity field. Keep specifications in the requirement text or the Location / Note.
-- Keep dimensions separate from quantities. A dimension (51", 4" from BOS, 10'-8") is a measurement, never a quantity.
-- Keep specifications separate from quantities and from measurements. A specification (16A, matte laminate, veneer finish) describes an item; it is never a count.
+- UNKNOWN IS BETTER THAN INVENTED. Never invent a quantity, room count, area, or material.
+- DO NOT DROP identified scope. If a feature is clearly drawn but not quantifiable (a wardrobe, feature wall, entrance feature), still return it with "qty": null and "status": "Identified — Needs detail". Silently omitting identified scope is worse than flagging it.
+- Count a quantity only when the drawing clearly supports it; otherwise "qty": null and "basis": "Not assessable".
 
-Determine:
+Field guidance:
+- project_type: closest of Residential, Commercial, Retail, Office, Hospitality, Other.
+- archetype: closest of 1 BHK, 2 BHK, 3 BHK, 4 BHK, Villa, Duplex, Apartment, Shop, Office, Other.
+- floor: which single floor / level THIS drawing represents, as a number (e.g. 1 for "Floor 1"). This is NOT the number of floors in the whole building.
+- boq_allocation: the bucket this BOQ is for — "Floor 1", "Floor 2", … or "Common Area".
+- floor_scope: one-line description, e.g. "First Floor / Floor 1 private apartment".
+- area / area_type: only if explicitly stated or reliably measurable (area_type is "built-up" | "carpet" | "covered"); otherwise BOTH null. Never estimate the area.
+- spaces[]: every identifiable room / space, with "qty" when the drawing supports a count.
+- disciplines: "identified" lists ONLY disciplines with actual scope/evidence in this drawing (from Civil, Architectural, Electrical, Plumbing, HVAC, Fire, Furniture); "not_assessable" lists the rest. Do NOT list a discipline as identified just because it could exist.
+- measurements[]: dimensions and specifications ONLY (switchboard heights, TV size, offsets) — never quantities.
+- requirements[]: EVERY item of scope you can see — quantified where the drawing supports it, RETAINED with "qty": null and "status": "Identified — Needs detail" where it does not. Cover electrical (points/sockets/AC/TV/switchboards/appliance & geyser points), plumbing (WC/basin/shower/sink/floor traps), HVAC, fire, architectural/civil (doors/windows/grills/false ceiling/flooring/finishes) and interior joinery (feature walls, wardrobes, TV units, counters, kitchen platform & storage, entrance features). Per requirement:
+  - allocation: the BOQ bucket ("Floor 1", "Common Area", …).
+  - basis: "Counted" | "Measured" | "Derived" | "Not assessable".
+  - scope: "Works" (contractor work incl. fixed joinery / built-ins) | "Equipment" (loose client-supplied items like the TV/appliances themselves) | "Needs confirmation".
+  - status: "Quantified" | "Identified — Needs detail" | "Not assessable".
+- category_summary: per discipline, a "status" ("Identified" | "None seen" | "Not assessable") plus any "items" you want to flag.
+- confidence: "High" | "Medium" | "Low" for project_type, archetype, floor, area, major_spaces, overall_scope.
+- confirmations[]: only questions resolvable from the supplied drawing.
 
-## PROJECT TYPE
-Closest of: Residential, Commercial, Retail, Office, Hospitality, Other.
+Return EXACTLY this JSON shape, filled from the drawing (use null / [] for anything the drawing does not establish):
+${PROMPT_SCHEMA}
 
-## ARCHETYPE
-Closest of: 1 BHK, 2 BHK, 3 BHK, 4 BHK, Villa, Duplex, Apartment, Shop, Office, Other. If none fits, describe the closest.
-
-## FLOORS
-Number of floors / levels represented. If unclear from the supplied drawing, say "Not assessable from supplied drawing."
-
-## BOQ ALLOCATION
-Which single part of the project does THIS drawing represent — the bucket this BOQ is for? Answer with one of: Floor 1, Floor 2, Floor 3, Floor 4, Common Area, or another clearly labelled section. If the drawing is one private floor, give the floor (e.g. "Floor 1"). Do NOT treat this as the number of floors in the whole building.
-
-## FLOOR SCOPE
-A one-line description of what this drawing covers, e.g. "First Floor / Floor 1 private apartment". Keep it to what the supplied drawing shows.
-
-## AREA
-Give built-up / carpet / covered area ONLY if it is explicitly stated or reliably measurable from the supplied drawing (say which type). Otherwise write exactly "Not provided" — do not estimate it and do not ask me to fetch it from another document.
-
-## SPACES
-Identifiable rooms / spaces and counts, e.g.
-- Bedroom — 3
-- Kitchen — 1
-Do not present a space as more certain than the drawing supports; if unsure, lower its confidence and add a confirmation.
-
-## DISCIPLINES
-Split into two lists, based ONLY on the supplied drawing (Civil, Architectural, Electrical, Plumbing, HVAC, Fire, Furniture):
-Identified in drawing: <disciplines that have actual scope/evidence in this drawing>
-Not assessable: <disciplines with no clear evidence in this drawing>
-
-## DRAWING-SPECIFIC MEASUREMENTS
-Dimensions and specifications ONLY — never quantities. e.g.
-- Switchboard heights — 10.5", 21", 51", 72"
-- TV size — 55"
-- Geyser point offset — 4" from BOS
-- AC point specification — 16A, on ceiling
-
-## DRAWING-SPECIFIC REQUIREMENTS
-Every item of scope you can see in the drawing — quantified where the drawing supports it, and RETAINED but flagged where it does not. Return a markdown table with exactly these columns:
-Requirement | Qty | Unit | Basis | Location / Note | Scope | Status
-- Qty: the count/measure only when the drawing clearly supports it; otherwise leave BLANK (never guess, never put a spec or a dimension here).
-- Basis: Counted (visible symbols), Measured (an explicit measurement), Derived (from measurements in the drawing), or "Not assessable" (the drawing does not support a number — leave Qty blank).
-- Location: the room if identifiable, otherwise "Location unclear". Never guess a room.
-- Scope: "Works" for contractor work (points, sockets, conduit, provisions, AND fixed joinery / built-ins such as wardrobes, feature walls, counters, TV units, panelling), "Equipment" for loose client-supplied items (the TV, projector, appliances themselves — not their electrical points or the joinery around them), or "Needs confirmation" when Works-vs-Equipment cannot be told from the drawing.
-- Status: "Quantified" (Qty filled from the drawing), "Identified — Needs detail" (clearly drawn but not quantifiable yet — Qty blank), or "Not assessable" (cannot even be confirmed present).
-
-Check each category below and return, for EACH, one of: (a) Identified + quantity, (b) None seen, or (c) Not assessable from supplied drawing. "None seen" means it is not in THIS drawing — not that the project does not need it.
-- Electrical: lighting points; 6A sockets; 16A points; AC points; TV points; audio points; exhaust points; switchboards (+ module config); floor points / floor boxes; conduits; appliance points (dishwasher, washing machine, oven, fridge, geyser); projector points; blind provisions.
-- Plumbing: WC; wash basin; shower; sink; floor traps; water & waste points.
-- HVAC: AC units; AC points; exhaust; ducting.
-- Fire: detectors; sprinklers; alarm points; extinguishers.
-- Architectural / Civil: doors; windows; grills; partitions; false ceiling; flooring / skirting; wall finishes / cladding.
-- Interior / Joinery (fixed works — inventory these even when unquantified): feature walls; wardrobes; TV units / TV panelling; wine racks; consoles; counters / vanities; kitchen platform & storage; entrance features; wall panelling; loose furniture (mark as Equipment).
-
-Examples:
-TV point | 1 | nos | Counted | Living / TV area | Works | Quantified
-Geyser electrical point | 1 | nos | Counted | Bathroom | Works | Quantified
-55" TV | 1 | nos | Counted | Living / TV area | Equipment | Quantified
-Feature wall |  |  | Not assessable | Living, behind sofa | Works | Identified — Needs detail
-Wardrobe |  |  | Not assessable | Master bedroom | Works | Identified — Needs detail
-Entrance feature |  |  | Not assessable | Entrance / foyer | Works | Identified — Needs detail
-Floor trap |  |  | Not assessable | plumbing symbols not legible | Works | Not assessable
-
-## CONFIDENCE
-High / Medium / Low for: Project type, Archetype, Floors, Area, Major space identification.
-
-## CONFIRMATIONS
-Only questions that can be resolved from the supplied drawing or by my own judgement. Base every question on what is visible in the supplied drawing. Never ask me to check a schedule, CAD file, or another drawing that was not supplied. e.g. "Confirm whether the 8 A.C annotations represent 8 electrical AC points, 8 equipment locations, or both."
-
-## IMPORTANT
-UNKNOWN IS BETTER THAN INVENTED. Retain identified scope even when you cannot quantify it (Status "Identified — Needs detail") — do not drop it. The human operator makes the final decision. Return a clean structured response that can be pasted directly into Cunstruct.`;
+Remember: return ONLY the JSON object, nothing else. UNKNOWN IS BETTER THAN INVENTED.`;
 }
 
 export interface EvalArea { value: number; type: string; raw: string }
@@ -546,8 +536,176 @@ function parseConfirmations(sec?: string): string[] {
     .filter((l) => l.length > 3);
 }
 
-/** Parse a pasted ChatGPT evaluation into structured, editable project inputs. */
+// --- JSON contract (primary) -------------------------------------------------
+// The evaluator returns a single strict JSON object (see buildChatGptPrompt).
+// JSON is unambiguous, so it is the preferred path; the markdown/prose parser
+// below is kept only as a fallback for a response that isn't valid JSON.
+
+const jstr = (v: unknown): string => (typeof v === "string" ? v : v == null ? "" : String(v)).trim();
+const jnum = (v: unknown): number | undefined => {
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v.replace(/,/g, "").match(/-?[\d.]+/)?.[0] ?? "") : NaN;
+  return Number.isFinite(n) ? n : undefined;
+};
+const jarr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+const jobj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+
+/** Pull a single JSON object out of the raw response — tolerating ```json fences
+ *  and any stray prose before/after — or null when there is no parseable object. */
+export function extractJson(text: string): Record<string, unknown> | null {
+  if (!text) return null;
+  let t = text.trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) t = fence[1].trim();
+  const i = t.indexOf("{");
+  const j = t.lastIndexOf("}");
+  if (i < 0 || j <= i) return null;
+  t = t.slice(i, j + 1);
+  try {
+    const o = JSON.parse(t);
+    return o && typeof o === "object" && !Array.isArray(o) ? (o as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function areaFromJson(area: unknown, areaType: unknown): EvalArea | null {
+  if (area == null) return null;
+  let value: number | undefined;
+  let raw = "";
+  if (typeof area === "object") {
+    const o = area as Record<string, unknown>;
+    value = jnum(o.value);
+    raw = jstr(o.raw) || jstr(o.value);
+    if (o.type != null) areaType = o.type;
+  } else {
+    const s = jstr(area);
+    if (/^(not|null|n\/a|-|none)\b/i.test(s)) return null;
+    value = jnum(area);
+    raw = s;
+  }
+  if (!(value != null && value > 0)) return null;
+  const t = jstr(areaType);
+  const type = t && !/^(null|n\/a|-)$/i.test(t) ? t : /carpet/i.test(raw) ? "carpet" : /covered/i.test(raw) ? "covered" : "built-up";
+  return { value, type, raw: raw || String(value) };
+}
+
+function spacesFromJson(v: unknown): EvalSpace[] {
+  return jarr(v)
+    .map((s) => { const o = jobj(s); const name = jstr(o.name) || jstr(o.space); return name ? { name, qty: jnum(o.qty) ?? jnum(o.count) ?? 0 } : null; })
+    .filter((s): s is EvalSpace => s != null);
+}
+
+function disciplinesFromJson(v: unknown): string[] {
+  const ids = Array.isArray(v) ? v : jarr(jobj(v).identified);
+  const found = new Set<string>();
+  for (const x of ids) { const s = jstr(x); for (const d of DISCIPLINE_WORDS) if (new RegExp(`\\b${d}\\b`, "i").test(s)) found.add(d); }
+  return DISCIPLINE_WORDS.filter((d) => found.has(d));
+}
+
+function measurementsFromJson(v: unknown): EvalMeasurement[] {
+  return jarr(v)
+    .map((m) => { const o = jobj(m); return { label: jstr(o.name) || jstr(o.label), value: jstr(o.value), note: (jstr(o.location) || jstr(o.note)) || undefined }; })
+    .filter((m) => m.label && m.value);
+}
+
+/** Requirements JSON → the same three buckets the markdown parser produces
+ *  (priced items, retained "needs detail" scope, and not-assessable names). */
+function requirementsFromJson(v: unknown): { items: DrawingItem[]; needsDetail: DrawingItem[]; notAssessable: string[] } {
+  const items: DrawingItem[] = [];
+  const needsDetail: DrawingItem[] = [];
+  const notAssessable: string[] = [];
+  for (const r of jarr(v)) {
+    const o = jobj(r);
+    const match = jstr(o.requirement) || jstr(o.name) || jstr(o.item);
+    if (!match) continue;
+    const allocation = jstr(o.allocation) || undefined;
+    const unit = jstr(o.unit) || undefined;
+    const basisRaw = jstr(o.basis);
+    const basis = normBasis(basisRaw);
+    const status = jstr(o.status);
+    const scope = jstr(o.scope);
+    const equipment = scope ? /equip|client/i.test(scope) : undefined;
+    const note = [jstr(o.location), jstr(o.note)].filter(Boolean).join(" · ") || undefined;
+    const qty = jnum(o.qty);
+    const basisNA = /not\s*assessable/i.test(basisRaw);
+    if (NEEDS_DETAIL.test(status)) needsDetail.push({ match, qty: 0, unit, basis, equipment, note, allocation });
+    else if (qty != null && qty > 0 && !basisNA) items.push({ match, qty, unit, basis, equipment, note, allocation });
+    else notAssessable.push(match);
+  }
+  const seen = new Set<string>();
+  const dedupNA = notAssessable.filter((n) => { const k = n.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
+  return { items, needsDetail, notAssessable: dedupNA };
+}
+
+function confidenceFromJson(v: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, val] of Object.entries(jobj(v))) {
+    const s = jstr(val);
+    if (!s) continue;
+    out[k.toLowerCase().replace(/_/g, " ")] = s[0].toUpperCase() + s.slice(1).toLowerCase();
+  }
+  if (out["floor"] && !out["floors"]) out["floors"] = out["floor"];           // UI reads "floors"
+  if (out["major spaces"] && !out["major space identification"]) out["major space identification"] = out["major spaces"];
+  return out;
+}
+
+/** category_summary is a reminder block, not a second requirements list — surface
+ *  any flagged items as key-info reminders (never as priced quantities). */
+function keyInfoFromCategorySummary(v: unknown): string[] {
+  const out: string[] = [];
+  for (const val of Object.values(jobj(v))) {
+    for (const it of jarr(jobj(val).items)) {
+      const s = typeof it === "string" ? it.trim() : jstr(jobj(it).requirement) || jstr(jobj(it).name);
+      if (s) out.push(s);
+    }
+  }
+  return out;
+}
+
+/** Convert the strict-JSON evaluation into the internal ChatGptEval type. */
+export function evalFromJson(j: Record<string, unknown>): ChatGptEval {
+  const projectType = firstOf(jstr(j.project_type), ["Residential", "Commercial", "Retail", "Office", "Hospitality", "Other"]) || (jstr(j.project_type) || undefined);
+  const archetype = jstr(j.archetype) || undefined;
+  const floor = jnum(j.floor);
+  const req = requirementsFromJson(j.requirements);
+  const spaces = spacesFromJson(j.spaces);
+  const measurements = measurementsFromJson(j.measurements);
+  const disciplines = disciplinesFromJson(j.disciplines);
+  const eval_: ChatGptEval = {
+    projectType,
+    archetype,
+    archetypeKey: archetypeKeyFor(archetype),
+    floors: jnum(j.floors),
+    floor,
+    floorScope: jstr(j.floor_scope) || undefined,
+    boqAllocation: jstr(j.boq_allocation) || undefined,
+    area: areaFromJson(j.area, j.area_type),
+    spaces,
+    disciplines,
+    measurements,
+    requirements: req.items,
+    needsDetail: req.needsDetail,
+    notAssessable: req.notAssessable,
+    keyInfo: keyInfoFromCategorySummary(j.category_summary),
+    confidence: confidenceFromJson(j.confidence),
+    confirmations: jarr(j.confirmations).map((c) => jstr(c)).filter((c) => c.length > 0),
+    ok: false,
+  };
+  eval_.ok = Boolean(projectType || eval_.archetypeKey || archetype || floor != null || eval_.area || spaces.length || req.items.length || req.needsDetail.length || req.notAssessable.length || measurements.length || disciplines.length);
+  return eval_;
+}
+
+/** Parse a pasted ChatGPT evaluation. JSON (the current contract) is preferred;
+ *  a non-JSON response falls back to the legacy markdown/prose parser so older
+ *  pasted responses still work. */
 export function parseChatGptEvaluation(text: string): ChatGptEval {
+  const json = extractJson(text);
+  if (json) { const e = evalFromJson(json); if (e.ok) return e; }
+  return parseMarkdownEvaluation(text);
+}
+
+/** Legacy markdown/prose parser — fallback only. */
+function parseMarkdownEvaluation(text: string): ChatGptEval {
   const s = splitSections(text);
   const projectType = firstOf(s["PROJECT TYPE"], ["Residential", "Commercial", "Retail", "Office", "Hospitality", "Other"]);
   const archetype = firstOf(s["ARCHETYPE"], ["1 BHK", "2 BHK", "3 BHK", "4 BHK", "Villa", "Duplex", "Apartment", "Shop", "Office"]);
