@@ -8,12 +8,19 @@
 // it into editable project inputs and drawing-summary rows. Nothing is invented:
 // unstated fields stay empty and every quantity is exactly what was pasted.
 
+import { defaultSpec, type Spec } from "./boqSpec";
 import { parseDrawingSummary, type DrawingBasis, type DrawingItem } from "./boqDrawing";
 
 // Spec keys seeded from a ChatGPT evaluation (drawing requirements, measurements,
 // spaces, provenance). They must survive a spec reset — e.g. when the operator
 // changes the archetype after the evaluation — or the parsed requirements are lost.
-export const SEED_CARRY_KEYS = ["_drawing", "_measurements", "_spaces", "_source", "_area_type"] as const;
+export const SEED_CARRY_KEYS = ["_drawing", "_measurements", "_spaces", "_source", "_area_type", "_floor_scope", "_boq_allocation"] as const;
+
+// Room-count spec fields. When a drawing evaluation is present these are driven
+// ONLY by the identified spaces — never by an archetype template — so a generic
+// "apartment" default (6 beds / 6 baths / 3 kitchens…) can never masquerade as a
+// drawing-derived count. A room type the drawing does not name is left blank.
+const ROOM_KEYS = ["bedrooms", "bathrooms", "kitchens", "living", "balconies", "pooja", "utility"] as const;
 
 /** Copy the ChatGPT-seed keys from `current` onto a freshly built base spec. */
 export function carrySeed<T extends Record<string, unknown>>(next: T, current: Record<string, unknown> | undefined): T {
@@ -50,6 +57,12 @@ Closest of: 1 BHK, 2 BHK, 3 BHK, 4 BHK, Villa, Duplex, Apartment, Shop, Office, 
 
 ## FLOORS
 Number of floors / levels represented. If unclear from the supplied drawing, say "Not assessable from supplied drawing."
+
+## BOQ ALLOCATION
+Which single part of the project does THIS drawing represent — the bucket this BOQ is for? Answer with one of: Floor 1, Floor 2, Floor 3, Floor 4, Common Area, or another clearly labelled section. If the drawing is one private floor, give the floor (e.g. "Floor 1"). Do NOT treat this as the number of floors in the whole building.
+
+## FLOOR SCOPE
+A one-line description of what this drawing covers, e.g. "First Floor / Floor 1 private apartment". Keep it to what the supplied drawing shows.
 
 ## AREA
 Give built-up / carpet / covered area ONLY if it is explicitly stated or reliably measurable from the supplied drawing (say which type). Otherwise write exactly "Not provided" — do not estimate it and do not ask me to fetch it from another document.
@@ -117,6 +130,13 @@ export interface ChatGptEval {
   archetype?: string;        // as ChatGPT phrased it, e.g. "3 BHK"
   archetypeKey?: string;     // mapped to an ARCHETYPES key, or undefined
   floors?: number;
+  /** Which floor THIS drawing represents (e.g. 1 for "Floor 1"), when it is a
+   *  single-floor scope. Distinct from `floors` (the building's floor count). */
+  floor?: number;
+  /** One-line description of what this drawing covers, e.g. "Floor 1 private apartment". */
+  floorScope?: string;
+  /** The BOQ allocation bucket this evaluation belongs to (Floor 1 / Common …). */
+  boqAllocation?: string;
   area: EvalArea | null;     // null = not provided (never invented)
   spaces: EvalSpace[];
   disciplines: string[];
@@ -144,6 +164,8 @@ const ALIAS: Record<string, string> = {
   "PROJECT TYPE": "PROJECT TYPE", "PROJECT ASSESSMENT": "IGNORE", "ASSESSMENT": "IGNORE",
   "ARCHETYPE": "ARCHETYPE", "PROJECT ARCHETYPE": "ARCHETYPE",
   "FLOORS": "FLOORS", "FLOORS/LEVELS": "FLOORS", "FLOORS / LEVELS": "FLOORS", "LEVELS": "FLOORS", "NUMBER OF FLOORS": "FLOORS",
+  "BOQ ALLOCATION": "BOQ ALLOCATION", "ALLOCATION": "BOQ ALLOCATION",
+  "FLOOR SCOPE": "FLOOR SCOPE", "FLOOR DESCRIPTION": "FLOOR SCOPE", "FLOOR": "FLOOR SCOPE",
   "AREA": "AREA", "BUILT-UP AREA": "AREA", "BUILTUP AREA": "AREA", "CARPET AREA": "AREA",
   "SPACES": "SPACES", "ROOMS": "SPACES", "SPACES/ROOMS": "SPACES", "SPACES / ROOMS": "SPACES", "ROOMS/SPACES": "SPACES",
   "DISCIPLINES": "DISCIPLINES",
@@ -231,6 +253,27 @@ function parseFloors(sec?: string): number | undefined {
   if (/\b(single|one)\b/i.test(sec) && /floor|storey|level/i.test(sec)) return 1;
   const m = sec.match(/\b(\d+)\b/);
   return m ? Number(m[1]) : undefined;
+}
+
+/** The floor a single-floor drawing represents, e.g. "Floor 1" → 1, "First
+ *  Floor" → 1. Distinct from the building floor count. */
+function parseFloorNumber(sec?: string): number | undefined {
+  if (!sec) return undefined;
+  const ord: Record<string, number> = { ground: 0, first: 1, second: 2, third: 3, fourth: 4, fifth: 5 };
+  const w = sec.match(/\b(ground|first|second|third|fourth|fifth)\b\s*floor/i);
+  if (w) return ord[w[1].toLowerCase()];
+  const m = sec.match(/\bfloor\s*(\d+)\b/i) || sec.match(/\b(\d+)(?:st|nd|rd|th)?\s*floor\b/i) || sec.match(/\b(\d+)\b/);
+  return m ? Number(m[1]) : undefined;
+}
+
+/** A short one-line scope/allocation label (first non-empty content line). */
+function parseLabelLine(sec?: string): string | undefined {
+  if (!sec) return undefined;
+  for (let line of sec.split(/\r?\n/)) {
+    line = line.trim().replace(/^[-*•]\s*/, "").replace(/^["']|["']$/g, "").trim();
+    if (line && !/^not\s+(assessable|provided|available)/i.test(line)) return line;
+  }
+  return undefined;
 }
 
 function parseArea(sec?: string): EvalArea | null {
@@ -430,11 +473,18 @@ export function parseChatGptEvaluation(text: string): ChatGptEval {
   const spaces = parseSpaces(s["SPACES"]);
   const area = parseArea(s["AREA"]);
   const floors = parseFloors(s["FLOORS"]);
+  const boqAllocation = parseLabelLine(s["BOQ ALLOCATION"]);
+  const floorScope = parseLabelLine(s["FLOOR SCOPE"]);
+  // Which floor this drawing is for, from the allocation / scope / floors text.
+  const floor = parseFloorNumber(s["BOQ ALLOCATION"]) ?? parseFloorNumber(s["FLOOR SCOPE"]);
   const eval_: ChatGptEval = {
     projectType,
     archetype,
     archetypeKey: archetypeKeyFor(archetype),
     floors,
+    floor,
+    floorScope,
+    boqAllocation,
     area,
     spaces,
     disciplines: parseDisciplines(s["DISCIPLINES"]),
@@ -449,6 +499,68 @@ export function parseChatGptEvaluation(text: string): ChatGptEval {
   };
   eval_.ok = Boolean(projectType || eval_.archetypeKey || archetype || floors || area || spaces.length || requirements.length || eval_.needsDetail.length || eval_.keyInfo.length || eval_.notAssessable.length);
   return eval_;
+}
+
+/** Map the drawing's identified spaces onto BOQ room-count fields. Only rooms the
+ *  drawing actually names get a count (summed across matching spaces); a room type
+ *  it does not name is simply absent from the result — never defaulted — so the
+ *  generic template can never invent a bedroom/bathroom count. Foyers, staircases,
+ *  corridors and other non-priced circulation are deliberately not counted. */
+export function roomsFromSpaces(spaces: EvalSpace[]): Partial<Record<(typeof ROOM_KEYS)[number], number>> {
+  const out: Partial<Record<string, number>> = {};
+  const add = (k: string, n: number) => { out[k] = (out[k] ?? 0) + n; };
+  for (const s of spaces) {
+    const name = (s.name || "").toLowerCase();
+    const qty = Number(s.qty) || 0;
+    if (!(qty > 0)) continue;
+    // Order matters: the more specific/overlapping tests run first ("bathroom"
+    // and "utility"/"store" before the broad room words).
+    if (/\bbath|toilet|\bwc\b|w\.?c\.?\b|washroom|powder\s*room/.test(name)) add("bathrooms", qty);
+    else if (/utility|wash\s*area|laundry|\bstore\b|storage/.test(name)) add("utility", qty);
+    else if (/pooja|puja|prayer|mandir|\bstudy\b|home\s*office/.test(name)) add("pooja", qty);
+    else if (/bed\s*room|bedroom|master|guest\s*room|kids?\s*room|children/.test(name)) add("bedrooms", qty);
+    else if (/kitchen|pantry/.test(name)) add("kitchens", qty);
+    else if (/balcon|\bdeck\b|sit[\s-]*out|utility\s*balcony/.test(name)) add("balconies", qty);
+    else if (/living|drawing\s*room|family|dining|\bhall\b|lounge/.test(name)) add("living", qty);
+    // foyer / entrance / staircase / corridor / lobby / passage → not a priced room
+  }
+  return out;
+}
+
+/** Build the New-BOQ spec from a parsed evaluation. This is the single mapping
+ *  point where the drawing evaluation becomes the SOURCE OF TRUTH:
+ *   - room counts come only from the identified spaces (blank when unnamed);
+ *   - area / floor / area-type come from the drawing when it states them;
+ *   - all requirements (priced + "needs detail") flow into the Drawing section;
+ *   - generic template values fill ONLY genuinely-missing fields (finishes,
+ *     structure, toggles), never a room count or a value the drawing established.
+ *  Everything remains editable downstream — the operator's edits win over this. */
+export function specFromEvaluation(e: ChatGptEval): Spec {
+  const base = defaultSpec();
+  // Blank the template's room counts — only the drawing may set them. What the
+  // drawing does not name stays blank so the engine falls back to a clearly-marked
+  // heuristic rather than showing a fabricated count as if it came from the drawing.
+  for (const k of ROOM_KEYS) delete base[k];
+  const rooms = roomsFromSpaces(e.spaces);
+  for (const [k, v] of Object.entries(rooms)) base[k] = v;
+
+  if (e.area?.value) base._area_sqft = e.area.value;
+  if (e.area?.type) base._area_type = e.area.type;
+  // A per-floor BOQ covers one floor of work; prefer the explicit floor number.
+  const floors = e.floor ?? e.floors;
+  if (floors != null) base._floors = floors;
+
+  // Priced requirements + "Identified — Needs detail" scope both become editable
+  // drawing rows; needs-detail rows carry qty 0 so they surface for quantifying
+  // but are never priced until the operator fills them in.
+  const drawItems = [...e.requirements, ...e.needsDetail];
+  if (drawItems.length) (base as Record<string, unknown>)._drawing = { items: drawItems };
+  if (e.measurements.length) (base as Record<string, unknown>)._measurements = e.measurements;
+  if (e.spaces.length) (base as Record<string, unknown>)._spaces = e.spaces;
+  if (e.floorScope) (base as Record<string, unknown>)._floor_scope = e.floorScope;
+  if (e.boqAllocation) (base as Record<string, unknown>)._boq_allocation = e.boqAllocation;
+  (base as Record<string, unknown>)._source = "chatgpt";
+  return base;
 }
 
 /** Map ChatGPT's identified disciplines to a single BOQ discipline key for the

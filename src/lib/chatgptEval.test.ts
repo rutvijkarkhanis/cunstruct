@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildChatGptPrompt, disciplineForBoq, parseChatGptEvaluation } from "./chatgptEval";
+import { buildChatGptPrompt, disciplineForBoq, parseChatGptEvaluation, roomsFromSpaces, specFromEvaluation } from "./chatgptEval";
 import { applyDrawing } from "./boqDrawing";
 
 const STRUCTURED = `## PROJECT TYPE
@@ -155,6 +155,98 @@ Not assessable:
 
   it("missing area stays Not provided", () => {
     expect(parseChatGptEvaluation("## AREA\nNot provided").area).toBeNull();
+  });
+});
+
+describe("roomsFromSpaces — drawing spaces drive room counts (no template invention)", () => {
+  it("maps identified spaces onto room-count fields, summing matches", () => {
+    const r = roomsFromSpaces([
+      { name: "Master Bedroom", qty: 1 }, { name: "Bedroom", qty: 2 },
+      { name: "Bathroom / toilet", qty: 3 }, { name: "Kitchen", qty: 1 },
+      { name: "Living", qty: 1 }, { name: "Dining", qty: 1 },
+      { name: "Balcony", qty: 2 }, { name: "Utility", qty: 1 }, { name: "Study", qty: 1 },
+    ]);
+    expect(r).toEqual({ bedrooms: 3, bathrooms: 3, kitchens: 1, living: 2, balconies: 2, utility: 1, pooja: 1 });
+  });
+  it("does not count circulation spaces (foyer / staircase) as priced rooms", () => {
+    const r = roomsFromSpaces([{ name: "Entrance / foyer", qty: 1 }, { name: "Staircase", qty: 1 }, { name: "Bedroom", qty: 2 }]);
+    expect(r).toEqual({ bedrooms: 2 });
+  });
+  it("leaves a room type the drawing never names ABSENT (never defaulted)", () => {
+    const r = roomsFromSpaces([{ name: "Bedroom", qty: 1 }]);
+    expect(r.bathrooms).toBeUndefined();
+    expect(r.kitchens).toBeUndefined();
+  });
+});
+
+describe("specFromEvaluation — drawing is source of truth, no generic room defaults", () => {
+  // An "Apartment" eval: previously seeded the apartment_floor template (6 beds /
+  // 6 baths / 3 kitchens / 3 flats). Now the drawing's own spaces must win.
+  const APARTMENT = `## PROJECT TYPE
+Residential
+## ARCHETYPE
+Apartment
+## BOQ ALLOCATION
+Floor 1
+## FLOOR SCOPE
+First Floor / Floor 1 private apartment
+## SPACES
+- Master Bedroom — 1
+- Bedroom — 1
+- Bathroom — 2
+- Kitchen — 1
+- Living / dining — 1
+- Balcony — 1
+## DRAWING-SPECIFIC REQUIREMENTS
+Requirement | Qty | Unit | Basis | Location / Note | Scope | Status
+--- | --- | --- | --- | --- | --- | ---
+WC | 4 | nos | Counted | Private bathrooms | Works | Quantified
+Wardrobe |  |  | Not assessable | Master Bedroom | Works | Identified — Needs detail
+Study unit |  |  | Not assessable | Study | Works | Identified — Needs detail`;
+
+  const e = parseChatGptEvaluation(APARTMENT);
+  const spec = specFromEvaluation(e);
+
+  it("captures the floor allocation and scope (not the building floor count)", () => {
+    expect(e.boqAllocation).toBe("Floor 1");
+    expect(e.floor).toBe(1);
+    expect(e.floorScope).toContain("private apartment");
+    expect(spec._boq_allocation).toBe("Floor 1");
+    expect(spec._floors).toBe(1);
+  });
+
+  it("room counts come from the drawing spaces, NOT the apartment template (6/6/3)", () => {
+    expect(spec.bedrooms).toBe(2);
+    expect(spec.bathrooms).toBe(2);
+    expect(spec.kitchens).toBe(1);
+    expect(spec.living).toBe(1);
+    expect(spec.balconies).toBe(1);
+    // never the generic apartment_floor 6/6/3/3
+    expect(spec.bedrooms).not.toBe(6);
+    expect(spec.bathrooms).not.toBe(6);
+  });
+
+  it("does not fabricate flats-per-floor from a multi-unit template", () => {
+    expect(Number(spec.flats_per_floor)).not.toBe(3);   // 1 (single-owner floor), never the apartment default 3
+  });
+
+  it("leaves a room the drawing never establishes blank (no silent 2)", () => {
+    const solo = specFromEvaluation(parseChatGptEvaluation("## SPACES\n- Bedroom — 1"));
+    expect(solo.bathrooms).toBeUndefined();
+    expect(solo.kitchens).toBeUndefined();
+  });
+
+  it("ALL requirements flow into the Drawing section — quantified + needs-detail", () => {
+    const items = (spec._drawing as { items: unknown[] }).items;
+    expect(items.length).toBe(3);          // WC (quantified) + Wardrobe + Study unit (needs detail)
+    expect(e.requirements.length).toBe(1); // only WC is priced
+    expect(e.needsDetail.length).toBe(2);  // the two identified-but-unquantified items retained
+  });
+
+  it("marks the source and keeps spaces/scope for downstream editing", () => {
+    expect(spec._source).toBe("chatgpt");
+    expect(spec._floor_scope).toContain("private apartment");
+    expect((spec._spaces as unknown[]).length).toBeGreaterThan(0);
   });
 });
 

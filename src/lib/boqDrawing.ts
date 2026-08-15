@@ -36,6 +36,9 @@ export interface DrawingItem {
   note?: string;
   /** Structured per-room breakdown preserved when identical items are consolidated. */
   rooms?: { location: string; qty: number }[];
+  /** BOQ allocation bucket this requirement belongs to, e.g. "Floor 1" / "Common".
+   *  Preserved from the drawing evaluation so a per-floor BOQ never mixes buckets. */
+  allocation?: string;
 }
 
 /** Structured drawing provenance carried onto a BOQ line (persisted as jsonb). */

@@ -5,7 +5,7 @@ import { BOQ_SPEC, defaultSpec, type SpecField, type Spec, type SpecValue } from
 import { DISCIPLINES } from "@/lib/disciplines";
 import { ARCHETYPES, archetypeSpec } from "@/lib/archetypes";
 import { openIntakeForm } from "@/lib/boqIntakeForm";
-import { buildChatGptPrompt, carrySeed, disciplineFromEvidence, parseChatGptEvaluation, type ChatGptEval } from "@/lib/chatgptEval";
+import { buildChatGptPrompt, carrySeed, disciplineFromEvidence, parseChatGptEvaluation, roomsFromSpaces, specFromEvaluation, type ChatGptEval } from "@/lib/chatgptEval";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -50,27 +50,17 @@ export default function OpsBoqNew() {
     catch { toast.error("Couldn't copy — select the text and copy manually"); }
   };
 
-  // Turn a parsed evaluation into pre-filled Anchor inputs. The operator's edits
-  // downstream remain the source of truth — nothing here is auto-generated.
+  // Turn a parsed evaluation into pre-filled Anchor inputs. The drawing evaluation
+  // is the source of truth: room counts come from the identified spaces (not an
+  // archetype template) and every requirement flows into the Drawing step. The
+  // operator's edits downstream still win — nothing here is auto-generated.
   const applyEval = (e: ChatGptEval) => {
-    const a = e.archetypeKey ? ARCHETYPES.find((x) => x.key === e.archetypeKey) : undefined;
-    const base: Spec = a ? archetypeSpec(a) : defaultSpec();
-    if (e.area?.value) base._area_sqft = e.area.value;
-    if (e.floors) base._floors = e.floors;
-    if (e.area?.type) base._area_type = e.area.type;
-    // Priced requirements + "Identified — Needs detail" scope both become editable
-    // drawing rows. The needs-detail rows carry qty 0, so they surface in the
-    // Drawing step for the operator to quantify but are never priced until then.
-    const drawItems = [...e.requirements, ...e.needsDetail];
-    if (drawItems.length) (base as Record<string, unknown>)._drawing = { items: drawItems };
-    if (e.measurements.length) (base as Record<string, unknown>)._measurements = e.measurements;
-    if (e.spaces.length) (base as Record<string, unknown>)._spaces = e.spaces;
-    (base as Record<string, unknown>)._source = "chatgpt";
-    setSpec(base);
+    setSpec(specFromEvaluation(e));
     setArch(e.archetypeKey ?? null);
     const disc = disciplineFromEvidence(e);   // prefill from the itemised drawing scope, not just the discipline list
     if (disc) setDiscipline(disc);
-    if (!project) setName(`${a?.label ?? e.projectType ?? "Project"} — BOQ`);
+    const a = e.archetypeKey ? ARCHETYPES.find((x) => x.key === e.archetypeKey) : undefined;
+    if (!project) setName(`${a?.label ?? e.archetype ?? e.projectType ?? "Project"} — BOQ`);
     setEvalData(e);
     setStage("anchor");
   };
@@ -132,7 +122,19 @@ export default function OpsBoqNew() {
     setArch(key);
     // Rebuild the base spec for the new archetype but keep the ChatGPT seed
     // (drawing requirements, measurements, provenance) — never drop it.
-    setSpec((s) => carrySeed(archetypeSpec(a) as unknown as Record<string, unknown>, s as unknown as Record<string, unknown>) as unknown as Spec);
+    setSpec((s) => {
+      const next = carrySeed(archetypeSpec(a) as unknown as Record<string, unknown>, s as unknown as Record<string, unknown>) as unknown as Spec;
+      // When a drawing evaluation is active, the drawing's identified spaces remain
+      // the source of truth for room counts — the archetype template must never
+      // overwrite them. Re-derive room counts from the seeded spaces (a room the
+      // drawing did not name stays blank rather than taking the template default).
+      if (evalData) {
+        for (const k of ["bedrooms", "bathrooms", "kitchens", "living", "balconies", "pooja", "utility"]) delete (next as Record<string, unknown>)[k];
+        const rooms = roomsFromSpaces(evalData.spaces);
+        for (const [rk, rv] of Object.entries(rooms)) (next as Record<string, unknown>)[rk] = rv;
+      }
+      return next;
+    });
     if (!project) setName(`${a.label} — BOQ`);
   };
 
@@ -275,7 +277,7 @@ export default function OpsBoqNew() {
               {([
                 ["Project type", evalData.projectType ?? "—", evalData.confidence["project type"]],
                 ["Archetype", evalData.archetype ?? "—", evalData.confidence["archetype"]],
-                ["Floors", evalData.floors != null ? String(evalData.floors) : "—", evalData.confidence["floors"]],
+                ["Floors", evalData.floor != null ? String(evalData.floor) : evalData.floors != null ? String(evalData.floors) : "—", evalData.confidence["floors"]],
                 ["Area", evalData.area ? `${evalData.area.value.toLocaleString("en-IN")} sqft · ${evalData.area.type}` : "Not provided", evalData.confidence["area"]],
               ] as [string, string, string | undefined][]).map(([label, value, conf]) => (
                 <div key={label} className="rounded-md border px-3 py-2">
@@ -285,6 +287,12 @@ export default function OpsBoqNew() {
                 </div>
               ))}
             </div>
+            {(evalData.boqAllocation || evalData.floorScope) && (
+              <div className="flex flex-wrap gap-1.5 items-center text-xs text-muted-foreground">
+                {evalData.boqAllocation && <>BOQ allocation: <Badge variant="secondary" className="text-[11px]">{evalData.boqAllocation}</Badge></>}
+                {evalData.floorScope && <span>· {evalData.floorScope}</span>}
+              </div>
+            )}
             {evalData.disciplines.length > 0 && (
               <div className="flex flex-wrap gap-1.5 items-center">
                 <span className="text-xs text-muted-foreground">Disciplines identified in drawing:</span>
@@ -346,9 +354,10 @@ export default function OpsBoqNew() {
                 </ul>
               </div>
             )}
-            {evalData.requirements.length > 0 && (
+            {(evalData.requirements.length + evalData.needsDetail.length) > 0 && (
               <div className="text-xs text-muted-foreground">
-                {evalData.requirements.length} drawing requirement{evalData.requirements.length === 1 ? "" : "s"} captured — you'll review and edit them in the <b>Drawing</b> section of the builder before they're applied.
+                {evalData.requirements.length + evalData.needsDetail.length} drawing requirement{(evalData.requirements.length + evalData.needsDetail.length) === 1 ? "" : "s"} captured
+                {evalData.needsDetail.length > 0 && ` (${evalData.requirements.length} quantified · ${evalData.needsDetail.length} identified, awaiting a quantity)`} — you'll review and edit them all in the <b>Drawing</b> section of the builder before they're applied.
               </div>
             )}
           </CardContent>
