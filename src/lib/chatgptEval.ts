@@ -177,14 +177,27 @@ const ALIAS: Record<string, string> = {
   "CONFIDENCE": "CONFIDENCE",
   "CONFIRMATIONS": "CONFIRMATIONS", "CONFIRMATION": "CONFIRMATIONS", "TO CONFIRM": "CONFIRMATIONS", "VERIFY": "CONFIRMATIONS",
   "IMPORTANT": "IGNORE", "NOTES": "IGNORE", "BOQ GENERATION RULES": "IGNORE", "RULES": "IGNORE", "SUMMARY": "IGNORE",
+  // Instruction / meta blocks the operator's prompt may include and ChatGPT echoes
+  // back (validation checklists, output rules, core-rules recaps). They are not
+  // project data — swallow the whole block so it never leaks into a real section.
+  "FINAL VALIDATION": "IGNORE", "VALIDATION": "IGNORE", "VALIDATION CHECKLIST": "IGNORE", "VERIFICATION": "IGNORE",
+  "CORE RULES": "IGNORE", "OUTPUT RULES": "IGNORE", "OUTPUT FORMAT": "IGNORE", "SOURCE BOUNDARY": "IGNORE",
+  "INSTRUCTIONS": "IGNORE", "HOW TO USE": "IGNORE", "DETERMINE": "IGNORE",
 };
 const PREFIX_CANON = ["PROJECT TYPE", "ARCHETYPE", "DISCIPLINES", "CONFIRMATIONS", "CONFIDENCE", "MEASUREMENTS", "REQUIREMENTS", "SPACES", "FLOORS", "AREA"];
+// Heading prefixes whose whole section is meta/instructions, not project data.
+const IGNORE_PREFIX = ["FINAL VALIDATION", "VALIDATION", "VERIFICATION", "CORE RULE", "OUTPUT", "INSTRUCTION", "HOW TO", "SOURCE BOUNDARY", "BOQ GENERATION", "GENERATION RULE", "KEY RULE"];
+
+// A line that is only punctuation/box-drawing (====, ----, ~~~~, ****, ═══, table
+// rules). It is decoration, never a heading and never section content — dropping
+// it stops "====" or a table separator masquerading as a field value.
+const DIVIDER = /^[=~_*#+\-—–─═\-|:.\s]{3,}$/;
 
 /** Is this line a section heading? Returns its canonical name + any inline value. */
 function headerInfo(line: string): { name: string; inline: string } | null {
   const t = line.trim();
-  if (!t || /^[-*•]/.test(t)) return null;                     // bullets are content, never headings
-  if (/^[|:—–-]+$/.test(t.replace(/\s/g, ""))) return null;    // table separators
+  if (!t || /^[-*•]\s/.test(t)) return null;                   // bullets are content, never headings
+  if (DIVIDER.test(t)) return null;                            // ==== / ---- / table separators
   const decorated = /^#{1,6}\s/.test(t) || /^\*\*.+\*\*/.test(t.replace(/:.*$/, ""));
   const bare = t.replace(/^#{1,6}\s*/, "").replace(/^>+\s*/, "").replace(/^\*\*|\*\*/g, "").trim();
   const ci = bare.indexOf(":");
@@ -195,16 +208,18 @@ function headerInfo(line: string): { name: string; inline: string } | null {
   const words = labelRaw.split(/\s+/).length;
   // Guard against treating ordinary prose as a heading.
   if (!decorated) { if (ci < 0 && words > 5) return null; if (ci >= 0 && words > 6) return null; }
-  let name = ALIAS[label];
+  let name: string | undefined = ALIAS[label];
   if (!name) name = PREFIX_CANON.find((c) => label === c || label.startsWith(c + " ") || label.startsWith(c + "/"));
+  if (!name && IGNORE_PREFIX.some((p) => label === p || label.startsWith(p))) name = "IGNORE";
   return name ? { name, inline } : null;
 }
 
 // Trailing meta blocks ChatGPT sometimes echoes back — a "KEY RULE FOR CUNSTRUCT"
-// header, or an instruction line ("Do not convert dimensions into quantities…").
-// They are not project data and must never leak into the last real section
-// (usually CONFIRMATIONS). Hitting one closes the current section.
-const STOP_MARKER = /^(key\s+rules?|rules?\s+for\s+cunstruct|for\s+cunstruct|do not\s+(convert|invent|assume|create|generate|put)|where\s+qty\s+is\s+blank)\b/i;
+// header, an instruction line ("Do not convert dimensions into quantities…"), or a
+// "FINAL VALIDATION / Before returning the assessment, verify…" checklist. They are
+// not project data and must never leak into the last real section (usually
+// CONFIRMATIONS or REQUIREMENTS). Hitting one closes the current section.
+const STOP_MARKER = /^(key\s+rules?|rules?\s+for\s+cunstruct|for\s+cunstruct|final\s+validation|before\s+returning|do not\s+(convert|invent|assume|create|generate|put|drop)|unknown\s+is\s+better|where\s+qty\s+is\s+blank)\b/i;
 
 /** Split the pasted response into { SECTION: text }, keeping inline "Field: value". */
 function splitSections(text: string): Record<string, string> {
@@ -216,6 +231,7 @@ function splitSections(text: string): Record<string, string> {
     const h = headerInfo(line);
     if (h) { flush(); current = h.name; if (h.inline) buf.push(h.inline); }
     else if (STOP_MARKER.test(line.trim().replace(/^[-*•]\s*/, ""))) { flush(); current = "IGNORE"; }
+    else if (DIVIDER.test(line.trim())) continue;   // decoration (====, ----) is never content
     else if (current) buf.push(line);
   }
   flush();
@@ -266,12 +282,18 @@ function parseFloorNumber(sec?: string): number | undefined {
   return m ? Number(m[1]) : undefined;
 }
 
-/** A short one-line scope/allocation label (first non-empty content line). */
+/** A short one-line scope/allocation label (first meaningful content line). Skips
+ *  blanks, "Not assessable" prose, table/legend rows and "Basis = …"-style column
+ *  legends so a stray legend line can never become the allocation value. */
 function parseLabelLine(sec?: string): string | undefined {
   if (!sec) return undefined;
   for (let line of sec.split(/\r?\n/)) {
     line = line.trim().replace(/^[-*•]\s*/, "").replace(/^["']|["']$/g, "").trim();
-    if (line && !/^not\s+(assessable|provided|available)/i.test(line)) return line;
+    if (!line) continue;
+    if (/^not\s+(assessable|provided|available)/i.test(line)) continue;
+    if (line.includes("|")) continue;                                   // table row, not a value
+    if (/^(requirement|qty|unit|basis|scope|status|location|note)\b\s*[=:]/i.test(line)) continue;  // column legend
+    return line;
   }
   return undefined;
 }
@@ -376,6 +398,38 @@ const SCOPE_CELL = /^(works?|equipment|client(?:[-\s]*supplied)?|needs?[-\s]*con
 const STATUS_CELL = /needs?[-\s]*detail|^\W*identified\b|^\W*quantified\b|not\s*assessable/i;
 const NEEDS_DETAIL = /needs?[-\s]*detail|^\W*identified\b/i;
 
+// Requirements-table columns → canonical role. A response may add an "Allocation"
+// column (per-floor BOQs), rename "Location" to "Note", or reorder columns; a
+// recognised header row lets us map by NAME instead of by fixed position, so an
+// extra leading column can't shift every value one cell to the left (which would
+// otherwise read the requirement out of the qty cell and collapse the whole table).
+const COL_ROLE: [RegExp, string][] = [
+  [/^(requirements?|items?|scope\s*items?|descriptions?)$/i, "req"],   // NOT "works" — that's a scope value
+  [/^(qty|quantity|count)$/i, "qty"],                                  // NOT "nos"/"no." — those are unit values
+  [/^(units?|uom)$/i, "unit"],
+  [/^basis$/i, "basis"],
+  [/^(locations?|notes?|location\s*\/?\s*note|rooms?|remarks?)$/i, "note"],
+  [/^scope$/i, "scope"],
+  [/^status$/i, "status"],
+  [/^(allocations?|boq\s*allocation|buckets?)$/i, "alloc"],
+];
+function colRole(cell: string): string | undefined {
+  const c = cell.trim().toLowerCase().replace(/[*_`]/g, "").replace(/\s+/g, " ");
+  for (const [re, role] of COL_ROLE) if (re.test(c)) return role;
+  return undefined;
+}
+/** Roles for each column when a row is a recognisable HEADER row, else null. A
+ *  header names its columns in words (no digits) and must declare at least the
+ *  requirement + quantity columns, so a data row can never be mistaken for one. */
+function headerRoles(cols: string[]): string[] | null {
+  if (cols.some((c) => /\d/.test(c))) return null;   // real data rows carry numbers; headers don't
+  const roles = cols.map(colRole);
+  const known = roles.filter(Boolean).length;
+  if (known >= 3 && roles.includes("req") && roles.includes("qty"))
+    return roles.map((r) => r ?? "");
+  return null;
+}
+
 /** From the trailing table cells (after req|qty|unit|basis), tease apart the
  *  Scope column, the Status column and the free-text Location / Note — regardless
  *  of the order ChatGPT emits them in. */
@@ -405,6 +459,7 @@ function parseRequirements(sec?: string): { items: DrawingItem[]; needsDetail: D
   const needsDetail: DrawingItem[] = [];
   const notAssessable: string[] = [];
   const loose: string[] = [];
+  let header: string[] | null = null;   // column roles, once a header row is seen
   for (let line of sec.split(/\r?\n/)) {
     line = line.trim().replace(/^[-*•]\s*/, "");
     if (!line) continue;
@@ -414,19 +469,47 @@ function parseRequirements(sec?: string): { items: DrawingItem[]; needsDetail: D
       const cols = line.split("|").map((c) => c.trim());
       if (cols[0] === "") cols.shift();
       if (cols[cols.length - 1] === "") cols.pop();
-      if (/^requirement$/i.test(cols[0] ?? "") || cols.every((c) => /^:?-{2,}:?$/.test(c) || c === "")) continue;
-      const [req, qtyRaw, unit, basisRaw] = cols;
+      if (cols.every((c) => /^:?-{2,}:?$/.test(c) || c === "")) continue;   // separator row
+      // A recognisable header row defines the column layout (and is not data).
+      if (!header) { const roles = headerRoles(cols); if (roles) { header = roles; continue; } }
+
+      let req: string | undefined, qtyRaw = "", unit = "", basisRaw = "";
+      let note: string | undefined, equipment: boolean | undefined, status = "", alloc: string | undefined;
+      if (header) {
+        const noteParts: string[] = [];
+        let scopeCell = "";
+        header.forEach((role, i) => {
+          const v = (cols[i] ?? "").trim();
+          if (!v) return;
+          if (role === "req") { if (!req) req = v; }
+          else if (role === "qty") qtyRaw = v;
+          else if (role === "unit") unit = v;
+          else if (role === "basis") basisRaw = v;
+          else if (role === "scope") scopeCell = v;
+          else if (role === "status") status = v;
+          else if (role === "alloc") alloc = v;
+          else noteParts.push(v);   // "note" and any unlabelled column → location/note
+        });
+        note = noteParts.join(" · ").trim() || undefined;
+        if (scopeCell) equipment = /equip|client/i.test(scopeCell);
+        if (req && /^(requirements?|items?|descriptions?)$/i.test(req)) continue;   // repeated header
+      } else {
+        // No header seen — the classic req | qty | unit | basis | …tail layout.
+        if (/^requirement$/i.test(cols[0] ?? "")) continue;
+        [req, qtyRaw, unit, basisRaw] = cols as [string, string, string, string];
+        const tail = splitTail(cols.slice(4));
+        note = tail.note; equipment = tail.equipment; status = tail.status ?? "";
+      }
       if (!req) continue;
       const qty = Number((qtyRaw || "").match(/[\d.]+/)?.[0]);
-      const { equipment, note, status } = splitTail(cols.slice(4));
       const basisNA = /\bnot\s*assessable\b/i.test(basisRaw ?? "");
-      if (NEEDS_DETAIL.test(status ?? "")) {
+      if (NEEDS_DETAIL.test(status)) {
         // Clearly drawn but not quantifiable — RETAIN as scope (qty 0 = unpriced),
         // even when the Basis cell itself reads "Not assessable". Status wins.
-        needsDetail.push({ match: req, qty: 0, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, note });
+        needsDetail.push({ match: req, qty: 0, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, note, allocation: alloc });
       } else if (qty > 0 && !basisNA) {
         // A trustworthy quantified requirement flows into the priced Drawing engine.
-        items.push({ match: req, qty, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, note });
+        items.push({ match: req, qty, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, note, allocation: alloc });
       } else {
         // Blank quantity, or a quantity the drawing itself does not support
         // ("Not assessable" basis) — recorded, never priced.

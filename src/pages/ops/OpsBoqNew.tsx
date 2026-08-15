@@ -44,6 +44,7 @@ export default function OpsBoqNew() {
   const [pasteText, setPasteText] = useState("");
   const [copied, setCopied] = useState(false);
   const [evalData, setEvalData] = useState<ChatGptEval | null>(null);
+  const [rawResponse, setRawResponse] = useState("");
 
   const copyPrompt = async () => {
     try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2500); }
@@ -67,6 +68,11 @@ export default function OpsBoqNew() {
 
   const analyseEvaluation = () => {
     const e = parseChatGptEvaluation(pasteText);
+    // Debug aid: the exact raw response and the parsed object, before mapping. Open
+    // the browser console (or the "Parsed data" panel below) to inspect what the
+    // parser extracted and where a field is being lost.
+    console.log("[Cunstruct] raw ChatGPT response:\n", pasteText, "\n[Cunstruct] parsed evaluation:", e);
+    setRawResponse(pasteText);
     if (!e.ok) { toast.error("Couldn't identify structured project information from this response."); return; }
     applyEval(e);
     toast.success("Evaluation structured — review the project setup below");
@@ -271,6 +277,21 @@ export default function OpsBoqNew() {
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2"><MessageSquare className="h-4 w-4" />ChatGPT drawing evaluation</CardTitle>
             <p className="text-xs text-muted-foreground">Source: ChatGPT drawing evaluation — a recommendation only. Everything below is editable and your values are used.</p>
+            <details className="mt-1 text-xs">
+              <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Parsed data &amp; raw response (debug)</summary>
+              <div className="mt-2 space-y-2">
+                <div>
+                  <div className="text-[11px] font-medium text-muted-foreground mb-1">Parsed evaluation object</div>
+                  <pre className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-2 text-[10px] leading-snug whitespace-pre-wrap">{JSON.stringify(evalData, null, 2)}</pre>
+                </div>
+                {rawResponse && (
+                  <div>
+                    <div className="text-[11px] font-medium text-muted-foreground mb-1">Raw response pasted into the parser</div>
+                    <pre className="max-h-64 overflow-auto rounded-md border bg-muted/30 p-2 text-[10px] leading-snug whitespace-pre-wrap">{rawResponse}</pre>
+                  </div>
+                )}
+              </div>
+            </details>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">

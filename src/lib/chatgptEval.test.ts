@@ -158,6 +158,67 @@ Not assessable:
   });
 });
 
+describe("parser robustness — header-aware table, dividers, echoed instructions", () => {
+  // The failing real-world case: an Allocation column shifts every value one cell
+  // left under a positional parser, so all rows collapse to a single "Floor 1".
+  const WITH_ALLOCATION = `## BOQ ALLOCATION
+Floor 1
+## FLOOR SCOPE
+First Floor / Floor 1 private apartment
+## DRAWING-SPECIFIC REQUIREMENTS
+| Allocation | Requirement | Qty | Unit | Basis | Location | Scope | Status |
+|---|---|---|---|---|---|---|---|
+| Floor 1 | WC | 4 | nos | Counted | Private bathrooms | Works | Quantified |
+| Floor 1 | Wardrobe |  |  | Not assessable | Master Bedroom | Works | Identified — Needs detail |
+| Floor 1 | Study unit |  |  | Not assessable | Study | Works | Identified — Needs detail |
+| Floor 1 | Wash basin | 3 | nos | Counted | Bathrooms | Works | Quantified |`;
+  const e = parseChatGptEvaluation(WITH_ALLOCATION);
+  it("maps columns by header name so an Allocation column doesn't break every row", () => {
+    expect(e.requirements.map((r) => r.match).sort()).toEqual(["WC", "Wash basin"]);
+    expect(e.requirements.find((r) => r.match === "WC")).toMatchObject({ qty: 4, unit: "nos", basis: "Counted", note: "Private bathrooms", allocation: "Floor 1" });
+    expect(e.needsDetail.map((r) => r.match).sort()).toEqual(["Study unit", "Wardrobe"]);
+  });
+  it("captures the allocation on each row and at eval level", () => {
+    expect(e.boqAllocation).toBe("Floor 1");
+    expect(e.floor).toBe(1);
+    expect(e.requirements.every((r) => r.allocation === "Floor 1")).toBe(true);
+    expect(e.needsDetail.every((r) => r.allocation === "Floor 1")).toBe(true);
+  });
+
+  it("still parses the classic headerless req|qty|unit|basis layout", () => {
+    const c = parseChatGptEvaluation("## DRAWING-SPECIFIC REQUIREMENTS\n16A socket | 6 | nos | Counted | Kitchen | Works");
+    expect(c.requirements[0]).toMatchObject({ match: "16A socket", qty: 6, note: "Kitchen" });
+  });
+
+  it("does not leak echoed instruction blocks (FINAL VALIDATION / ==== dividers) into fields", () => {
+    const withMeta = `==================================================
+BOQ ALLOCATION
+==================================================
+Floor 1
+
+==================================================
+FINAL VALIDATION
+==================================================
+Before returning the assessment, verify:
+1. Project type comes from the drawing
+2. Do not invent quantities
+3. Requirements reflect the drawing only
+
+## CONFIRMATIONS
+- Confirm the door count.`;
+    const m = parseChatGptEvaluation(withMeta);
+    expect(m.boqAllocation).toBe("Floor 1");                                  // not "====" or "Basis ="
+    expect(m.confirmations).toEqual(["Confirm the door count."]);            // validation text not appended
+    expect(m.confirmations.some((c) => /final validation|before returning|comes from the drawing/i.test(c))).toBe(false);
+  });
+
+  it("archetype = Apartment is read as Apartment (not 1 BHK)", () => {
+    const a = parseChatGptEvaluation("## ARCHETYPE\nApartment");
+    expect(a.archetype).toBe("Apartment");
+    expect(a.archetypeKey).toBe("apartment_floor");
+  });
+});
+
 describe("roomsFromSpaces — drawing spaces drive room counts (no template invention)", () => {
   it("maps identified spaces onto room-count fields, summing matches", () => {
     const r = roomsFromSpaces([
