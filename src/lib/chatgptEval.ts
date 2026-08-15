@@ -8,12 +8,19 @@
 // it into editable project inputs and drawing-summary rows. Nothing is invented:
 // unstated fields stay empty and every quantity is exactly what was pasted.
 
+import { defaultSpec, type Spec } from "./boqSpec";
 import { parseDrawingSummary, type DrawingBasis, type DrawingItem } from "./boqDrawing";
 
 // Spec keys seeded from a ChatGPT evaluation (drawing requirements, measurements,
 // spaces, provenance). They must survive a spec reset — e.g. when the operator
 // changes the archetype after the evaluation — or the parsed requirements are lost.
-export const SEED_CARRY_KEYS = ["_drawing", "_measurements", "_spaces", "_source", "_area_type"] as const;
+export const SEED_CARRY_KEYS = ["_drawing", "_measurements", "_spaces", "_source", "_area_type", "_floor_scope", "_boq_allocation"] as const;
+
+// Room-count spec fields. When a drawing evaluation is present these are driven
+// ONLY by the identified spaces — never by an archetype template — so a generic
+// "apartment" default (6 beds / 6 baths / 3 kitchens…) can never masquerade as a
+// drawing-derived count. A room type the drawing does not name is left blank.
+const ROOM_KEYS = ["bedrooms", "bathrooms", "kitchens", "living", "balconies", "pooja", "utility"] as const;
 
 /** Copy the ChatGPT-seed keys from `current` onto a freshly built base spec. */
 export function carrySeed<T extends Record<string, unknown>>(next: T, current: Record<string, unknown> | undefined): T {
@@ -22,90 +29,86 @@ export function carrySeed<T extends Record<string, unknown>>(next: T, current: R
   return next;
 }
 
+// The exact JSON shape Cunstruct parses. Kept as a literal template in the prompt
+// so ChatGPT fills it verbatim (null / [] for anything the drawing doesn't establish).
+const PROMPT_SCHEMA = `{
+  "project_type": "Residential | Commercial | Retail | Office | Hospitality | Other | null",
+  "archetype": "1 BHK | 2 BHK | 3 BHK | 4 BHK | Villa | Duplex | Apartment | Shop | Office | Other | null",
+  "floor": 1,
+  "boq_allocation": "Floor 1 | Floor 2 | Common Area | null",
+  "floor_scope": "First Floor / Floor 1 private apartment",
+  "area": null,
+  "area_type": "built-up | carpet | covered | null",
+  "spaces": [
+    { "name": "Master Bedroom", "qty": 1, "basis": "Counted", "note": "" }
+  ],
+  "disciplines": {
+    "identified": ["Architectural", "Electrical"],
+    "not_assessable": ["Fire"]
+  },
+  "measurements": [
+    { "name": "Room dimension", "value": "10'-8\\" x 12'-4\\"", "location": "Master Bedroom" }
+  ],
+  "requirements": [
+    { "allocation": "Floor 1", "requirement": "WC", "qty": 4, "unit": "nos", "basis": "Counted", "location": "Private bathrooms", "note": "", "scope": "Works", "status": "Quantified" },
+    { "allocation": "Floor 1", "requirement": "Wardrobe", "qty": null, "unit": null, "basis": "Not assessable", "location": "Master Bedroom", "note": "", "scope": "Works", "status": "Identified — Needs detail" }
+  ],
+  "category_summary": {
+    "electrical": { "status": "Identified", "items": [] },
+    "plumbing": { "status": "Identified", "items": [] },
+    "hvac": { "status": "Identified", "items": [] },
+    "fire": { "status": "Not assessable", "items": [] },
+    "architectural_civil": { "status": "Identified", "items": [] },
+    "interior_joinery": { "status": "Identified", "items": [] }
+  },
+  "confidence": {
+    "project_type": "High", "archetype": "High", "floor": "High",
+    "area": "Low", "major_spaces": "High", "overall_scope": "Medium"
+  },
+  "confirmations": []
+}`;
+
 /** The prompt Cunstruct hands the operator to paste into ChatGPT (with the drawing). */
 export function buildChatGptPrompt(): string {
-  return `I am using Cunstruct to prepare a construction BOQ. Perform a comprehensive PROJECT SCOPE INVENTORY of the attached drawing FIRST, then return the structured assessment below. Capture the WHOLE scope of work the drawing shows — not only the electrical / MEP points, but the architectural, interior and joinery scope too (feature walls, wardrobes, wine racks, consoles, counters, TV units, entrance features, panelling, false ceilings, etc.). Inventory everything relevant, not every label.
+  return `I am using Cunstruct to prepare a construction BOQ. Perform a comprehensive PROJECT SCOPE INVENTORY of the attached drawing, capturing the WHOLE scope of work it shows — not only the electrical / MEP points, but the architectural, interior and joinery scope too (feature walls, wardrobes, counters, TV units, entrance features, panelling, false ceilings, etc.). Then return the assessment as ONE STRICT JSON OBJECT.
+
+OUTPUT CONTRACT (critical):
+- Return ONLY one valid JSON object. No markdown. No code fences. No \`\`\`json. No headings. No explanatory text before or after the JSON.
+- Use EXACTLY the keys shown in the schema below. If a value is unknown, use null (or an empty array []). Never guess.
+- "qty" is a number or null ONLY. Never put a specification (16A, matte laminate) or a dimension (51", 10'-8") in "qty" — those belong in "measurements" or in the requirement text / "note".
 
 Source boundary:
-You may ONLY use the drawing supplied in this conversation. Do not assume any other project documents exist. Do not reference, cite, or ask me to consult CAD files, architectural schedules, legends, specifications, plumbing/fire/electrical/interior drawings, or any other document unless it has actually been supplied here. If something cannot be established from the supplied drawing, say "Not assessable from supplied drawing." Never ask me to obtain another document.
-
-Analyse the attached project drawing and return a structured project assessment that I can paste directly back into Cunstruct.
+You may ONLY use the drawing supplied in this conversation. Do not assume any other project documents exist. Do not reference, cite, or ask me to consult CAD files, architectural schedules, legends, specifications, or any other drawing unless it has actually been supplied here. If something cannot be established from the supplied drawing, use null and set the relevant "basis"/"status" to "Not assessable". Never ask me to obtain or check another document.
 
 Core rules:
 - DO NOT generate a BOQ, prices, or DSR rates.
-- UNKNOWN IS BETTER THAN INVENTED. Be conservative: do not invent quantities or make unsupported assumptions.
-- Never create an "Assumed" quantity from an unclear, illegible, ambiguous or partially visible symbol. Either Count it when the drawing clearly supports it, or mark it "Not assessable from supplied drawing" and leave the quantity blank.
-- DO NOT DROP an item just because you cannot quantify it. If a feature is clearly drawn but its quantity, area, size or material is not given (e.g. a feature wall, a wardrobe run, an entrance feature), you must still RETAIN it as scope, leave Qty blank, and set Status to "Identified — Needs detail". Silently omitting identified scope is worse than flagging it.
-- Do not put a specification (e.g. 16A, 20A, "on ceiling", "concealed") into the quantity field. Keep specifications in the requirement text or the Location / Note.
-- Keep dimensions separate from quantities. A dimension (51", 4" from BOS, 10'-8") is a measurement, never a quantity.
-- Keep specifications separate from quantities and from measurements. A specification (16A, matte laminate, veneer finish) describes an item; it is never a count.
+- UNKNOWN IS BETTER THAN INVENTED. Never invent a quantity, room count, area, or material.
+- DO NOT DROP identified scope. If a feature is clearly drawn but not quantifiable (a wardrobe, feature wall, entrance feature), still return it with "qty": null and "status": "Identified — Needs detail". Silently omitting identified scope is worse than flagging it.
+- Count a quantity only when the drawing clearly supports it; otherwise "qty": null and "basis": "Not assessable".
 
-Determine:
+Field guidance:
+- project_type: closest of Residential, Commercial, Retail, Office, Hospitality, Other.
+- archetype: closest of 1 BHK, 2 BHK, 3 BHK, 4 BHK, Villa, Duplex, Apartment, Shop, Office, Other.
+- floor: which single floor / level THIS drawing represents, as a number (e.g. 1 for "Floor 1"). This is NOT the number of floors in the whole building.
+- boq_allocation: the bucket this BOQ is for — "Floor 1", "Floor 2", … or "Common Area".
+- floor_scope: one-line description, e.g. "First Floor / Floor 1 private apartment".
+- area / area_type: only if explicitly stated or reliably measurable (area_type is "built-up" | "carpet" | "covered"); otherwise BOTH null. Never estimate the area.
+- spaces[]: every identifiable room / space, with "qty" when the drawing supports a count.
+- disciplines: "identified" lists ONLY disciplines with actual scope/evidence in this drawing (from Civil, Architectural, Electrical, Plumbing, HVAC, Fire, Furniture); "not_assessable" lists the rest. Do NOT list a discipline as identified just because it could exist.
+- measurements[]: dimensions and specifications ONLY (switchboard heights, TV size, offsets) — never quantities.
+- requirements[]: EVERY item of scope you can see — quantified where the drawing supports it, RETAINED with "qty": null and "status": "Identified — Needs detail" where it does not. Cover electrical (points/sockets/AC/TV/switchboards/appliance & geyser points), plumbing (WC/basin/shower/sink/floor traps), HVAC, fire, architectural/civil (doors/windows/grills/false ceiling/flooring/finishes) and interior joinery (feature walls, wardrobes, TV units, counters, kitchen platform & storage, entrance features). Per requirement:
+  - allocation: the BOQ bucket ("Floor 1", "Common Area", …).
+  - basis: "Counted" | "Measured" | "Derived" | "Not assessable".
+  - scope: "Works" (contractor work incl. fixed joinery / built-ins) | "Equipment" (loose client-supplied items like the TV/appliances themselves) | "Needs confirmation".
+  - status: "Quantified" | "Identified — Needs detail" | "Not assessable".
+- category_summary: per discipline, a "status" ("Identified" | "None seen" | "Not assessable") plus any "items" you want to flag.
+- confidence: "High" | "Medium" | "Low" for project_type, archetype, floor, area, major_spaces, overall_scope.
+- confirmations[]: only questions resolvable from the supplied drawing.
 
-## PROJECT TYPE
-Closest of: Residential, Commercial, Retail, Office, Hospitality, Other.
+Return EXACTLY this JSON shape, filled from the drawing (use null / [] for anything the drawing does not establish):
+${PROMPT_SCHEMA}
 
-## ARCHETYPE
-Closest of: 1 BHK, 2 BHK, 3 BHK, 4 BHK, Villa, Duplex, Apartment, Shop, Office, Other. If none fits, describe the closest.
-
-## FLOORS
-Number of floors / levels represented. If unclear from the supplied drawing, say "Not assessable from supplied drawing."
-
-## AREA
-Give built-up / carpet / covered area ONLY if it is explicitly stated or reliably measurable from the supplied drawing (say which type). Otherwise write exactly "Not provided" — do not estimate it and do not ask me to fetch it from another document.
-
-## SPACES
-Identifiable rooms / spaces and counts, e.g.
-- Bedroom — 3
-- Kitchen — 1
-Do not present a space as more certain than the drawing supports; if unsure, lower its confidence and add a confirmation.
-
-## DISCIPLINES
-Split into two lists, based ONLY on the supplied drawing (Civil, Architectural, Electrical, Plumbing, HVAC, Fire, Furniture):
-Identified in drawing: <disciplines that have actual scope/evidence in this drawing>
-Not assessable: <disciplines with no clear evidence in this drawing>
-
-## DRAWING-SPECIFIC MEASUREMENTS
-Dimensions and specifications ONLY — never quantities. e.g.
-- Switchboard heights — 10.5", 21", 51", 72"
-- TV size — 55"
-- Geyser point offset — 4" from BOS
-- AC point specification — 16A, on ceiling
-
-## DRAWING-SPECIFIC REQUIREMENTS
-Every item of scope you can see in the drawing — quantified where the drawing supports it, and RETAINED but flagged where it does not. Return a markdown table with exactly these columns:
-Requirement | Qty | Unit | Basis | Location / Note | Scope | Status
-- Qty: the count/measure only when the drawing clearly supports it; otherwise leave BLANK (never guess, never put a spec or a dimension here).
-- Basis: Counted (visible symbols), Measured (an explicit measurement), Derived (from measurements in the drawing), or "Not assessable" (the drawing does not support a number — leave Qty blank).
-- Location: the room if identifiable, otherwise "Location unclear". Never guess a room.
-- Scope: "Works" for contractor work (points, sockets, conduit, provisions, AND fixed joinery / built-ins such as wardrobes, feature walls, counters, TV units, panelling), "Equipment" for loose client-supplied items (the TV, projector, appliances themselves — not their electrical points or the joinery around them), or "Needs confirmation" when Works-vs-Equipment cannot be told from the drawing.
-- Status: "Quantified" (Qty filled from the drawing), "Identified — Needs detail" (clearly drawn but not quantifiable yet — Qty blank), or "Not assessable" (cannot even be confirmed present).
-
-Check each category below and return, for EACH, one of: (a) Identified + quantity, (b) None seen, or (c) Not assessable from supplied drawing. "None seen" means it is not in THIS drawing — not that the project does not need it.
-- Electrical: lighting points; 6A sockets; 16A points; AC points; TV points; audio points; exhaust points; switchboards (+ module config); floor points / floor boxes; conduits; appliance points (dishwasher, washing machine, oven, fridge, geyser); projector points; blind provisions.
-- Plumbing: WC; wash basin; shower; sink; floor traps; water & waste points.
-- HVAC: AC units; AC points; exhaust; ducting.
-- Fire: detectors; sprinklers; alarm points; extinguishers.
-- Architectural / Civil: doors; windows; grills; partitions; false ceiling; flooring / skirting; wall finishes / cladding.
-- Interior / Joinery (fixed works — inventory these even when unquantified): feature walls; wardrobes; TV units / TV panelling; wine racks; consoles; counters / vanities; kitchen platform & storage; entrance features; wall panelling; loose furniture (mark as Equipment).
-
-Examples:
-TV point | 1 | nos | Counted | Living / TV area | Works | Quantified
-Geyser electrical point | 1 | nos | Counted | Bathroom | Works | Quantified
-55" TV | 1 | nos | Counted | Living / TV area | Equipment | Quantified
-Feature wall |  |  | Not assessable | Living, behind sofa | Works | Identified — Needs detail
-Wardrobe |  |  | Not assessable | Master bedroom | Works | Identified — Needs detail
-Entrance feature |  |  | Not assessable | Entrance / foyer | Works | Identified — Needs detail
-Floor trap |  |  | Not assessable | plumbing symbols not legible | Works | Not assessable
-
-## CONFIDENCE
-High / Medium / Low for: Project type, Archetype, Floors, Area, Major space identification.
-
-## CONFIRMATIONS
-Only questions that can be resolved from the supplied drawing or by my own judgement. Base every question on what is visible in the supplied drawing. Never ask me to check a schedule, CAD file, or another drawing that was not supplied. e.g. "Confirm whether the 8 A.C annotations represent 8 electrical AC points, 8 equipment locations, or both."
-
-## IMPORTANT
-UNKNOWN IS BETTER THAN INVENTED. Retain identified scope even when you cannot quantify it (Status "Identified — Needs detail") — do not drop it. The human operator makes the final decision. Return a clean structured response that can be pasted directly into Cunstruct.`;
+Remember: return ONLY the JSON object, nothing else. UNKNOWN IS BETTER THAN INVENTED.`;
 }
 
 export interface EvalArea { value: number; type: string; raw: string }
@@ -117,6 +120,13 @@ export interface ChatGptEval {
   archetype?: string;        // as ChatGPT phrased it, e.g. "3 BHK"
   archetypeKey?: string;     // mapped to an ARCHETYPES key, or undefined
   floors?: number;
+  /** Which floor THIS drawing represents (e.g. 1 for "Floor 1"), when it is a
+   *  single-floor scope. Distinct from `floors` (the building's floor count). */
+  floor?: number;
+  /** One-line description of what this drawing covers, e.g. "Floor 1 private apartment". */
+  floorScope?: string;
+  /** The BOQ allocation bucket this evaluation belongs to (Floor 1 / Common …). */
+  boqAllocation?: string;
   area: EvalArea | null;     // null = not provided (never invented)
   spaces: EvalSpace[];
   disciplines: string[];
@@ -144,6 +154,8 @@ const ALIAS: Record<string, string> = {
   "PROJECT TYPE": "PROJECT TYPE", "PROJECT ASSESSMENT": "IGNORE", "ASSESSMENT": "IGNORE",
   "ARCHETYPE": "ARCHETYPE", "PROJECT ARCHETYPE": "ARCHETYPE",
   "FLOORS": "FLOORS", "FLOORS/LEVELS": "FLOORS", "FLOORS / LEVELS": "FLOORS", "LEVELS": "FLOORS", "NUMBER OF FLOORS": "FLOORS",
+  "BOQ ALLOCATION": "BOQ ALLOCATION", "ALLOCATION": "BOQ ALLOCATION",
+  "FLOOR SCOPE": "FLOOR SCOPE", "FLOOR DESCRIPTION": "FLOOR SCOPE", "FLOOR": "FLOOR SCOPE",
   "AREA": "AREA", "BUILT-UP AREA": "AREA", "BUILTUP AREA": "AREA", "CARPET AREA": "AREA",
   "SPACES": "SPACES", "ROOMS": "SPACES", "SPACES/ROOMS": "SPACES", "SPACES / ROOMS": "SPACES", "ROOMS/SPACES": "SPACES",
   "DISCIPLINES": "DISCIPLINES",
@@ -155,14 +167,27 @@ const ALIAS: Record<string, string> = {
   "CONFIDENCE": "CONFIDENCE",
   "CONFIRMATIONS": "CONFIRMATIONS", "CONFIRMATION": "CONFIRMATIONS", "TO CONFIRM": "CONFIRMATIONS", "VERIFY": "CONFIRMATIONS",
   "IMPORTANT": "IGNORE", "NOTES": "IGNORE", "BOQ GENERATION RULES": "IGNORE", "RULES": "IGNORE", "SUMMARY": "IGNORE",
+  // Instruction / meta blocks the operator's prompt may include and ChatGPT echoes
+  // back (validation checklists, output rules, core-rules recaps). They are not
+  // project data — swallow the whole block so it never leaks into a real section.
+  "FINAL VALIDATION": "IGNORE", "VALIDATION": "IGNORE", "VALIDATION CHECKLIST": "IGNORE", "VERIFICATION": "IGNORE",
+  "CORE RULES": "IGNORE", "OUTPUT RULES": "IGNORE", "OUTPUT FORMAT": "IGNORE", "SOURCE BOUNDARY": "IGNORE",
+  "INSTRUCTIONS": "IGNORE", "HOW TO USE": "IGNORE", "DETERMINE": "IGNORE",
 };
 const PREFIX_CANON = ["PROJECT TYPE", "ARCHETYPE", "DISCIPLINES", "CONFIRMATIONS", "CONFIDENCE", "MEASUREMENTS", "REQUIREMENTS", "SPACES", "FLOORS", "AREA"];
+// Heading prefixes whose whole section is meta/instructions, not project data.
+const IGNORE_PREFIX = ["FINAL VALIDATION", "VALIDATION", "VERIFICATION", "CORE RULE", "OUTPUT", "INSTRUCTION", "HOW TO", "SOURCE BOUNDARY", "BOQ GENERATION", "GENERATION RULE", "KEY RULE"];
+
+// A line that is only punctuation/box-drawing (====, ----, ~~~~, ****, ═══, table
+// rules). It is decoration, never a heading and never section content — dropping
+// it stops "====" or a table separator masquerading as a field value.
+const DIVIDER = /^[=~_*#+\-—–─═\-|:.\s]{3,}$/;
 
 /** Is this line a section heading? Returns its canonical name + any inline value. */
 function headerInfo(line: string): { name: string; inline: string } | null {
   const t = line.trim();
-  if (!t || /^[-*•]/.test(t)) return null;                     // bullets are content, never headings
-  if (/^[|:—–-]+$/.test(t.replace(/\s/g, ""))) return null;    // table separators
+  if (!t || /^[-*•]\s/.test(t)) return null;                   // bullets are content, never headings
+  if (DIVIDER.test(t)) return null;                            // ==== / ---- / table separators
   const decorated = /^#{1,6}\s/.test(t) || /^\*\*.+\*\*/.test(t.replace(/:.*$/, ""));
   const bare = t.replace(/^#{1,6}\s*/, "").replace(/^>+\s*/, "").replace(/^\*\*|\*\*/g, "").trim();
   const ci = bare.indexOf(":");
@@ -173,16 +198,18 @@ function headerInfo(line: string): { name: string; inline: string } | null {
   const words = labelRaw.split(/\s+/).length;
   // Guard against treating ordinary prose as a heading.
   if (!decorated) { if (ci < 0 && words > 5) return null; if (ci >= 0 && words > 6) return null; }
-  let name = ALIAS[label];
+  let name: string | undefined = ALIAS[label];
   if (!name) name = PREFIX_CANON.find((c) => label === c || label.startsWith(c + " ") || label.startsWith(c + "/"));
+  if (!name && IGNORE_PREFIX.some((p) => label === p || label.startsWith(p))) name = "IGNORE";
   return name ? { name, inline } : null;
 }
 
 // Trailing meta blocks ChatGPT sometimes echoes back — a "KEY RULE FOR CUNSTRUCT"
-// header, or an instruction line ("Do not convert dimensions into quantities…").
-// They are not project data and must never leak into the last real section
-// (usually CONFIRMATIONS). Hitting one closes the current section.
-const STOP_MARKER = /^(key\s+rules?|rules?\s+for\s+cunstruct|for\s+cunstruct|do not\s+(convert|invent|assume|create|generate|put)|where\s+qty\s+is\s+blank)\b/i;
+// header, an instruction line ("Do not convert dimensions into quantities…"), or a
+// "FINAL VALIDATION / Before returning the assessment, verify…" checklist. They are
+// not project data and must never leak into the last real section (usually
+// CONFIRMATIONS or REQUIREMENTS). Hitting one closes the current section.
+const STOP_MARKER = /^(key\s+rules?|rules?\s+for\s+cunstruct|for\s+cunstruct|final\s+validation|before\s+returning|do not\s+(convert|invent|assume|create|generate|put|drop)|unknown\s+is\s+better|where\s+qty\s+is\s+blank)\b/i;
 
 /** Split the pasted response into { SECTION: text }, keeping inline "Field: value". */
 function splitSections(text: string): Record<string, string> {
@@ -194,6 +221,7 @@ function splitSections(text: string): Record<string, string> {
     const h = headerInfo(line);
     if (h) { flush(); current = h.name; if (h.inline) buf.push(h.inline); }
     else if (STOP_MARKER.test(line.trim().replace(/^[-*•]\s*/, ""))) { flush(); current = "IGNORE"; }
+    else if (DIVIDER.test(line.trim())) continue;   // decoration (====, ----) is never content
     else if (current) buf.push(line);
   }
   flush();
@@ -231,6 +259,33 @@ function parseFloors(sec?: string): number | undefined {
   if (/\b(single|one)\b/i.test(sec) && /floor|storey|level/i.test(sec)) return 1;
   const m = sec.match(/\b(\d+)\b/);
   return m ? Number(m[1]) : undefined;
+}
+
+/** The floor a single-floor drawing represents, e.g. "Floor 1" → 1, "First
+ *  Floor" → 1. Distinct from the building floor count. */
+function parseFloorNumber(sec?: string): number | undefined {
+  if (!sec) return undefined;
+  const ord: Record<string, number> = { ground: 0, first: 1, second: 2, third: 3, fourth: 4, fifth: 5 };
+  const w = sec.match(/\b(ground|first|second|third|fourth|fifth)\b\s*floor/i);
+  if (w) return ord[w[1].toLowerCase()];
+  const m = sec.match(/\bfloor\s*(\d+)\b/i) || sec.match(/\b(\d+)(?:st|nd|rd|th)?\s*floor\b/i) || sec.match(/\b(\d+)\b/);
+  return m ? Number(m[1]) : undefined;
+}
+
+/** A short one-line scope/allocation label (first meaningful content line). Skips
+ *  blanks, "Not assessable" prose, table/legend rows and "Basis = …"-style column
+ *  legends so a stray legend line can never become the allocation value. */
+function parseLabelLine(sec?: string): string | undefined {
+  if (!sec) return undefined;
+  for (let line of sec.split(/\r?\n/)) {
+    line = line.trim().replace(/^[-*•]\s*/, "").replace(/^["']|["']$/g, "").trim();
+    if (!line) continue;
+    if (/^not\s+(assessable|provided|available)/i.test(line)) continue;
+    if (line.includes("|")) continue;                                   // table row, not a value
+    if (/^(requirement|qty|unit|basis|scope|status|location|note)\b\s*[=:]/i.test(line)) continue;  // column legend
+    return line;
+  }
+  return undefined;
 }
 
 function parseArea(sec?: string): EvalArea | null {
@@ -333,6 +388,38 @@ const SCOPE_CELL = /^(works?|equipment|client(?:[-\s]*supplied)?|needs?[-\s]*con
 const STATUS_CELL = /needs?[-\s]*detail|^\W*identified\b|^\W*quantified\b|not\s*assessable/i;
 const NEEDS_DETAIL = /needs?[-\s]*detail|^\W*identified\b/i;
 
+// Requirements-table columns → canonical role. A response may add an "Allocation"
+// column (per-floor BOQs), rename "Location" to "Note", or reorder columns; a
+// recognised header row lets us map by NAME instead of by fixed position, so an
+// extra leading column can't shift every value one cell to the left (which would
+// otherwise read the requirement out of the qty cell and collapse the whole table).
+const COL_ROLE: [RegExp, string][] = [
+  [/^(requirements?|items?|scope\s*items?|descriptions?)$/i, "req"],   // NOT "works" — that's a scope value
+  [/^(qty|quantity|count)$/i, "qty"],                                  // NOT "nos"/"no." — those are unit values
+  [/^(units?|uom)$/i, "unit"],
+  [/^basis$/i, "basis"],
+  [/^(locations?|notes?|location\s*\/?\s*note|rooms?|remarks?)$/i, "note"],
+  [/^scope$/i, "scope"],
+  [/^status$/i, "status"],
+  [/^(allocations?|boq\s*allocation|buckets?)$/i, "alloc"],
+];
+function colRole(cell: string): string | undefined {
+  const c = cell.trim().toLowerCase().replace(/[*_`]/g, "").replace(/\s+/g, " ");
+  for (const [re, role] of COL_ROLE) if (re.test(c)) return role;
+  return undefined;
+}
+/** Roles for each column when a row is a recognisable HEADER row, else null. A
+ *  header names its columns in words (no digits) and must declare at least the
+ *  requirement + quantity columns, so a data row can never be mistaken for one. */
+function headerRoles(cols: string[]): string[] | null {
+  if (cols.some((c) => /\d/.test(c))) return null;   // real data rows carry numbers; headers don't
+  const roles = cols.map(colRole);
+  const known = roles.filter(Boolean).length;
+  if (known >= 3 && roles.includes("req") && roles.includes("qty"))
+    return roles.map((r) => r ?? "");
+  return null;
+}
+
 /** From the trailing table cells (after req|qty|unit|basis), tease apart the
  *  Scope column, the Status column and the free-text Location / Note — regardless
  *  of the order ChatGPT emits them in. */
@@ -362,6 +449,7 @@ function parseRequirements(sec?: string): { items: DrawingItem[]; needsDetail: D
   const needsDetail: DrawingItem[] = [];
   const notAssessable: string[] = [];
   const loose: string[] = [];
+  let header: string[] | null = null;   // column roles, once a header row is seen
   for (let line of sec.split(/\r?\n/)) {
     line = line.trim().replace(/^[-*•]\s*/, "");
     if (!line) continue;
@@ -371,19 +459,47 @@ function parseRequirements(sec?: string): { items: DrawingItem[]; needsDetail: D
       const cols = line.split("|").map((c) => c.trim());
       if (cols[0] === "") cols.shift();
       if (cols[cols.length - 1] === "") cols.pop();
-      if (/^requirement$/i.test(cols[0] ?? "") || cols.every((c) => /^:?-{2,}:?$/.test(c) || c === "")) continue;
-      const [req, qtyRaw, unit, basisRaw] = cols;
+      if (cols.every((c) => /^:?-{2,}:?$/.test(c) || c === "")) continue;   // separator row
+      // A recognisable header row defines the column layout (and is not data).
+      if (!header) { const roles = headerRoles(cols); if (roles) { header = roles; continue; } }
+
+      let req: string | undefined, qtyRaw = "", unit = "", basisRaw = "";
+      let note: string | undefined, equipment: boolean | undefined, status = "", alloc: string | undefined;
+      if (header) {
+        const noteParts: string[] = [];
+        let scopeCell = "";
+        header.forEach((role, i) => {
+          const v = (cols[i] ?? "").trim();
+          if (!v) return;
+          if (role === "req") { if (!req) req = v; }
+          else if (role === "qty") qtyRaw = v;
+          else if (role === "unit") unit = v;
+          else if (role === "basis") basisRaw = v;
+          else if (role === "scope") scopeCell = v;
+          else if (role === "status") status = v;
+          else if (role === "alloc") alloc = v;
+          else noteParts.push(v);   // "note" and any unlabelled column → location/note
+        });
+        note = noteParts.join(" · ").trim() || undefined;
+        if (scopeCell) equipment = /equip|client/i.test(scopeCell);
+        if (req && /^(requirements?|items?|descriptions?)$/i.test(req)) continue;   // repeated header
+      } else {
+        // No header seen — the classic req | qty | unit | basis | …tail layout.
+        if (/^requirement$/i.test(cols[0] ?? "")) continue;
+        [req, qtyRaw, unit, basisRaw] = cols as [string, string, string, string];
+        const tail = splitTail(cols.slice(4));
+        note = tail.note; equipment = tail.equipment; status = tail.status ?? "";
+      }
       if (!req) continue;
       const qty = Number((qtyRaw || "").match(/[\d.]+/)?.[0]);
-      const { equipment, note, status } = splitTail(cols.slice(4));
       const basisNA = /\bnot\s*assessable\b/i.test(basisRaw ?? "");
-      if (NEEDS_DETAIL.test(status ?? "")) {
+      if (NEEDS_DETAIL.test(status)) {
         // Clearly drawn but not quantifiable — RETAIN as scope (qty 0 = unpriced),
         // even when the Basis cell itself reads "Not assessable". Status wins.
-        needsDetail.push({ match: req, qty: 0, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, note });
+        needsDetail.push({ match: req, qty: 0, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, note, allocation: alloc });
       } else if (qty > 0 && !basisNA) {
         // A trustworthy quantified requirement flows into the priced Drawing engine.
-        items.push({ match: req, qty, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, note });
+        items.push({ match: req, qty, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, note, allocation: alloc });
       } else {
         // Blank quantity, or a quantity the drawing itself does not support
         // ("Not assessable" basis) — recorded, never priced.
@@ -420,8 +536,176 @@ function parseConfirmations(sec?: string): string[] {
     .filter((l) => l.length > 3);
 }
 
-/** Parse a pasted ChatGPT evaluation into structured, editable project inputs. */
+// --- JSON contract (primary) -------------------------------------------------
+// The evaluator returns a single strict JSON object (see buildChatGptPrompt).
+// JSON is unambiguous, so it is the preferred path; the markdown/prose parser
+// below is kept only as a fallback for a response that isn't valid JSON.
+
+const jstr = (v: unknown): string => (typeof v === "string" ? v : v == null ? "" : String(v)).trim();
+const jnum = (v: unknown): number | undefined => {
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v.replace(/,/g, "").match(/-?[\d.]+/)?.[0] ?? "") : NaN;
+  return Number.isFinite(n) ? n : undefined;
+};
+const jarr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+const jobj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+
+/** Pull a single JSON object out of the raw response — tolerating ```json fences
+ *  and any stray prose before/after — or null when there is no parseable object. */
+export function extractJson(text: string): Record<string, unknown> | null {
+  if (!text) return null;
+  let t = text.trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) t = fence[1].trim();
+  const i = t.indexOf("{");
+  const j = t.lastIndexOf("}");
+  if (i < 0 || j <= i) return null;
+  t = t.slice(i, j + 1);
+  try {
+    const o = JSON.parse(t);
+    return o && typeof o === "object" && !Array.isArray(o) ? (o as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function areaFromJson(area: unknown, areaType: unknown): EvalArea | null {
+  if (area == null) return null;
+  let value: number | undefined;
+  let raw = "";
+  if (typeof area === "object") {
+    const o = area as Record<string, unknown>;
+    value = jnum(o.value);
+    raw = jstr(o.raw) || jstr(o.value);
+    if (o.type != null) areaType = o.type;
+  } else {
+    const s = jstr(area);
+    if (/^(not|null|n\/a|-|none)\b/i.test(s)) return null;
+    value = jnum(area);
+    raw = s;
+  }
+  if (!(value != null && value > 0)) return null;
+  const t = jstr(areaType);
+  const type = t && !/^(null|n\/a|-)$/i.test(t) ? t : /carpet/i.test(raw) ? "carpet" : /covered/i.test(raw) ? "covered" : "built-up";
+  return { value, type, raw: raw || String(value) };
+}
+
+function spacesFromJson(v: unknown): EvalSpace[] {
+  return jarr(v)
+    .map((s) => { const o = jobj(s); const name = jstr(o.name) || jstr(o.space); return name ? { name, qty: jnum(o.qty) ?? jnum(o.count) ?? 0 } : null; })
+    .filter((s): s is EvalSpace => s != null);
+}
+
+function disciplinesFromJson(v: unknown): string[] {
+  const ids = Array.isArray(v) ? v : jarr(jobj(v).identified);
+  const found = new Set<string>();
+  for (const x of ids) { const s = jstr(x); for (const d of DISCIPLINE_WORDS) if (new RegExp(`\\b${d}\\b`, "i").test(s)) found.add(d); }
+  return DISCIPLINE_WORDS.filter((d) => found.has(d));
+}
+
+function measurementsFromJson(v: unknown): EvalMeasurement[] {
+  return jarr(v)
+    .map((m) => { const o = jobj(m); return { label: jstr(o.name) || jstr(o.label), value: jstr(o.value), note: (jstr(o.location) || jstr(o.note)) || undefined }; })
+    .filter((m) => m.label && m.value);
+}
+
+/** Requirements JSON → the same three buckets the markdown parser produces
+ *  (priced items, retained "needs detail" scope, and not-assessable names). */
+function requirementsFromJson(v: unknown): { items: DrawingItem[]; needsDetail: DrawingItem[]; notAssessable: string[] } {
+  const items: DrawingItem[] = [];
+  const needsDetail: DrawingItem[] = [];
+  const notAssessable: string[] = [];
+  for (const r of jarr(v)) {
+    const o = jobj(r);
+    const match = jstr(o.requirement) || jstr(o.name) || jstr(o.item);
+    if (!match) continue;
+    const allocation = jstr(o.allocation) || undefined;
+    const unit = jstr(o.unit) || undefined;
+    const basisRaw = jstr(o.basis);
+    const basis = normBasis(basisRaw);
+    const status = jstr(o.status);
+    const scope = jstr(o.scope);
+    const equipment = scope ? /equip|client/i.test(scope) : undefined;
+    const note = [jstr(o.location), jstr(o.note)].filter(Boolean).join(" · ") || undefined;
+    const qty = jnum(o.qty);
+    const basisNA = /not\s*assessable/i.test(basisRaw);
+    if (NEEDS_DETAIL.test(status)) needsDetail.push({ match, qty: 0, unit, basis, equipment, note, allocation });
+    else if (qty != null && qty > 0 && !basisNA) items.push({ match, qty, unit, basis, equipment, note, allocation });
+    else notAssessable.push(match);
+  }
+  const seen = new Set<string>();
+  const dedupNA = notAssessable.filter((n) => { const k = n.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
+  return { items, needsDetail, notAssessable: dedupNA };
+}
+
+function confidenceFromJson(v: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, val] of Object.entries(jobj(v))) {
+    const s = jstr(val);
+    if (!s) continue;
+    out[k.toLowerCase().replace(/_/g, " ")] = s[0].toUpperCase() + s.slice(1).toLowerCase();
+  }
+  if (out["floor"] && !out["floors"]) out["floors"] = out["floor"];           // UI reads "floors"
+  if (out["major spaces"] && !out["major space identification"]) out["major space identification"] = out["major spaces"];
+  return out;
+}
+
+/** category_summary is a reminder block, not a second requirements list — surface
+ *  any flagged items as key-info reminders (never as priced quantities). */
+function keyInfoFromCategorySummary(v: unknown): string[] {
+  const out: string[] = [];
+  for (const val of Object.values(jobj(v))) {
+    for (const it of jarr(jobj(val).items)) {
+      const s = typeof it === "string" ? it.trim() : jstr(jobj(it).requirement) || jstr(jobj(it).name);
+      if (s) out.push(s);
+    }
+  }
+  return out;
+}
+
+/** Convert the strict-JSON evaluation into the internal ChatGptEval type. */
+export function evalFromJson(j: Record<string, unknown>): ChatGptEval {
+  const projectType = firstOf(jstr(j.project_type), ["Residential", "Commercial", "Retail", "Office", "Hospitality", "Other"]) || (jstr(j.project_type) || undefined);
+  const archetype = jstr(j.archetype) || undefined;
+  const floor = jnum(j.floor);
+  const req = requirementsFromJson(j.requirements);
+  const spaces = spacesFromJson(j.spaces);
+  const measurements = measurementsFromJson(j.measurements);
+  const disciplines = disciplinesFromJson(j.disciplines);
+  const eval_: ChatGptEval = {
+    projectType,
+    archetype,
+    archetypeKey: archetypeKeyFor(archetype),
+    floors: jnum(j.floors),
+    floor,
+    floorScope: jstr(j.floor_scope) || undefined,
+    boqAllocation: jstr(j.boq_allocation) || undefined,
+    area: areaFromJson(j.area, j.area_type),
+    spaces,
+    disciplines,
+    measurements,
+    requirements: req.items,
+    needsDetail: req.needsDetail,
+    notAssessable: req.notAssessable,
+    keyInfo: keyInfoFromCategorySummary(j.category_summary),
+    confidence: confidenceFromJson(j.confidence),
+    confirmations: jarr(j.confirmations).map((c) => jstr(c)).filter((c) => c.length > 0),
+    ok: false,
+  };
+  eval_.ok = Boolean(projectType || eval_.archetypeKey || archetype || floor != null || eval_.area || spaces.length || req.items.length || req.needsDetail.length || req.notAssessable.length || measurements.length || disciplines.length);
+  return eval_;
+}
+
+/** Parse a pasted ChatGPT evaluation. JSON (the current contract) is preferred;
+ *  a non-JSON response falls back to the legacy markdown/prose parser so older
+ *  pasted responses still work. */
 export function parseChatGptEvaluation(text: string): ChatGptEval {
+  const json = extractJson(text);
+  if (json) { const e = evalFromJson(json); if (e.ok) return e; }
+  return parseMarkdownEvaluation(text);
+}
+
+/** Legacy markdown/prose parser — fallback only. */
+function parseMarkdownEvaluation(text: string): ChatGptEval {
   const s = splitSections(text);
   const projectType = firstOf(s["PROJECT TYPE"], ["Residential", "Commercial", "Retail", "Office", "Hospitality", "Other"]);
   const archetype = firstOf(s["ARCHETYPE"], ["1 BHK", "2 BHK", "3 BHK", "4 BHK", "Villa", "Duplex", "Apartment", "Shop", "Office"]);
@@ -430,11 +714,18 @@ export function parseChatGptEvaluation(text: string): ChatGptEval {
   const spaces = parseSpaces(s["SPACES"]);
   const area = parseArea(s["AREA"]);
   const floors = parseFloors(s["FLOORS"]);
+  const boqAllocation = parseLabelLine(s["BOQ ALLOCATION"]);
+  const floorScope = parseLabelLine(s["FLOOR SCOPE"]);
+  // Which floor this drawing is for, from the allocation / scope / floors text.
+  const floor = parseFloorNumber(s["BOQ ALLOCATION"]) ?? parseFloorNumber(s["FLOOR SCOPE"]);
   const eval_: ChatGptEval = {
     projectType,
     archetype,
     archetypeKey: archetypeKeyFor(archetype),
     floors,
+    floor,
+    floorScope,
+    boqAllocation,
     area,
     spaces,
     disciplines: parseDisciplines(s["DISCIPLINES"]),
@@ -449,6 +740,68 @@ export function parseChatGptEvaluation(text: string): ChatGptEval {
   };
   eval_.ok = Boolean(projectType || eval_.archetypeKey || archetype || floors || area || spaces.length || requirements.length || eval_.needsDetail.length || eval_.keyInfo.length || eval_.notAssessable.length);
   return eval_;
+}
+
+/** Map the drawing's identified spaces onto BOQ room-count fields. Only rooms the
+ *  drawing actually names get a count (summed across matching spaces); a room type
+ *  it does not name is simply absent from the result — never defaulted — so the
+ *  generic template can never invent a bedroom/bathroom count. Foyers, staircases,
+ *  corridors and other non-priced circulation are deliberately not counted. */
+export function roomsFromSpaces(spaces: EvalSpace[]): Partial<Record<(typeof ROOM_KEYS)[number], number>> {
+  const out: Partial<Record<string, number>> = {};
+  const add = (k: string, n: number) => { out[k] = (out[k] ?? 0) + n; };
+  for (const s of spaces) {
+    const name = (s.name || "").toLowerCase();
+    const qty = Number(s.qty) || 0;
+    if (!(qty > 0)) continue;
+    // Order matters: the more specific/overlapping tests run first ("bathroom"
+    // and "utility"/"store" before the broad room words).
+    if (/\bbath|toilet|\bwc\b|w\.?c\.?\b|washroom|powder\s*room/.test(name)) add("bathrooms", qty);
+    else if (/utility|wash\s*area|laundry|\bstore\b|storage/.test(name)) add("utility", qty);
+    else if (/pooja|puja|prayer|mandir|\bstudy\b|home\s*office/.test(name)) add("pooja", qty);
+    else if (/bed\s*room|bedroom|master|guest\s*room|kids?\s*room|children/.test(name)) add("bedrooms", qty);
+    else if (/kitchen|pantry/.test(name)) add("kitchens", qty);
+    else if (/balcon|\bdeck\b|sit[\s-]*out|utility\s*balcony/.test(name)) add("balconies", qty);
+    else if (/living|drawing\s*room|family|dining|\bhall\b|lounge/.test(name)) add("living", qty);
+    // foyer / entrance / staircase / corridor / lobby / passage → not a priced room
+  }
+  return out;
+}
+
+/** Build the New-BOQ spec from a parsed evaluation. This is the single mapping
+ *  point where the drawing evaluation becomes the SOURCE OF TRUTH:
+ *   - room counts come only from the identified spaces (blank when unnamed);
+ *   - area / floor / area-type come from the drawing when it states them;
+ *   - all requirements (priced + "needs detail") flow into the Drawing section;
+ *   - generic template values fill ONLY genuinely-missing fields (finishes,
+ *     structure, toggles), never a room count or a value the drawing established.
+ *  Everything remains editable downstream — the operator's edits win over this. */
+export function specFromEvaluation(e: ChatGptEval): Spec {
+  const base = defaultSpec();
+  // Blank the template's room counts — only the drawing may set them. What the
+  // drawing does not name stays blank so the engine falls back to a clearly-marked
+  // heuristic rather than showing a fabricated count as if it came from the drawing.
+  for (const k of ROOM_KEYS) delete base[k];
+  const rooms = roomsFromSpaces(e.spaces);
+  for (const [k, v] of Object.entries(rooms)) base[k] = v;
+
+  if (e.area?.value) base._area_sqft = e.area.value;
+  if (e.area?.type) base._area_type = e.area.type;
+  // A per-floor BOQ covers one floor of work; prefer the explicit floor number.
+  const floors = e.floor ?? e.floors;
+  if (floors != null) base._floors = floors;
+
+  // Priced requirements + "Identified — Needs detail" scope both become editable
+  // drawing rows; needs-detail rows carry qty 0 so they surface for quantifying
+  // but are never priced until the operator fills them in.
+  const drawItems = [...e.requirements, ...e.needsDetail];
+  if (drawItems.length) (base as Record<string, unknown>)._drawing = { items: drawItems };
+  if (e.measurements.length) (base as Record<string, unknown>)._measurements = e.measurements;
+  if (e.spaces.length) (base as Record<string, unknown>)._spaces = e.spaces;
+  if (e.floorScope) (base as Record<string, unknown>)._floor_scope = e.floorScope;
+  if (e.boqAllocation) (base as Record<string, unknown>)._boq_allocation = e.boqAllocation;
+  (base as Record<string, unknown>)._source = "chatgpt";
+  return base;
 }
 
 /** Map ChatGPT's identified disciplines to a single BOQ discipline key for the
