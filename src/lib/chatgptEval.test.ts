@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildChatGptPrompt, disciplineForBoq, extractJson, parseChatGptEvaluation, roomsFromSpaces, specFromEvaluation } from "./chatgptEval";
+import { boqBucketOf, buildChatGptPrompt, disciplineForBoq, extractJson, itemBelongsToBoq, parseChatGptEvaluation, roomsFromSpaces, specFromEvaluation } from "./chatgptEval";
 import { applyDrawing } from "./boqDrawing";
 
 const STRUCTURED = `## PROJECT TYPE
@@ -77,6 +77,17 @@ describe("buildChatGptPrompt — strict JSON contract", () => {
     expect(p).toMatch(/Never ask me to obtain or check another document/i);   // no external-doc chase
     expect(p).not.toContain("against the architectural schedule");            // the BAD pattern is absent
     expect(p).not.toContain("Verify against the plumbing drawing");
+  });
+  it("instructs visual counting and COUNTABLE ≠ MEASURABLE", () => {
+    const p = buildChatGptPrompt();
+    expect(p).toMatch(/COUNT WHAT YOU CAN SEE/i);
+    expect(p).toMatch(/Visually inspect/i);
+    expect(p).toMatch(/OCR/i);
+    expect(p).toMatch(/COUNTABLE ≠ MEASURABLE/);
+    expect(p).toMatch(/Counting workflow/i);
+    expect(p).toMatch(/Running length not established/i);       // the countable-not-measurable example
+    expect(p).toMatch(/Do NOT.*collapse.*generic "electrical point"/i);
+    expect(p).toMatch(/Common Area/);                           // allocation guidance
   });
 });
 
@@ -160,6 +171,112 @@ Not assessable:
 
   it("missing area stays Not provided", () => {
     expect(parseChatGptEvaluation("## AREA\nNot provided").area).toBeNull();
+  });
+});
+
+describe("COUNTABLE ≠ MEASURABLE + combined-floor allocation", () => {
+  // A Floor 1 evaluation that also identifies a common-area lift. Countable items
+  // carry a status of "Identified — Needs detail" ONLY because a dimension is
+  // missing — they must still be Quantified. Genuinely blank ones stay needs-detail.
+  const FLOOR1 = `{
+    "project_type": "Residential", "archetype": "Apartment",
+    "floor": 1, "boq_allocation": "Floor 1", "floor_scope": "First Floor / Floor 1 private apartment",
+    "area": null, "area_type": null,
+    "spaces": [
+      { "name": "Master Bedroom", "qty": 1 }, { "name": "Bedroom", "qty": 3 },
+      { "name": "Bathroom", "qty": 4 }, { "name": "Kitchen", "qty": 1 }, { "name": "Living / dining", "qty": 1 }
+    ],
+    "disciplines": { "identified": ["Architectural", "Electrical", "Plumbing"], "not_assessable": ["Fire"] },
+    "measurements": [{ "name": "Room dimension", "value": "10'-8\\" x 12'-4\\"", "location": "Master Bedroom" }],
+    "requirements": [
+      { "allocation": "Floor 1", "requirement": "6A socket", "qty": 24, "unit": "nos", "basis": "Counted", "location": "Various", "scope": "Works", "status": "Quantified" },
+      { "allocation": "Floor 1", "requirement": "WC", "qty": 4, "unit": "nos", "basis": "Counted", "location": "Bathrooms", "scope": "Works", "status": "Quantified" },
+      { "allocation": "Floor 1", "requirement": "Wardrobe", "qty": 5, "unit": "nos", "basis": "Visually counted from drawing", "location": "Bedrooms", "note": "", "scope": "Works", "status": "Identified — Needs detail" },
+      { "allocation": "Floor 1", "requirement": "Feature wall", "qty": 1, "unit": "nos", "basis": "Visually counted from drawing", "location": "Living", "note": "", "scope": "Works", "status": "Identified — Needs detail" },
+      { "allocation": "Floor 1", "requirement": "Kitchen island", "qty": 1, "unit": "nos", "basis": "Counted", "location": "Kitchen", "scope": "Works", "status": "Quantified" },
+      { "allocation": "Floor 1", "requirement": "Skirting run", "qty": null, "unit": null, "basis": "Not assessable", "location": "unclear", "scope": "Works", "status": "Identified — Needs detail" },
+      { "allocation": "Floor 1", "requirement": "55\\" TV", "qty": 1, "unit": "nos", "basis": "Counted", "location": "Living", "scope": "Equipment", "status": "Quantified" },
+      { "allocation": "Common Area", "requirement": "Lift", "qty": 1, "unit": "nos", "basis": "Counted", "location": "Core", "scope": "Works", "status": "Quantified" }
+    ],
+    "confidence": { "archetype": "High", "floor": "High" }, "confirmations": []
+  }`;
+  const e = parseChatGptEvaluation(FLOOR1);
+
+  it("a countable item tagged 'Needs detail' for a missing DIMENSION is Quantified (COUNTABLE ≠ MEASURABLE)", () => {
+    const wardrobe = e.requirements.find((r) => r.match === "Wardrobe");
+    expect(wardrobe, "Wardrobe should be a quantified requirement, not needs-detail").toMatchObject({ qty: 5, unit: "nos" });
+    expect(e.needsDetail.some((r) => r.match === "Wardrobe")).toBe(false);
+    const feature = e.requirements.find((r) => r.match === "Feature wall");
+    expect(feature).toMatchObject({ qty: 1 });
+    const island = e.requirements.find((r) => r.match === "Kitchen island");
+    expect(island).toMatchObject({ qty: 1 });
+  });
+  it("visible electrical/plumbing symbols are quantified", () => {
+    expect(e.requirements.find((r) => r.match === "6A socket")?.qty).toBe(24);
+    expect(e.requirements.find((r) => r.match === "WC")?.qty).toBe(4);
+  });
+  it("a genuinely uncountable item (qty null) remains needs-detail — never invented", () => {
+    expect(e.needsDetail.map((r) => r.match)).toContain("Skirting run");
+    expect(e.requirements.some((r) => r.match === "Skirting run")).toBe(false);
+  });
+  it("Equipment vs Works survives parsing", () => {
+    expect(e.requirements.find((r) => r.match === '55" TV')?.equipment).toBe(true);
+    expect(e.requirements.find((r) => r.match === "6A socket")?.equipment).toBe(false);
+  });
+  it("allocation is preserved on every row", () => {
+    expect(e.requirements.every((r) => r.allocation === "Floor 1" || r.allocation === "Common Area")).toBe(true);
+    expect(e.requirements.find((r) => r.match === "Lift")?.allocation).toBe("Common Area");
+  });
+  it("no dimension/spec leaks into qty — dimensions stay in measurements", () => {
+    expect(e.measurements.find((m) => m.label === "Room dimension")?.value).toContain("10'-8");
+    expect(e.requirements.every((r) => Number.isFinite(r.qty))).toBe(true);   // every priced qty is a plain number
+    expect(e.requirements.some((r) => /["']|x /.test(String(r.qty)))).toBe(false);
+  });
+
+  it("specFromEvaluation: Common Area is NOT priced into the Floor 1 BOQ", () => {
+    const spec = specFromEvaluation(e);
+    const rows = (spec._drawing as { items: { match: string; allocation?: string }[] }).items;
+    expect(rows.some((r) => r.match === "Lift")).toBe(false);              // common-area excluded
+    expect(rows.some((r) => r.match === "Wardrobe")).toBe(true);           // floor-1 kept
+    expect(rows.every((r) => r.allocation !== "Common Area")).toBe(true);
+  });
+  it("specFromEvaluation: room counts come from spaces, floor/allocation preserved", () => {
+    const spec = specFromEvaluation(e);
+    expect(spec.bedrooms).toBe(4);        // Master(1) + Bedroom(3)
+    expect(spec.bathrooms).toBe(4);
+    expect(spec.bedrooms).not.toBe(6);    // never the apartment template default
+    expect(spec._floors).toBe(1);
+    expect(spec._boq_allocation).toBe("Floor 1");
+  });
+  it("all Floor-1 requirements (quantified + needs-detail) survive into DrawingItem rows", () => {
+    const spec = specFromEvaluation(e);
+    const rows = (spec._drawing as { items: { match: string }[] }).items;
+    // 6 quantified Floor-1 (6A, WC, Wardrobe, Feature wall, Kitchen island, 55" TV) + 1 needs-detail (Skirting) = 7
+    expect(rows.length).toBe(7);
+    for (const m of ["6A socket", "WC", "Wardrobe", "Feature wall", "Kitchen island", "Skirting run", '55" TV'])
+      expect(rows.some((r) => r.match === m), `${m} missing from DrawingItem rows`).toBe(true);
+  });
+
+  it("boqBucketOf / itemBelongsToBoq: floor bucket excludes common + other floors, keeps unallocated", () => {
+    expect(boqBucketOf({ boqAllocation: "Floor 1", floor: 1 })).toBe("Floor 1");
+    expect(boqBucketOf({ boqAllocation: undefined, floor: 2 })).toBe("Floor 2");
+    expect(itemBelongsToBoq("Floor 1", "Floor 1")).toBe(true);
+    expect(itemBelongsToBoq("floor1", "Floor 1")).toBe(true);       // loose match
+    expect(itemBelongsToBoq("Common Area", "Floor 1")).toBe(false);
+    expect(itemBelongsToBoq("Floor 2", "Floor 1")).toBe(false);
+    expect(itemBelongsToBoq(undefined, "Floor 1")).toBe(true);      // unallocated belongs
+    expect(itemBelongsToBoq("Common Area", undefined)).toBe(true);  // no bucket → keep all
+  });
+});
+
+describe("markdown fallback: countable item with needs-detail status is still quantified", () => {
+  it("qty present + 'Identified — Needs detail' status → quantified (count wins)", () => {
+    const e = parseChatGptEvaluation(`## DRAWING-SPECIFIC REQUIREMENTS
+Requirement | Qty | Unit | Basis | Location / Note | Scope | Status
+--- | --- | --- | --- | --- | --- | ---
+Wardrobe | 5 | nos | Counted | Bedrooms | Works | Identified — Needs detail`);
+    expect(e.requirements.find((r) => r.match === "Wardrobe")).toMatchObject({ qty: 5 });
+    expect(e.needsDetail.some((r) => r.match === "Wardrobe")).toBe(false);
   });
 });
 
