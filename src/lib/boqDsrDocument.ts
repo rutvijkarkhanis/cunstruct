@@ -41,6 +41,15 @@ export interface QuoteCommercials extends CommercialInputs {
   grandTotal: number;
   grandTotalWords: string;
 }
+/** A requirement identified on the drawing but not yet quantified — listed for
+ *  completeness, never priced (qty deliberately absent, not zero). */
+export interface QuotePendingItem {
+  no: string;
+  spec: string;          // requirement description
+  unit: string;
+  note?: string;         // location / reason it is pending
+  scope?: string;        // works | equipment | needs_confirmation
+}
 export interface DsrQuotePayload {
   boqName: string;
   projectName?: string | null;
@@ -58,6 +67,9 @@ export interface DsrQuotePayload {
   subheads: QuoteSubHead[];
   abstract: { no: number; name: string; amount: number }[];
   commercials: QuoteCommercials;
+  /** Identified-but-unquantified drawing requirements — rendered as an unpriced
+   *  "pending" section so every drawing requirement appears in the document. */
+  pendingItems?: QuotePendingItem[];
 }
 
 const esc = (s: unknown) =>
@@ -157,6 +169,29 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
       <tr class="words"><td colspan="2">Rupees ${esc(c.grandTotalWords)} only</td></tr>
     </table>`;
 
+  // Identified-but-unquantified drawing requirements — listed, never priced. A row
+  // per requirement so nothing the drawing identified is dropped from the document;
+  // the quantity column reads "—" (pending), never a fabricated 0.
+  const pending = p.pendingItems ?? [];
+  const scopeLabel = (s?: string) =>
+    s === "equipment" ? "Client equipment" : s === "needs_confirmation" ? "Needs confirmation" : "Works";
+  const pendingSection = pending.length ? `
+    <h2>Identified — Pending Quantification (not priced)</h2>
+    <table class="pending">
+      <thead><tr><th>Sl. No</th><th>Requirement</th><th>Unit</th><th>Scope</th><th class="num">Qty</th></tr></thead>
+      <tbody>${pending.map((it) => `
+        <tr>
+          <td class="no">${esc(it.no)}</td>
+          <td class="spec">${esc(it.spec)}${it.note ? `<span class="pnote"> — ${esc(it.note)}</span>` : ""}</td>
+          <td class="unit">${esc(it.unit)}</td>
+          <td>${esc(scopeLabel(it.scope))}</td>
+          <td class="num pend">pending</td>
+        </tr>`).join("")}
+      </tbody>
+    </table>
+    <div class="foot" style="margin-top:8px">These ${pending.length} requirement${pending.length === 1 ? " is" : "s are"} identified on the drawing but not yet quantified. They are listed for completeness and are <b>not included in the priced totals</b> — confirm a quantity for each to price it.</div>
+  ` : "";
+
   const brandHtml = p.firmName ? esc(p.firmName) : `cun<span>struct</span>`;
   const tagline = p.firmTagline ? `<div class="tagline">${esc(p.firmTagline)}</div>` : "";
   const docTitle = blank ? "Bill of Quantities<br>(for pricing)" : "Bill of Quantities<br>&amp; Priced Quote";
@@ -201,6 +236,8 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
   .summary tr.words td { font-style:italic; color:#556; font-size:11.5px; padding-top:2px; }
   .abstract { max-width:520px; }
   .abstract td { font-size:12.5px; }
+  .pending td.pend { color:#b06d08; font-weight:600; font-style:italic; }
+  .pending .pnote { color:#889; font-style:italic; }
   .foot { margin-top:26px; font-size:10px; color:#99a; border-top:1px solid #eee; padding-top:10px; line-height:1.5; }
   @media print { body { padding:0; } tr { break-inside:avoid; } .pagebreak { break-before:page; } }
 </style></head><body>
@@ -221,6 +258,8 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
     </tr></thead>
     <tbody>${rows || `<tr><td colspan="6">No items.</td></tr>`}</tbody>
   </table>
+
+  ${pendingSection}
 
   ${abstractSection}
 
@@ -251,7 +290,11 @@ const csvCell = (v: unknown) => {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-export function buildBoqCsv(rows: CsvRow[], meta: { boqName: string; project?: string | null; generatedOn: string }): string {
+export function buildBoqCsv(
+  rows: CsvRow[],
+  meta: { boqName: string; project?: string | null; generatedOn: string },
+  pending?: { spec: string; unit: string; note?: string }[],
+): string {
   const HEADER_LINE = 4;
   const head = ["Sub-head", "Item", "DSR code", "Specification", "Unit", "Qty", "Rate (ref, excl GST)", "Your rate", "Amount"];
   const lines: string[] = [
@@ -267,6 +310,17 @@ export function buildBoqCsv(rows: CsvRow[], meta: { boqName: string; project?: s
       r.subhead, r.itemNo, r.code ?? "", r.spec, r.unit, r.qty, r.rate ?? "", r.rate ?? "", amount,
     ].map(csvCell).join(","));
   });
+  // Identified-but-unquantified drawing requirements — listed with a blank Qty
+  // (never a fabricated 0) so nothing the drawing identified is dropped, and none
+  // of these is priced.
+  if (pending?.length) {
+    lines.push("", csvCell("IDENTIFIED — PENDING QUANTIFICATION (not priced; confirm a quantity to price)"));
+    pending.forEach((p, i) => {
+      lines.push([
+        "Pending", `P.${String(i + 1).padStart(2, "0")}`, "", p.note ? `${p.spec} — ${p.note}` : p.spec, p.unit, "", "", "", "",
+      ].map(csvCell).join(","));
+    });
+  }
   return lines.join("\r\n");
 }
 

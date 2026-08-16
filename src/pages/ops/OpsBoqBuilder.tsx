@@ -701,6 +701,13 @@ export default function OpsBoqBuilder() {
       }),
     })).filter((sh) => sh.lines.length > 0);
 
+    // Identified-but-unquantified drawing requirements — carried into the document
+    // as an unpriced "pending" section so every drawing requirement appears, none
+    // is dropped, and none is given a fabricated quantity.
+    const pendingItems = drawingItems
+      .filter((d) => d.pending || d.qty == null)
+      .map((d, i) => ({ no: `P.${String(i + 1).padStart(2, "0")}`, spec: (d.match ?? "").trim(), unit: d.unit?.trim() || "nos", note: d.note?.trim() || undefined, scope: d.scope }));
+
     const ok = openDsrQuote({
       boqName: boq!.name,
       projectName: project?.name, clientName: project?.client_name, location: project?.location,
@@ -712,6 +719,7 @@ export default function OpsBoqBuilder() {
       subheads,
       abstract: subheads.map((sh) => ({ no: sh.no, name: sh.name, amount: sh.subtotal })),
       commercials,
+      pendingItems,
     }, { autoPrint });
     if (!ok) toast.error("Allow pop-ups to export");
   };
@@ -733,7 +741,10 @@ export default function OpsBoqBuilder() {
         spec: (line.description ?? "") + drawingSuffix(line), unit: line.unit ?? "", qty: line.qty, rate: effRate(line),
       })));
     if (!rows.length) return toast.error("Nothing to export yet");
-    downloadCsv(`${boq!.name.replace(/[^\w]+/g, "_")}_BOQ.csv`, buildBoqCsv(rows, { boqName: boq!.name, project: project?.name, generatedOn: gen() }));
+    const pending = drawingItems
+      .filter((d) => d.pending || d.qty == null)
+      .map((d) => ({ spec: (d.match ?? "").trim(), unit: d.unit?.trim() || "nos", note: d.note?.trim() || undefined }));
+    downloadCsv(`${boq!.name.replace(/[^\w]+/g, "_")}_BOQ.csv`, buildBoqCsv(rows, { boqName: boq!.name, project: project?.name, generatedOn: gen() }, pending));
   };
 
   if (!boq) return <div className="p-8 flex justify-center"><Loader2 className="animate-spin" /></div>;
