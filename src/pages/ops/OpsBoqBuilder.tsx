@@ -8,7 +8,7 @@ import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
 import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, type QuoteSubHead, type CsvRow } from "@/lib/boqDsrDocument";
 import { openIntakeForm } from "@/lib/boqIntakeForm";
 import { sanityForCode, countFlagged } from "@/lib/boqSanity";
-import { BASIS_META, categoryCovered, DRAWING_CHECKLIST, findCatalogueMatch, isEquipment, parseDrawingSummary, type DrawingBasis, type DrawingItem, type DrawingSummary, type LineDrawingMeta, type QtyBasis } from "@/lib/boqDrawing";
+import { BASIS_META, categoryCovered, DRAWING_CHECKLIST, findCatalogueMatch, isEquipment, isSupersededByDrawing, parseDrawingSummary, type DrawingBasis, type DrawingItem, type DrawingSummary, type LineDrawingMeta, type QtyBasis } from "@/lib/boqDrawing";
 import { BOQ_SPEC, type Spec, type SpecValue, type SpecField } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +28,10 @@ interface BoqLine {
   basis: string | null; basis_note: string | null;
   drawing: LineDrawingMeta | null;
   included: boolean; source: string; sort: number;
+  /** View-only: a template line the drawing evaluation supersedes (a requirement the
+   *  drawing owns, priced or pending). Forced out of the total and not editable —
+   *  the drawing is authoritative. Never persisted. */
+  superseded?: boolean;
 }
 
 /** Drawing provenance appended to the item description in every output. */
@@ -188,7 +192,10 @@ export default function OpsBoqBuilder() {
     return (data?.spec ?? {}) as Spec;
   };
   const grandOf = (ls: BoqLine[], sp: Spec) => {
-    const works = ls.filter((l) => l.included).reduce((s, l) => s + l.qty * (effRate(l) ?? 0), 0);
+    const summary = (sp as Record<string, unknown>)?._drawing as DrawingSummary | undefined;
+    const works = ls
+      .filter((l) => l.included && !(!l.drawing && isSupersededByDrawing(l.description, l.dsr_code, summary)))
+      .reduce((s, l) => s + l.qty * (effRate(l) ?? 0), 0);
     const pct = (k: string, d: number) => Number(sp[k] ?? d);
     return computeCommercials(works, {
       costIndexPct: pct("_cost_index_pct", 0), contingencyPct: pct("_contingency_pct", 3),
@@ -295,13 +302,32 @@ export default function OpsBoqBuilder() {
     },
   });
 
-  const { data: lines = [], isLoading: linesLoading } = useQuery({
+  const { data: rawLines = [], isLoading: linesLoading } = useQuery({
     queryKey: ["boq-lines", id],
     queryFn: async () => selectBoqLines(id!),
     enabled: !!id,
   });
 
   const refetchLines = () => qc.invalidateQueries({ queryKey: ["boq-lines", id] });
+
+  // DrawingItem precedence, applied as a render-time view so it holds regardless of
+  // when the persisted lines were generated: a template line the drawing evaluation
+  // supersedes (a requirement the drawing owns, priced or pending) is forced out of
+  // the total and flagged, so a generic template quantity never duplicates or stands
+  // in for a drawing requirement. Never mutates the database — the drawing is the
+  // single source of truth for these requirements.
+  const drawingSummary = useMemo(
+    () => ((boq?.spec as Record<string, unknown>)?._drawing as DrawingSummary | undefined) ?? null,
+    [boq?.spec],
+  );
+  const lines = useMemo<BoqLine[]>(
+    () => rawLines.map((l) =>
+      !l.drawing && l.included && isSupersededByDrawing(l.description, l.dsr_code, drawingSummary)
+        ? { ...l, included: false, superseded: true }
+        : l,
+    ),
+    [rawLines, drawingSummary],
+  );
 
   // AOR coefficients for the DSR codes present on this BOQ, for the material schedule.
   const codes = useMemo(
@@ -1403,7 +1429,8 @@ export default function OpsBoqBuilder() {
                 return (
                   <div key={l.id} className={cn("border-b last:border-0", !l.included && "opacity-40")}>
                     <div className="grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_4.5rem_3rem_5rem_5.5rem_auto] items-start gap-x-3 gap-y-1 py-2">
-                      <input type="checkbox" className="mt-1" checked={l.included}
+                      <input type="checkbox" className="mt-1" checked={l.included} disabled={l.superseded}
+                        title={l.superseded ? "Superseded by a drawing requirement — the drawing is authoritative for this scope" : undefined}
                         onChange={(e) => updateLine(l.id, { included: e.target.checked })} />
                       <div className="min-w-0 cursor-pointer" onClick={() => setExpanded(isExp ? null : l.id)} title="Show how this line is derived">
                         <div className="text-[11px] font-mono text-accent-foreground/70 mb-0.5 flex items-center gap-1">
@@ -1411,6 +1438,9 @@ export default function OpsBoqBuilder() {
                           <span className="text-muted-foreground">{itemNo}</span>{l.dsr_code ?? "Priced separately"}
                           {l.basis === "DRAWING_INPUT" && (
                             <span className="text-emerald-600 dark:text-emerald-400 font-sans" title={l.basis_note ?? "From the drawing"}>drawing</span>
+                          )}
+                          {l.superseded && (
+                            <span className="text-amber-600 dark:text-amber-500 font-sans" title="A drawing requirement covers this scope — template quantity withheld">superseded by drawing</span>
                           )}
                           {flagged && (
                             <span className="inline-flex items-center gap-0.5 text-amber-600 dark:text-amber-500 font-sans" title={flag.message ?? ""}>
