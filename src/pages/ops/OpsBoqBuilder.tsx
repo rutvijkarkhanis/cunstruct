@@ -17,7 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search, Layers, FileDown, Sheet, Ruler, ClipboardList, Percent, AlertTriangle, Eye, Presentation, ChevronDown, UserCheck } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search, Layers, FileDown, FileText, Sheet, Ruler, ClipboardList, Percent, AlertTriangle, Eye, Presentation, ChevronDown, UserCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DsrItem { id: string; code: string; description: string | null; unit: string | null; rate: number | null; chapter: string | null; }
@@ -692,7 +692,7 @@ export default function OpsBoqBuilder() {
   const firmName = String(spec._firm_name ?? "").trim() || null;
   const firmTagline = String(spec._firm_tagline ?? "").trim() || null;
 
-  const exportQuote = (blankRates = false) => {
+  const exportQuote = (blankRates = false, autoPrint = false) => {
     const subheads: QuoteSubHead[] = bySubhead.map((sh) => ({
       no: sh.no, name: sh.name, subtotal: sh.subtotal,
       lines: sh.rows.filter(({ line }) => line.included).map(({ line, no }) => {
@@ -712,7 +712,7 @@ export default function OpsBoqBuilder() {
       subheads,
       abstract: subheads.map((sh) => ({ no: sh.no, name: sh.name, amount: sh.subtotal })),
       commercials,
-    });
+    }, { autoPrint });
     if (!ok) toast.error("Allow pop-ups to export");
   };
 
@@ -838,10 +838,15 @@ export default function OpsBoqBuilder() {
             <UserCheck className="h-4 w-4 mr-2" />Save {contractor?.name ?? "contractor"}'s usual
           </Button>
         )}
-        <Button variant="outline" onClick={() => exportQuote(false)} disabled={lines.length === 0}>
+        <Button variant="outline" onClick={() => exportQuote(false, true)} disabled={lines.length === 0}
+          title="Opens the priced quote and the print dialog — choose “Save as PDF” to download">
+          <FileText className="h-4 w-4 mr-2" />Download PDF
+        </Button>
+        <Button variant="outline" onClick={() => exportQuote(false, false)} disabled={lines.length === 0}
+          title="Preview the priced quote in a new tab">
           <FileDown className="h-4 w-4 mr-2" />Export quote
         </Button>
-        <Button variant="outline" onClick={() => exportQuote(true)} disabled={lines.length === 0}
+        <Button variant="outline" onClick={() => exportQuote(true, false)} disabled={lines.length === 0}
           title="Rates left blank — issue to contractors to price">
           <FileDown className="h-4 w-4 mr-2" />Blank BOQ
         </Button>
