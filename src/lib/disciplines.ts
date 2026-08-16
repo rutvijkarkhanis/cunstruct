@@ -7,6 +7,7 @@
 import { buildContext, type QtyContext, type RoomDims } from "./boqDsrCatalog";
 import { generateLines, type GeneratedLine, type ProjectBasics } from "./boqDsrGenerate";
 import { applyDrawing, defaultBasis, type DrawingSummary } from "./boqDrawing";
+import { withoutOutOfScopeInfra } from "./boqScope";
 import type { Spec } from "./boqSpec";
 
 export interface DiscItem {
@@ -122,10 +123,16 @@ export function generateForDiscipline(key: string, spec: Spec, project: ProjectB
     }
   }
   // Stamp a fallback provenance on every line (measured rooms → derived; else
-  // coefficient/heuristic), then let the operator's drawing summary override the
-  // items it explicitly covers. Everything else keeps its assumption basis.
+  // coefficient/heuristic).
   const hasRooms = !!dims;
   out = out.map((l) => ({ ...l, basis: defaultBasis(l, hasRooms) }));
+  // Withhold broader-scope template infrastructure (site sump/pump, building
+  // overhead tank, external works) from a BOQ scoped to a single floor / private
+  // apartment — unless the drawing itself supports it. A whole-project BOQ (no
+  // allocation) keeps everything, and drawing-derived lines are never touched.
+  out = withoutOutOfScopeInfra(out, spec);
+  // Then let the operator's drawing summary override the items it explicitly
+  // covers. Everything else keeps its assumption basis.
   const summary = (spec as Record<string, unknown>)._drawing as DrawingSummary | undefined;
   return applyDrawing(out, summary);
 }
