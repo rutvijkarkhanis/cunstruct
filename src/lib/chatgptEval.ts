@@ -765,6 +765,74 @@ function parseMarkdownEvaluation(text: string): ChatGptEval {
   return eval_;
 }
 
+/** Render a parsed evaluation as a plain-text digest — everything the evaluation
+ *  page surfaces, in one copyable block (project setup, spaces, measurements,
+ *  every requirement with its quantity/basis/allocation, the identified-for-review
+ *  scope, and what the drawing could not establish). Used by the "Copy result"
+ *  action so the operator can paste the structured output elsewhere. */
+export function evalToText(e: ChatGptEval): string {
+  const L: string[] = [];
+  const line = (label: string, value?: string | number | null) => {
+    if (value == null || value === "" ) return;
+    L.push(`${label}: ${value}`);
+  };
+  const heading = (h: string) => { L.push("", h); };
+  const req = (it: DrawingItem) => {
+    const bits = [
+      it.qty > 0 ? `${it.qty}${it.unit ? " " + it.unit : ""}` : null,
+      it.basis,
+      it.allocation,
+      it.equipment ? "client equipment" : null,
+      it.note,
+    ].filter(Boolean);
+    return `- ${it.match}${bits.length ? ` — ${bits.join(" · ")}` : ""}`;
+  };
+
+  L.push("DRAWING EVALUATION");
+  line("Project type", e.projectType);
+  line("Archetype", e.archetype);
+  line("Floor", e.floor != null ? e.floor : e.floors != null ? e.floors : undefined);
+  line("Area", e.area ? `${e.area.value} sqft (${e.area.type})` : "Not provided");
+  line("BOQ allocation", e.boqAllocation);
+  line("Floor scope", e.floorScope);
+  if (e.disciplines.length) line("Disciplines identified", e.disciplines.join(", "));
+
+  if (e.spaces.length) {
+    heading("SPACES");
+    for (const s of e.spaces) L.push(`- ${s.name}${s.qty ? ` — ${s.qty}` : ""}`);
+  }
+  if (e.measurements.length) {
+    heading("MEASUREMENTS");
+    for (const m of e.measurements) L.push(`- ${m.label}: ${m.value}${m.note ? ` (${m.note})` : ""}`);
+  }
+  if (e.requirements.length) {
+    heading(`REQUIREMENTS — QUANTIFIED (${e.requirements.length})`);
+    for (const it of e.requirements) L.push(req(it));
+  }
+  if (e.needsDetail.length) {
+    heading(`REQUIREMENTS — IDENTIFIED FOR REVIEW (${e.needsDetail.length})`);
+    for (const it of e.needsDetail) L.push(req(it));
+  }
+  if (e.keyInfo.length) {
+    heading("KEY DRAWING INFORMATION");
+    for (const k of e.keyInfo) L.push(`- ${k}`);
+  }
+  if (e.notAssessable.length) {
+    heading("NOT ASSESSABLE FROM DRAWING");
+    for (const n of e.notAssessable) L.push(`- ${n}`);
+  }
+  if (e.confirmations.length) {
+    heading("CONFIRM BEFORE GENERATING");
+    for (const c of e.confirmations) L.push(`- ${c}`);
+  }
+  const conf = Object.entries(e.confidence);
+  if (conf.length) {
+    heading("CONFIDENCE");
+    for (const [k, v] of conf) L.push(`- ${k}: ${v}`);
+  }
+  return L.join("\n").trim();
+}
+
 /** Map the drawing's identified spaces onto BOQ room-count fields. Only rooms the
  *  drawing actually names get a count (summed across matching spaces); a room type
  *  it does not name is simply absent from the result — never defaulted — so the

@@ -75,9 +75,21 @@ describe("applyDrawing", () => {
     expect(asWorks?.included).toBeUndefined();
   });
 
-  it("never invents: ignores blank/zero items and leaves lines untouched", () => {
-    const out = applyDrawing(lines, { items: [{ match: "", qty: 5 }, { match: "steel", qty: 0 }] });
+  it("never invents: ignores an unnamed item and leaves the priced lines untouched", () => {
+    // An item with no requirement text is dropped; a named item with no quantity
+    // is NOT dropped — it is retained as a pending, unpriced line (see below).
+    const out = applyDrawing(lines, { items: [{ match: "", qty: 5 }] });
     expect(out.map((l) => l.qty)).toEqual([800, 10, 20]);
+  });
+
+  it("retains a named-but-unquantified item as a pending, unpriced line (never dropped)", () => {
+    const out = applyDrawing(lines, { items: [{ match: "steel", qty: 0 }] });
+    // The three original priced lines are untouched…
+    expect(out.slice(0, 3).map((l) => l.qty)).toEqual([800, 10, 20]);
+    // …and the identified requirement is kept, unpriced, for later quantifying.
+    const pending = out.find((l) => l.label === "steel");
+    expect(pending?.qty).toBe(0);
+    expect(pending?.included).toBe(false);
   });
 
   it("links synonyms semantically — '16 amp power point' ≈ '(16A) … sockets'", () => {

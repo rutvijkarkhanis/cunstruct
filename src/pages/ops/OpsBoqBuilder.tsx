@@ -469,10 +469,15 @@ export default function OpsBoqBuilder() {
   const saveDrawing = async () => {
     if (!boq) return;
     const prev = ((boq.spec as Record<string, unknown>)?._drawing ?? null) as unknown;
-    const clean = drawRows.filter((r) => (r.match ?? "").trim() && Number(r.qty) > 0)
-      .map((r) => ({ match: (r.match ?? "").trim(), qty: Number(r.qty), unit: r.unit?.trim() || undefined, basis: r.basis ?? "Counted", equipment: r.equipment, note: r.note?.trim() || undefined }));
+    // Keep every named requirement — including those still awaiting a quantity
+    // (qty 0). They are retained as pending, unpriced lines rather than dropped,
+    // so an identified requirement is never lost when the drawing is re-applied.
+    const clean = drawRows.filter((r) => (r.match ?? "").trim())
+      .map((r) => ({ match: (r.match ?? "").trim(), qty: Number(r.qty) || 0, unit: r.unit?.trim() || undefined, basis: r.basis ?? "Counted", equipment: r.equipment, note: r.note?.trim() || undefined, allocation: r.allocation }));
+    const priced = clean.filter((r) => r.qty > 0).length;
+    const detail = priced === clean.length ? `${clean.length} applied` : `${clean.length} kept · ${priced} priced · ${clean.length - priced} pending`;
     await commit({
-      kind: "assumption", label: "Drawing measurements", detail: `${clean.length} applied`,
+      kind: "assumption", label: "Drawing measurements", detail,
       forward: async () => { const ns = await setSpecKeys({ _drawing: { items: clean } } as unknown as Spec); await runGenerate(ns, { silent: true }); },
       backward: async () => { const ns = await setSpecKeys({ _drawing: prev } as unknown as Spec); await runGenerate(ns, { silent: true }); },
     });
@@ -1120,7 +1125,9 @@ export default function OpsBoqBuilder() {
                         </select>
                       </td>
                       <td className="pr-2 text-xs">
-                        {!valid ? <span className="text-muted-foreground">—</span>
+                        {!valid ? ((r.match ?? "").trim()
+                            ? <span className="text-amber-600 dark:text-amber-500" title="Identified on the drawing — kept as an unpriced line until you enter a quantity">pending — enter qty</span>
+                            : <span className="text-muted-foreground">—</span>)
                           : equip ? <span className="text-amber-600 dark:text-amber-500" title="Client equipment — added as a line but not priced in works by default">client equipment</span>
                           : cat ? <span className="text-emerald-600 dark:text-emerald-400" title={cat.code ? `${cat.code} — ${cat.label}` : cat.label}>→ links to a catalogue item</span>
                           : <span className="text-amber-600 dark:text-amber-500">＋ new item (no match)</span>}

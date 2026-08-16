@@ -5,7 +5,7 @@ import { BOQ_SPEC, defaultSpec, type SpecField, type Spec, type SpecValue } from
 import { DISCIPLINES } from "@/lib/disciplines";
 import { ARCHETYPES, archetypeSpec } from "@/lib/archetypes";
 import { openIntakeForm } from "@/lib/boqIntakeForm";
-import { buildChatGptPrompt, carrySeed, disciplineFromEvidence, extractJson, parseChatGptEvaluation, roomsFromSpaces, specFromEvaluation, type ChatGptEval } from "@/lib/chatgptEval";
+import { buildChatGptPrompt, carrySeed, disciplineFromEvidence, evalToText, extractJson, parseChatGptEvaluation, roomsFromSpaces, specFromEvaluation, type ChatGptEval } from "@/lib/chatgptEval";
 import type { DrawingSummary } from "@/lib/boqDrawing";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,10 +47,21 @@ export default function OpsBoqNew() {
   const [evalData, setEvalData] = useState<ChatGptEval | null>(null);
   const [rawResponse, setRawResponse] = useState("");
   const [debugSpec, setDebugSpec] = useState<Spec | null>(null);
+  const [resultCopied, setResultCopied] = useState(false);
 
   const copyPrompt = async () => {
     try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 2500); }
     catch { toast.error("Couldn't copy — select the text and copy manually"); }
+  };
+
+  // Copy the whole structured evaluation output shown on this page.
+  const copyResult = async () => {
+    if (!evalData) return;
+    try {
+      await navigator.clipboard.writeText(evalToText(evalData));
+      setResultCopied(true); setTimeout(() => setResultCopied(false), 2500);
+      toast.success("Evaluation result copied");
+    } catch { toast.error("Couldn't copy — select the text and copy manually"); }
   };
 
   // Turn a parsed evaluation into pre-filled Anchor inputs. The drawing evaluation
@@ -287,8 +298,15 @@ export default function OpsBoqNew() {
       {evalData && (
         <Card className="border-accent/50">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base flex items-center gap-2"><MessageSquare className="h-4 w-4" />ChatGPT drawing evaluation</CardTitle>
-            <p className="text-xs text-muted-foreground">Source: ChatGPT drawing evaluation — a recommendation only. Everything below is editable and your values are used.</p>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <CardTitle className="text-base flex items-center gap-2"><MessageSquare className="h-4 w-4" />ChatGPT drawing evaluation</CardTitle>
+                <p className="text-xs text-muted-foreground">Source: ChatGPT drawing evaluation — a recommendation only. Everything below is editable and your values are used.</p>
+              </div>
+              <Button size="sm" variant="outline" className="shrink-0" onClick={copyResult}>
+                {resultCopied ? <><Check className="h-4 w-4 mr-2" />Copied</> : <><Copy className="h-4 w-4 mr-2" />Copy result</>}
+              </Button>
+            </div>
             <details className="mt-1 text-xs">
               <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Parsed data &amp; raw response (debug)</summary>
               <div className="mt-2 space-y-2">
