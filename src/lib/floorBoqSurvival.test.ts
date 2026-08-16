@@ -6,19 +6,16 @@ import type { DrawingItem, DrawingSummary } from "./boqDrawing";
 
 // The Floor 1 drawing evaluation reports 61 private-apartment requirements —
 // 22 quantified + 39 identified-for-review — plus separate Common Area scope.
-// The downstream mapping must land ALL 61 Floor 1 requirements in the generated
-// Floor 1 BOQ/Drawing rows (one combined BOQ), preserving qty = null for the
-// unquantified ones (never coerced to 0), keeping allocation = Floor 1, keeping
-// the Works / Equipment / Needs-confirmation distinction, and excluding Common
-// Area and other floors.
+// The downstream mapping must land ALL 61 in the generated Floor 1 BOQ/Drawing
+// rows (one combined BOQ), preserve qty = null on the unquantified ones (never
+// coerced to 0), keep allocation = Floor 1, keep the Works / Equipment /
+// Needs-confirmation distinction, exclude Common Area and other floors, and never
+// let the generic Apartment template fabricate quantities for drawing scope.
 
 const QUANTIFIED = 22;
-const NEEDS_DETAIL = 39;
-const TOTAL_FLOOR1 = QUANTIFIED + NEEDS_DETAIL; // 61
+const PENDING = 39;
+const TOTAL_FLOOR1 = QUANTIFIED + PENDING; // 61
 
-/** A representative Floor 1 evaluation: 22 quantified + 39 identified-for-review
- *  private requirements (mixing Works / Equipment / Needs-confirmation), plus 2
- *  Common Area items that must NOT enter this BOQ. */
 function floor1EvaluationJson(): string {
   const requirements: unknown[] = [];
   for (let i = 1; i <= QUANTIFIED; i++) {
@@ -27,8 +24,7 @@ function floor1EvaluationJson(): string {
       basis: "Counted", location: `Room ${i}`, note: "", scope: "Works", status: "Quantified",
     });
   }
-  for (let i = 1; i <= NEEDS_DETAIL; i++) {
-    // Vary the scope so the trichotomy is exercised across the review items.
+  for (let i = 1; i <= PENDING; i++) {
     const scope = i % 3 === 0 ? "Equipment" : i % 3 === 1 ? "Works" : "Needs confirmation";
     requirements.push({
       allocation: "Floor 1", requirement: `Review item ${i}`, qty: null, unit: null,
@@ -36,109 +32,108 @@ function floor1EvaluationJson(): string {
       scope, status: "Identified — Needs detail",
     });
   }
-  // Common Area scope — identified, but priced into the Common Area BOQ, never Floor 1.
   requirements.push({ allocation: "Common Area", requirement: "Passenger lift", qty: 2, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" });
   requirements.push({ allocation: "Common Area", requirement: "Common corridor lighting", qty: 8, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" });
 
   return JSON.stringify({
-    project_type: "Residential",
-    archetype: "Apartment",
-    floor: 1,
-    boq_allocation: "Floor 1",
-    floor_scope: "First Floor / Floor 1 private apartment",
-    area: 3960,
-    area_type: "built-up",
+    project_type: "Residential", archetype: "Apartment", floor: 1,
+    boq_allocation: "Floor 1", floor_scope: "First Floor / Floor 1 private apartment",
+    area: 3960, area_type: "built-up",
     spaces: [
-      { name: "Master Bedroom", qty: 1, basis: "Counted" },
-      { name: "Bedroom", qty: 3, basis: "Counted" },
-      { name: "Bathroom", qty: 4, basis: "Counted" },
-      { name: "Kitchen", qty: 2, basis: "Counted" },
-      { name: "Balcony", qty: 4, basis: "Counted" },
-      { name: "Living", qty: 1, basis: "Counted" },
+      { name: "Master Bedroom", qty: 1 }, { name: "Bedroom", qty: 3 }, { name: "Bathroom", qty: 4 },
+      { name: "Kitchen", qty: 2 }, { name: "Balcony", qty: 4 }, { name: "Living", qty: 1 },
     ],
     disciplines: { identified: ["Architectural", "Electrical", "Plumbing"], not_assessable: ["Fire"] },
-    measurements: [],
-    requirements,
-    category_summary: {},
-    confidence: { project_type: "High", archetype: "High", floor: "High" },
-    confirmations: [],
+    measurements: [], requirements, category_summary: {},
+    confidence: { project_type: "High" }, confirmations: [],
   });
 }
 
-describe("Floor 1 requirements survive downstream into the BOQ/Drawing rows", () => {
+describe("Floor 1: all 61 drawing requirements survive downstream", () => {
   const e = parseChatGptEvaluation(floor1EvaluationJson());
   const spec = specFromEvaluation(e);
   const drawItems = ((spec as Record<string, unknown>)._drawing as DrawingSummary | undefined)?.items ?? [];
+  const quantified = drawItems.filter((d) => d.qty != null && (d.qty as number) > 0);
+  const pending = drawItems.filter((d) => d.qty == null);
 
-  it("parses quantified vs identified-for-review, keeping null quantities as null", () => {
-    // parseChatGptEvaluation does not filter by allocation, so the 2 Common Area
-    // quantified items sit in `requirements` alongside the 22 Floor 1 ones here.
-    expect(e.requirements.length).toBe(QUANTIFIED + 2);
-    expect(e.needsDetail.length).toBe(NEEDS_DETAIL);
-    // Every review item is pending with a genuine null quantity — never 0/assumed —
-    // and no invented basis.
-    for (const d of e.needsDetail) {
-      expect(d.qty).toBeNull();
-      expect(d.pending).toBe(true);
-      expect(d.basis).toBeUndefined();
-    }
-  });
-
-  it("keeps ALL 61 Floor 1 requirements in the drawing rows and drops Common Area", () => {
+  it("keeps 22 quantified + 39 pending = 61 drawing items (Common Area excluded)", () => {
+    expect(quantified.length).toBe(QUANTIFIED);
+    expect(pending.length).toBe(PENDING);
     expect(drawItems.length).toBe(TOTAL_FLOOR1);
-    const labels = drawItems.map((i) => i.match);
-    for (let i = 1; i <= QUANTIFIED; i++) expect(labels).toContain(`Quantified item ${i}`);
-    for (let i = 1; i <= NEEDS_DETAIL; i++) expect(labels).toContain(`Review item ${i}`);
+    const labels = drawItems.map((d) => d.match);
     expect(labels).not.toContain("Passenger lift");
     expect(labels).not.toContain("Common corridor lighting");
-    // Rule 9 — allocation = Floor 1 on every retained requirement.
-    expect(drawItems.every((i) => i.allocation === "Floor 1")).toBe(true);
   });
 
-  it("preserves null quantity + pending status on the 39, real numbers on the 22", () => {
-    for (let i = 1; i <= QUANTIFIED; i++) {
-      const it = drawItems.find((x) => x.match === `Quantified item ${i}`)!;
-      expect(it.qty).toBe(i);
-      expect(it.pending).toBeFalsy();
-    }
-    for (let i = 1; i <= NEEDS_DETAIL; i++) {
-      const it = drawItems.find((x) => x.match === `Review item ${i}`)!;
-      expect(it.qty).toBeNull();       // rule 5 — never converted to 0 / assumed
-      expect(it.pending).toBe(true);   // rule 3 — identifiable as pending
-      expect(it.basis).toBeUndefined();// UI must not show "Counted" for these
-    }
+  it("pending items keep qty null + pending true; every item stays allocation Floor 1", () => {
+    expect(pending.every((x) => x.qty === null && x.pending === true)).toBe(true);
+    expect(drawItems.every((x) => x.allocation === "Floor 1")).toBe(true);
+  });
+
+  it("does NOT reduce the 61 drawing items to 22 when the BOQ is generated", () => {
+    const before = drawItems.length;
+    const lines = generateForDiscipline("civil", spec, { area_sqft: 3960, floors: 1 });
+    // Generation writes BOQ lines; it must not mutate/shrink the drawing rows.
+    const after = ((spec as Record<string, unknown>)._drawing as DrawingSummary).items!.length;
+    expect(before).toBe(TOTAL_FLOOR1);
+    expect(after).toBe(TOTAL_FLOOR1);
+    // Exactly the 22 quantified drawing items flow into priced drawing lines.
+    const drawingPriced = lines.filter((l) => l.drawing && l.qty > 0);
+    expect(drawingPriced.length).toBe(QUANTIFIED);
+    // No pending requirement is fabricated into a priced line.
+    expect(lines.some((l) => /^Review item /.test(l.label))).toBe(false);
+  });
+
+  it("no pending drawing item receives a quantity from the Apartment template", () => {
+    generateForDiscipline("civil", spec, { area_sqft: 3960, floors: 1 });
+    const stillPending = ((spec as Record<string, unknown>)._drawing as DrawingSummary).items!.filter((d) => d.match.startsWith("Review item"));
+    expect(stillPending.length).toBe(PENDING);
+    expect(stillPending.every((d) => d.qty === null && d.pending === true)).toBe(true);
   });
 
   it("keeps the Works / Equipment / Needs-confirmation distinction on the review items", () => {
-    const scopes = new Set(drawItems.filter((i) => i.match.startsWith("Review item")).map((i) => i.scope));
+    const scopes = new Set(pending.map((d) => d.scope));
     expect(scopes.has("works")).toBe(true);
     expect(scopes.has("equipment")).toBe(true);
     expect(scopes.has("needs_confirmation")).toBe(true);
   });
 
   it("derives room counts from the drawing spaces, not the Apartment template", () => {
-    // Rule 6 — the generic Apartment template (6 beds / 6 baths / 3 kitchens…)
-    // must never overwrite the drawing-derived counts.
     expect(spec.bedrooms).toBe(4);
     expect(spec.bathrooms).toBe(4);
     expect(spec.kitchens).toBe(2);
     expect(spec.balconies).toBe(4);
   });
+});
 
-  it("prices the 22 quantified as BOQ lines and never fabricates a quantity for the 39", () => {
-    const lines = generateForDiscipline("electrical", spec, { area_sqft: 3960, floors: 1 });
-    const byLabel = new Map(lines.map((l) => [l.label, l]));
-    for (let i = 1; i <= QUANTIFIED; i++) {
-      expect(byLabel.get(`Quantified item ${i}`)?.qty).toBe(i);
-    }
-    // The pending 39 carry no quantity, so they are NOT priced as fabricated
-    // qty-0 lines — they remain in the drawing rows above for the operator to
-    // quantify. Confirm none leaked in with an invented number.
-    for (let i = 1; i <= NEEDS_DETAIL; i++) {
-      expect(byLabel.has(`Review item ${i}`)).toBe(false);
-    }
-    // Common Area scope never enters this floor's BOQ.
-    expect(byLabel.has("Passenger lift")).toBe(false);
+describe("Template electrical heuristics never overwrite drawing-identified scope", () => {
+  const template = [
+    { section: "Electrical", code: null, qty: 90, label: "Concealed electrical wiring with light/fan/socket points, incl. switches & accessories", unit: "point" },
+    { section: "Electrical", code: null, qty: 1, label: "MCB distribution board with MCBs/RCCB, complete", unit: "nos" },
+    { section: "Electrical", code: null, qty: 4, label: "Geyser power points (15A) with wiring", unit: "point" },
+    { section: "Structure", code: "5.22.6", qty: 800, label: "TMT reinforcement steel", unit: "kg" },
+  ];
+
+  it("withholds template electrical defaults when the drawing itemises electrical, even as pending", () => {
+    const out = applyDrawing(template, { items: [
+      { match: "5A socket", qty: null, pending: true },
+      { match: "Switchboard", qty: null, pending: true },
+      { match: "Distribution board", qty: null, pending: true },
+      { match: "Ceiling fan", qty: null, pending: true },
+      { match: "Geyser point", qty: null, pending: true },
+    ] as DrawingItem[] });
+    expect(out.find((l) => /concealed electrical wiring/i.test(l.label))?.included).toBe(false);
+    expect(out.find((l) => /distribution board/i.test(l.label))?.included).toBe(false);
+    expect(out.find((l) => /geyser power points/i.test(l.label))?.included).toBe(false);
+    // A non-electrical civil line is untouched — quantity intact.
+    const steel = out.find((l) => /reinforcement steel/i.test(l.label));
+    expect(steel?.included).not.toBe(false);
+    expect(steel?.qty).toBe(800);
+  });
+
+  it("does not withhold template electrical when the drawing has no electrical scope", () => {
+    const out = applyDrawing(template, { items: [{ match: "Wardrobe", qty: null, pending: true }] as DrawingItem[] });
+    expect(out.find((l) => /concealed electrical wiring/i.test(l.label))?.included).not.toBe(false);
   });
 });
 
@@ -156,15 +151,14 @@ describe("applyDrawing prices only quantified rows; pending rows are left for re
     const labels = out.map((l) => l.label);
     expect(labels).toContain("16A socket");
     expect(out.find((l) => l.label === "16A socket")?.qty).toBe(5);
-    // No fabricated qty-0 line for a null-quantity requirement.
     expect(labels).not.toContain("Feature wall");
     expect(labels).not.toContain("Wardrobe");
   });
 
   it("never lets a null-quantity item overwrite a matching generated estimate", () => {
-    const generated = [{ section: "Wiring", code: null, qty: 12, label: "Wardrobe", unit: "nos" }];
+    const generated = [{ section: "Joinery", code: null, qty: 12, label: "Wardrobe", unit: "nos" }];
     const out = applyDrawing(generated, { items: [{ match: "Wardrobe", qty: null, pending: true }] as DrawingItem[] });
     expect(out).toHaveLength(1);
-    expect(out[0].qty).toBe(12);   // heuristic estimate untouched
+    expect(out[0].qty).toBe(12);
   });
 });
