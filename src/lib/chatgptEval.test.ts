@@ -89,6 +89,34 @@ describe("buildChatGptPrompt — strict JSON contract", () => {
     expect(p).toMatch(/Do NOT.*collapse.*generic "electrical point"/i);
     expect(p).toMatch(/Common Area/);                           // allocation guidance
   });
+  it("maximises counting: unknown spec/model/material never blocks a count (COUNTABLE ≠ FULLY SPECIFIED)", () => {
+    const p = buildChatGptPrompt();
+    expect(p).toMatch(/COUNTABLE ≠ FULLY SPECIFIED/);
+    // an unknown specification / model / material must NOT force qty null
+    expect(p).toMatch(/model.*specification.*material|specification.*material/i);
+    expect(p).toMatch(/4 WCs/);                                 // the WC worked example
+    expect(p).toMatch(/3 wardrobes/);                           // the wardrobe worked example
+    // a numeric count must never be paired with a "Not assessable" basis (else it is discarded)
+    expect(p).toMatch(/BASIS MUST MATCH THE COUNT/);
+    expect(p).toMatch(/Never pair a real count with a "Not assessable" basis/);
+  });
+  it("makes a per-category count decision across the full Floor-1 audit list", () => {
+    const p = buildChatGptPrompt();
+    expect(p).toMatch(/COUNT DECISION/);
+    // representative categories the operator asked to audit — all must be named
+    for (const cat of [
+      "5A/6A sockets", "15A/16A sockets", "distribution board", "ceiling fans",
+      "tube lights", "AC points", "TV / plasma points", "calling bell", "geyser points",
+      "tower / wall fans", "exhaust", "conduits",
+      "WC", "wash basin", "CP fittings", "floor drain / floor trap", "kitchen sink",
+      "washing-machine provision", "refrigerator provision",
+      "internal walls / partitions", "windows", "ventilators", "green pocket",
+      "flooring", "wall finishes", "false ceiling",
+      "wardrobes", "walk-in closets", "dress units", "mirror units", "study units",
+      "kitchen platform", "kitchen island", "wet-kitchen storage", "feature walls",
+      "consoles / fixed storage", "media-room screen / projection provision",
+    ]) expect(p, `audit category missing from prompt: ${cat}`).toContain(cat);
+  });
 });
 
 describe("parseChatGptEvaluation — Scope column + none-seen", () => {
