@@ -454,8 +454,10 @@ export default function OpsBoqBuilder() {
   const drawRows = drawDraft ?? drawingItems;
   const editDraw = (i: number, patch: Partial<DrawingItem>) =>
     setDrawDraft((d) => (d ?? drawingItems).map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
-  const addDraw = () => setDrawDraft((d) => [...(d ?? drawingItems), { match: "", qty: 0, unit: "nos", basis: "Counted", note: "" }]);
-  const addDrawWith = (label: string) => setDrawDraft((d) => [...(d ?? drawingItems), { match: label, qty: 0, unit: "nos", basis: "Counted", note: "" }]);
+  // New rows start with NO quantity (null = pending) and no invented basis — a
+  // basis is only set once the operator enters a count.
+  const addDraw = () => setDrawDraft((d) => [...(d ?? drawingItems), { match: "", qty: null, unit: "nos", note: "" }]);
+  const addDrawWith = (label: string) => setDrawDraft((d) => [...(d ?? drawingItems), { match: label, qty: null, unit: "nos", note: "" }]);
   const [showChecklist, setShowChecklist] = useState(false);
   const delDraw = (i: number) => setDrawDraft((d) => (d ?? drawingItems).filter((_, idx) => idx !== i));
   const [pasteText, setPasteText] = useState("");
@@ -469,12 +471,27 @@ export default function OpsBoqBuilder() {
   const saveDrawing = async () => {
     if (!boq) return;
     const prev = ((boq.spec as Record<string, unknown>)?._drawing ?? null) as unknown;
-    // Keep every named requirement — including those still awaiting a quantity
-    // (qty 0). They are retained as pending, unpriced lines rather than dropped,
-    // so an identified requirement is never lost when the drawing is re-applied.
-    const clean = drawRows.filter((r) => (r.match ?? "").trim())
-      .map((r) => ({ match: (r.match ?? "").trim(), qty: Number(r.qty) || 0, unit: r.unit?.trim() || undefined, basis: r.basis ?? "Counted", equipment: r.equipment, note: r.note?.trim() || undefined, allocation: r.allocation }));
-    const priced = clean.filter((r) => r.qty > 0).length;
+    // Keep every named requirement — including those still awaiting a quantity.
+    // A row with no positive count is retained as PENDING: qty stays null (never
+    // coerced to 0/assumed) and no basis is invented, so an identified requirement
+    // is never lost — nor mislabelled as "counted" — when the drawing is re-applied.
+    const clean: DrawingItem[] = drawRows.filter((r) => (r.match ?? "").trim())
+      .map((r) => {
+        const n = Number(r.qty);
+        const hasQty = r.qty != null && String(r.qty) !== "" && Number.isFinite(n) && n > 0;
+        return {
+          match: (r.match ?? "").trim(),
+          qty: hasQty ? n : null,
+          unit: r.unit?.trim() || undefined,
+          basis: hasQty ? (r.basis ?? "Counted") : undefined,
+          equipment: r.equipment,
+          scope: r.scope,
+          note: r.note?.trim() || undefined,
+          allocation: r.allocation,
+          pending: hasQty ? undefined : true,
+        };
+      });
+    const priced = clean.filter((r) => r.qty != null).length;
     const detail = priced === clean.length ? `${clean.length} applied` : `${clean.length} kept · ${priced} priced · ${clean.length - priced} pending`;
     await commit({
       kind: "assumption", label: "Drawing measurements", detail,
@@ -1093,8 +1110,10 @@ export default function OpsBoqBuilder() {
                 </tr></thead>
                 <tbody>
                   {drawRows.map((r, i) => {
-                    const valid = (r.match ?? "").trim() && Number(r.qty) > 0;
+                    const hasQty = r.qty != null && Number(r.qty) > 0;
+                    const valid = !!(r.match ?? "").trim() && hasQty;
                     const equip = valid && (r.equipment ?? isEquipment(r.match));
+                    const scopeVal = r.scope ?? ((r.equipment ?? (valid && isEquipment(r.match))) ? "equipment" : "works");
                     const cat = valid && !equip
                       ? findCatalogueMatch(r.match, lines.map((l) => ({ code: l.dsr_code, label: l.description ?? "" })))
                       : null;
@@ -1104,24 +1123,29 @@ export default function OpsBoqBuilder() {
                         <Input list="boq-line-match" className="h-8" value={r.match} placeholder='e.g. 16A socket · TV point · 5.22.6'
                           onChange={(e) => editDraw(i, { match: e.target.value })} />
                       </td>
-                      <td className="pr-1"><Input className="h-8" type="number" value={r.qty || ""}
-                        onChange={(e) => editDraw(i, { qty: Number(e.target.value) })} /></td>
+                      <td className="pr-1"><Input className="h-8" type="number" value={r.qty ?? ""} placeholder="—"
+                        onChange={(e) => editDraw(i, { qty: e.target.value === "" ? null : Number(e.target.value) })} /></td>
                       <td className="pr-1"><Input className="h-8" value={r.unit ?? ""} placeholder="nos"
                         onChange={(e) => editDraw(i, { unit: e.target.value })} /></td>
                       <td className="pr-2">
-                        <select className="h-8 rounded border bg-background px-1 text-sm" value={r.basis ?? "Counted"}
-                          onChange={(e) => editDraw(i, { basis: e.target.value as DrawingBasis })}>
-                          {(["Counted", "Measured", "Derived", "Assumed"] as const).map((b) => <option key={b} value={b}>{b}</option>)}
-                        </select>
+                        {hasQty ? (
+                          <select className="h-8 rounded border bg-background px-1 text-sm" value={r.basis ?? "Counted"}
+                            onChange={(e) => editDraw(i, { basis: e.target.value as DrawingBasis })}>
+                            {(["Counted", "Measured", "Derived", "Assumed"] as const).map((b) => <option key={b} value={b}>{b}</option>)}
+                          </select>
+                        ) : (
+                          <span className="text-xs text-amber-600 dark:text-amber-500" title="No quantity yet — a basis is set once you enter a count">pending</span>
+                        )}
                       </td>
                       <td className="pr-2"><Input className="h-8" value={r.note ?? ""} placeholder="e.g. Living / TV area"
                         onChange={(e) => editDraw(i, { note: e.target.value })} /></td>
                       <td className="pr-2">
-                        <select className="h-8 rounded border bg-background px-1 text-sm" value={equip ? "equipment" : "works"}
-                          title="Works = contractor scope (priced) · Equipment = client-provided (not priced by default)"
-                          onChange={(e) => editDraw(i, { equipment: e.target.value === "equipment" })}>
+                        <select className="h-8 rounded border bg-background px-1 text-sm" value={scopeVal}
+                          title="Works = contractor scope (priced) · Equipment = client-provided (not priced) · Needs confirmation = scope to be confirmed"
+                          onChange={(e) => { const v = e.target.value as NonNullable<DrawingItem["scope"]>; editDraw(i, { scope: v, equipment: v === "equipment" }); }}>
                           <option value="works">Works</option>
                           <option value="equipment">Equipment</option>
+                          <option value="needs_confirmation">Needs confirmation</option>
                         </select>
                       </td>
                       <td className="pr-2 text-xs">

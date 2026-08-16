@@ -406,6 +406,21 @@ const SCOPE_CELL = /^(works?|equipment|client(?:[-\s]*supplied)?|needs?[-\s]*con
 const STATUS_CELL = /needs?[-\s]*detail|^\W*identified\b|^\W*quantified\b|not\s*assessable/i;
 const NEEDS_DETAIL = /needs?[-\s]*detail|^\W*identified\b/i;
 
+/** Classify a scope cell into the Works / Equipment / Needs-confirmation trichotomy
+ *  (undefined when no scope was stated, so downstream auto-detection can apply). */
+type DrawingScope = "works" | "equipment" | "needs_confirmation";
+function scopeClass(raw?: string): DrawingScope | undefined {
+  const s = (raw || "").trim();
+  if (!s) return undefined;
+  if (/equip|client/i.test(s)) return "equipment";
+  if (/needs?[-\s]*confirm/i.test(s)) return "needs_confirmation";
+  return "works";
+}
+/** Works/Equipment/Needs-confirmation → the legacy equipment boolean (kept for the
+ *  pricing engine). undefined scope → undefined, so auto-detection still runs. */
+const equipFromScope = (scope?: DrawingScope): boolean | undefined =>
+  scope === "equipment" ? true : scope ? false : undefined;
+
 // Requirements-table columns → canonical role. A response may add an "Allocation"
 // column (per-floor BOQs), rename "Location" to "Note", or reorder columns; a
 // recognised header row lets us map by NAME instead of by fixed position, so an
@@ -441,20 +456,18 @@ function headerRoles(cols: string[]): string[] | null {
 /** From the trailing table cells (after req|qty|unit|basis), tease apart the
  *  Scope column, the Status column and the free-text Location / Note — regardless
  *  of the order ChatGPT emits them in. */
-function splitTail(rest: string[]): { equipment?: boolean; note?: string; status?: string } {
-  let equipment: boolean | undefined;
+function splitTail(rest: string[]): { equipment?: boolean; scope?: DrawingScope; note?: string; status?: string } {
+  let scopeRaw: string | undefined;
   let status: string | undefined;
   const noteParts: string[] = [];
   for (const c of rest) {
     if (!c) continue;
     if (status === undefined && STATUS_CELL.test(c)) { status = c; continue; }
-    if (equipment === undefined && SCOPE_CELL.test(c)) {
-      equipment = /equip|client/i.test(c);   // "Works" / "Needs confirmation" → not equipment
-      continue;
-    }
+    if (scopeRaw === undefined && SCOPE_CELL.test(c)) { scopeRaw = c; continue; }
     noteParts.push(c);
   }
-  return { equipment, note: noteParts.join(" · ").trim() || undefined, status };
+  const scope = scopeClass(scopeRaw);
+  return { equipment: equipFromScope(scope), scope, note: noteParts.join(" · ").trim() || undefined, status };
 }
 
 /** Requirements table → DrawingItems (reusing the drawing-summary schema). Splits
@@ -482,7 +495,7 @@ function parseRequirements(sec?: string): { items: DrawingItem[]; needsDetail: D
       if (!header) { const roles = headerRoles(cols); if (roles) { header = roles; continue; } }
 
       let req: string | undefined, qtyRaw = "", unit = "", basisRaw = "";
-      let note: string | undefined, equipment: boolean | undefined, status = "", alloc: string | undefined;
+      let note: string | undefined, equipment: boolean | undefined, scope: DrawingScope | undefined, status = "", alloc: string | undefined;
       if (header) {
         const noteParts: string[] = [];
         let scopeCell = "";
@@ -499,27 +512,31 @@ function parseRequirements(sec?: string): { items: DrawingItem[]; needsDetail: D
           else noteParts.push(v);   // "note" and any unlabelled column → location/note
         });
         note = noteParts.join(" · ").trim() || undefined;
-        if (scopeCell) equipment = /equip|client/i.test(scopeCell);
+        scope = scopeClass(scopeCell);
+        equipment = equipFromScope(scope);
         if (req && /^(requirements?|items?|descriptions?)$/i.test(req)) continue;   // repeated header
       } else {
         // No header seen — the classic req | qty | unit | basis | …tail layout.
         if (/^requirement$/i.test(cols[0] ?? "")) continue;
         [req, qtyRaw, unit, basisRaw] = cols as [string, string, string, string];
         const tail = splitTail(cols.slice(4));
-        note = tail.note; equipment = tail.equipment; status = tail.status ?? "";
+        note = tail.note; equipment = tail.equipment; scope = tail.scope; status = tail.status ?? "";
       }
       if (!req) continue;
-      const qty = Number((qtyRaw || "").match(/[\d.]+/)?.[0]);
+      const qtyNum = Number((qtyRaw || "").match(/[\d.]+/)?.[0]);
+      const qty = Number.isFinite(qtyNum) ? qtyNum : null;
       const basisNA = /\bnot\s*assessable\b/i.test(basisRaw ?? "");
       // COUNTABLE ≠ MEASURABLE: a present count wins over the status wording. An
       // item the model counted (qty > 0) is Quantified even if it is tagged
       // "Identified — Needs detail" because its dimensions/running-length are
       // unknown — that missing measurement lives in the note, never in the qty.
-      if (qty > 0 && !basisNA) {
-        items.push({ match: req, qty, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, note, allocation: alloc });
+      if (qty != null && qty > 0 && !basisNA) {
+        items.push({ match: req, qty, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, scope, note, allocation: alloc });
       } else if (NEEDS_DETAIL.test(status)) {
-        // Identified scope with no usable count yet — RETAIN (qty 0 = unpriced).
-        needsDetail.push({ match: req, qty: 0, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, note, allocation: alloc });
+        // Identified scope with no usable count yet — RETAINED as pending: qty stays
+        // null (never coerced to 0/assumed) and no basis is invented, so the row is
+        // clearly "identified, quantity to be confirmed" rather than "0 counted".
+        needsDetail.push({ match: req, qty: null, unit: unit?.trim() || undefined, equipment, scope, note, allocation: alloc, pending: true });
       } else {
         // Blank quantity, or a quantity the drawing itself does not support
         // ("Not assessable" basis) — recorded, never priced.
@@ -643,16 +660,19 @@ function requirementsFromJson(v: unknown): { items: DrawingItem[]; needsDetail: 
     const basisRaw = jstr(o.basis);
     const basis = normBasis(basisRaw);
     const status = jstr(o.status);
-    const scope = jstr(o.scope);
-    const equipment = scope ? /equip|client/i.test(scope) : undefined;
+    const scope = scopeClass(jstr(o.scope));
+    const equipment = equipFromScope(scope);
     const note = [jstr(o.location), jstr(o.note)].filter(Boolean).join(" · ") || undefined;
     const qty = jnum(o.qty);
     const basisNA = /not\s*assessable/i.test(basisRaw);
     // COUNTABLE ≠ MEASURABLE: a present count (qty > 0) means Quantified, even if
     // the model tagged the row "Identified — Needs detail" for a missing
     // dimension/area. The missing measurement stays in the note, not the qty.
-    if (qty != null && qty > 0 && !basisNA) items.push({ match, qty, unit, basis, equipment, note, allocation });
-    else if (NEEDS_DETAIL.test(status)) needsDetail.push({ match, qty: 0, unit, basis, equipment, note, allocation });
+    if (qty != null && qty > 0 && !basisNA) items.push({ match, qty, unit, basis, equipment, scope, note, allocation });
+    // Identified but not quantifiable → RETAINED as pending: qty stays null (never
+    // coerced to 0/assumed) and no basis is invented, so the row reads as "quantity
+    // to be confirmed" rather than a counted zero.
+    else if (NEEDS_DETAIL.test(status)) needsDetail.push({ match, qty: null, unit, equipment, scope, note, allocation, pending: true });
     else notAssessable.push(match);
   }
   const seen = new Set<string>();
@@ -778,11 +798,14 @@ export function evalToText(e: ChatGptEval): string {
   };
   const heading = (h: string) => { L.push("", h); };
   const req = (it: DrawingItem) => {
+    const scopeLabel = it.scope === "equipment" ? "client equipment"
+      : it.scope === "needs_confirmation" ? "needs confirmation" : null;
     const bits = [
-      it.qty > 0 ? `${it.qty}${it.unit ? " " + it.unit : ""}` : null,
+      it.qty != null && it.qty > 0 ? `${it.qty}${it.unit ? " " + it.unit : ""}` : null,
+      (it.pending || it.qty == null) ? "pending quantity" : null,
       it.basis,
       it.allocation,
-      it.equipment ? "client equipment" : null,
+      scopeLabel ?? (it.equipment ? "client equipment" : null),
       it.note,
     ].filter(Boolean);
     return `- ${it.match}${bits.length ? ` — ${bits.join(" · ")}` : ""}`;

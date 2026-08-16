@@ -18,23 +18,21 @@ describe("Scope inventory — identified-but-unquantified items are retained, no
 Feature wall |  |  | Not assessable | Living, behind sofa | Works | Identified — Needs detail`);
     const fw = e.needsDetail.find((d) => /feature wall/i.test(d.match));
     expect(fw).toBeTruthy();
-    expect(fw?.qty).toBe(0);                                   // retained, but no invented quantity
+    expect(fw?.qty).toBeNull();                                // retained, quantity preserved as null (never invented)
+    expect(fw?.pending).toBe(true);                            // identifiable as pending
+    expect(fw?.basis).toBeUndefined();                         // no fabricated "Counted" basis
     expect(e.requirements.some((r) => /feature wall/i.test(r.match))).toBe(false);
     expect(e.notAssessable).not.toContain("Feature wall");     // NOT dropped into "can't assess"
-    // Retained into the BOQ as a pending, unpriced line — kept for review, never
-    // priced until the operator confirms a quantity (qty 0, excluded from total).
-    const out = applyDrawing([], { items: e.needsDetail });
-    const fwLine = out.find((l) => /feature wall/i.test(l.label));
-    expect(fwLine).toBeTruthy();
-    expect(fwLine?.qty).toBe(0);
-    expect(fwLine?.included).toBe(false);
+    // A null-quantity requirement is never turned into a priced line — it lives on
+    // as a pending drawing row until the operator confirms a quantity.
+    expect(applyDrawing([], { items: e.needsDetail }).length).toBe(0);
   });
 
   it("2. an entrance feature with a 'Not assessable' basis is still retained (Status wins)", () => {
     const e = parseChatGptEvaluation(`${REQ_HEADER}
 Entrance feature |  |  | Not assessable | Entrance / foyer | Works | Identified — Needs detail`);
     const ef = e.needsDetail.find((d) => /entrance feature/i.test(d.match));
-    expect(ef).toMatchObject({ qty: 0, note: "Entrance / foyer", equipment: false });
+    expect(ef).toMatchObject({ qty: null, note: "Entrance / foyer", equipment: false, pending: true });
     expect(e.notAssessable).not.toContain("Entrance feature");
   });
 
