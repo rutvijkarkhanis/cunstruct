@@ -164,19 +164,38 @@ const ELECTRIC_HEURISTIC = /(light|fan|call)[^]{0,20}point|concealed[^]{0,40}poi
 // priced OR pending. Any such item means the drawing itemises electrical.
 const ELECTRIC_ITEM = /\b(\d+\s*a\b|socket|switch\s*board|switchboard|distribution board|\bdb\b|geyser|ceiling\s*(lamp|light|fan)|tube\s*light|\bfan\b|\blamp\b|light\s*point|fan\s*point|floor\s*point|tv\s*point|ac\s*point|audio\s*point|power\s*point|conduit)\b/i;
 
+/**
+ * DrawingItem precedence: is this template/heuristic line superseded by a drawing
+ * requirement? The drawing evaluation is authoritative, so a generic template
+ * quantity must never duplicate or stand in for a requirement the drawing owns —
+ * whether that requirement is priced or still pending (qty null). Two match modes:
+ *   - specific: the line names the same requirement as a DrawingItem (matchesCandidate);
+ *   - collective: a bundled electrical points allowance (e.g. "90 light/fan/socket
+ *     points"), superseded once the drawing itemises electrical scope, so a single
+ *     lump line can't imply the per-symbol quantities have been established.
+ * Equipment DrawingItems don't suppress works lines. Callers must skip lines that
+ * are themselves drawing-derived. Pure and idempotent — safe to run at render time.
+ */
+export function isSupersededByDrawing(label: string | null | undefined, code: string | null | undefined, summary?: DrawingSummary | null): boolean {
+  const lbl = (label ?? "").trim();
+  if (!lbl) return false;
+  const items = (summary?.items ?? []).filter((i) => !!i.match?.trim() && !(i.equipment ?? isEquipment(i.match)));
+  if (!items.length) return false;
+  if (items.some((it) => matchesCandidate(it.match, { code: code ?? null, label: lbl }))) return true;
+  if (ELECTRIC_HEURISTIC.test(lbl) && items.some((it) => ELECTRIC_ITEM.test(it.match))) return true;
+  return false;
+}
+
 export function applyDrawing(lines: GeneratedLine[], summary?: DrawingSummary | null): GeneratedLine[] {
-  // Split the drawing requirements into priced (a real positive quantity) and
-  // pending (identified but not yet quantifiable — qty null). Only priced items
-  // become BOQ lines here; pending items carry no quantity, so pricing them would
-  // mean inventing one. Pending items are retained upstream as null-qty drawing
-  // rows (spec._drawing.items) and rendered separately as unpriced/pending rows —
-  // but they still count as "the drawing itemises this scope" for suppression.
+  // Only requirements with a real, positive quantity become priced BOQ lines.
+  // Pending items (qty null) carry no quantity — pricing them would mean inventing
+  // one — so they are retained upstream as null-qty drawing rows and rendered
+  // separately as unpriced/pending rows. They still supersede template scope below.
   const named = (summary?.items ?? []).filter((i) => !!i.match?.trim());
   if (!named.length) return lines;
   const items = named.filter(
     (i): i is DrawingItem & { qty: number } => i.qty != null && Number.isFinite(i.qty) && i.qty > 0,
   );
-  const pending = named.filter((i) => !(i.qty != null && Number.isFinite(i.qty) && i.qty > 0));
   const metaOf = (it: DrawingItem, equip: boolean): LineDrawingMeta => ({
     basis: it.basis ?? "Counted",
     location: it.note?.trim() || undefined,
@@ -202,22 +221,18 @@ export function applyDrawing(lines: GeneratedLine[], summary?: DrawingSummary | 
       included: equip ? false : undefined,   // client equipment isn't contractor works
     });
   });
-  // Prevent the generic Apartment template from FABRICATING electrical quantities
-  // for scope the drawing has already identified (priced OR pending). When the
-  // drawing itemises electrical scope, the room-count-based template electrical
-  // heuristics (90 generic points, MCB board, geyser/AC points, fittings…) are
-  // withheld — kept in the doc, excluded from the total, marked superseded — so a
-  // template default can never overwrite or stand in for a drawing requirement.
-  const itemisesElectrical = [...items, ...pending].some(
-    (it) => ELECTRIC_ITEM.test(it.match) && !(it.equipment ?? isEquipment(it.match)),
-  );
-  if (itemisesElectrical) {
-    for (let i = 0; i < out.length; i++) {
-      const l = out[i];
-      if (l.drawing || !l.label) continue;            // never touch drawing-derived lines
-      if (ELECTRIC_HEURISTIC.test(l.label)) {
-        out[i] = { ...l, included: false, basis: "HEURISTIC", note: "Superseded by itemised drawing electrical scope" };
-      }
+  // DrawingItem precedence: the drawing evaluation is authoritative. Any template/
+  // heuristic line a drawing requirement supersedes — a requirement the drawing
+  // names (priced or pending), or a bundled electrical points allowance once the
+  // drawing itemises electrical — is withheld here: kept in the doc, excluded from
+  // the total, marked superseded, so a template default can never duplicate or
+  // fabricate a quantity for a requirement the drawing owns. Drawing-derived lines
+  // are never touched, and template lines with no matching requirement are left as-is.
+  for (let i = 0; i < out.length; i++) {
+    const l = out[i];
+    if (l.drawing || !l.label) continue;
+    if (isSupersededByDrawing(l.label, l.code, summary)) {
+      out[i] = { ...l, included: false, basis: "HEURISTIC", note: "Superseded by drawing requirement" };
     }
   }
   return out;

@@ -79,9 +79,9 @@ describe("applyDrawing", () => {
     // An item with no requirement text, a zero quantity, or a null (pending)
     // quantity is never turned into a priced line here — pending items are kept
     // upstream as null-qty drawing rows for the operator to quantify.
-    const out = applyDrawing(lines, { items: [{ match: "", qty: 5 }, { match: "steel", qty: 0 }, { match: "veneer", qty: null }] });
+    const out = applyDrawing(lines, { items: [{ match: "", qty: 5 }, { match: "glazing film", qty: 0 }, { match: "veneer", qty: null }] });
     expect(out.map((l) => l.qty)).toEqual([800, 10, 20]);
-    expect(out.some((l) => l.label === "steel" || l.label === "veneer")).toBe(false);
+    expect(out.some((l) => l.label === "glazing film" || l.label === "veneer")).toBe(false);
   });
 
   it("links synonyms semantically — '16 amp power point' ≈ '(16A) … sockets'", () => {
