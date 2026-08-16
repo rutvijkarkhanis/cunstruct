@@ -150,8 +150,14 @@ const looksLikePoint = (label: string) =>
   /\b(\d+\s*a\b|socket|light\s*point|fan\s*point|power\s*point|floor\s*point|tv\s*point|projector\s*point|audio\s*point|conduit)\b/i.test(label);
 
 export function applyDrawing(lines: GeneratedLine[], summary?: DrawingSummary | null): GeneratedLine[] {
-  const items = summary?.items?.filter((i) => i.match?.trim() && Number.isFinite(i.qty) && i.qty > 0);
-  if (!items?.length) return lines;
+  const named = summary?.items?.filter((i) => i.match?.trim() && Number.isFinite(i.qty));
+  if (!named?.length) return lines;
+  // A requirement with a real quantity is priced; one identified on the drawing
+  // but not yet quantifiable (qty 0 / null) is RETAINED as a pending, unpriced
+  // line — never dropped, never priced — so EVERY identified requirement flows
+  // into the BOQ (the operator quantifies it later in the Drawing section).
+  const items = named.filter((i) => i.qty > 0);
+  const pending = named.filter((i) => !(i.qty > 0));
   const metaOf = (it: DrawingItem, equip: boolean): LineDrawingMeta => ({
     basis: it.basis ?? "Counted",
     location: it.note?.trim() || undefined,
@@ -177,6 +183,21 @@ export function applyDrawing(lines: GeneratedLine[], summary?: DrawingSummary | 
       included: equip ? false : undefined,   // client equipment isn't contractor works
     });
   });
+  // Retain every identified-but-unquantified requirement as a pending line: kept
+  // in the BOQ for review, carried with qty 0 and excluded from the total so it
+  // is never priced until the operator confirms a quantity. This is what keeps a
+  // per-floor drawing's full scope (both quantified and "needs detail") intact.
+  for (const it of pending) {
+    const equip = it.equipment ?? isEquipment(it.match);
+    const detail = it.note?.trim();
+    out.push({
+      section: it.section?.trim() || "Drawing items — pending quantity",
+      code: null, qty: 0, label: it.match.trim(), unit: it.unit?.trim() || "nos", ns: true,
+      note: detail ? `${detail} · quantity to be confirmed` : "Identified on drawing — quantity to be confirmed",
+      drawing: metaOf(it, equip),
+      included: false,   // retained but not priced until quantified
+    });
+  }
   // #5 — prevent double-counting: when the drawing itemises electrical points, the
   // generic catch-all points allowance is superseded. Mark it Assumed and drop it
   // from the total (operator can re-include if it is genuinely separate scope).

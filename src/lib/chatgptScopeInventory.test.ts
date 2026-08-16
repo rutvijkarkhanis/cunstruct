@@ -21,8 +21,13 @@ Feature wall |  |  | Not assessable | Living, behind sofa | Works | Identified �
     expect(fw?.qty).toBe(0);                                   // retained, but no invented quantity
     expect(e.requirements.some((r) => /feature wall/i.test(r.match))).toBe(false);
     expect(e.notAssessable).not.toContain("Feature wall");     // NOT dropped into "can't assess"
-    // qty 0 → the priced Drawing engine never emits a line for it
-    expect(applyDrawing([], { items: e.needsDetail }).length).toBe(0);
+    // Retained into the BOQ as a pending, unpriced line — kept for review, never
+    // priced until the operator confirms a quantity (qty 0, excluded from total).
+    const out = applyDrawing([], { items: e.needsDetail });
+    const fwLine = out.find((l) => /feature wall/i.test(l.label));
+    expect(fwLine).toBeTruthy();
+    expect(fwLine?.qty).toBe(0);
+    expect(fwLine?.included).toBe(false);
   });
 
   it("2. an entrance feature with a 'Not assessable' basis is still retained (Status wins)", () => {

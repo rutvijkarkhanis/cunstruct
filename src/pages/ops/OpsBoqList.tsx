@@ -1,11 +1,17 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { disciplineByKey } from "@/lib/disciplines";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Plus, Calculator } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
+import { Loader2, Plus, Calculator, Trash2 } from "lucide-react";
 
 interface BoqRow { id: string; name: string; status: string; discipline: string; project_id: string | null; updated_at: string; }
 interface LineRow { boq_id: string; qty: number; dsr_rate: number | null; custom_rate: number | null; included: boolean; }
@@ -15,6 +21,26 @@ const GST = 0.18;
 
 export default function OpsBoqList() {
   const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Deleting a BOQ removes its line items too (boq_line cascades on boq.id).
+  const deleteBoq = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const { error } = await supabase.from("boq").delete().eq("id", deleteTarget.id);
+      if (error) throw error;
+      toast.success(`Deleted "${deleteTarget.name}"`);
+      setDeleteTarget(null);
+      qc.invalidateQueries({ queryKey: ["boq-list"] });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const { data, isLoading } = useQuery({
     queryKey: ["boq-list"],
@@ -89,6 +115,14 @@ export default function OpsBoqList() {
                     </div>
                     <Badge variant="outline" className="shrink-0">{b.status}</Badge>
                     <span className="text-sm tabular-nums w-28 text-right">{b.works > 0 ? inr(b.works) : "—"}</span>
+                    <Button
+                      size="icon" variant="ghost"
+                      className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                      title="Delete this BOQ"
+                      onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: b.id, name: b.name }); }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 ))}
                 {/* Grand abstract — d21 style */}
@@ -102,6 +136,28 @@ export default function OpsBoqList() {
           );
         })
       )}
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this BOQ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes <span className="font-medium">{deleteTarget?.name}</span> and all of its
+              line items. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); deleteBoq(); }}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
