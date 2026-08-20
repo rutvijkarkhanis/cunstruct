@@ -154,15 +154,34 @@ const matchesLine = (it: DrawingItem, l: GeneratedLine): boolean =>
  * still added as a valid, priceable line (null code = No Catalogue Match) rather
  * than being dropped or forced into a wrong item. We never invent a quantity.
  */
-// Template ELECTRICAL heuristics that are sized from room counts (generic points
-// allowance, plug points, MCB distribution board, geyser/AC power points, light
-// fittings). Once the drawing itemises electrical scope, these template defaults
-// are superseded — the drawing (with a row per symbol) becomes the source of
-// truth, so the template must not fabricate a competing quantity for that scope.
-const ELECTRIC_HEURISTIC = /(light|fan|call)[^]{0,20}point|concealed[^]{0,40}point|point[^]{0,20}modular switch|power\s*plug\s*point|plug\s*point|distribution board|\bmcb\b|geyser\s*power\s*point|dedicated\s*power\s*point|light fixtures?,?\s*fans|light fittings?,?\s*ceiling fans/i;
-// A drawing requirement that is electrical scope (a point/socket/board/fitting) —
-// priced OR pending. Any such item means the drawing itemises electrical.
-const ELECTRIC_ITEM = /\b(\d+\s*a\b|socket|switch\s*board|switchboard|distribution board|\bdb\b|geyser|ceiling\s*(lamp|light|fan)|tube\s*light|\bfan\b|\blamp\b|light\s*point|fan\s*point|floor\s*point|tv\s*point|ac\s*point|audio\s*point|power\s*point|conduit)\b/i;
+// Collective (category) precedence. A generic template line covers a whole
+// category with a single room-count-sized quantity (a "90 light/fan/socket
+// points" allowance, a "flooring ≈ 0.85 × area" line, an interior-paint area).
+// Once the drawing itemises that category — even as pending, qty null — the
+// drawing becomes the source of truth for it, so the bundled template quantity
+// must NOT stand in for the drawing's (as-yet-unquantified) scope. Each bridge is
+// { heuristic: the template line it supersedes, item: the drawing signal that a
+// category is itemised }. These are category families, NOT per-item exclusions.
+const CATEGORY_BRIDGES: { heuristic: RegExp; item: RegExp }[] = [
+  {
+    // Electrical: generic points allowance / plug points / MCB DB / geyser-AC
+    // points / light fittings, superseded once the drawing itemises any point.
+    heuristic: /(light|fan|call)[^]{0,20}point|concealed[^]{0,40}point|point[^]{0,20}modular switch|power\s*plug\s*point|plug\s*point|distribution board|\bmcb\b|geyser\s*power\s*point|dedicated\s*power\s*point|light fixtures?,?\s*fans|light fittings?,?\s*ceiling fans/i,
+    item: /\b(\d+\s*a\b|socket|switch\s*board|switchboard|distribution board|\bdb\b|geyser|ceiling\s*(lamp|light|fan)|tube\s*light|\bfan\b|\blamp\b|light\s*point|fan\s*point|floor\s*point|tv\s*point|ac\s*point|audio\s*point|power\s*point|conduit)\b/i,
+  },
+  {
+    // Interior wall finishes: generic internal plaster / putty / primer / emulsion
+    // area, superseded once the drawing itemises wall finishes / painting scope.
+    heuristic: /internal\s*plaster|wall\s*putty|interior\s*(primer|emulsion|paint)/i,
+    item: /wall\s*finish|\bpaint(?:ing)?\b|\bplaster\b|\bputty\b|\bemulsion\b/i,
+  },
+  {
+    // Flooring: generic floor-area allowance, superseded once the drawing itemises
+    // flooring scope (but NOT floor traps / floor points, which are not flooring).
+    heuristic: /flooring|anti-?skid\s*ceramic|vitrified|floor\s*tile/i,
+    item: /\bfloor(?:ing)?\b(?!\s*(?:trap|drain|point|box|spring|outlet))/i,
+  },
+];
 
 /**
  * DrawingItem precedence: is this template/heuristic line superseded by a drawing
@@ -182,7 +201,8 @@ export function isSupersededByDrawing(label: string | null | undefined, code: st
   const items = (summary?.items ?? []).filter((i) => !!i.match?.trim() && !(i.equipment ?? isEquipment(i.match)));
   if (!items.length) return false;
   if (items.some((it) => matchesCandidate(it.match, { code: code ?? null, label: lbl }))) return true;
-  if (ELECTRIC_HEURISTIC.test(lbl) && items.some((it) => ELECTRIC_ITEM.test(it.match))) return true;
+  for (const b of CATEGORY_BRIDGES)
+    if (b.heuristic.test(lbl) && items.some((it) => b.item.test(it.match))) return true;
   return false;
 }
 

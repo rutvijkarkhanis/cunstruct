@@ -7,7 +7,7 @@
 import { buildContext, type QtyContext, type RoomDims } from "./boqDsrCatalog";
 import { generateLines, type GeneratedLine, type ProjectBasics } from "./boqDsrGenerate";
 import { applyDrawing, defaultBasis, type DrawingSummary } from "./boqDrawing";
-import { withoutOutOfScopeInfra } from "./boqScope";
+import { withinAllocation, allocationFloors, type BoqScope } from "./boqAllocation";
 import type { Spec } from "./boqSpec";
 
 export interface DiscItem {
@@ -17,6 +17,7 @@ export interface DiscItem {
   code?: string | null;                       // DSR code where the item is scheduled, else null
   qty: (c: QtyContext, spec: Spec) => number;
   when?: (spec: Spec) => boolean;
+  scope?: BoqScope;                            // allocation layer (default: "unit")
 }
 export interface Discipline {
   key: string;
@@ -42,9 +43,9 @@ const ELECTRICAL: DiscItem[] = [
   { section: "DB & Panels", label: "Distribution board with MCBs / RCCB, complete", unit: "nos",
     qty: (c) => Math.max(1, c.floors) },
   { section: "DB & Panels", label: "Main panel / meter board with incomer & earthing", unit: "nos",
-    qty: () => 1 },
+    qty: () => 1, scope: "building" },        // building service intake — shared
   { section: "Earthing & Protection", label: "Earthing station (GI/copper) with earth pit", unit: "nos",
-    qty: () => 2 },
+    qty: () => 2, scope: "building" },        // building earthing — shared
   { section: "Fixtures", label: "Light fittings, ceiling fans & exhaust fans (supply & install)", unit: "nos",
     qty: (c) => c.rooms * 4 + c.baths },
 ];
@@ -62,11 +63,11 @@ const PLUMBING: DiscItem[] = [
   { section: "Sanitary Fixtures", label: "CP fittings — bib cocks, taps, health faucet, floor trap", unit: "nos", code: "18.49.1",
     qty: (c) => c.baths * 5 },
   { section: "Tanks & Pumps", label: "Overhead water storage tank with fittings", unit: "nos",
-    qty: () => 1, when: (s) => truthy(s.oht) },
+    qty: () => 1, when: (s) => truthy(s.oht), scope: "building" },
   { section: "Tanks & Pumps", label: "Underground water sump with fittings", unit: "nos",
-    qty: () => 1, when: (s) => truthy(s.sump) },
+    qty: () => 1, when: (s) => truthy(s.sump), scope: "building" },
   { section: "Tanks & Pumps", label: "Water pump / pressure pump set", unit: "nos",
-    qty: () => 1, when: (s) => truthy(s.pump) },
+    qty: () => 1, when: (s) => truthy(s.pump), scope: "building" },
   { section: "Hot Water", label: "Geyser / water heater with points & connections", unit: "nos",
     qty: (c) => c.baths, when: (s) => truthy(s.geyser) },
 ];
@@ -90,9 +91,9 @@ const FIRE: DiscItem[] = [
   { section: "Fire Alarm", label: "Smoke / heat detectors with wiring", unit: "nos",
     qty: (c) => c.rooms + c.floors },
   { section: "Fire Alarm", label: "Fire alarm control panel with hooter, complete", unit: "nos",
-    qty: () => 1 },
+    qty: () => 1, scope: "building" },        // building fire panel — shared
   { section: "Fire Protection", label: "Fire hydrant / hose reel points (where applicable)", unit: "nos",
-    qty: (c) => c.floors },
+    qty: (c) => c.floors, scope: "common" },  // common-area fire hydrant
 ];
 
 export const DISCIPLINES: Discipline[] = [
@@ -107,32 +108,38 @@ export const disciplineByKey = (key: string) => DISCIPLINES.find((d) => d.key ==
 
 /** Generate BOQ lines for any discipline: civil via the DSR engine, MEP via its catalogue. */
 export function generateForDiscipline(key: string, spec: Spec, project: ProjectBasics, dims?: RoomDims): GeneratedLine[] {
+  // A per-floor / per-unit BOQ covers ONE floor of work, so whole-building scaling
+  // (× floors) must collapse to one — otherwise a Floor-1 BOQ inherits the whole
+  // building's structural / envelope quantities. Whole-project BOQs keep the count.
+  const floors = allocationFloors(spec, project.floors);
+  const proj: ProjectBasics = { area_sqft: project.area_sqft, floors };
   let out: GeneratedLine[];
   if (key === "civil") {
-    out = generateLines(spec, project, dims);
+    out = generateLines(spec, proj, dims);
   } else {
     const disc = disciplineByKey(key);
     if (!disc.items) return [];
-    const ctx = buildContext(spec, { area_sqft: project.area_sqft, floors: project.floors }, dims);
+    const ctx = buildContext(spec, { area_sqft: proj.area_sqft, floors }, dims);
     out = [];
     for (const it of disc.items) {
       if (it.when && !it.when(spec)) continue;
       const qty = Math.round(it.qty(ctx, spec) * 100) / 100;
       if (qty <= 0) continue;
-      out.push({ section: it.section, code: it.code ?? null, qty, label: it.label, unit: it.unit, ns: !it.code });
+      out.push({ section: it.section, code: it.code ?? null, qty, label: it.label, unit: it.unit, ns: !it.code, scope: it.scope ?? "unit" });
     }
   }
   // Stamp a fallback provenance on every line (measured rooms → derived; else
   // coefficient/heuristic).
   const hasRooms = !!dims;
   out = out.map((l) => ({ ...l, basis: defaultBasis(l, hasRooms) }));
-  // Withhold broader-scope template infrastructure (site sump/pump, building
-  // overhead tank, external works) from a BOQ scoped to a single floor / private
-  // apartment — unless the drawing itself supports it. A whole-project BOQ (no
-  // allocation) keeps everything, and drawing-derived lines are never touched.
-  out = withoutOutOfScopeInfra(out, spec);
+  // ALLOCATION BOUNDARY: keep only the candidate items whose scope layer this
+  // BOQ's allocation owns. A private-floor / unit BOQ drops site / substructure /
+  // structure / building / common candidates (they belong to other BOQs); a
+  // whole-project BOQ keeps everything. Drawing-derived lines are never dropped.
+  out = withinAllocation(out, spec);
   // Then let the operator's drawing summary override the items it explicitly
-  // covers. Everything else keeps its assumption basis.
+  // covers, append drawing-only requirements, and supersede duplicated template
+  // scope. Everything else keeps its assumption basis.
   const summary = (spec as Record<string, unknown>)._drawing as DrawingSummary | undefined;
   return applyDrawing(out, summary);
 }
