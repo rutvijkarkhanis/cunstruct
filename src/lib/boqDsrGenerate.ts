@@ -13,6 +13,7 @@ export interface GeneratedLine {
   label: string;
   unit: string;
   ns?: boolean;         // Non-Schedule item (rate to be analysed)
+  scope?: import("./boqAllocation").BoqScope;  // which allocation layer this item belongs to
   basis?: import("./boqDrawing").QtyBasis;  // where the quantity came from
   note?: string;                            // provenance note (e.g. drawing summary)
   included?: boolean;                       // default inclusion (client equipment → false)
@@ -38,14 +39,14 @@ export function generateLines(spec: Spec, project: ProjectBasics, dims?: RoomDim
     const qty = Math.round(item.qty(ctx, spec) * 100) / 100;
     if (qty <= 0) continue;
     const code = typeof item.code === "function" ? item.code(spec) : item.code;
-    out.push({ section: item.section, code, qty, label: item.label, unit: item.unit });
+    out.push({ section: item.section, code, qty, label: item.label, unit: item.unit, scope: item.scope ?? "unit" });
   }
   // Non-Schedule items (electrical, tanks, pumps, modular) — no DSR code / rate.
   for (const item of NS_CATALOG) {
     if (item.when && !item.when(spec)) continue;
     const qty = Math.round(item.qty(ctx, spec) * 100) / 100;
     if (qty <= 0) continue;
-    out.push({ section: item.trade, code: null, qty, label: item.label, unit: item.unit, ns: true });
+    out.push({ section: item.trade, code: null, qty, label: item.label, unit: item.unit, ns: true, scope: item.scope ?? "unit" });
   }
   return out;
 }

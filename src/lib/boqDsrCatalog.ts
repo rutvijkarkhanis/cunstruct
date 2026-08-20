@@ -8,6 +8,7 @@
 // boqDsrCatalog.test.ts asserts every code here exists in that seed.
 
 import type { Spec } from "./boqSpec";
+import type { BoqScope } from "./boqAllocation";
 
 /** Everything a quantity formula needs, derived once from spec + project basics. */
 export interface QtyContext {
@@ -35,6 +36,8 @@ export interface CatalogItem {
   qty: (c: QtyContext, spec: Spec) => number;
   /** Gate: include this line only when true (default: always). */
   when?: (spec: Spec) => boolean;
+  /** Which allocation layer this candidate belongs to (default: "unit"). */
+  scope?: BoqScope;
 }
 
 const SQFT_TO_SQM = 1 / 10.764;
@@ -80,21 +83,21 @@ const truthy = (v: unknown) => v === true || v === "true";
 export const DSR_CATALOG: CatalogItem[] = [
   // ---- Substructure & structure (verified: agent A) ----------------------
   { key: "excavation", section: "Earthwork", code: "2.8.1", label: "Excavation in foundation", unit: "cum",
-    qty: (c) => c.footprintSqm * 0.5 },
+    qty: (c) => c.footprintSqm * 0.5, scope: "substructure" },
   { key: "pcc_bed", section: "Concrete", code: "4.1.8", label: "PCC 1:4:8 bed", unit: "cum",
-    qty: (c) => c.footprintSqm * 0.1 },
+    qty: (c) => c.footprintSqm * 0.1, scope: "substructure" },
   { key: "rcc", section: "RCC", code: "5.3", label: "RCC M-20 (slabs, beams, columns)", unit: "cum",
-    qty: (c) => c.floorSqm * 0.4 },      // ~0.04 m³/sqft built-up (framed structure)
+    qty: (c) => c.floorSqm * 0.4, scope: "structure" },      // ~0.04 m³/sqft built-up (framed structure)
   { key: "reinforcement", section: "RCC", code: "5.22.6", label: "TMT reinforcement steel", unit: "kg",
-    qty: (c) => c.floorSqm * 38 },       // ~95 kg per m³ of RCC ≈ 3.5 kg/sqft
+    qty: (c) => c.floorSqm * 38, scope: "structure" },       // ~95 kg per m³ of RCC ≈ 3.5 kg/sqft
   { key: "formwork", section: "RCC", code: "5.9.3", label: "Centering & shuttering", unit: "sqm",
-    qty: (c) => c.floorSqm * 2.5 },
+    qty: (c) => c.floorSqm * 2.5, scope: "structure" },
   { key: "masonry_230", section: "Masonry", code: "6.4.2", label: "230mm brick masonry CM 1:6", unit: "cum",
-    qty: (c) => (c.wallSqm / 2) * 0.23, when: (s) => s.ext_wall !== "6in" },  // wallSqm counts both faces
+    qty: (c) => (c.wallSqm / 2) * 0.23, when: (s) => s.ext_wall !== "6in", scope: "structure" },  // wallSqm counts both faces
   { key: "masonry_115", section: "Masonry", code: "6.13.1", label: "115mm brick masonry", unit: "sqm",
-    qty: (c) => c.wallSqm * 0.5, when: (s) => s.ext_wall === "6in" },
+    qty: (c) => c.wallSqm * 0.5, when: (s) => s.ext_wall === "6in", scope: "structure" },
   { key: "grill", section: "Doors & Windows", code: "9.48.2", label: "MS window grills", unit: "kg",
-    qty: (c) => (c.rooms + c.baths) * 25, when: (s) => truthy(s.grills) },
+    qty: (c) => (c.rooms + c.baths) * 25, when: (s) => truthy(s.grills) },   // unit (apartment openings)
 
   // ---- Flooring & tiling (verified: agent B) -----------------------------
   { key: "floor_living", section: "Flooring", label: "Living/bedroom flooring", unit: "sqm",
@@ -111,7 +114,7 @@ export const DSR_CATALOG: CatalogItem[] = [
   { key: "internal_plaster", section: "Plastering", code: "13.1.2", label: "12mm internal plaster", unit: "sqm",
     qty: (c) => c.wallSqm * 0.85 },
   { key: "external_plaster", section: "Plastering", code: "13.2.1", label: "External plaster", unit: "sqm",
-    qty: (c) => c.perimeterM * 3 * c.floors },
+    qty: (c) => c.perimeterM * 3 * c.floors, scope: "building" },   // shared building envelope
   { key: "putty", section: "Painting", code: "13.80", label: "Wall putty", unit: "sqm",
     qty: (c) => c.wallSqm * 0.85 },
   { key: "primer", section: "Painting", code: "13.85.3", label: "Interior primer", unit: "sqm",
@@ -119,7 +122,7 @@ export const DSR_CATALOG: CatalogItem[] = [
   { key: "emulsion", section: "Painting", code: "13.82.2", label: "Interior emulsion", unit: "sqm",
     qty: (c) => c.wallSqm * 0.85 },
   { key: "exterior_paint", section: "Painting", code: "13.46.1", label: "Exterior weatherproof paint", unit: "sqm",
-    qty: (c) => c.perimeterM * 3 * c.floors },
+    qty: (c) => c.perimeterM * 3 * c.floors, scope: "building" },   // shared building envelope
   { key: "false_ceiling", section: "Ceiling", code: "12.45.1", label: "Gypsum false ceiling", unit: "sqm",
     qty: (c, s) => {
       const scope = String(s.false_ceiling ?? "none");
@@ -137,7 +140,7 @@ export const DSR_CATALOG: CatalogItem[] = [
 
   // ---- Waterproofing (verified: agent B) ---------------------------------
   { key: "wp_terrace", section: "Waterproofing", code: "22.7.1", label: "Terrace waterproofing", unit: "sqm",
-    qty: (c) => c.footprintSqm, when: (s) => truthy(s.wp_terrace) },
+    qty: (c) => c.footprintSqm, when: (s) => truthy(s.wp_terrace), scope: "building" },   // shared roof
   { key: "wp_bath", section: "Waterproofing", code: "22.7.1", label: "Bathroom waterproofing", unit: "sqm",
     qty: (c) => c.baths * 8, when: (s) => truthy(s.wp_bath) },
 
@@ -163,13 +166,13 @@ export const DSR_CATALOG: CatalogItem[] = [
   { key: "soil_pipe", section: "Plumbing", code: "17.35.1.1", label: "Cast-iron soil pipe 100mm", unit: "metre",
     qty: (c) => c.baths * 8 },
 
-  // ---- External (verified: agent C) --------------------------------------
+  // ---- External / site (verified: agent C) -------------------------------
   { key: "compound_wall", section: "External", code: "6.4.2", label: "Compound wall (brick masonry)", unit: "cum",
-    qty: (c) => c.perimeterM * 1.8 * 0.23, when: (s) => truthy(s.compound_wall) },
+    qty: (c) => c.perimeterM * 1.8 * 0.23, when: (s) => truthy(s.compound_wall), scope: "site" },
   { key: "gate", section: "External", code: "10.2", label: "MS gate (fabricated steel)", unit: "kg",
-    qty: () => 150, when: (s) => truthy(s.gate) },
+    qty: () => 150, when: (s) => truthy(s.gate), scope: "site" },
   { key: "driveway", section: "External", code: "16.68", label: "Interlocking paver driveway", unit: "sqm",
-    qty: (c) => c.footprintSqm * 0.3, when: (s) => truthy(s.driveway) },
+    qty: (c) => c.footprintSqm * 0.3, when: (s) => truthy(s.driveway), scope: "site" },
 ];
 
 // ---- Non-Schedule (NS) items -----------------------------------------------
@@ -185,6 +188,8 @@ export interface NsItem {
   unit: string;
   qty: (c: QtyContext, spec: Spec) => number;
   when?: (spec: Spec) => boolean;
+  /** Which allocation layer this candidate belongs to (default: "unit"). */
+  scope?: BoqScope;
 }
 
 export const NS_CATALOG: NsItem[] = [
@@ -196,12 +201,13 @@ export const NS_CATALOG: NsItem[] = [
     qty: (c) => c.baths, when: (s) => truthy(s.geyser) },
   { key: "elec_fixtures", trade: "Electrical", label: "Light fixtures, fans & fittings (supply & installation)", unit: "nos",
     qty: (c) => c.rooms * 4, when: (s) => truthy(s.elec_fixtures) },
+  // Water tanks / sump / pump are building-shared infrastructure, not unit work.
   { key: "oht", trade: "Water Supply", label: "Overhead water storage tank (HDPE/Sintex) with fittings", unit: "nos",
-    qty: () => 1, when: (s) => truthy(s.oht) },
+    qty: () => 1, when: (s) => truthy(s.oht), scope: "building" },
   { key: "sump", trade: "Water Supply", label: "Underground water sump with fittings", unit: "nos",
-    qty: () => 1, when: (s) => truthy(s.sump) },
+    qty: () => 1, when: (s) => truthy(s.sump), scope: "building" },
   { key: "pump", trade: "Water Supply", label: "Water pump / pressure pump set", unit: "nos",
-    qty: () => 1, when: (s) => truthy(s.pump) },
+    qty: () => 1, when: (s) => truthy(s.pump), scope: "building" },
   { key: "modular", trade: "Kitchen", label: "Modular kitchen units (base + wall cabinets + accessories)", unit: "job",
     qty: () => 1, when: (s) => truthy(s.modular) },
 ];
