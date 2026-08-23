@@ -14,7 +14,7 @@ import { parseDrawingSummary, type DrawingBasis, type DrawingItem } from "./boqD
 // Spec keys seeded from a ChatGPT evaluation (drawing requirements, measurements,
 // spaces, provenance). They must survive a spec reset — e.g. when the operator
 // changes the archetype after the evaluation — or the parsed requirements are lost.
-export const SEED_CARRY_KEYS = ["_drawing", "_measurements", "_spaces", "_source", "_area_type", "_floor_scope", "_boq_allocation"] as const;
+export const SEED_CARRY_KEYS = ["_drawing", "_measurements", "_spaces", "_source", "_area_type", "_floor_scope", "_boq_allocation", "_disciplines"] as const;
 
 // Room-count spec fields. When a drawing evaluation is present these are driven
 // ONLY by the identified spaces — never by an archetype template — so a generic
@@ -935,6 +935,9 @@ export function specFromEvaluation(e: ChatGptEval): Spec {
   if (e.spaces.length) (base as Record<string, unknown>)._spaces = e.spaces;
   if (e.floorScope) (base as Record<string, unknown>)._floor_scope = e.floorScope;
   if (e.boqAllocation) (base as Record<string, unknown>)._boq_allocation = e.boqAllocation;
+  // Carry the drawing's identified disciplines so downstream generation can gate
+  // each discipline on real evidence (a discipline with no drawing is withheld).
+  if (e.disciplines.length) (base as Record<string, unknown>)._disciplines = e.disciplines;
   (base as Record<string, unknown>)._source = "chatgpt";
   return base;
 }
@@ -953,7 +956,7 @@ export function disciplineForBoq(disciplines: string[]): string | undefined {
  *  more specific tests run first so "AC point" reads electrical, "AC unit" HVAC,
  *  and "floor trap"/"water point" plumbing rather than being swallowed by the
  *  broad electrical "point" test. */
-function classifyDiscipline(label: string): string {
+export function classifyDiscipline(label: string): string {
   const l = (label || "").toLowerCase();
   if (/\b(detector|sprinkler|fire\s*alarm|extinguisher|hose\s*reel|hydrant|smoke)\b/.test(l)) return "fire";
   if (/\b(duct|ducting|diffuser|refrigerant|vrv|vrf|cassette)\b/.test(l) || /\bac\b[^]*\bunit\b|\bunit\b[^]*\bac\b/.test(l)) return "hvac";

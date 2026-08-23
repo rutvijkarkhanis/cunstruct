@@ -3,6 +3,7 @@ import { eligibleScopes, allocationFloors, withinAllocation, isWholeProjectBoq, 
 import { generateForDiscipline } from "./disciplines";
 import { parseChatGptEvaluation, specFromEvaluation, itemBelongsToBoq } from "./chatgptEval";
 import { defaultSpec, type Spec } from "./boqSpec";
+import { ARCHETYPES, archetypeSpec } from "./archetypes";
 import type { GeneratedLine } from "./boqDsrGenerate";
 
 // The generalised BOQ allocation model: a BOQ contains only the scope its
@@ -74,6 +75,7 @@ describe("Case A — multi-floor apartment: Common + Floor 1..4 BOQs", () => {
     project_type: "Residential", archetype: "Apartment", floor: n,
     boq_allocation: `Floor ${n}`, floor_scope: `Floor ${n} private apartment`,
     spaces: [{ name: "Bathroom", qty: 2 }, { name: "Bedroom", qty: 2 }, { name: "Kitchen", qty: 1 }],
+    disciplines: { identified: ["Architectural", "Electrical", "Plumbing"], not_assessable: ["Fire"] },
     requirements: [{ allocation: `Floor ${n}`, requirement: "WC", qty: 2, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" }],
     confidence: {}, confirmations: [],
   })));
@@ -99,16 +101,14 @@ describe("Case A — multi-floor apartment: Common + Floor 1..4 BOQs", () => {
 
 // ---- Case B: single-floor villa -------------------------------------------
 describe("Case B — single-floor villa needs no separate floor/common BOQs", () => {
-  const villa = specFromEvaluation(parseChatGptEvaluation(JSON.stringify({
-    project_type: "Residential", archetype: "Villa", floor: 1,
-    // a villa is one BOQ — no per-floor / common split, so no allocation is set
-    spaces: [{ name: "Bathroom", qty: 3 }, { name: "Bedroom", qty: 3 }, { name: "Kitchen", qty: 1 }],
-    requirements: [{ allocation: "", requirement: "WC", qty: 3, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" }],
-    confidence: {}, confirmations: [],
-  })));
+  // A villa built from the questionnaire (no drawing set) is ONE whole-project
+  // BOQ. Allocation must not force a floor/common split, and — since there is no
+  // drawing to gate against — the questionnaire's intent drives every discipline.
+  const villa = archetypeSpec(ARCHETYPES.find((a) => a.key === "villa")!);
 
-  it("is a whole-project BOQ that legitimately owns structure + substructure + site", () => {
+  it("is a whole-project BOQ that owns every layer (no forced split)", () => {
     expect(isWholeProjectBoq(villa)).toBe(true);
+    expect(scopes(villa)).toEqual(["building", "common", "site", "structure", "substructure", "unit"]);
     const lines = generateForDiscipline("civil", villa, { area_sqft: 2500, floors: 1 });
     expect(lines.some((l) => l.scope === "substructure")).toBe(true);   // excavation/PCC present
     expect(lines.some((l) => l.scope === "structure")).toBe(true);      // RCC present
