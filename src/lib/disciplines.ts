@@ -8,6 +8,7 @@ import { buildContext, type QtyContext, type RoomDims } from "./boqDsrCatalog";
 import { generateLines, type GeneratedLine, type ProjectBasics } from "./boqDsrGenerate";
 import { applyDrawing, defaultBasis, type DrawingSummary } from "./boqDrawing";
 import { withinAllocation, allocationFloors, type BoqScope } from "./boqAllocation";
+import { withAssessableDisciplines } from "./boqDiscipline";
 import type { Spec } from "./boqSpec";
 
 export interface DiscItem {
@@ -137,6 +138,11 @@ export function generateForDiscipline(key: string, spec: Spec, project: ProjectB
   // structure / building / common candidates (they belong to other BOQs); a
   // whole-project BOQ keeps everything. Drawing-derived lines are never dropped.
   out = withinAllocation(out, spec);
+  // DISCIPLINE EVIDENCE GATE: on a drawing-driven BOQ, withhold any discipline
+  // that has no evidence in the supplied drawing set — no structural drawing
+  // means no invented RCC/excavation/masonry, etc. A pure questionnaire BOQ is
+  // not gated (the questionnaire is the intent). Drawing lines are never withheld.
+  out = withAssessableDisciplines(out, spec);
   // Then let the operator's drawing summary override the items it explicitly
   // covers, append drawing-only requirements, and supersede duplicated template
   // scope. Everything else keeps its assumption basis.
