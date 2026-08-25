@@ -147,6 +147,24 @@ export function findCatalogueMatch<T extends { code: string | null; label: strin
 const matchesLine = (it: DrawingItem, l: GeneratedLine): boolean =>
   matchesCandidate(it.match, { code: l.code, label: l.label });
 
+// Unit dimensionality — a drawing quantity may only OVERRIDE a catalogue line
+// when they measure the same kind of thing. A drawing COUNT ("Kitchen platform —
+// 1 nos") must never be written into an AREA line ("Granite platform — sqm"): the
+// count does not establish the area, so that would fabricate a wrong-unit quantity.
+type UnitClass = "count" | "area" | "length" | "volume" | "weight";
+function unitClass(unit: string | null | undefined): UnitClass {
+  const u = (unit ?? "").toLowerCase().replace(/[.\s]/g, "");
+  if (/^(sqm|sqft|sqmt|m2|squaremet(re|er)s?|squarefeet|squarefoot)$/.test(u)) return "area";
+  if (/^(cum|cft|m3|cubicmet(re|er)s?|cubicfeet|brass)$/.test(u)) return "volume";
+  if (/^(kg|kgs|kilogram?s?|tonne?s?|mt|quintals?|ton)$/.test(u)) return "weight";
+  if (/^(m|mtr|rmt|rm|met(re|er)s?|running?met(re|er)s?|feet|foot|ft|inch|inches)$/.test(u)) return "length";
+  return "count";   // nos, each, point, job, set, pcs, unit, blank → a count
+}
+/** May a drawing item's quantity override this catalogue line? Only when the two
+ *  units are the same dimensionality (a count can't set an area/length/volume). */
+const unitsCompatible = (a: string | null | undefined, b: string | null | undefined): boolean =>
+  unitClass(a) === unitClass(b);
+
 /**
  * Apply the operator's drawing summary to generated lines. Every requirement the
  * summary names becomes a BOQ line: if it links to a catalogue (DSR) item that
@@ -224,7 +242,11 @@ export function applyDrawing(lines: GeneratedLine[], summary?: DrawingSummary | 
   });
   const used = new Set<number>();
   const out = lines.map((l) => {
-    const idx = items.findIndex((it) => matchesLine(it, l));
+    // Override only when the scope matches AND the units are the same dimensionality.
+    // A unit-mismatched match (drawing count vs catalogue area) is NOT an override:
+    // the catalogue line is left for the precedence loop to supersede, and the
+    // drawing item is appended below as its own (correct-unit) line.
+    const idx = items.findIndex((it) => matchesLine(it, l) && unitsCompatible(it.unit, l.unit));
     if (idx < 0) return l;
     used.add(idx);
     const it = items[idx];

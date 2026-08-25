@@ -71,12 +71,20 @@ describe("no structural drawing → structural scope is withheld from the priced
   it("withholds excavation / RCC / reinforcement / masonry when no structural evidence", () => {
     // whole-project allocation (owns every layer) so ONLY the discipline gate can
     // remove structural — proving it is evidence, not allocation, doing the work.
-    const s = spec({ disciplines: ["Architectural", "Electrical", "Plumbing"] });
+    const s = spec({
+      disciplines: ["Architectural", "Electrical", "Plumbing"],
+      requirements: [
+        { allocation: "", requirement: "Flooring", qty: 120, unit: "sqm", basis: "Counted", scope: "Works", status: "Quantified" },
+        { allocation: "", requirement: "WC", qty: 4, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
+      ],
+    });
     const lines = generateForDiscipline("civil", s, { area_sqft: 2000, floors: 1 });
     expect(lines.some((l) => STRUCTURAL.test(l.label) && l.included !== false)).toBe(false);
-    // architectural + plumbing scope is still generated (those disciplines ARE evidenced)
-    expect(lines.some((l) => /flooring|plaster|door|window/i.test(l.label))).toBe(true);
-    expect(lines.some((l) => /supply pipe|soil pipe|wash basin|WC/i.test(l.label))).toBe(true);
+    // architectural + plumbing scope is priced from the DRAWING (not fabricated template)
+    expect(lines.some((l) => /flooring/i.test(l.label) && l.drawing)).toBe(true);
+    expect(lines.some((l) => /\bWC\b/i.test(l.label) && l.drawing)).toBe(true);
+    // and nothing carries a fabricated (non-drawing) quantity
+    expect(lines.every((l) => !!l.drawing)).toBe(true);
   });
 
   it("does NOT zero the structural items — they are simply absent, never qty 0", () => {
@@ -85,12 +93,21 @@ describe("no structural drawing → structural scope is withheld from the priced
     expect(lines.some((l) => STRUCTURAL.test(l.label))).toBe(false);   // absent, not present-as-zero
   });
 
-  it("incorporates structural scope once a structural drawing IS supplied", () => {
-    const s = spec({ disciplines: ["Civil", "Architectural", "Electrical", "Plumbing"] });
+  it("incorporates structural scope once a structural drawing IS supplied (with quantities)", () => {
+    // A supplied structural drawing means structural REQUIREMENTS with quantities —
+    // those get priced. The catalogue coefficient is still never the quantity source.
+    const s = spec({
+      disciplines: ["Civil", "Architectural", "Electrical", "Plumbing"],
+      requirements: [
+        { allocation: "", requirement: "RCC in slabs & beams", qty: 40, unit: "cum", basis: "Measured", scope: "Works", status: "Quantified" },
+        { allocation: "", requirement: "Reinforcement steel", qty: 3200, unit: "kg", basis: "Measured", scope: "Works", status: "Quantified" },
+        { allocation: "", requirement: "Excavation in foundation", qty: 55, unit: "cum", basis: "Measured", scope: "Works", status: "Quantified" },
+      ],
+    });
     const lines = generateForDiscipline("civil", s, { area_sqft: 2000, floors: 1 });
-    expect(lines.some((l) => /\bRCC\b/i.test(l.label))).toBe(true);
-    expect(lines.some((l) => /reinforcement/i.test(l.label))).toBe(true);
-    expect(lines.some((l) => /excavation/i.test(l.label))).toBe(true);
+    expect(lines.some((l) => /\bRCC\b/i.test(l.label) && l.drawing)).toBe(true);
+    expect(lines.some((l) => /reinforcement/i.test(l.label) && l.drawing)).toBe(true);
+    expect(lines.some((l) => /excavation/i.test(l.label) && l.drawing)).toBe(true);
   });
 
   it("the project type alone never activates structural (multi-floor building, no structural drawing)", () => {
@@ -110,12 +127,22 @@ describe("the same rule applies to Electrical, Plumbing, HVAC and Fire", () => {
     expect(generateForDiscipline("hvac", s, { area_sqft: 2000, floors: 1 })).toHaveLength(0);
     expect(generateForDiscipline("fire", s, { area_sqft: 2000, floors: 1 })).toHaveLength(0);
   });
-  it("a discipline WITH drawing evidence generates its scope", () => {
-    const s = spec({ disciplines: ["Electrical", "Plumbing", "HVAC", "Fire"] });
-    expect(generateForDiscipline("electrical", s, { area_sqft: 2000, floors: 1 }).length).toBeGreaterThan(0);
-    expect(generateForDiscipline("plumbing", s, { area_sqft: 2000, floors: 1 }).length).toBeGreaterThan(0);
-    expect(generateForDiscipline("hvac", s, { area_sqft: 2000, floors: 1 }).length).toBeGreaterThan(0);
-    expect(generateForDiscipline("fire", s, { area_sqft: 2000, floors: 1 }).length).toBeGreaterThan(0);
+  it("a discipline WITH drawing evidence prices its drawing-counted scope", () => {
+    // Evidence = drawing requirements with quantities; those get priced. (Template
+    // coefficients are never the quantity source, so scope must come from the drawing.)
+    const s = spec({
+      disciplines: ["Electrical", "Plumbing", "HVAC", "Fire"],
+      requirements: [
+        { allocation: "", requirement: "6A socket", qty: 24, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
+        { allocation: "", requirement: "WC", qty: 4, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
+        { allocation: "", requirement: "Split AC unit", qty: 3, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
+        { allocation: "", requirement: "Smoke detector", qty: 6, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
+      ],
+    });
+    expect(generateForDiscipline("electrical", s, { area_sqft: 2000, floors: 1 }).some((l) => /6A socket/i.test(l.label) && l.drawing)).toBe(true);
+    expect(generateForDiscipline("plumbing", s, { area_sqft: 2000, floors: 1 }).some((l) => /\bWC\b/i.test(l.label) && l.drawing)).toBe(true);
+    expect(generateForDiscipline("hvac", s, { area_sqft: 2000, floors: 1 }).some((l) => /AC unit/i.test(l.label) && l.drawing)).toBe(true);
+    expect(generateForDiscipline("fire", s, { area_sqft: 2000, floors: 1 }).some((l) => /detector/i.test(l.label) && l.drawing)).toBe(true);
   });
 });
 

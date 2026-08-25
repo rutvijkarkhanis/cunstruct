@@ -83,8 +83,9 @@ describe("Case A — multi-floor apartment: Common + Floor 1..4 BOQs", () => {
   it("no private floor BOQ contains substructure, structure, site, building or common work", () => {
     for (const n of [1, 2, 3, 4]) {
       const lines = generateForDiscipline("civil", floorSpec(n), { area_sqft: 1500, floors: 4 });
-      const templateScopes = new Set(lines.filter((l) => !l.drawing).map((l) => l.scope));
-      expect([...templateScopes]).toEqual(["unit"]);   // only unit-level template work
+      // Drawing-driven: every priced line is drawing-derived (allocation excludes
+      // the shared layers; the quantity gate withholds all fabricated template qty).
+      expect(lines.every((l) => !!l.drawing)).toBe(true);
       expect(lines.some((l) => /excavation|\bRCC M|reinforcement steel|underground water sump|water pump|overhead water|compound wall|passenger lift/i.test(l.label) && l.included !== false)).toBe(false);
     }
   });
@@ -183,14 +184,15 @@ describe("Case E — an eligible-but-unquantifiable item stays visible as pendin
     expect(lines.some((l) => l.label === "Electrical points" && l.included !== false)).toBe(false);
   });
 
-  it("suppresses the generic template quantity for a category the drawing left pending", () => {
+  it("withholds the generic template quantity for a category the drawing left pending", () => {
     const lines = generateForDiscipline("civil", spec, { area_sqft: 1500, floors: 4 });
-    // the generic flooring / interior-paint template lines must not stand in for
-    // the pending drawing scope — they are superseded, not priced.
-    const genericFlooring = lines.find((l) => /flooring|anti-?skid ceramic/i.test(l.label) && !l.drawing);
-    expect(genericFlooring?.included).toBe(false);
-    const genericPoints = lines.find((l) => /concealed electrical wiring/i.test(l.label));
-    expect(genericPoints?.included).toBe(false);
+    // the generic flooring / interior-paint / electrical template lines carry
+    // fabricated (coefficient) quantities, so they are withheld entirely — never
+    // priced as a stand-in for the pending drawing scope.
+    expect(lines.some((l) => /flooring|anti-?skid ceramic/i.test(l.label) && !l.drawing)).toBe(false);
+    expect(lines.some((l) => /concealed electrical wiring/i.test(l.label))).toBe(false);
+    // and no fabricated-quantity line survives at all (every priced line is drawing-derived)
+    expect(lines.every((l) => !!l.drawing)).toBe(true);
   });
 });
 
@@ -220,17 +222,34 @@ describe("Regression — existing behaviour preserved under the allocation model
     expect(lines.some((l) => /underground water sump/i.test(l.label))).toBe(true);
     expect(lines.some((l) => /water pump/i.test(l.label))).toBe(true);
   });
-  it("private-floor BOQ still generates a real fit-out BOQ (not stripped empty)", () => {
+  it("private-floor BOQ prices its DRAWING fit-out scope, and fabricates nothing", () => {
     const spec = specFromEvaluation(parseChatGptEvaluation(JSON.stringify({
       project_type: "Residential", archetype: "Apartment", floor: 1,
       boq_allocation: "Floor 1", floor_scope: "First Floor / Floor 1 private apartment",
       spaces: [{ name: "Bathroom", qty: 3 }, { name: "Bedroom", qty: 3 }, { name: "Kitchen", qty: 1 }],
-      requirements: [], confidence: {}, confirmations: [],
+      disciplines: { identified: ["Architectural", "Plumbing"], not_assessable: ["Fire"] },
+      requirements: [
+        { allocation: "Floor 1", requirement: "WC", qty: 3, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
+        { allocation: "Floor 1", requirement: "Wash basin", qty: 3, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
+        { allocation: "Floor 1", requirement: "Wardrobe", qty: 4, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
+      ], confidence: {}, confirmations: [],
     })));
     const lines = generateForDiscipline("civil", spec, { area_sqft: 1500, floors: 4 });
     const priced = lines.filter((l) => l.included !== false);
-    expect(priced.length).toBeGreaterThan(4);                      // doors, windows, tiling, plumbing…
-    expect(priced.every((l) => (l.scope ?? "unit") === "unit")).toBe(true);
+    expect(priced.length).toBeGreaterThan(2);                      // the drawing-counted fit-out items
+    // every priced line is drawing-derived — no fabricated catalogue quantity
+    expect(priced.every((l) => !!l.drawing)).toBe(true);
+  });
+  it("a drawing-driven BOQ with no drawing quantities prices nothing (no fabrication)", () => {
+    const spec = specFromEvaluation(parseChatGptEvaluation(JSON.stringify({
+      project_type: "Residential", archetype: "Apartment", floor: 1,
+      boq_allocation: "Floor 1", floor_scope: "First Floor / Floor 1 private apartment",
+      spaces: [{ name: "Bathroom", qty: 3 }, { name: "Bedroom", qty: 3 }, { name: "Kitchen", qty: 1 }],
+      disciplines: { identified: ["Architectural", "Plumbing"], not_assessable: ["Fire"] },
+      requirements: [], confidence: {}, confirmations: [],
+    })));
+    const lines = generateForDiscipline("civil", spec, { area_sqft: 1500, floors: 4 });
+    expect(lines).toHaveLength(0);                                 // catalogue supplies no fabricated quantity
   });
   it("the scope classifier tags the leak-prone infrastructure as non-unit", () => {
     const villa = generateForDiscipline("civil", defaultSpec(), { area_sqft: 2000, floors: 1 });
