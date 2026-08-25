@@ -134,12 +134,12 @@ describe("13. partial pricing is not presented as a complete project total", () 
     pendingItems: opts.pending ? [{ no: "P1", spec: "Flooring", unit: "sqm" }] : [],
   });
 
-  it("labels the total 'currently priced scope only' and flags Partially priced when scope is unpriced/pending", () => {
+  it("labels the total 'currently priced scope only' and shows the partial-pricing breakdown", () => {
     const html = buildDsrQuoteHtml(payload({ unpriced: true, pending: true }), { autoPrint: false });
     expect(html).toContain("currently priced scope only");
     expect(html).toContain("Partially priced");
-    expect(html).toMatch(/awaiting a rate/);
-    expect(html).toMatch(/awaiting a quantity/);
+    expect(html).toMatch(/Unpriced drawing scope: \d+ item/);
+    expect(html).toMatch(/Pending quantity: \d+ item/);
     expect(html).not.toContain(">Grand total<");   // the bare "Grand total" label is replaced
   });
 
@@ -151,7 +151,43 @@ describe("13. partial pricing is not presented as a complete project total", () 
 
   it("the basis note is evidence-driven, not 'derived from project parameters'", () => {
     const html = buildDsrQuoteHtml(payload({ unpriced: true }), { autoPrint: false });
-    expect(html).toContain("evidence-based");
+    expect(html).toContain("supplied drawing evidence");
     expect(html).not.toContain("derived from project parameters and room dimensions");
+  });
+});
+
+describe("new document sections — drawing items & excluded audit (media screen cannot disappear)", () => {
+  const base: DsrQuotePayload = {
+    boqName: "Floor 1", generatedOn: "2026-08-25",
+    subheads: [{ no: 1, name: "Sanitary", subtotal: 5000, lines: [{ no: "1.01", code: "17.2.1", spec: "WC", qty: 5, unit: "each", rate: 1000, amount: 5000 }] }],
+    abstract: [{ no: 1, name: "Sanitary", amount: 5000 }],
+    commercials: computeCommercials(5000, { costIndexPct: 0, contingencyPct: 3, overheadPct: 10, cessPct: 1, gstPct: 18 }),
+    drawingItems: [
+      { no: "D.01", spec: "Media room screen", qty: 1, unit: "nos", scope: "equipment" },
+      { no: "D.02", spec: "Wardrobe", qty: 4, unit: "nos", scope: "works" },
+    ],
+    excludedItems: [
+      { spec: "Common lift", allocation: "Common Area", qty: 1, unit: "nos" },
+      { spec: "Common staircase", allocation: "Common Area", qty: 1, unit: "nos" },
+    ],
+  };
+
+  it("renders the Drawing Items section and the media room screen survives into the PDF", () => {
+    const html = buildDsrQuoteHtml(base, { autoPrint: false });
+    expect(html).toContain("Drawing Items — Identified, Not Priced");
+    expect(html).toContain("Media room screen");   // equipment item no longer disappears
+    expect(html).toContain("Wardrobe");
+  });
+  it("renders the excluded Common-Area audit section (seen → excluded, not missed)", () => {
+    const html = buildDsrQuoteHtml(base, { autoPrint: false });
+    expect(html).toContain("Seen in Drawing — Excluded");
+    expect(html).toContain("Common lift");
+    expect(html).toContain("Common staircase");
+  });
+  it("the partial-pricing status counts the unpriced drawing items", () => {
+    const html = buildDsrQuoteHtml(base, { autoPrint: false });
+    expect(html).toContain("Partially priced");
+    expect(html).toMatch(/Unpriced drawing scope: 2 items/);
+    expect(html).toMatch(/Excluded \(other allocation\): 2 items/);
   });
 });

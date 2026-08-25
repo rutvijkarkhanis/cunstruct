@@ -23,7 +23,7 @@
 import { matchesCandidate, type DrawingItem, type DrawingSummary } from "./boqDrawing";
 import type { GeneratedLine } from "./boqDsrGenerate";
 
-export type MappingState = "priced" | "drawing_item" | "quantity_pending";
+export type MappingState = "priced" | "drawing_item" | "quantity_pending" | "excluded";
 export type QuantityProvenance = "counted" | "measured" | "derived" | "none";
 
 export interface RequirementMapping {
@@ -32,14 +32,17 @@ export interface RequirementMapping {
   unit?: string;
   allocation?: string;
   state: MappingState;
-  /** Scope always comes from the drawing; the catalogue never invents scope. */
-  mapping_source: "drawing";
-  /** Confidence that the requirement is mapped to a catalogue (priceable) item. */
+  /** Where the SCOPE came from — always the drawing; the catalogue never invents scope. */
+  scope_source: "drawing";
+  /** Where the QUANTITY came from — the drawing, or none (unquantified/excluded). */
+  quantity_source: "drawing" | "none";
+  /** Whether the requirement is mapped to a catalogue (priceable) item. */
+  mapping_source: "catalogue" | "none";
   mapping_confidence: "high" | "none";
   /** Did the DRAWING establish the catalogue item's specification? Almost always
    *  false — the drawing names the item, the DSR code supplies the spec/rate. */
   specification_supported: boolean;
-  /** Where the QUANTITY came from — never a catalogue coefficient. */
+  /** How the quantity was established on the drawing — never a catalogue coefficient. */
   quantity_provenance: QuantityProvenance;
   /** The DSR code the requirement was priced against, when state === "priced". */
   dsr_code: string | null;
@@ -67,7 +70,8 @@ export function classifyRequirements(summary: DrawingSummary | null | undefined,
     if (it.qty == null) {
       return {
         requirement: it.match, qty: null, unit: it.unit, allocation: it.allocation,
-        state: "quantity_pending", mapping_source: "drawing", mapping_confidence: "none",
+        state: "quantity_pending", scope_source: "drawing", quantity_source: "none",
+        mapping_source: "none", mapping_confidence: "none",
         specification_supported: false, quantity_provenance: "none", dsr_code: null,
       };
     }
@@ -76,13 +80,45 @@ export function classifyRequirements(summary: DrawingSummary | null | undefined,
     return {
       requirement: it.match, qty: it.qty, unit: it.unit, allocation: it.allocation,
       state: priced ? "priced" : "drawing_item",
-      mapping_source: "drawing",
+      scope_source: "drawing",
+      quantity_source: "drawing",                  // the quantity is the drawing's, unchanged
+      mapping_source: priced ? "catalogue" : "none",
       mapping_confidence: priced ? "high" : "none",
       specification_supported: false,              // the drawing names the item, not the DSR spec
       quantity_provenance: provenanceOf(it),
       dsr_code: priced ? (line!.code ?? null) : null,
     };
   });
+}
+
+/** Requirements the drawing identified but that belong to ANOTHER allocation —
+ *  retained for audit ("seen in drawing → excluded from this BOQ"), never priced. */
+export function classifyExcluded(excluded: DrawingSummary | null | undefined): RequirementMapping[] {
+  return (excluded?.items ?? []).filter((i) => i.match?.trim()).map((it): RequirementMapping => ({
+    requirement: it.match, qty: it.qty, unit: it.unit, allocation: it.allocation,
+    state: "excluded", scope_source: "drawing", quantity_source: it.qty == null ? "none" : "drawing",
+    mapping_source: "none", mapping_confidence: "none",
+    specification_supported: false, quantity_provenance: provenanceOf(it), dsr_code: null,
+  }));
+}
+
+/** Full disposition accounting for a BOQ: every drawing requirement lands in
+ *  exactly one bucket (priced / drawing_item / quantity_pending / excluded), so
+ *  the survival invariant can be asserted as "nothing is unaccounted for". */
+export function survivalAccounting(
+  summary: DrawingSummary | null | undefined,
+  excluded: DrawingSummary | null | undefined,
+  lines: GeneratedLine[],
+): { priced: RequirementMapping[]; drawingItems: RequirementMapping[]; pending: RequirementMapping[]; excluded: RequirementMapping[]; missing: string[] } {
+  const inBucket = classifyRequirements(summary, lines);
+  const ex = classifyExcluded(excluded);
+  return {
+    priced: inBucket.filter((m) => m.state === "priced"),
+    drawingItems: inBucket.filter((m) => m.state === "drawing_item"),
+    pending: inBucket.filter((m) => m.state === "quantity_pending"),
+    excluded: ex,
+    missing: findMissingDrawingScope(summary, lines),
+  };
 }
 
 /** Drawing scope survival invariant: every QUANTIFIED requirement in this BOQ's
