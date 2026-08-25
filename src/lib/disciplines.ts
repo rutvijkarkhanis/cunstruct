@@ -9,6 +9,7 @@ import { generateLines, type GeneratedLine, type ProjectBasics } from "./boqDsrG
 import { applyDrawing, defaultBasis, type DrawingSummary } from "./boqDrawing";
 import { withinAllocation, allocationFloors, type BoqScope } from "./boqAllocation";
 import { withAssessableDisciplines } from "./boqDiscipline";
+import { withQuantityEvidence } from "./boqEvidence";
 import type { Spec } from "./boqSpec";
 
 export interface DiscItem {
@@ -147,5 +148,12 @@ export function generateForDiscipline(key: string, spec: Spec, project: ProjectB
   // covers, append drawing-only requirements, and supersede duplicated template
   // scope. Everything else keeps its assumption basis.
   const summary = (spec as Record<string, unknown>)._drawing as DrawingSummary | undefined;
-  return applyDrawing(out, summary);
+  out = applyDrawing(out, summary);
+  // QUANTITY EVIDENCE GATE: on a drawing-driven BOQ the catalogue may supply the
+  // item + rate but never a fabricated quantity. Keep only lines whose quantity is
+  // backed by the drawing (counted/measured) or an entered measurement; withhold
+  // catalogue coefficient / area-heuristic quantities. Drawing requirements the
+  // drawing could not quantify remain as pending (qty null) in spec._drawing and
+  // render separately. A questionnaire/archetype BOQ is returned unchanged.
+  return withQuantityEvidence(out, spec);
 }
