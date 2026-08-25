@@ -719,13 +719,32 @@ export default function OpsBoqBuilder() {
   const firmTagline = String(spec._firm_tagline ?? "").trim() || null;
 
   const exportQuote = (blankRates = false, autoPrint = false) => {
+    // A generated line is a PRICED catalogue line only when it carries a rate.
+    // A drawing-derived line with no rate is a Drawing Item (state B) — it is moved
+    // out of the priced table into its own section so nothing counted disappears
+    // (equipment included=false items too) and the priced subtotal stays honest.
+    const isUnpricedDrawing = (l: BoqLine) => !!l.drawing && effRate(l) == null;
     const subheads: QuoteSubHead[] = bySubhead.map((sh) => ({
       no: sh.no, name: sh.name, subtotal: sh.subtotal,
-      lines: sh.rows.filter(({ line }) => line.included).map(({ line, no }) => {
+      lines: sh.rows.filter(({ line }) => line.included && !isUnpricedDrawing(line)).map(({ line, no }) => {
         const rate = effRate(line);
         return { no, code: line.dsr_code, spec: (line.description ?? "") + drawingSuffix(line), qty: line.qty, unit: line.unit ?? "", rate, amount: rate != null ? line.qty * rate : null };
       }),
     })).filter((sh) => sh.lines.length > 0);
+
+    // Drawing Items — identified & quantified on the drawing but not mapped to a
+    // priced catalogue item (no reliable/compatible mapping). Includes equipment
+    // (included=false) so e.g. a media-room screen can never silently disappear.
+    // The drawing quantity is preserved unchanged; never priced, never converted.
+    const drawingItemsQ = lines
+      .filter((l) => isUnpricedDrawing(l) && l.qty != null && l.qty > 0 && !l.superseded)
+      .map((l, i) => ({
+        no: `D.${String(i + 1).padStart(2, "0")}`,
+        spec: (l.description ?? "").trim() + drawingSuffix(l),
+        qty: l.qty, unit: l.unit ?? "nos",
+        note: l.basis_note?.trim() || undefined,
+        scope: l.drawing?.scope,
+      }));
 
     // Identified-but-unquantified drawing requirements — carried into the document
     // as an unpriced "pending" section so every drawing requirement appears, none
@@ -733,6 +752,12 @@ export default function OpsBoqBuilder() {
     const pendingItems = drawingItems
       .filter((d) => d.pending || d.qty == null)
       .map((d, i) => ({ no: `P.${String(i + 1).padStart(2, "0")}`, spec: (d.match ?? "").trim(), unit: d.unit?.trim() || "nos", note: d.note?.trim() || undefined, scope: d.scope }));
+
+    // Common-area / other-allocation requirements seen in the drawing but owned by
+    // another BOQ — shown for audit (never priced here), so they never look missed.
+    const excludedItems = ((((boq?.spec as Record<string, unknown> | undefined)?._excluded as DrawingSummary | undefined)?.items) ?? [])
+      .filter((d) => (d.match ?? "").trim())
+      .map((d) => ({ spec: (d.match ?? "").trim(), allocation: d.allocation, qty: d.qty ?? null, unit: d.unit }));
 
     const ok = openDsrQuote({
       boqName: boq!.name,
@@ -746,6 +771,8 @@ export default function OpsBoqBuilder() {
       abstract: subheads.map((sh) => ({ no: sh.no, name: sh.name, amount: sh.subtotal })),
       commercials,
       pendingItems,
+      drawingItems: drawingItemsQ,
+      excludedItems,
     }, { autoPrint });
     if (!ok) toast.error("Allow pop-ups to export");
   };

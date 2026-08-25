@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classifyRequirements, findMissingDrawingScope, lineForRequirement } from "./boqMapping";
+import { classifyRequirements, classifyExcluded, survivalAccounting, findMissingDrawingScope, lineForRequirement } from "./boqMapping";
 import { parseChatGptEvaluation, specFromEvaluation, boqBucketOf, itemBelongsToBoq } from "./chatgptEval";
 import { generateForDiscipline } from "./disciplines";
 import type { DrawingSummary } from "./boqDrawing";
@@ -42,7 +42,9 @@ describe("classifyRequirements — three mapping states + provenance", () => {
     expect(wc?.qty).toBe(5);                       // transferred unchanged from the drawing
     expect(wc?.dsr_code).toBe("17.2.1");
     expect(wc?.quantity_provenance).toBe("counted");
-    expect(wc?.mapping_source).toBe("drawing");    // scope from the drawing, not the catalogue
+    expect(wc?.scope_source).toBe("drawing");      // scope from the drawing, not the catalogue
+    expect(wc?.quantity_source).toBe("drawing");   // quantity is the drawing's, unchanged
+    expect(wc?.mapping_source).toBe("catalogue");  // priced against a catalogue item
     expect(wc?.specification_supported).toBe(false); // the drawing named WC, not the DSR spec
   });
 
@@ -94,5 +96,61 @@ describe("bucket helper wiring (used by the survival filter across allocations)"
     const bucket = boqBucketOf({ boqAllocation: "Floor 1", floor: 1 });
     expect(itemBelongsToBoq("Floor 1", bucket)).toBe(true);
     expect(itemBelongsToBoq("Common Area", bucket)).toBe(false);
+  });
+});
+
+describe("media room screen (equipment) survives as a visible drawing item", () => {
+  const spec = specFromEvaluation(parseChatGptEvaluation(JSON.stringify({
+    project_type: "Residential", archetype: "Apartment", floor: 1,
+    boq_allocation: "Floor 1", floor_scope: "First Floor / Floor 1 private apartment",
+    spaces: [{ name: "Living", qty: 1 }, { name: "Bedroom", qty: 2 }],
+    disciplines: { identified: ["Architectural"], not_assessable: ["Fire"] },
+    requirements: [{ allocation: "Floor 1", requirement: "Media room screen", qty: 1, unit: "nos", basis: "Counted", scope: "Equipment", status: "Quantified" }],
+    confidence: {}, confirmations: [],
+  })));
+  const lines = generateForDiscipline("civil", spec, { area_sqft: 1500, floors: 1 });
+  it("is retained in the drawing scope and never disappears", () => {
+    const items = ((spec as Record<string, unknown>)._drawing as DrawingSummary).items ?? [];
+    expect(items.some((i) => /media room screen/i.test(i.match))).toBe(true);
+    expect(findMissingDrawingScope(drawItems(spec), lines)).toEqual([]);
+    const m = classifyRequirements(drawItems(spec), lines).find((x) => /media room screen/i.test(x.requirement));
+    expect(m?.state).toBe("drawing_item");   // equipment, counted, not priced → visible drawing item
+    expect(m?.qty).toBe(1);
+  });
+});
+
+describe("excluded (Common Area) audit + full survival accounting", () => {
+  const spec = specFromEvaluation(parseChatGptEvaluation(JSON.stringify({
+    project_type: "Residential", archetype: "Apartment", floor: 1,
+    boq_allocation: "Floor 1", floor_scope: "First Floor / Floor 1 private apartment",
+    spaces: [{ name: "Bathroom", qty: 4 }],
+    disciplines: { identified: ["Plumbing"], not_assessable: ["Fire"] },
+    requirements: [
+      { allocation: "Floor 1", requirement: "WC", qty: 5, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
+      { allocation: "Floor 1", requirement: "Wardrobe", qty: 4, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
+      { allocation: "Floor 1", requirement: "Flooring", qty: null, unit: null, basis: "Not assessable", scope: "Works", status: "Identified — Needs detail" },
+      { allocation: "Common Area", requirement: "Common lift", qty: 1, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
+      { allocation: "Common Area", requirement: "Common staircase", qty: 1, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
+    ], confidence: {}, confirmations: [],
+  })));
+  const lines = generateForDiscipline("civil", spec, { area_sqft: 1500, floors: 4 });
+  const excludedSummary = (spec as Record<string, unknown>)._excluded as DrawingSummary;
+
+  it("retains Common Area requirements in spec._excluded for audit (never in the Floor 1 spec)", () => {
+    expect((excludedSummary.items ?? []).map((i) => i.match).sort()).toEqual(["Common lift", "Common staircase"]);
+    expect((drawItems(spec).items ?? []).some((i) => /common/i.test(i.match))).toBe(false);
+    expect(classifyExcluded(excludedSummary).every((m) => m.state === "excluded")).toBe(true);
+  });
+
+  it("every drawing requirement lands in exactly one bucket (priced/drawing_item/pending/excluded)", () => {
+    const acc = survivalAccounting(drawItems(spec), excludedSummary, lines);
+    expect(acc.priced.map((m) => m.requirement)).toContain("WC");
+    expect(acc.drawingItems.map((m) => m.requirement)).toContain("Wardrobe");
+    expect(acc.pending.map((m) => m.requirement)).toContain("Flooring");
+    expect(acc.excluded.map((m) => m.requirement).sort()).toEqual(["Common lift", "Common staircase"]);
+    expect(acc.missing).toEqual([]);
+    // total accounted = priced + drawing_item + pending (in-bucket) + excluded
+    const inBucket = (drawItems(spec).items ?? []).length;
+    expect(acc.priced.length + acc.drawingItems.length + acc.pending.length).toBe(inBucket);
   });
 });

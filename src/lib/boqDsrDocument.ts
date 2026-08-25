@@ -50,6 +50,24 @@ export interface QuotePendingItem {
   note?: string;         // location / reason it is pending
   scope?: string;        // works | equipment | needs_confirmation
 }
+/** A drawing requirement with a defensible quantity but no reliable catalogue
+ *  price mapping yet — kept visible (never dropped) as an unpriced Drawing Item. */
+export interface QuoteDrawingItem {
+  no: string;
+  spec: string;
+  qty: number;
+  unit: string;
+  note?: string;
+  scope?: string;        // works | equipment | needs_confirmation
+}
+/** A drawing requirement that belongs to another allocation (e.g. Common Area) —
+ *  seen in the drawing, deliberately excluded from THIS BOQ, shown for audit. */
+export interface QuoteExcludedItem {
+  spec: string;
+  allocation?: string;
+  qty?: number | null;
+  unit?: string;
+}
 export interface DsrQuotePayload {
   boqName: string;
   projectName?: string | null;
@@ -70,6 +88,12 @@ export interface DsrQuotePayload {
   /** Identified-but-unquantified drawing requirements — rendered as an unpriced
    *  "pending" section so every drawing requirement appears in the document. */
   pendingItems?: QuotePendingItem[];
+  /** Quantified drawing requirements not (yet) mapped to a priced catalogue item —
+   *  kept visible as Drawing Items so nothing the drawing counted disappears. */
+  drawingItems?: QuoteDrawingItem[];
+  /** Drawing requirements excluded from this BOQ because they belong to another
+   *  allocation (Common Area / other floor) — shown for audit, never priced. */
+  excludedItems?: QuoteExcludedItem[];
 }
 
 const esc = (s: unknown) =>
@@ -154,24 +178,30 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
   const abstractRows = p.abstract.map((a) => `
     <tr><td class="no">${a.no}.00</td><td>${esc(a.name)}</td><td class="num">${blank ? "" : (a.amount > 0 ? inr(a.amount) : "To be priced")}</td></tr>`).join("");
 
+  // Scope buckets used by both the cost status and the sections below.
+  const pending = p.pendingItems ?? [];
+  const drawing = p.drawingItems ?? [];
+  const excludedList = p.excludedItems ?? [];
+  const scopeLabel = (s?: string) =>
+    s === "equipment" ? "Client equipment" : s === "needs_confirmation" ? "Needs confirmation" : "Works";
+
   const c = p.commercials;
   const wrow = (label: string, amt: number, show = true) =>
     show ? `<tr><td>${label}</td><td class="num">${inr(amt)}</td></tr>` : "";
   // Partial-pricing status: identified scope that is not (yet) priced — drawing
-  // items awaiting a catalogue rate (rate == null) and requirements awaiting a
-  // quantity (the pending section). When present, the abstract total covers only
-  // the priced scope, so it is labelled as such and never shown as the full BOQ
-  // value. Generalized — applies to any BOQ (drawing-driven or questionnaire).
-  const unpricedCount = blank ? 0 : p.subheads.reduce((n, sh) => n + sh.lines.filter((l) => l.rate == null).length, 0);
-  const pendingCount = (p.pendingItems ?? []).length;
+  // items awaiting a catalogue rate mapping, and requirements awaiting a quantity.
+  // When present, the abstract total covers only the PRICED scope, so it is
+  // labelled as such and never shown as the full project value. Generalized —
+  // applies to any BOQ (drawing-driven or questionnaire).
+  const unpricedSubheadLines = blank ? 0 : p.subheads.reduce((n, sh) => n + sh.lines.filter((l) => l.rate == null).length, 0);
+  const unpricedCount = blank ? 0 : unpricedSubheadLines + drawing.length;
+  const pendingCount = pending.length;
+  const excludedCount = excludedList.length;
   const partiallyPriced = !blank && (unpricedCount > 0 || pendingCount > 0);
   const grandLabel = partiallyPriced ? "Grand total of currently priced scope only" : "Grand total";
   const statusRow = partiallyPriced
-    ? `<tr class="status"><td colspan="2">BOQ status: <b>Partially priced</b>${
-        unpricedCount ? ` &nbsp;·&nbsp; ${unpricedCount} drawing item${unpricedCount === 1 ? "" : "s"} awaiting a rate` : ""
-      }${
-        pendingCount ? ` &nbsp;·&nbsp; ${pendingCount} requirement${pendingCount === 1 ? "" : "s"} awaiting a quantity` : ""
-      }. The amount above is the priced scope only, not the full project value.</td></tr>`
+    ? `<tr class="status"><td colspan="2">BOQ status: <b>Partially priced</b>. The amount above is the <b>currently priced scope only</b>, not the full project value.
+        <br>Priced scope: ${inr(c.works)} &nbsp;·&nbsp; Unpriced drawing scope: ${unpricedCount} item${unpricedCount === 1 ? "" : "s"} &nbsp;·&nbsp; Pending quantity: ${pendingCount} item${pendingCount === 1 ? "" : "s"}${excludedCount ? ` &nbsp;·&nbsp; Excluded (other allocation): ${excludedCount} item${excludedCount === 1 ? "" : "s"}` : ""}.</td></tr>`
     : "";
   const summary = `
     <table class="summary">
@@ -189,9 +219,6 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
   // Identified-but-unquantified drawing requirements — listed, never priced. A row
   // per requirement so nothing the drawing identified is dropped from the document;
   // the quantity column reads "—" (pending), never a fabricated 0.
-  const pending = p.pendingItems ?? [];
-  const scopeLabel = (s?: string) =>
-    s === "equipment" ? "Client equipment" : s === "needs_confirmation" ? "Needs confirmation" : "Works";
   const pendingSection = pending.length ? `
     <h2>Identified — Pending Quantification (not priced)</h2>
     <table class="pending">
@@ -207,6 +234,44 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
       </tbody>
     </table>
     <div class="foot" style="margin-top:8px">These ${pending.length} requirement${pending.length === 1 ? " is" : "s are"} identified on the drawing but not yet quantified. They are listed for completeness and are <b>not included in the priced totals</b> — confirm a quantity for each to price it.</div>
+  ` : "";
+
+  // Quantified drawing requirements not mapped to a priced catalogue item — kept
+  // visible with their drawing quantity (never converted, never dropped). This is
+  // where counted joinery/interior/equipment scope lives until a rate is mapped.
+  const drawingSection = drawing.length ? `
+    <h2>Drawing Items — Identified, Not Priced</h2>
+    <table class="pending">
+      <thead><tr><th>Sl. No</th><th>Requirement</th><th class="num">Qty</th><th>Unit</th><th>Scope</th></tr></thead>
+      <tbody>${drawing.map((it) => `
+        <tr>
+          <td class="no">${esc(it.no)}</td>
+          <td class="spec">${esc(it.spec)}${it.note ? `<span class="pnote"> — ${esc(it.note)}</span>` : ""}</td>
+          <td class="num">${qtyFmt(it.qty)}</td>
+          <td class="unit">${esc(it.unit)}</td>
+          <td>${esc(scopeLabel(it.scope))}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table>
+    <div class="foot" style="margin-top:8px">These ${drawing.length} requirement${drawing.length === 1 ? " is" : "s are"} counted/measured on the drawing but have <b>no reliable catalogue price mapping</b> (or would require an unsupported unit conversion). The drawing quantity is preserved unchanged; they are <b>not included in the priced totals</b> until a rate is mapped.</div>
+  ` : "";
+
+  // Common-area / other-allocation requirements seen in the drawing but owned by
+  // a different BOQ — shown for audit so they never look "missed".
+  const excludedSection = excludedList.length ? `
+    <h2>Seen in Drawing — Excluded (Other Allocation)</h2>
+    <table class="pending">
+      <thead><tr><th>Requirement</th><th class="num">Qty</th><th>Unit</th><th>Allocation</th></tr></thead>
+      <tbody>${excludedList.map((it) => `
+        <tr>
+          <td class="spec">${esc(it.spec)}</td>
+          <td class="num">${it.qty == null ? "—" : qtyFmt(it.qty)}</td>
+          <td class="unit">${esc(it.unit ?? "")}</td>
+          <td>${esc(it.allocation ?? "Other")}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table>
+    <div class="foot" style="margin-top:8px">These requirements are identified in the drawing but belong to another BOQ allocation, so they are <b>deliberately excluded from this BOQ</b> — listed here for audit, not missed.</div>
   ` : "";
 
   const brandHtml = p.firmName ? esc(p.firmName) : `cun<span>struct</span>`;
@@ -277,18 +342,22 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
     <tbody>${rows || `<tr><td colspan="6">No items.</td></tr>`}</tbody>
   </table>
 
+  ${drawingSection}
+
   ${pendingSection}
+
+  ${excludedSection}
 
   ${abstractSection}
 
   <div class="foot">
     <b>Basis &amp; conditions.</b> Rates are composite rates from the Delhi Schedule of Rates${p.rateYear ? ` ${esc(p.rateYear)}` : ""} (material + labour + plant),
     exclusive of GST, adjusted by the stated cost index for location. Non-Schedule (NS) items, where shown, are outside the DSR and their rates are to be
-    analysed from prevailing market / State PWD rates. <b>Quantities are evidence-based</b> — taken from the supplied drawing (counted or measured) or
-    explicit project inputs; catalogue rates supply the item, specification and rate but never create a quantity. Counted quantities are visually counted
-    from the drawing; measured/derived quantities record their basis; requirements the drawing does not quantify are listed as pending, not priced. Items
-    are grouped by DSR sub-head in construction sequence; <b>final site measurement may be required before execution</b>. This quote is indicative and valid
-    for 15 days from the date above. Generated by Cunstruct.
+    analysed from prevailing market / State PWD rates. <b>Quantities are based on supplied drawing evidence and explicit project inputs.</b> Counted
+    quantities are visually counted from the supplied drawing. Measured quantities are based on drawing measurements. Derived quantities identify their
+    derivation. Requirements that cannot be defensibly quantified remain pending. Catalogue/DSR rates do not create quantities. Final measurements and
+    specifications should be verified before execution. Items are grouped by DSR sub-head in construction sequence. This quote is indicative and valid for
+    15 days from the date above. Generated by Cunstruct.
   </div>
 
   ${opts?.autoPrint === false ? "" : `<script>window.onload = function(){ setTimeout(function(){ window.print(); }, 250); };</script>`}

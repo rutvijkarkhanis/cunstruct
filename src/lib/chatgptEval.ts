@@ -14,7 +14,7 @@ import { parseDrawingSummary, type DrawingBasis, type DrawingItem } from "./boqD
 // Spec keys seeded from a ChatGPT evaluation (drawing requirements, measurements,
 // spaces, provenance). They must survive a spec reset — e.g. when the operator
 // changes the archetype after the evaluation — or the parsed requirements are lost.
-export const SEED_CARRY_KEYS = ["_drawing", "_measurements", "_spaces", "_source", "_area_type", "_floor_scope", "_boq_allocation", "_disciplines"] as const;
+export const SEED_CARRY_KEYS = ["_drawing", "_excluded", "_measurements", "_spaces", "_source", "_area_type", "_floor_scope", "_boq_allocation", "_disciplines"] as const;
 
 // Room-count spec fields. When a drawing evaluation is present these are driven
 // ONLY by the identified spaces — never by an archetype template — so a generic
@@ -929,8 +929,14 @@ export function specFromEvaluation(e: ChatGptEval): Spec {
   // but are never priced until the operator fills them in. Only rows allocated to
   // THIS BOQ's bucket are included — common-area / other-floor scope is dropped.
   const bucket = boqBucketOf(e);
-  const drawItems = [...e.requirements, ...e.needsDetail].filter((it) => itemBelongsToBoq(it.allocation, bucket));
+  const all = [...e.requirements, ...e.needsDetail];
+  const drawItems = all.filter((it) => itemBelongsToBoq(it.allocation, bucket));
   if (drawItems.length) (base as Record<string, unknown>)._drawing = { items: drawItems };
+  // Requirements the drawing identified but that belong to ANOTHER allocation
+  // (e.g. Common Area on a private-floor BOQ) are retained — never priced here —
+  // so they stay auditable as "seen in drawing → excluded from this BOQ".
+  const excluded = all.filter((it) => !itemBelongsToBoq(it.allocation, bucket));
+  if (excluded.length) (base as Record<string, unknown>)._excluded = { items: excluded };
   if (e.measurements.length) (base as Record<string, unknown>)._measurements = e.measurements;
   if (e.spaces.length) (base as Record<string, unknown>)._spaces = e.spaces;
   if (e.floorScope) (base as Record<string, unknown>)._floor_scope = e.floorScope;
