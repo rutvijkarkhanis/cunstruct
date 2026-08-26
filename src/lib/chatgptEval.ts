@@ -407,6 +407,29 @@ const SCOPE_CELL = /^(works?|equipment|client(?:[-\s]*supplied)?|needs?[-\s]*con
 const STATUS_CELL = /needs?[-\s]*detail|^\W*identified\b|^\W*quantified\b|not\s*assessable/i;
 const NEEDS_DETAIL = /needs?[-\s]*detail|^\W*identified\b/i;
 
+// The evaluation explicitly says the QUANTITY / COUNT / TOTAL itself is not
+// established (as opposed to a missing dimension / spec / material — which under
+// COUNTABLE ≠ MEASURABLE must NOT block a count). When it does, a number that came
+// along is an undefensible guess and must NOT be promoted to a counted quantity —
+// the item stays pending (qty null). Requires a count-word (count/total/number/
+// quantity) next to a not-established phrase, so "running length not established"
+// / "material not established" (dimension/spec) still keep their count.
+const COUNT_UNRESOLVED = new RegExp([
+  // "<count-word> … not/cannot/to-be/pending … established/confirmed/counted/…"
+  String.raw`\b(?:counts?|totals?|numbers?|tall(?:y|ies)|quantit(?:y|ies)|qty)\b[^.;\n]{0,45}\b(?:not|cannot|can[’']?t|un(?:able)?|to\s+be|pending|await\w*)\b[^.;\n]{0,25}\b(?:establish\w*|assess\w*|confirm\w*|determin\w*|quantif\w*|count(?:ed)?|verif\w*|resolv\w*|final\w*|reliab\w*|defensib\w*)\b`,
+  // "not/unable to establish/confirm/count … a total/count/number/quantity"
+  String.raw`\b(?:not|cannot|can[’']?t|un(?:able)?)\b[^.;\n]{0,30}\b(?:establish\w*|assess\w*|confirm\w*|determin\w*|count\w*|quantif\w*)\b[^.;\n]{0,30}\b(?:counts?|totals?|numbers?|quantit(?:y|ies)|qty)\b`,
+  String.raw`\bpending\s+quantit`,
+  String.raw`\bnot\s+(?:fully\s+|reliably\s+)?count(?:ed|able)?\b`,
+].join("|"), "i");
+/** Did the evaluation's note/status flag the COUNT itself as unestablished? Then a
+ *  stray number is not a defensible count and the requirement is retained as pending
+ *  (needs-detail). Kept separate from basis "Not assessable" (which routes to the
+ *  not-assessable bucket as before) so only the count-not-established case is new. */
+function countNotEstablished(note: string | undefined, status: string): boolean {
+  return COUNT_UNRESOLVED.test(note ?? "") || COUNT_UNRESOLVED.test(status);
+}
+
 /** Classify a scope cell into the Works / Equipment / Needs-confirmation trichotomy
  *  (undefined when no scope was stated, so downstream auto-detection can apply). */
 type DrawingScope = "works" | "equipment" | "needs_confirmation";
@@ -526,14 +549,16 @@ function parseRequirements(sec?: string): { items: DrawingItem[]; needsDetail: D
       if (!req) continue;
       const qtyNum = Number((qtyRaw || "").match(/[\d.]+/)?.[0]);
       const qty = Number.isFinite(qtyNum) ? qtyNum : null;
+      // COUNTABLE ≠ MEASURABLE: a present count wins over the status wording (a
+      // missing dimension/spec never blocks a count). BUT if the evaluation says the
+      // COUNT/TOTAL itself is not established (basis "Not assessable", or a
+      // count-not-established note/status), a stray number is not a defensible count
+      // and the item stays pending — a pending quantity is never promoted to numeric.
       const basisNA = /\bnot\s*assessable\b/i.test(basisRaw ?? "");
-      // COUNTABLE ≠ MEASURABLE: a present count wins over the status wording. An
-      // item the model counted (qty > 0) is Quantified even if it is tagged
-      // "Identified — Needs detail" because its dimensions/running-length are
-      // unknown — that missing measurement lives in the note, never in the qty.
-      if (qty != null && qty > 0 && !basisNA) {
+      const countUnresolved = countNotEstablished(note, status);
+      if (qty != null && qty > 0 && !basisNA && !countUnresolved) {
         items.push({ match: req, qty, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, scope, note, allocation: alloc });
-      } else if (NEEDS_DETAIL.test(status)) {
+      } else if (NEEDS_DETAIL.test(status) || countUnresolved) {
         // Identified scope with no usable count yet — RETAINED as pending: qty stays
         // null (never coerced to 0/assumed) and no basis is invented, so the row is
         // clearly "identified, quantity to be confirmed" rather than "0 counted".
@@ -754,15 +779,17 @@ function requirementsFromJson(v: unknown): { items: DrawingItem[]; needsDetail: 
     const equipment = equipFromScope(scope);
     const note = [jstr(o.location), jstr(o.note)].filter(Boolean).join(" · ") || undefined;
     const qty = jnum(o.qty);
+    // COUNTABLE ≠ MEASURABLE: a present count (qty > 0) means Quantified even if the
+    // row is tagged "Needs detail" for a missing dimension/spec/material. BUT if the
+    // evaluation says the COUNT/TOTAL itself is not established (basis "Not
+    // assessable", or a count-not-established note/status), a stray number is not a
+    // defensible count — the item stays pending (qty null), never promoted to numeric.
     const basisNA = /not\s*assessable/i.test(basisRaw);
-    // COUNTABLE ≠ MEASURABLE: a present count (qty > 0) means Quantified, even if
-    // the model tagged the row "Identified — Needs detail" for a missing
-    // dimension/area. The missing measurement stays in the note, not the qty.
-    if (qty != null && qty > 0 && !basisNA) items.push({ match, qty, unit, basis, equipment, scope, note, allocation });
-    // Identified but not quantifiable → RETAINED as pending: qty stays null (never
-    // coerced to 0/assumed) and no basis is invented, so the row reads as "quantity
-    // to be confirmed" rather than a counted zero.
-    else if (NEEDS_DETAIL.test(status)) needsDetail.push({ match, qty: null, unit, equipment, scope, note, allocation, pending: true });
+    const countUnresolved = countNotEstablished(note, status);
+    if (qty != null && qty > 0 && !basisNA && !countUnresolved) items.push({ match, qty, unit, basis, equipment, scope, note, allocation });
+    // Identified but not defensibly quantifiable → RETAINED as pending: qty stays
+    // null (never coerced to 0/assumed) and no basis is invented.
+    else if (NEEDS_DETAIL.test(status) || countUnresolved) needsDetail.push({ match, qty: null, unit, equipment, scope, note, allocation, pending: true });
     else notAssessable.push(match);
   }
   const seen = new Set<string>();
