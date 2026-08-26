@@ -86,3 +86,53 @@ describe("matchScore ranks a specific catalogue line above a generic one", () =>
     expect(matchScore("Geyser points", line)).toBeGreaterThan(matchScore("Power points", line));
   });
 });
+
+// A pending/unestablished quantity must never be promoted to a numeric count at the
+// PARSER stage — a stray number the evaluation supplies for a "total not established"
+// row is not a defensible count. This is distinct from a missing dimension/spec
+// (COUNTABLE ≠ MEASURABLE), where the count IS kept.
+describe("pending quantities are never promoted to a number by the parser", () => {
+  const e = parseChatGptEvaluation(JSON.stringify({
+    project_type: "Residential", archetype: "Apartment", floor: 1, boq_allocation: "Floor 1",
+    floor_scope: "First Floor / Floor 1 private apartment",
+    disciplines: { identified: ["Architectural", "Electrical", "Plumbing"], not_assessable: ["Fire"] },
+    requirements: [
+      // the reported bug: a number is present but the evaluation says the total is not established
+      { allocation: "Floor 1", requirement: "15A socket points", qty: 25, unit: "nos", basis: "Counted", note: "Symbols visible, but complete defensible total not established", scope: "Works", status: "Identified — Needs detail" },
+      { allocation: "Floor 1", requirement: "5A socket points", qty: 30, unit: "nos", basis: "Counted", note: "count not established", scope: "Works", status: "Identified — Needs detail" },
+      // genuinely counted electrical/plumbing/joinery — must stay numeric
+      { allocation: "Floor 1", requirement: "Geyser points", qty: 4, unit: "nos", basis: "Counted", note: "four private bathrooms", scope: "Works", status: "Quantified" },
+      { allocation: "Floor 1", requirement: "WC", qty: 5, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
+      { allocation: "Floor 1", requirement: "Wash basin", qty: 4, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
+      { allocation: "Floor 1", requirement: "Shower", qty: 4, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
+      { allocation: "Floor 1", requirement: "AC points", qty: 9, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
+      { allocation: "Floor 1", requirement: "TV / plasma provision", qty: 5, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
+      { allocation: "Floor 1", requirement: "Switchboard", qty: 12, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
+      { allocation: "Floor 1", requirement: "Ceiling fan", qty: 6, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
+      { allocation: "Floor 1", requirement: "DB", qty: 1, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
+      { allocation: "Floor 1", requirement: "Calling bell", qty: 1, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
+      // COUNTABLE ≠ MEASURABLE: dimension/spec missing but count IS defensible → stays counted
+      { allocation: "Floor 1", requirement: "Wardrobe", qty: 4, unit: "nos", basis: "Counted", note: "running length/material not established", scope: "Works", status: "Identified — Needs detail" },
+      { allocation: "Floor 1", requirement: "Overhead storage", qty: 6, unit: "nos", basis: "Counted", note: "running length not established", scope: "Works", status: "Identified — Needs detail" },
+      { allocation: "Floor 1", requirement: "D1 door", qty: 7, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
+    ], confidence: {}, confirmations: [],
+  }));
+  const q = (m: string) => e.requirements.find((r) => r.match === m);
+  const pend = (m: string) => e.needsDetail.find((r) => r.match === m);
+
+  it("15A socket points (total not established) stays pending — never becomes 25", () => {
+    expect(q("15A socket points")).toBeUndefined();
+    expect(pend("15A socket points")).toMatchObject({ qty: null, pending: true });
+    expect(pend("5A socket points")).toMatchObject({ qty: null, pending: true });
+  });
+
+  it("counted quantities transfer unchanged", () => {
+    for (const [m, n] of [["Geyser points", 4], ["WC", 5], ["Wash basin", 4], ["Shower", 4], ["AC points", 9], ["TV / plasma provision", 5], ["Switchboard", 12], ["Ceiling fan", 6], ["DB", 1], ["Calling bell", 1], ["D1 door", 7]] as [string, number][])
+      expect(q(m)?.qty, m).toBe(n);
+  });
+
+  it("COUNTABLE ≠ MEASURABLE preserved — a MISSING DIMENSION keeps the count", () => {
+    expect(q("Wardrobe")?.qty).toBe(4);        // "running length/material not established" → still 4
+    expect(q("Overhead storage")?.qty).toBe(6);
+  });
+});
