@@ -705,11 +705,20 @@ function escapeControlChars(s: string): string {
   return out;
 }
 
-/** Best-effort repairs applied only when strict parsing fails: smart quotes → ASCII,
- *  comments removed, trailing commas dropped, stray control chars neutralised. */
+/** Every Unicode character a keyboard / word-processor / phone "smart punctuation" or
+ *  copy-through can substitute for an ASCII double quote — directional, angle, prime,
+ *  low/high, fullwidth. Real pasted evaluations use these as the JSON string
+ *  DELIMITERS, which plain JSON.parse cannot read, so they must be normalised to " . */
+const UNICODE_DQUOTE = /[“”„‟″‶〃〝〞〟«»＂❝❞᳓⹂｢｣]/g;
+/** The same for the ASCII single quote / apostrophe (feet marks, contractions). */
+const UNICODE_SQUOTE = /[‘’‚‛′‵ʼʹ‹›❛❜＇´`]/g;
+
+/** Best-effort repairs applied only when strict parsing fails: smart / typographic
+ *  quotes → ASCII, comments removed, trailing commas dropped, stray control chars
+ *  neutralised. Well-formed ASCII JSON never reaches here (it parses strictly first). */
 function repairJson(s: string): string {
   return stripJsonComments(s)
-    .replace(/[“”]/g, '"').replace(/[‘’]/g, "'")   // smart quotes
+    .replace(UNICODE_DQUOTE, '"').replace(UNICODE_SQUOTE, "'")   // typographic quotes → ASCII
     .replace(/,(\s*[}\]])/g, "$1")                                     // trailing commas
     // eslint-disable-next-line no-control-regex -- deliberately neutralising stray control chars in pasted JSON
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, " ");   // stray control chars

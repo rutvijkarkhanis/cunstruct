@@ -157,6 +157,60 @@ describe("importer preserves the structured content faithfully", () => {
   });
 });
 
+// The ACTUAL reported failure: the pasted JSON's quote characters are typographic
+// ("smart") quotes, not ASCII — a phone / word-processor / copy-through substitutes
+// them. Before the fix only U+201C/U+201D were normalised, so any other variant left
+// the JSON unparseable and the importer reported "Couldn't identify…". These pastes
+// are VALID in shape; only the quote glyphs differ.
+describe("typographic / smart quotes used as JSON delimiters (the reported paste)", () => {
+  // Replace ASCII " delimiters with a directional open/close pair, and ' with an
+  // apostrophe glyph — exactly what a device does to a pasted JSON object.
+  const retype = (ascii: string, open: string, close: string, apos: string) => {
+    let out = "", prev = "";
+    for (const c of ascii) {
+      if (c === '"') out += /[\s{[:,]/.test(prev) || prev === "" ? open : close;
+      else if (c === "'") out += apos;
+      else out += c;
+      prev = c;
+    }
+    return out;
+  };
+  const variants: [string, string, string, string][] = [
+    ["curly (U+201C/U+201D)", "“", "”", "’"],
+    ["fullwidth (U+FF02)", "＂", "＂", "＇"],
+    ["guillemets (U+00AB/BB)", "«", "»", "’"],
+    ["reversed (U+201F)", "‟", "‟", "‛"],
+    ["prime (U+2033/U+2032)", "″", "″", "′"],
+  ];
+  for (const [label, open, close, apos] of variants) {
+    it(`parses a valid object whose delimiters are ${label}`, () => {
+      const text = retype(RAW, open, close, apos);
+      const e = parseChatGptEvaluation(text);
+      expect(e.ok, `${label} should parse`).toBe(true);
+      expect(e.projectType).toBe("Residential");
+      expect(qtyOf(text, "WC")).toBe(5);
+      expect(qtyOf(text, "15A socket points")).toBe(25);
+      expect(qtyOf(text, "Switchboards")).toBe(14);
+      expect(qtyOf(text, "Ceiling lamp points")).toBe(22);
+    });
+  }
+
+  it("curly delimiters + inch-mark quotes inside a measurement value both parse", () => {
+    // value "16'6\" x 12'4\"" with curly delimiters AND curly inch-marks — the exact
+    // measurement shape in the reported paste.
+    const withDim = { ...FLOOR1, measurements: [{ name: "Master Bedroom", value: "16'6\" x 12'4\"", location: "Master Bedroom" }] };
+    const text = retype(JSON.stringify(withDim), "“", "”", "’");
+    const e = parseChatGptEvaluation(text);
+    expect(e.ok).toBe(true);
+    expect(e.measurements.find((m) => m.label === "Master Bedroom")?.value).toContain("16'6");
+  });
+
+  it("curly delimiters + a raw newline inside a note still parse (both repairs compose)", () => {
+    const text = retype(RAW, "“", "”", "’").replace("rating not established", "rating not established;\nlegend incomplete");
+    expect(parseChatGptEvaluation(text).ok).toBe(true);
+  });
+});
+
 describe("importer returns a validation error ONLY when genuinely malformed / missing fields", () => {
   it("plain prose with no JSON → not ok", () => {
     expect(parseChatGptEvaluation("Here are some thoughts about the drawing, no structured data.").ok).toBe(false);
