@@ -282,3 +282,98 @@ describe("generic provenance gate: qty=null in → never a number out; qty=n (de
     }
   });
 });
+
+// THE PRODUCTION PATH the earlier tests missed: when the project has room dimensions,
+// OpsBoqBuilder passes `dims` to generateForDiscipline. defaultBasis then stamps EVERY
+// template line "DRAWING_DERIVED", which the quantity-evidence gate used to accept — so
+// pure room-count / area coefficients (WC=baths, AC=beds+baths, sockets=rooms·2+…,
+// flooring=area) manufactured quantities on a drawing-driven BOQ even when the drawing
+// itemised none of them. These tests drive that exact path (dims present) and assert
+// no non-DrawingItem quantity can survive. This is where D.02/D.40/D.41 came from.
+const DIMS = { rooms: [
+  { room_type: "bedroom", length_ft: 12, width_ft: 12, height_ft: 10, count: 5, electrical_points: 6 },
+  { room_type: "bathroom", length_ft: 8, width_ft: 6, height_ft: 10, count: 4, electrical_points: 3 },
+  { room_type: "kitchen", length_ft: 10, width_ft: 10, height_ft: 10, count: 1, electrical_points: 6 },
+  { room_type: "living", length_ft: 16, width_ft: 14, height_ft: 10, count: 1, electrical_points: 8 },
+] } as unknown as Parameters<typeof generateForDiscipline>[3];
+const storedRooms = (items: DrawingItem[]): Spec => ({
+  _source: "chatgpt", _boq_allocation: "Floor 1", _floors: 1,
+  _disciplines: ["Architectural", "Electrical", "Plumbing", "HVAC"],
+  bedrooms: 5, bathrooms: 4, kitchens: 1, geyser: true, oht: true,
+  _drawing: { items },
+} as unknown as Spec);
+const genAll = (spec: Spec) => ["civil", "electrical", "plumbing", "hvac"].flatMap((d) => generateForDiscipline(d, spec, { area_sqft: 3960, floors: 4 }, DIMS));
+const leaked = (spec: Spec) => genAll(spec).filter((l) => l.qty != null && !l.drawing);
+
+describe("room dimensions present (production path) cannot manufacture a quantity", () => {
+  it("A. source qty null → final qty null (every pending item, dims present)", () => {
+    const spec = storedRooms([
+      { match: "15A socket points", qty: null, unit: "nos", pending: true },
+      { match: "Geyser power points (15A)", qty: null, unit: "nos", pending: true },
+      { match: "AC points", qty: null, unit: "nos", pending: true },
+    ]);
+    expect(leaked(spec)).toEqual([]);
+    expect(genAll(spec).every((l) => l.qty == null)).toBe(true);
+  });
+
+  it("B. source qty null + catalogue item HAS a default qty → final qty null (WC=baths must not price)", () => {
+    // WC is a catalogue line with default qty = baths (4). With the drawing WC pending,
+    // that 4 must NOT survive — the catalogue default is not a drawing quantity.
+    const spec = storedRooms([{ match: "WC", qty: null, unit: "nos", pending: true }]);
+    expect(genAll(spec).some((l) => /\bWC\b|water closet|European WC/i.test(l.label) && l.qty === 4)).toBe(false);
+    expect(leaked(spec)).toEqual([]);
+  });
+
+  it("C. source qty null + questionnaire toggle/default → final qty null (geyser toggle on, drawing pending)", () => {
+    // geyser:true, oht:true toggles are ON, but the drawing geyser is pending → the
+    // toggle controls inclusion only, never a quantity. Nothing geyser-quantified.
+    const spec = storedRooms([{ match: "Geyser points", qty: null, unit: "nos", pending: true }]);
+    expect(genAll(spec).some((l) => /geyser/i.test(l.label) && l.qty != null)).toBe(false);
+    expect(leaked(spec)).toEqual([]);
+  });
+
+  it("D. source qty 4 → final qty 4 (defensible count survives, dims present)", () => {
+    const spec = storedRooms([{ match: "Geyser points", qty: 4, unit: "nos", basis: "Counted", status: "Quantified" }]);
+    const g = genAll(spec).find((l) => /geyser/i.test(l.label));
+    expect(g?.qty).toBe(4);
+    expect(g?.drawing).toBeTruthy();
+    expect(leaked(spec)).toEqual([]);
+  });
+
+  it("E. source qty 25 → final qty 25 (defensible count survives, dims present)", () => {
+    const spec = storedRooms([{ match: "15A socket points", qty: 25, unit: "nos", basis: "Counted", status: "Quantified" }]);
+    const s = genAll(spec).find((l) => /15\s*a/i.test(l.label));
+    expect(s?.qty).toBe(25);
+    expect(s?.drawing).toBeTruthy();
+    expect(leaked(spec)).toEqual([]);
+  });
+
+  it("F. scope filtering never creates a quantity (allocation drops items, never adds numbers)", () => {
+    // Built through specFromEvaluation so the real allocation filter runs: a Common-Area
+    // item is excluded from the Floor-1 _drawing, and a Floor-1 pending item stays
+    // pending. Filtering must REMOVE, never fabricate — no leaked number, dims present.
+    const spec = specFromEvaluation(parseChatGptEvaluation(JSON.stringify({
+      project_type: "Residential", archetype: "Apartment", floor: 1, boq_allocation: "Floor 1",
+      floor_scope: "First Floor / Floor 1 private apartment", area: 3960, area_type: "built-up",
+      spaces: [{ name: "Bedroom", qty: 5 }, { name: "Bathroom", qty: 4 }, { name: "Kitchen", qty: 1 }, { name: "Living", qty: 1 }],
+      disciplines: { identified: ["Architectural", "Electrical", "Plumbing"], not_assessable: ["Fire"] },
+      requirements: [
+        { allocation: "Common Area", requirement: "Common lift", qty: 1, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
+        { allocation: "Floor 1", requirement: "15A socket points", qty: null, unit: null, basis: "Not assessable", scope: "Works", status: "Identified — Needs detail" },
+      ], confidence: {}, confirmations: [],
+    })));
+    expect(leaked(spec)).toEqual([]);
+    expect(genAll(spec).some((l) => /common lift/i.test(l.label))).toBe(false);   // other allocation removed
+    expect(genAll(spec).some((l) => /15\s*a/i.test(l.label) && l.qty != null)).toBe(false);   // pending stays pending
+  });
+
+  it("G. catalogue / DSR mapping never creates a quantity (mapped item keeps the drawing count, not the DSR coefficient)", () => {
+    // WC maps to DSR 17.2.1 (whose template qty would be baths=4). The drawing says 5.
+    // The mapped line must show 5 (drawing), never 4 (catalogue), and nothing leaks.
+    const spec = storedRooms([{ match: "WC", qty: 5, unit: "nos", basis: "Counted", status: "Quantified" }]);
+    const wc = genAll(spec).filter((l) => /\bWC\b|water closet|European WC/i.test(l.label));
+    expect(wc.length).toBeGreaterThan(0);
+    for (const l of wc) { expect(l.qty).toBe(5); expect(l.drawing).toBeTruthy(); }
+    expect(leaked(spec)).toEqual([]);
+  });
+});

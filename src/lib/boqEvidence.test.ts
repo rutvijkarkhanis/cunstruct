@@ -51,6 +51,19 @@ describe("withQuantityEvidence — only drawing-driven BOQs are gated", () => {
   it("keeps everything for a questionnaire/archetype BOQ (explicit input)", () => {
     expect(withQuantityEvidence(lines, defaultSpec())).toHaveLength(2);
   });
+
+  it("a DRAWING_DERIVED basis WITHOUT a drawing binding is NOT evidence on a drawing BOQ", () => {
+    // defaultBasis stamps every template line DRAWING_DERIVED the moment room dims are
+    // present. That basis alone must NOT price a line — only an actual DrawingItem
+    // binding (line.drawing) is an authoritative drawing quantity. This is the leak
+    // that manufactured room-count quantities (WC=baths, AC=beds+baths, sockets=…).
+    const derivedButUnbound: GeneratedLine[] = [
+      { section: "Sanitary", code: "17.2.1", qty: 4, label: "WC (template=baths)", unit: "each", basis: "DRAWING_DERIVED" },
+      { section: "Sanitary", code: "17.2.1", qty: 5, label: "WC (drawing)", unit: "each", basis: "DRAWING_INPUT", drawing: { basis: "Counted", scope: "works" } },
+    ];
+    const out = withQuantityEvidence(derivedButUnbound, { _source: "chatgpt" } as unknown as Spec);
+    expect(out.map((l) => l.label)).toEqual(["WC (drawing)"]);   // only the bound line survives
+  });
 });
 
 describe("unsupported catalogue quantities cannot enter a drawing-driven BOQ", () => {

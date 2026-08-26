@@ -31,13 +31,30 @@ export function hasQuantityEvidence(line: GeneratedLine): boolean {
   return line.basis === "DRAWING_INPUT" || line.basis === "DRAWING_DERIVED";
 }
 
-/** In a drawing-driven BOQ, keep only quantity-evidenced lines; withhold catalogue-
- *  fabricated quantities (the item/rate exist in the catalogue, but no drawing
- *  quantity supports them). A non-drawing (questionnaire/archetype) BOQ is returned
- *  unchanged — its quantities are explicit operator inputs. Pending drawing items
- *  (qty null) are not lines here; they live in spec._drawing and render separately,
- *  so this never drops pending scope. Pure filter — no quantity is created or changed. */
+/** The AUTHORITATIVE quantity source in a drawing-driven BOQ: a line actually bound
+ *  to a DrawingItem (`line.drawing` set by applyDrawing — a counted/appended drawing
+ *  requirement). This is the ONLY thing that carries a real drawing quantity.
+ *
+ *  Crucially it does NOT trust `basis` alone. `defaultBasis` stamps EVERY template
+ *  line "DRAWING_DERIVED" the moment room dimensions are present (the production
+ *  path), so a basis check would let pure room-count / area coefficients
+ *  (WC = baths, AC = beds + baths, sockets = rooms·2 + kitchens·3, flooring = area)
+ *  masquerade as drawing quantities and price themselves even when the drawing
+ *  itemised none of them. Requiring the DrawingItem binding closes that leak:
+ *  template coefficients, room counts and area heuristics can never manufacture a
+ *  quantity on a drawing-driven BOQ. */
+export function isDrawingQuantity(line: GeneratedLine): boolean {
+  return !!line.drawing;
+}
+
+/** In a drawing-driven BOQ, keep ONLY lines whose quantity comes from a DrawingItem
+ *  binding; withhold every catalogue/template/room-count/area coefficient (the item
+ *  and rate may exist in the catalogue, but no DRAWING quantity supports them). A
+ *  non-drawing (questionnaire/archetype) BOQ is returned unchanged — its quantities
+ *  are explicit operator inputs. Pending drawing items (qty null) have no binding and
+ *  live in spec._drawing, rendering separately, so this never drops pending scope.
+ *  Pure filter — no quantity is created or changed. */
 export function withQuantityEvidence(lines: GeneratedLine[], spec: Spec): GeneratedLine[] {
   if ((spec as Record<string, unknown>)._source !== "chatgpt") return lines;
-  return lines.filter(hasQuantityEvidence);
+  return lines.filter(isDrawingQuantity);
 }
