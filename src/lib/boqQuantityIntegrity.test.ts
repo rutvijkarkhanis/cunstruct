@@ -141,11 +141,11 @@ describe("pending quantities are never promoted to a number by the parser", () =
     expect(q("Overhead storage")?.qty).toBe(6);
   });
 
-  it("status is authoritative: a needs-detail row with a number is pending, a Quantified row keeps its number", () => {
-    // same number, opposite status → opposite provenance
-    expect(pend("15A socket points")?.qty).toBeNull();   // needs-detail → pending
-    expect(q("Wardrobe")?.qty).toBe(4);                   // Quantified → counted
-    // a needs-detail number is never promoted, even with no count-not-established note
+  it("a COUNT-gap row is pending, a defensible count is kept — even when both are tagged needs-detail", () => {
+    // 15A carries a COUNT-gap note ("complete defensible total not established") → pending.
+    // Wardrobe (missing running length only — a SPEC/dimension gap) keeps its count.
+    expect(pend("15A socket points")?.qty).toBeNull();   // count gap → pending
+    expect(q("Wardrobe")?.qty).toBe(4);                   // spec/dimension gap → counted
     expect(q("15A socket points")).toBeUndefined();
   });
 });

@@ -300,16 +300,24 @@ describe("status-authoritative provenance + combined-floor allocation", () => {
   });
 });
 
-describe("markdown fallback: status is authoritative over a supplied number", () => {
-  it("qty present + 'Identified — Needs detail' status → pending (status wins, number not promoted)", () => {
+describe("markdown fallback: a present count survives a SPEC gap; only a COUNT gap is pending", () => {
+  it("qty present + 'Needs detail' for a missing SPEC/dimension → still counted (COUNTABLE ≠ FULLY SPECIFIED)", () => {
     const e = parseChatGptEvaluation(`## DRAWING-SPECIFIC REQUIREMENTS
 Requirement | Qty | Unit | Basis | Location / Note | Scope | Status
 --- | --- | --- | --- | --- | --- | ---
-Wardrobe | 5 | nos | Counted | Bedrooms | Works | Identified — Needs detail`);
-    expect(e.requirements.some((r) => r.match === "Wardrobe")).toBe(false);
-    expect(e.needsDetail.find((r) => r.match === "Wardrobe")).toMatchObject({ qty: null, pending: true });
+Wardrobe | 5 | nos | Counted | Bedrooms · running length not established | Works | Identified — Needs detail`);
+    expect(e.requirements.find((r) => r.match === "Wardrobe")).toMatchObject({ qty: 5 });
+    expect(e.needsDetail.some((r) => r.match === "Wardrobe")).toBe(false);
   });
-  it("qty present + 'Quantified' status → counted (a defensible count is promoted)", () => {
+  it("qty present + a COUNT-gap note → pending (the total itself is unestablished)", () => {
+    const e = parseChatGptEvaluation(`## DRAWING-SPECIFIC REQUIREMENTS
+Requirement | Qty | Unit | Basis | Location / Note | Scope | Status
+--- | --- | --- | --- | --- | --- | ---
+15A socket points | 25 | nos | Counted | complete defensible total not established | Works | Identified — Needs detail`);
+    expect(e.requirements.some((r) => r.match === "15A socket points")).toBe(false);
+    expect(e.needsDetail.find((r) => r.match === "15A socket points")).toMatchObject({ qty: null, pending: true });
+  });
+  it("qty present + 'Quantified' status → counted", () => {
     const e = parseChatGptEvaluation(`## DRAWING-SPECIFIC REQUIREMENTS
 Requirement | Qty | Unit | Basis | Location / Note | Scope | Status
 --- | --- | --- | --- | --- | --- | ---

@@ -66,7 +66,14 @@ export interface DrawingItem {
 // BOTH parse time (new imports) and generation time (already-stored specs, which are
 // never re-parsed), so no downstream layer can manufacture a quantity. It is keyed on
 // evidence, never on item names, so it holds for every discipline and project.
-const NEEDS_DETAIL = /needs?[-\s]*detail|^\W*identified\b/i;
+//
+// COUNT-gap vs SPEC-gap (COUNTABLE ≠ FULLY SPECIFIED): a PRESENT count is authoritative
+// and is KEPT even when the item is flagged "Identified — Needs detail" for a missing
+// specification / rating / model / material / dimension / running length — that gap is
+// a note, never a reason to null a visible count. Only a genuine COUNT gap (the total
+// itself unestablished, via COUNT_UNRESOLVED), a "Not assessable" basis/status, an
+// explicit pending flag, or a null/≤0 qty makes an item pending. So "Needs detail"
+// alone does NOT demote a counted item.
 const NOT_ASSESSABLE = /not\s*assessable/i;
 // The evaluation explicitly says the COUNT / TOTAL itself is not established (as
 // opposed to a missing dimension/spec/material, which under COUNTABLE ≠ MEASURABLE
@@ -85,17 +92,19 @@ export function countNotEstablished(note: string | undefined, status: string | u
 
 /** The generic provenance rule: is this DrawingItem's quantity NOT a defensible
  *  drawing count — so it must stay pending (qty null)? True when the item is already
- *  pending / has no number, when its basis is "Not assessable", when its status is
- *  "Identified — Needs detail" / "Not assessable", or when its note/status say the
- *  count itself is unestablished. A "Quantified" status with a positive number (a
- *  missing dimension is only a note) is the ONLY thing that establishes a count. */
+ *  pending / has no number, when its basis or status is "Not assessable", or when its
+ *  note/status say the COUNT itself is unestablished. A missing spec/rating/model/
+ *  material/dimension — even tagged "Identified — Needs detail" — does NOT make a
+ *  PRESENT count pending (COUNTABLE ≠ FULLY SPECIFIED): a visible count is kept and the
+ *  gap stays a note. So a positive qty establishes a count unless the count itself is
+ *  in doubt (count gap) or the drawing does not support it ("Not assessable"). */
 export function drawingItemIsPending(it: Pick<DrawingItem, "qty" | "pending" | "basis" | "status" | "note">): boolean {
   if (it.pending) return true;
   if (it.qty == null || !Number.isFinite(it.qty) || (it.qty as number) <= 0) return true;
   if (NOT_ASSESSABLE.test(it.basis ?? "")) return true;
   const status = it.status ?? "";
-  if (NEEDS_DETAIL.test(status) || NOT_ASSESSABLE.test(status)) return true;
-  if (countNotEstablished(it.note, status)) return true;
+  if (NOT_ASSESSABLE.test(status)) return true;
+  if (countNotEstablished(it.note, status)) return true;   // the COUNT itself is unestablished
   return false;
 }
 
