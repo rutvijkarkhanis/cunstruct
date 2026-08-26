@@ -122,21 +122,30 @@ function norm(s: string): string {
     .replace(/\s+/g, " ").trim();
 }
 
-/** Does a requirement description confidently correspond to a catalogue item? */
-export function matchesCandidate(matchText: string, cand: { code: string | null; label: string }): boolean {
+/** How confidently a requirement corresponds to a catalogue item — 0 = no match,
+ *  higher = more specific. Used to pick the BEST catalogue line for a drawing item
+ *  (so "Geyser points" claims "Geyser power points…" ahead of a generic "Power
+ *  points"), never just the first that loosely matches. A drawing quantity may only
+ *  ever transfer onto the line that is genuinely its counterpart. */
+export function matchScore(matchText: string, cand: { code: string | null; label: string }): number {
   const key = matchText.trim().toLowerCase();
-  if (!key) return false;
-  if (cand.code && cand.code.toLowerCase() === key) return true;      // exact DSR code typed
+  if (!key) return 0;
+  if (cand.code && cand.code.toLowerCase() === key) return 1000;      // exact DSR code typed
   const it = norm(matchText), ln = norm(cand.label);
-  if (!it || !ln) return false;
-  if (ln.includes(it)) return true;                                   // normalised substring (full phrase)
+  if (!it || !ln) return 0;
+  if (ln.includes(it)) return 500 + it.length;                        // full normalised phrase in label (longer = better)
   const word = (w: string) => new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(ln);
   const sizes = it.match(/\d+[am]\b/g) ?? [];
   // Whole-word matching only — otherwise "AC point" wrongly matches "compACtion"
   // / "accessories" and silently overrides an unrelated line's quantity.
-  if (sizes.length) return sizes.every((t) => word(t));               // amperage/size (e.g. 16a, 4m)
+  if (sizes.length) return sizes.every((t) => word(t)) ? 200 + sizes.length : 0;   // amperage/size (16a, 4m)
   const words = it.split(" ").filter((w) => w.length >= 2 && !GENERIC.has(w));
-  return words.length > 0 && words.every((w) => word(w));             // else all distinctive words as whole words
+  return words.length > 0 && words.every((w) => word(w)) ? 100 + words.length : 0; // all distinctive words present
+}
+
+/** Does a requirement description confidently correspond to a catalogue item? */
+export function matchesCandidate(matchText: string, cand: { code: string | null; label: string }): boolean {
+  return matchScore(matchText, cand) > 0;
 }
 
 /** The best catalogue (DSR) match for a requirement, or null (No Catalogue Match). */
@@ -240,21 +249,36 @@ export function applyDrawing(lines: GeneratedLine[], summary?: DrawingSummary | 
     scope: equip ? "equipment" : "works",
     rooms: it.rooms,
   });
-  const used = new Set<number>();
-  const out = lines.map((l) => {
-    // Override only when the scope matches AND the units are the same dimensionality.
-    // A unit-mismatched match (drawing count vs catalogue area) is NOT an override:
-    // the catalogue line is left for the precedence loop to supersede, and the
-    // drawing item is appended below as its own (correct-unit) line.
-    const idx = items.findIndex((it) => matchesLine(it, l) && unitsCompatible(it.unit, l.unit));
-    if (idx < 0) return l;
-    used.add(idx);
-    const it = items[idx];
+  // Bind each drawing item to the catalogue line that is genuinely its counterpart:
+  // a BEST-match, ONE-TO-ONE assignment (not first-match). A drawing quantity may
+  // only ever transfer onto the line it most specifically matches — so a generic
+  // "Power points" can never claim "Geyser power points…" and overwrite the geyser
+  // requirement's quantity. Units must be the same dimensionality (a count never
+  // sets an area/length). The CATALOGUE contributes the line's description/code/rate;
+  // the QUANTITY is always the bound drawing item's own quantity, never a template's.
+  const usedItems = new Set<number>();
+  const pairs: { li: number; ii: number; score: number }[] = [];
+  lines.forEach((l, li) => items.forEach((it, ii) => {
+    if (!unitsCompatible(it.unit, l.unit)) return;
+    const score = matchScore(it.match, { code: l.code, label: l.label });
+    if (score > 0) pairs.push({ li, ii, score });
+  }));
+  pairs.sort((a, b) => b.score - a.score);   // strongest match first
+  const boundItem = new Map<number, number>();   // line index → drawing-item index
+  for (const p of pairs) {
+    if (boundItem.has(p.li) || usedItems.has(p.ii)) continue;
+    boundItem.set(p.li, p.ii);
+    usedItems.add(p.ii);
+  }
+  const out = lines.map((l, li) => {
+    const ii = boundItem.get(li);
+    if (ii === undefined) return l;
+    const it = items[ii];
     const equip = it.equipment ?? isEquipment(it.match);
     return { ...l, qty: it.qty, basis: toQtyBasis(it.basis), note: it.note?.trim() || undefined, drawing: metaOf(it, equip), included: equip ? false : l.included };
   });
   items.forEach((it, i) => {
-    if (used.has(i)) return;
+    if (usedItems.has(i)) return;
     const equip = it.equipment ?? isEquipment(it.match);
     out.push({
       section: it.section?.trim() || (equip ? "Client equipment (excluded)" : "Drawing items"),
