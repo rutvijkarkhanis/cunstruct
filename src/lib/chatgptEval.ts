@@ -587,23 +587,112 @@ const jnum = (v: unknown): number | undefined => {
 const jarr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 const jobj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 
-/** Pull a single JSON object out of the raw response — tolerating ```json fences
- *  and any stray prose before/after — or null when there is no parseable object. */
+// The exact JSON object the evaluation produces is what we want — but real model
+// output is rarely byte-perfect JSON: it may wrap the object in prose or a ```json
+// fence, add a trailing comma, use // or /* */ comments, emit smart quotes, or —
+// most commonly for this drawing eval — leave an inch-mark quote unescaped inside a
+// dimension string ("10'-8" x 12'-4""). A single strict JSON.parse of a
+// first-brace…last-brace slice fails on all of these and the evaluation is rejected.
+// So we (1) find each object by a STRING-AWARE brace scan (prose braces before/after
+// can't corrupt it), then (2) parse it leniently: strict first, then a repaired form.
+// This only ADDS tolerance — well-formed JSON still parses on the first attempt, and
+// the internal shape the rest of the parser consumes is unchanged.
+
+/** The balanced { … } object beginning at `start`, respecting string literals, or
+ *  null. String-aware, so braces inside strings (or trailing prose) don't mislead it. */
+function balancedObject(s: string, start: number): string | null {
+  let depth = 0, inStr = false, esc = false;
+  for (let i = start; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === "{") depth++;
+    else if (c === "}" && --depth === 0) return s.slice(start, i + 1);
+  }
+  return null;
+}
+
+/** Remove line and block comments that appear outside string literals. */
+function stripJsonComments(s: string): string {
+  let out = "", inStr = false, esc = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i], n = s[i + 1];
+    if (inStr) { out += c; if (esc) esc = false; else if (c === "\\") esc = true; else if (c === '"') inStr = false; continue; }
+    if (c === '"') { inStr = true; out += c; continue; }
+    if (c === "/" && n === "/") { while (i < s.length && s[i] !== "\n") i++; out += "\n"; continue; }
+    if (c === "/" && n === "*") { i += 2; while (i < s.length && !(s[i] === "*" && s[i + 1] === "/")) i++; i++; continue; }
+    out += c;
+  }
+  return out;
+}
+
+/** Escape stray inner quotes: a " inside a string is a terminator only when the next
+ *  non-space char continues JSON (: , } ] or end); otherwise it is a literal (e.g. an
+ *  inch mark) and is escaped. Fixes unescaped dimension strings like "10'-8" x 12'-4"". */
+function escapeInnerQuotes(s: string): string {
+  let out = "", inStr = false, esc = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (!inStr) { out += c; if (c === '"') inStr = true; continue; }
+    if (esc) { out += c; esc = false; continue; }
+    if (c === "\\") { out += c; esc = true; continue; }
+    if (c === '"') {
+      let j = i + 1; while (j < s.length && /\s/.test(s[j])) j++;
+      const nx = s[j];
+      if (nx === undefined || nx === ":" || nx === "," || nx === "}" || nx === "]") { out += '"'; inStr = false; }
+      else out += '\\"';               // literal quote inside the string → escape it
+      continue;
+    }
+    out += c;
+  }
+  return out;
+}
+
+/** Best-effort repairs applied only when strict parsing fails: smart quotes → ASCII,
+ *  comments removed, trailing commas dropped, stray control chars neutralised. */
+function repairJson(s: string): string {
+  return stripJsonComments(s)
+    .replace(/[“”]/g, '"').replace(/[‘’]/g, "'")   // smart quotes
+    .replace(/,(\s*[}\]])/g, "$1")                                     // trailing commas
+    // eslint-disable-next-line no-control-regex -- deliberately neutralising stray control chars in pasted JSON
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, " ");   // stray control chars
+}
+
+/** Strict parse, then progressively repaired parse — returns a plain object or null. */
+function parseLenient(candidate: string): Record<string, unknown> | null {
+  const repaired = repairJson(candidate);
+  for (const attempt of [candidate, repaired, escapeInnerQuotes(repaired)]) {
+    try {
+      const o = JSON.parse(attempt);
+      if (o && typeof o === "object" && !Array.isArray(o)) return o as Record<string, unknown>;
+    } catch { /* try the next repair */ }
+  }
+  return null;
+}
+
+/** Pull a single JSON object out of the raw response — tolerating ```json fences,
+ *  stray prose/braces before or after, trailing commas, comments, smart quotes and
+ *  unescaped inner quotes — or null when there is no parseable object. */
 export function extractJson(text: string): Record<string, unknown> | null {
   if (!text) return null;
   let t = text.trim();
   const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fence) t = fence[1].trim();
-  const i = t.indexOf("{");
-  const j = t.lastIndexOf("}");
-  if (i < 0 || j <= i) return null;
-  t = t.slice(i, j + 1);
-  try {
-    const o = JSON.parse(t);
-    return o && typeof o === "object" && !Array.isArray(o) ? (o as Record<string, unknown>) : null;
-  } catch {
-    return null;
+  // Try each "{" as a possible object start; the first that yields a real object wins.
+  // (Prose like "see {SB1}" fails to parse, so the actual evaluation object is used.)
+  let tries = 0;
+  for (let start = t.indexOf("{"); start >= 0 && tries < 200; start = t.indexOf("{", start + 1), tries++) {
+    const candidate = balancedObject(t, start);
+    if (!candidate) continue;
+    const obj = parseLenient(candidate);
+    if (obj) return obj;
   }
+  return null;
 }
 
 function areaFromJson(area: unknown, areaType: unknown): EvalArea | null {
