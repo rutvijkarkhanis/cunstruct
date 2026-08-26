@@ -549,16 +549,20 @@ function parseRequirements(sec?: string): { items: DrawingItem[]; needsDetail: D
       if (!req) continue;
       const qtyNum = Number((qtyRaw || "").match(/[\d.]+/)?.[0]);
       const qty = Number.isFinite(qtyNum) ? qtyNum : null;
-      // COUNTABLE ≠ MEASURABLE: a present count wins over the status wording (a
-      // missing dimension/spec never blocks a count). BUT if the evaluation says the
-      // COUNT/TOTAL itself is not established (basis "Not assessable", or a
-      // count-not-established note/status), a stray number is not a defensible count
-      // and the item stays pending — a pending quantity is never promoted to numeric.
+      // STRICT quantity provenance: the DrawingItem STATUS is authoritative. A
+      // "Identified — Needs detail" (or "Not assessable") status MUST remain
+      // unquantified regardless of any number the evaluation supplied alongside it —
+      // that number is not a defensible drawing count. A count-not-established
+      // note/status, or a "Not assessable" basis, blocks quantification too. Only a
+      // positive number under a NON-pending status becomes a counted quantity.
       const basisNA = /\bnot\s*assessable\b/i.test(basisRaw ?? "");
+      const statusNeedsDetail = NEEDS_DETAIL.test(status);
+      const statusNA = /\bnot\s*assessable\b/i.test(status);
       const countUnresolved = countNotEstablished(note, status);
-      if (qty != null && qty > 0 && !basisNA && !countUnresolved) {
+      const blockCount = basisNA || statusNeedsDetail || statusNA || countUnresolved;
+      if (qty != null && qty > 0 && !blockCount) {
         items.push({ match: req, qty, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, scope, note, allocation: alloc });
-      } else if (NEEDS_DETAIL.test(status) || countUnresolved) {
+      } else if (statusNeedsDetail || countUnresolved) {
         // Identified scope with no usable count yet — RETAINED as pending: qty stays
         // null (never coerced to 0/assumed) and no basis is invented, so the row is
         // clearly "identified, quantity to be confirmed" rather than "0 counted".
@@ -779,17 +783,19 @@ function requirementsFromJson(v: unknown): { items: DrawingItem[]; needsDetail: 
     const equipment = equipFromScope(scope);
     const note = [jstr(o.location), jstr(o.note)].filter(Boolean).join(" · ") || undefined;
     const qty = jnum(o.qty);
-    // COUNTABLE ≠ MEASURABLE: a present count (qty > 0) means Quantified even if the
-    // row is tagged "Needs detail" for a missing dimension/spec/material. BUT if the
-    // evaluation says the COUNT/TOTAL itself is not established (basis "Not
-    // assessable", or a count-not-established note/status), a stray number is not a
-    // defensible count — the item stays pending (qty null), never promoted to numeric.
     const basisNA = /not\s*assessable/i.test(basisRaw);
+    const statusNeedsDetail = NEEDS_DETAIL.test(status);
+    const statusNA = /not\s*assessable/i.test(status);
     const countUnresolved = countNotEstablished(note, status);
-    if (qty != null && qty > 0 && !basisNA && !countUnresolved) items.push({ match, qty, unit, basis, equipment, scope, note, allocation });
-    // Identified but not defensibly quantifiable → RETAINED as pending: qty stays
-    // null (never coerced to 0/assumed) and no basis is invented.
-    else if (NEEDS_DETAIL.test(status) || countUnresolved) needsDetail.push({ match, qty: null, unit, equipment, scope, note, allocation, pending: true });
+    // STATUS is authoritative for provenance. A "Quantified" status (or a counted
+    // row with no needs-detail/not-assessable status) yields the drawing's number;
+    // a "Identified — Needs detail" / "Not assessable" status, or a note/basis that
+    // says the COUNT is not established, is pending — a supplied number is NOT a
+    // defensible count and is never promoted. (A missing dimension/spec stays a
+    // note; the correct evaluator marks a defensible count "Quantified".)
+    const blockCount = basisNA || statusNeedsDetail || statusNA || countUnresolved;
+    if (qty != null && qty > 0 && !blockCount) items.push({ match, qty, unit, basis, equipment, scope, note, allocation });
+    else if (statusNeedsDetail || countUnresolved) needsDetail.push({ match, qty: null, unit, equipment, scope, note, allocation, pending: true });
     else notAssessable.push(match);
   }
   const seen = new Set<string>();
