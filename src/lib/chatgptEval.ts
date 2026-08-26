@@ -9,7 +9,7 @@
 // unstated fields stay empty and every quantity is exactly what was pasted.
 
 import { defaultSpec, type Spec } from "./boqSpec";
-import { parseDrawingSummary, type DrawingBasis, type DrawingItem } from "./boqDrawing";
+import { parseDrawingSummary, resolveDrawingProvenance, type DrawingBasis, type DrawingItem } from "./boqDrawing";
 
 // Spec keys seeded from a ChatGPT evaluation (drawing requirements, measurements,
 // spaces, provenance). They must survive a spec reset — e.g. when the operator
@@ -86,6 +86,8 @@ Core rules:
 - COUNTABLE ≠ MEASURABLE, and COUNTABLE ≠ FULLY SPECIFIED. If an item can be COUNTED, COUNT it — even when its dimension, area, running length, model, specification, material, finish or rating is unknown. A missing measurement OR a missing specification is NEVER a reason to return "qty": null. Set "qty" to the count, "unit" to "nos", "basis" to "Counted" (or "Visually counted from drawing"), "status" to "Quantified", and put whatever is missing in "note" (e.g. "Running length not established", "Model/specification not established", "Area/material not established"). Do NOT downgrade a countable item to "Identified — Needs detail" just because a dimension, model or material is missing. Examples: the drawing clearly shows 4 WCs → qty 4 even if the WC model/specification is unknown; 3 wardrobes → qty 3 even if the run length/material is unknown; 1 feature wall → qty 1 even if the area/finish is unknown; 5 WCs → qty 5.
 - BASIS MUST MATCH THE COUNT. If you provide a numeric "qty", its "basis" MUST be "Counted", "Measured" or "Derived" — NEVER "Not assessable". Reserve "basis": "Not assessable" (with "status": "Identified — Needs detail" or "Not assessable") for rows whose SYMBOL you genuinely cannot count or see; those rows keep "qty": null. Never pair a real count with a "Not assessable" basis — that number would be discarded.
 - UNKNOWN IS BETTER THAN INVENTED applies ONLY to symbols you cannot actually see: never fabricate a number for a symbol that is not on the drawing. It does NOT apply to countable symbols whose specification/dimension/material is merely missing — those you MUST still count. Use "qty": null and "status": "Identified — Needs detail" ONLY when a symbol is genuinely too ambiguous or illegible to count even after a careful visual pass, or when the item is inherently area/length-based and the drawing gives no area/length to measure.
+- AN INCOMPLETE LEGEND OR UNREADABLE EXTRACTED TEXT IS NOT A REASON TO RETURN null. If the SYMBOLS themselves are visible on the drawing, COUNT them even when the legend, key, rating table or OCR/extracted text is missing, partial or unreadable — record the gap in "note" (e.g. "Legend/rating not established; symbols visually counted") and keep "status": "Quantified". Only an illegible SYMBOL (not an illegible legend) justifies "qty": null.
+- WHEN THE COUNT IS UNCERTAIN, SAY SO EXPLICITLY. Return "qty": null with "status": "Identified — Needs detail" only when the COUNT/TOTAL itself cannot be established — and then say exactly that in "note" (e.g. "Complete defensible total not established"). Never leave a visible, countable category null for any other reason.
 - Do NOT use generic residential assumptions, template defaults, or room-count inference. Do NOT infer a quantity from the number of rooms. Every quantity must come from the drawing itself.
 - Keep quantities, dimensions and specifications separate: a dimension (51", 10'-8") or specification (16A, matte laminate) goes in "measurements" or "note", never in "qty".
 
@@ -109,11 +111,11 @@ Field guidance:
 - spaces[]: every identifiable room / space, with "qty" when the drawing supports a count.
 - disciplines: "identified" lists ONLY disciplines with actual scope/evidence in this drawing (from Civil, Architectural, Electrical, Plumbing, HVAC, Fire, Furniture); "not_assessable" lists the rest. Do NOT list a discipline as identified just because it could exist.
 - measurements[]: dimensions and specifications ONLY (switchboard heights, TV size, offsets) — never quantities.
-- requirements[]: EVERY item of scope you can see — QUANTIFIED wherever the drawing lets you count it. Count each symbol type SEPARATELY; do NOT collapse different symbols into one generic "electrical point". For EACH category below make a COUNT DECISION: count the symbols/units when they are visible (a missing spec/material/length does not block the count); use "qty": null with "status": "Identified — Needs detail" ONLY when the symbol is absent/illegible or the item is inherently area/length-based with no area/length given. Cover at least:
+- requirements[]: EVERY item of scope you can see — QUANTIFIED wherever the drawing lets you count it. Count each symbol type SEPARATELY; do NOT collapse different symbols into one generic "electrical point". For EACH category below you MUST make an explicit COUNT DECISION and emit a row: give a numeric "qty" with "status": "Quantified" whenever the symbols/units are visible (a missing spec/rating/model/material/length NEVER blocks the count — put it in "note"); use "qty": null with "status": "Identified — Needs detail" ONLY when the symbol is genuinely absent/illegible, or the item is inherently area/length-based with no area/length given, or the COUNT itself cannot be established (say so in "note"). Do NOT leave a visible electrical category out, and do NOT return it null merely because its rating/legend is incomplete. Cover at least:
   - Electrical: 5A/6A sockets; 15A/16A sockets; combined sockets; switchboards (SB1/SB2/SB3…); DB / distribution board; ceiling lamps / lights; tube lights; ceiling fans; tower / wall fans; AC points; TV / plasma points; cable-TV points; audio points; calling bell; floor points / floor boxes; geyser points; exhaust / inline exhaust; conduits; appliance points; projector; screen; blind provisions.
   - Plumbing: WC; wash basin; shower; bathtub; CP fittings; floor drain / floor trap; kitchen sink; kitchen & wet-kitchen plumbing points; water points; waste points; geyser connections; washing-machine provision; refrigerator provision; dishwasher; other visible fixtures.
   - Architectural: main doors; internal doors; sliding/folding/UPVC doors; windows; ventilators; internal walls / partitions; balconies; green pocket / planter; gates; railings; stairs; lifts. Area-based finishes — flooring; wall finishes; false ceiling — carry a count ONLY where the drawing states/permits an area (basis "Measured"/"Derived"); otherwise "qty": null (area not established).
-  - Interior / joinery (fixed works — COUNT each unit even when running length / material is unknown): wardrobes; walk-in closets (WICs); dress units; mirror units; study units; TV / media units & panels; consoles / fixed storage; kitchen platform; kitchen base & overhead / tall storage; kitchen island; wet-kitchen storage; overhead storage; utility / locker-room storage; feature walls; pooja units; bed-back panels; vanity; crockery units; media-room screen / projection provision; other fixed joinery.
+  - Interior / joinery (fixed works — COUNT each visible unit as "qty": 1 (or the number shown), "unit": "nos", "basis": "Counted", "status": "Quantified", EVEN WHEN the running length / area / material / finish is unknown; record the gap in "note", e.g. "Counter/platform visibly shown; running length and material not established"): wardrobes; walk-in closets (WICs); dress units; mirror units; study units; TV / media units & panels; consoles / fixed storage; kitchen platform AND wet-kitchen platform (count each separately — a visible wet-kitchen counter is qty 1 just like the kitchen platform; never leave it null only because its running length is unknown); kitchen base & overhead / tall storage; kitchen island; wet-kitchen storage; overhead storage; utility / locker-room storage; feature walls; pooja units; bed-back panels; vanity; crockery units; media-room screen / projection provision; other fixed joinery.
   - Loose equipment (still count): TV; projector; projector screen; audio equipment; blinds; loose furniture — mark "scope": "Equipment" when clearly loose / client-supplied.
   Per requirement:
   - allocation: the BOQ bucket. Private apartment scope → "Floor X" (this drawing: "Floor 1"). Shared/common scope (lifts, lobbies, common corridors, staircases, security, common services) → "Common Area" — identify it but keep it out of the private-floor buckets.
@@ -127,7 +129,9 @@ Field guidance:
 Return EXACTLY this JSON shape, filled from the drawing (use null / [] for anything the drawing does not establish):
 ${PROMPT_SCHEMA}
 
-Remember: return ONLY the JSON object, nothing else. UNKNOWN IS BETTER THAN INVENTED.`;
+Before returning, SELF-VALIDATE: for every electrical category (5A/6A sockets, 15A/16A sockets, switchboards, DB, ceiling lamps, tube lights, ceiling fans, tower/wall fans, AC points, TV/plasma, cable TV, audio, calling bell, floor points, geyser points, exhaust, appliance points, projector/screen, blind provisions) that is VISIBLE on the drawing, confirm you emitted a numeric "qty" with "status": "Quantified". If any visible category is still null, it must be because the SYMBOL itself is illegible or the COUNT cannot be established (stated in "note") — never because a rating, legend, model, material or dimension was missing.
+
+Remember: return ONLY the JSON object, nothing else. UNKNOWN IS BETTER THAN INVENTED — but a symbol you CAN see must be COUNTED.`;
 }
 
 export interface EvalArea { value: number; type: string; raw: string }
@@ -549,20 +553,24 @@ function parseRequirements(sec?: string): { items: DrawingItem[]; needsDetail: D
       if (!req) continue;
       const qtyNum = Number((qtyRaw || "").match(/[\d.]+/)?.[0]);
       const qty = Number.isFinite(qtyNum) ? qtyNum : null;
-      // COUNTABLE ≠ MEASURABLE: a present count wins over the status wording (a
-      // missing dimension/spec never blocks a count). BUT if the evaluation says the
-      // COUNT/TOTAL itself is not established (basis "Not assessable", or a
-      // count-not-established note/status), a stray number is not a defensible count
-      // and the item stays pending — a pending quantity is never promoted to numeric.
+      // COUNTABLE ≠ FULLY SPECIFIED: a PRESENT count is authoritative and is kept even
+      // when the row is tagged "Identified — Needs detail" for a missing spec / rating /
+      // model / material / dimension (that gap is a note). Only a COUNT gap (the total
+      // itself unestablished), a "Not assessable" basis/status, or a null qty makes it
+      // pending. "Needs detail" alone no longer blocks a visible count; a null-qty
+      // "Needs detail" row is still retained as pending.
       const basisNA = /\bnot\s*assessable\b/i.test(basisRaw ?? "");
+      const statusNeedsDetail = NEEDS_DETAIL.test(status);
+      const statusNA = /\bnot\s*assessable\b/i.test(status);
       const countUnresolved = countNotEstablished(note, status);
-      if (qty != null && qty > 0 && !basisNA && !countUnresolved) {
-        items.push({ match: req, qty, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, scope, note, allocation: alloc });
-      } else if (NEEDS_DETAIL.test(status) || countUnresolved) {
+      const blockCount = basisNA || statusNA || countUnresolved;
+      if (qty != null && qty > 0 && !blockCount) {
+        items.push({ match: req, qty, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, scope, note, allocation: alloc, status: status || undefined });
+      } else if (statusNeedsDetail || countUnresolved) {
         // Identified scope with no usable count yet — RETAINED as pending: qty stays
         // null (never coerced to 0/assumed) and no basis is invented, so the row is
         // clearly "identified, quantity to be confirmed" rather than "0 counted".
-        needsDetail.push({ match: req, qty: null, unit: unit?.trim() || undefined, equipment, scope, note, allocation: alloc, pending: true });
+        needsDetail.push({ match: req, qty: null, unit: unit?.trim() || undefined, equipment, scope, note, allocation: alloc, pending: true, status: status || undefined });
       } else {
         // Blank quantity, or a quantity the drawing itself does not support
         // ("Not assessable" basis) — recorded, never priced.
@@ -678,20 +686,54 @@ function escapeInnerQuotes(s: string): string {
   return out;
 }
 
-/** Best-effort repairs applied only when strict parsing fails: smart quotes → ASCII,
- *  comments removed, trailing commas dropped, stray control chars neutralised. */
+/** Escape RAW control characters that appear INSIDE a string literal — a literal
+ *  newline, carriage return or tab inside a "note"/"value" (common in real ChatGPT
+ *  output) is INVALID JSON and makes JSON.parse fail, which then loses the whole
+ *  object. String-aware, so control chars BETWEEN tokens (pretty-printed layout) are
+ *  left untouched; only those inside a string are turned into their escaped form. */
+function escapeControlChars(s: string): string {
+  let out = "", inStr = false, esc = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (!inStr) { out += c; if (c === '"') inStr = true; continue; }
+    if (esc) { out += c; esc = false; continue; }
+    if (c === "\\") { out += c; esc = true; continue; }
+    if (c === '"') { out += c; inStr = false; continue; }
+    if (c.charCodeAt(0) < 0x20) { out += c === "\n" ? "\\n" : c === "\r" ? "\\r" : c === "\t" ? "\\t" : " "; continue; }
+    out += c;
+  }
+  return out;
+}
+
+/** Every Unicode character a keyboard / word-processor / phone "smart punctuation" or
+ *  copy-through can substitute for an ASCII double quote — directional, angle, prime,
+ *  low/high, fullwidth. Real pasted evaluations use these as the JSON string
+ *  DELIMITERS, which plain JSON.parse cannot read, so they must be normalised to " . */
+const UNICODE_DQUOTE = /[“”„‟″‶〃〝〞〟«»＂❝❞᳓⹂｢｣]/g;
+/** The same for the ASCII single quote / apostrophe (feet marks, contractions). */
+const UNICODE_SQUOTE = /[‘’‚‛′‵ʼʹ‹›❛❜＇´`]/g;
+
+/** Best-effort repairs applied only when strict parsing fails: smart / typographic
+ *  quotes → ASCII, comments removed, trailing commas dropped, stray control chars
+ *  neutralised. Well-formed ASCII JSON never reaches here (it parses strictly first). */
 function repairJson(s: string): string {
   return stripJsonComments(s)
-    .replace(/[“”]/g, '"').replace(/[‘’]/g, "'")   // smart quotes
+    .replace(UNICODE_DQUOTE, '"').replace(UNICODE_SQUOTE, "'")   // typographic quotes → ASCII
     .replace(/,(\s*[}\]])/g, "$1")                                     // trailing commas
     // eslint-disable-next-line no-control-regex -- deliberately neutralising stray control chars in pasted JSON
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, " ");   // stray control chars
 }
 
-/** Strict parse, then progressively repaired parse — returns a plain object or null. */
+/** Strict parse, then progressively repaired parse — returns a plain OBJECT (never an
+ *  array) or null. Repairs are cumulative: smart quotes/comments/trailing commas, then
+ *  unescaped inner quotes (inch marks), then raw control chars inside strings (literal
+ *  newlines/tabs in notes) — and both string repairs combined, so an item with BOTH an
+ *  inch-mark quote and a raw newline still parses. Well-formed JSON parses on attempt 1. */
 function parseLenient(candidate: string): Record<string, unknown> | null {
   const repaired = repairJson(candidate);
-  for (const attempt of [candidate, repaired, escapeInnerQuotes(repaired)]) {
+  const quotesFixed = escapeInnerQuotes(repaired);
+  const attempts = [candidate, repaired, quotesFixed, escapeControlChars(repaired), escapeControlChars(quotesFixed)];
+  for (const attempt of attempts) {
     try {
       const o = JSON.parse(attempt);
       if (o && typeof o === "object" && !Array.isArray(o)) return o as Record<string, unknown>;
@@ -700,24 +742,54 @@ function parseLenient(candidate: string): Record<string, unknown> | null {
   return null;
 }
 
-/** Pull a single JSON object out of the raw response — tolerating ```json fences,
- *  stray prose/braces before or after, trailing commas, comments, smart quotes and
- *  unescaped inner quotes — or null when there is no parseable object. */
+/** The recognised top-level keys of a structured project-information object. Used to
+ *  pick the RIGHT object out of a paste — a nested fragment (e.g. one `spaces` entry
+ *  `{name, qty}`) parses fine but carries none of these, so it must not be mistaken
+ *  for the evaluation. Key-based, never sentence/prefix matching. */
+const EVAL_TOP_KEYS = [
+  "project_type", "archetype", "floor", "boq_allocation", "floor_scope", "area", "area_type",
+  "spaces", "disciplines", "measurements", "requirements", "category_summary", "confidence", "confirmations",
+] as const;
+function looksLikeEval(o: Record<string, unknown>): boolean {
+  return EVAL_TOP_KEYS.some((k) => k in o);
+}
+
+/** Pull the structured project-information JSON object out of the raw response —
+ *  tolerating ```json fences, surrounding prose, leading/trailing whitespace, stray
+ *  braces, trailing commas, comments, smart quotes, unescaped inner quotes and raw
+ *  control chars inside strings. Returns the FIRST parseable object that CONTAINS the
+ *  structured-project keys; if none is key-matching, the first parseable object as a
+ *  best-effort fallback; or null when there is no parseable object at all. Always an
+ *  object, never an array. */
 export function extractJson(text: string): Record<string, unknown> | null {
   if (!text) return null;
-  let t = text.trim();
+  const t = text.trim();
+  // Scan a source string for the eval object; also remember the first non-eval object.
+  const scan = (src: string): { evalObj: Record<string, unknown> | null; any: Record<string, unknown> | null } => {
+    let firstAny: Record<string, unknown> | null = null;
+    let tries = 0;
+    for (let start = src.indexOf("{"); start >= 0 && tries < 500; start = src.indexOf("{", start + 1), tries++) {
+      const candidate = balancedObject(src, start);
+      if (!candidate) continue;
+      const obj = parseLenient(candidate);
+      if (!obj) continue;
+      if (looksLikeEval(obj)) return { evalObj: obj, any: firstAny };   // the structured-project object wins
+      if (!firstAny) firstAny = obj;                                     // remember a non-eval object as fallback
+    }
+    return { evalObj: null, any: firstAny };
+  };
+  // Prefer a ```json fenced block, but if it does not hold the eval object, fall back
+  // to scanning the whole text (the object may sit outside/after the fence, or the
+  // fence may be absent) — never require the JSON to begin at a specific position.
   const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fence) t = fence[1].trim();
-  // Try each "{" as a possible object start; the first that yields a real object wins.
-  // (Prose like "see {SB1}" fails to parse, so the actual evaluation object is used.)
-  let tries = 0;
-  for (let start = t.indexOf("{"); start >= 0 && tries < 200; start = t.indexOf("{", start + 1), tries++) {
-    const candidate = balancedObject(t, start);
-    if (!candidate) continue;
-    const obj = parseLenient(candidate);
-    if (obj) return obj;
+  if (fence) {
+    const inFence = scan(fence[1].trim());
+    if (inFence.evalObj) return inFence.evalObj;
+    const whole = scan(t);
+    return whole.evalObj ?? inFence.any ?? whole.any;
   }
-  return null;
+  const whole = scan(t);
+  return whole.evalObj ?? whole.any;
 }
 
 function areaFromJson(area: unknown, areaType: unknown): EvalArea | null {
@@ -779,17 +851,22 @@ function requirementsFromJson(v: unknown): { items: DrawingItem[]; needsDetail: 
     const equipment = equipFromScope(scope);
     const note = [jstr(o.location), jstr(o.note)].filter(Boolean).join(" · ") || undefined;
     const qty = jnum(o.qty);
-    // COUNTABLE ≠ MEASURABLE: a present count (qty > 0) means Quantified even if the
-    // row is tagged "Needs detail" for a missing dimension/spec/material. BUT if the
-    // evaluation says the COUNT/TOTAL itself is not established (basis "Not
-    // assessable", or a count-not-established note/status), a stray number is not a
-    // defensible count — the item stays pending (qty null), never promoted to numeric.
     const basisNA = /not\s*assessable/i.test(basisRaw);
+    const statusNeedsDetail = NEEDS_DETAIL.test(status);
+    const statusNA = /not\s*assessable/i.test(status);
     const countUnresolved = countNotEstablished(note, status);
-    if (qty != null && qty > 0 && !basisNA && !countUnresolved) items.push({ match, qty, unit, basis, equipment, scope, note, allocation });
-    // Identified but not defensibly quantifiable → RETAINED as pending: qty stays
-    // null (never coerced to 0/assumed) and no basis is invented.
-    else if (NEEDS_DETAIL.test(status) || countUnresolved) needsDetail.push({ match, qty: null, unit, equipment, scope, note, allocation, pending: true });
+    // COUNTABLE ≠ FULLY SPECIFIED. A PRESENT count is authoritative and is kept even
+    // when the row is tagged "Identified — Needs detail" for a missing spec / rating /
+    // model / material / dimension — that gap is a note, never a reason to null a
+    // visible count. Only a COUNT gap (the total itself unestablished), a "Not
+    // assessable" basis/status, or a null qty makes it pending. "Needs detail" alone
+    // no longer blocks a count; a null-qty "Needs detail" row is still retained pending.
+    const blockCount = basisNA || statusNA || countUnresolved;
+    // The status verbatim is carried onto the item so the quantity's provenance
+    // survives storage — generation re-checks it (drawingItemIsPending) so a stored
+    // number can never outlive evidence that the COUNT itself is not established.
+    if (qty != null && qty > 0 && !blockCount) items.push({ match, qty, unit, basis, equipment, scope, note, allocation, status: status || undefined });
+    else if (statusNeedsDetail || countUnresolved) needsDetail.push({ match, qty: null, unit, equipment, scope, note, allocation, pending: true, status: status || undefined });
     else notAssessable.push(match);
   }
   const seen = new Set<string>();
@@ -1046,7 +1123,10 @@ export function specFromEvaluation(e: ChatGptEval): Spec {
   // THIS BOQ's bucket are included — common-area / other-floor scope is dropped.
   const bucket = boqBucketOf(e);
   const all = [...e.requirements, ...e.needsDetail];
-  const drawItems = all.filter((it) => itemBelongsToBoq(it.allocation, bucket));
+  // Enforce quantity provenance at the source: any item whose own evidence does not
+  // establish a defensible count is stored as pending (qty null), so the persisted
+  // _drawing can never carry an undefensible number into a later regeneration.
+  const drawItems = resolveDrawingProvenance(all.filter((it) => itemBelongsToBoq(it.allocation, bucket)));
   if (drawItems.length) (base as Record<string, unknown>)._drawing = { items: drawItems };
   // Requirements the drawing identified but that belong to ANOTHER allocation
   // (e.g. Common Area on a private-floor BOQ) are retained — never priced here —

@@ -202,10 +202,11 @@ Not assessable:
   });
 });
 
-describe("COUNTABLE ≠ MEASURABLE + combined-floor allocation", () => {
-  // A Floor 1 evaluation that also identifies a common-area lift. Countable items
-  // carry a status of "Identified — Needs detail" ONLY because a dimension is
-  // missing — they must still be Quantified. Genuinely blank ones stay needs-detail.
+describe("status-authoritative provenance + combined-floor allocation", () => {
+  // A Floor 1 evaluation that also identifies a common-area lift. STATUS is
+  // authoritative: a defensible count is marked "Quantified" (a missing dimension is
+  // only a note and keeps the count); a genuinely blank / needs-detail row stays
+  // pending and is never assigned a number.
   const FLOOR1 = `{
     "project_type": "Residential", "archetype": "Apartment",
     "floor": 1, "boq_allocation": "Floor 1", "floor_scope": "First Floor / Floor 1 private apartment",
@@ -219,8 +220,8 @@ describe("COUNTABLE ≠ MEASURABLE + combined-floor allocation", () => {
     "requirements": [
       { "allocation": "Floor 1", "requirement": "6A socket", "qty": 24, "unit": "nos", "basis": "Counted", "location": "Various", "scope": "Works", "status": "Quantified" },
       { "allocation": "Floor 1", "requirement": "WC", "qty": 4, "unit": "nos", "basis": "Counted", "location": "Bathrooms", "scope": "Works", "status": "Quantified" },
-      { "allocation": "Floor 1", "requirement": "Wardrobe", "qty": 5, "unit": "nos", "basis": "Visually counted from drawing", "location": "Bedrooms", "note": "", "scope": "Works", "status": "Identified — Needs detail" },
-      { "allocation": "Floor 1", "requirement": "Feature wall", "qty": 1, "unit": "nos", "basis": "Visually counted from drawing", "location": "Living", "note": "", "scope": "Works", "status": "Identified — Needs detail" },
+      { "allocation": "Floor 1", "requirement": "Wardrobe", "qty": 5, "unit": "nos", "basis": "Visually counted from drawing", "location": "Bedrooms", "note": "running length/material not established", "scope": "Works", "status": "Quantified" },
+      { "allocation": "Floor 1", "requirement": "Feature wall", "qty": 1, "unit": "nos", "basis": "Visually counted from drawing", "location": "Living", "note": "", "scope": "Works", "status": "Quantified" },
       { "allocation": "Floor 1", "requirement": "Kitchen island", "qty": 1, "unit": "nos", "basis": "Counted", "location": "Kitchen", "scope": "Works", "status": "Quantified" },
       { "allocation": "Floor 1", "requirement": "Skirting run", "qty": null, "unit": null, "basis": "Not assessable", "location": "unclear", "scope": "Works", "status": "Identified — Needs detail" },
       { "allocation": "Floor 1", "requirement": "55\\" TV", "qty": 1, "unit": "nos", "basis": "Counted", "location": "Living", "scope": "Equipment", "status": "Quantified" },
@@ -230,7 +231,9 @@ describe("COUNTABLE ≠ MEASURABLE + combined-floor allocation", () => {
   }`;
   const e = parseChatGptEvaluation(FLOOR1);
 
-  it("a countable item tagged 'Needs detail' for a missing DIMENSION is Quantified (COUNTABLE ≠ MEASURABLE)", () => {
+  it("a defensible count (status Quantified) keeps its number even with a missing-DIMENSION note", () => {
+    // status is authoritative: the count IS established (Quantified); a missing
+    // running length/material is only a note and never demotes a defensible count.
     const wardrobe = e.requirements.find((r) => r.match === "Wardrobe");
     expect(wardrobe, "Wardrobe should be a quantified requirement, not needs-detail").toMatchObject({ qty: 5, unit: "nos" });
     expect(e.needsDetail.some((r) => r.match === "Wardrobe")).toBe(false);
@@ -297,12 +300,28 @@ describe("COUNTABLE ≠ MEASURABLE + combined-floor allocation", () => {
   });
 });
 
-describe("markdown fallback: countable item with needs-detail status is still quantified", () => {
-  it("qty present + 'Identified — Needs detail' status → quantified (count wins)", () => {
+describe("markdown fallback: a present count survives a SPEC gap; only a COUNT gap is pending", () => {
+  it("qty present + 'Needs detail' for a missing SPEC/dimension → still counted (COUNTABLE ≠ FULLY SPECIFIED)", () => {
     const e = parseChatGptEvaluation(`## DRAWING-SPECIFIC REQUIREMENTS
 Requirement | Qty | Unit | Basis | Location / Note | Scope | Status
 --- | --- | --- | --- | --- | --- | ---
-Wardrobe | 5 | nos | Counted | Bedrooms | Works | Identified — Needs detail`);
+Wardrobe | 5 | nos | Counted | Bedrooms · running length not established | Works | Identified — Needs detail`);
+    expect(e.requirements.find((r) => r.match === "Wardrobe")).toMatchObject({ qty: 5 });
+    expect(e.needsDetail.some((r) => r.match === "Wardrobe")).toBe(false);
+  });
+  it("qty present + a COUNT-gap note → pending (the total itself is unestablished)", () => {
+    const e = parseChatGptEvaluation(`## DRAWING-SPECIFIC REQUIREMENTS
+Requirement | Qty | Unit | Basis | Location / Note | Scope | Status
+--- | --- | --- | --- | --- | --- | ---
+15A socket points | 25 | nos | Counted | complete defensible total not established | Works | Identified — Needs detail`);
+    expect(e.requirements.some((r) => r.match === "15A socket points")).toBe(false);
+    expect(e.needsDetail.find((r) => r.match === "15A socket points")).toMatchObject({ qty: null, pending: true });
+  });
+  it("qty present + 'Quantified' status → counted", () => {
+    const e = parseChatGptEvaluation(`## DRAWING-SPECIFIC REQUIREMENTS
+Requirement | Qty | Unit | Basis | Location / Note | Scope | Status
+--- | --- | --- | --- | --- | --- | ---
+Wardrobe | 5 | nos | Counted | Bedrooms | Works | Quantified`);
     expect(e.requirements.find((r) => r.match === "Wardrobe")).toMatchObject({ qty: 5 });
     expect(e.needsDetail.some((r) => r.match === "Wardrobe")).toBe(false);
   });

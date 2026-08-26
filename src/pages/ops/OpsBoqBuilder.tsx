@@ -8,7 +8,7 @@ import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
 import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, type QuoteSubHead, type CsvRow } from "@/lib/boqDsrDocument";
 import { openIntakeForm } from "@/lib/boqIntakeForm";
 import { sanityForCode, countFlagged } from "@/lib/boqSanity";
-import { BASIS_META, categoryCovered, DRAWING_CHECKLIST, findCatalogueMatch, isEquipment, isSupersededByDrawing, parseDrawingSummary, type DrawingBasis, type DrawingItem, type DrawingSummary, type LineDrawingMeta, type QtyBasis } from "@/lib/boqDrawing";
+import { BASIS_META, categoryCovered, DRAWING_CHECKLIST, findCatalogueMatch, isEquipment, isSupersededByDrawing, parseDrawingSummary, resolveDrawingProvenance, type DrawingBasis, type DrawingItem, type DrawingSummary, type LineDrawingMeta, type QtyBasis } from "@/lib/boqDrawing";
 import { BOQ_SPEC, type Spec, type SpecValue, type SpecField } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -749,7 +749,10 @@ export default function OpsBoqBuilder() {
     // Identified-but-unquantified drawing requirements — carried into the document
     // as an unpriced "pending" section so every drawing requirement appears, none
     // is dropped, and none is given a fabricated quantity.
-    const pendingItems = drawingItems
+    // Provenance-resolved: an item whose own evidence never established a defensible
+    // count is pending regardless of a stored number, so it appears here (not with a
+    // fabricated quantity in the priced/drawing tables). Same gate as generation.
+    const pendingItems = resolveDrawingProvenance(drawingItems)
       .filter((d) => d.pending || d.qty == null)
       .map((d, i) => ({ no: `P.${String(i + 1).padStart(2, "0")}`, spec: (d.match ?? "").trim(), unit: d.unit?.trim() || "nos", note: d.note?.trim() || undefined, scope: d.scope }));
 
@@ -794,7 +797,7 @@ export default function OpsBoqBuilder() {
         spec: (line.description ?? "") + drawingSuffix(line), unit: line.unit ?? "", qty: line.qty, rate: effRate(line),
       })));
     if (!rows.length) return toast.error("Nothing to export yet");
-    const pending = drawingItems
+    const pending = resolveDrawingProvenance(drawingItems)
       .filter((d) => d.pending || d.qty == null)
       .map((d) => ({ spec: (d.match ?? "").trim(), unit: d.unit?.trim() || "nos", note: d.note?.trim() || undefined }));
     downloadCsv(`${boq!.name.replace(/[^\w]+/g, "_")}_BOQ.csv`, buildBoqCsv(rows, { boqName: boq!.name, project: project?.name, generatedOn: gen() }, pending));

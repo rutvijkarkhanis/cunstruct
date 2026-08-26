@@ -50,6 +50,77 @@ export interface DrawingItem {
   /** BOQ allocation bucket this requirement belongs to, e.g. "Floor 1" / "Common".
    *  Preserved from the drawing evaluation so a per-floor BOQ never mixes buckets. */
   allocation?: string;
+  /** The evaluation's status verbatim ("Quantified" / "Identified — Needs detail" /
+   *  "Not assessable"). Persisted on the item (in the _drawing jsonb) so quantity
+   *  PROVENANCE survives storage: the parser status is the strongest signal that a
+   *  supplied number is NOT a defensible count, and generation re-checks it so a
+   *  stale/mis-parsed number can never leak into a priced line. */
+  status?: string;
+}
+
+// --- Quantity provenance gate (single source of truth) -----------------------
+// The ONLY authoritative source of a drawing quantity is the DrawingItem's OWN
+// evidence. A number is a defensible count only when the item's status/basis/note
+// say so; otherwise the item is PENDING and its quantity must be null — no matter
+// what number was supplied, stored, or mis-parsed earlier. This gate is applied at
+// BOTH parse time (new imports) and generation time (already-stored specs, which are
+// never re-parsed), so no downstream layer can manufacture a quantity. It is keyed on
+// evidence, never on item names, so it holds for every discipline and project.
+//
+// COUNT-gap vs SPEC-gap (COUNTABLE ≠ FULLY SPECIFIED): a PRESENT count is authoritative
+// and is KEPT even when the item is flagged "Identified — Needs detail" for a missing
+// specification / rating / model / material / dimension / running length — that gap is
+// a note, never a reason to null a visible count. Only a genuine COUNT gap (the total
+// itself unestablished, via COUNT_UNRESOLVED), a "Not assessable" basis/status, an
+// explicit pending flag, or a null/≤0 qty makes an item pending. So "Needs detail"
+// alone does NOT demote a counted item.
+const NOT_ASSESSABLE = /not\s*assessable/i;
+// The evaluation explicitly says the COUNT / TOTAL itself is not established (as
+// opposed to a missing dimension/spec/material, which under COUNTABLE ≠ MEASURABLE
+// must NOT block a count). Requires a count-word next to a not-established phrase.
+const COUNT_UNRESOLVED = new RegExp([
+  String.raw`\b(?:counts?|totals?|numbers?|tall(?:y|ies)|quantit(?:y|ies)|qty)\b[^.;\n]{0,45}\b(?:not|cannot|can[’']?t|un(?:able)?|to\s+be|pending|await\w*)\b[^.;\n]{0,25}\b(?:establish\w*|assess\w*|confirm\w*|determin\w*|quantif\w*|count(?:ed)?|verif\w*|resolv\w*|final\w*|reliab\w*|defensib\w*)\b`,
+  String.raw`\b(?:not|cannot|can[’']?t|un(?:able)?)\b[^.;\n]{0,30}\b(?:establish\w*|assess\w*|confirm\w*|determin\w*|count\w*|quantif\w*)\b[^.;\n]{0,30}\b(?:counts?|totals?|numbers?|quantit(?:y|ies)|qty)\b`,
+  String.raw`\bpending\s+quantit`,
+  String.raw`\bnot\s+(?:fully\s+|reliably\s+)?count(?:ed|able)?\b`,
+].join("|"), "i");
+
+/** Did the item's note or status flag the COUNT itself as unestablished? */
+export function countNotEstablished(note: string | undefined, status: string | undefined): boolean {
+  return COUNT_UNRESOLVED.test(note ?? "") || COUNT_UNRESOLVED.test(status ?? "");
+}
+
+/** The generic provenance rule: is this DrawingItem's quantity NOT a defensible
+ *  drawing count — so it must stay pending (qty null)? True when the item is already
+ *  pending / has no number, when its basis or status is "Not assessable", or when its
+ *  note/status say the COUNT itself is unestablished. A missing spec/rating/model/
+ *  material/dimension — even tagged "Identified — Needs detail" — does NOT make a
+ *  PRESENT count pending (COUNTABLE ≠ FULLY SPECIFIED): a visible count is kept and the
+ *  gap stays a note. So a positive qty establishes a count unless the count itself is
+ *  in doubt (count gap) or the drawing does not support it ("Not assessable"). */
+export function drawingItemIsPending(it: Pick<DrawingItem, "qty" | "pending" | "basis" | "status" | "note">): boolean {
+  if (it.pending) return true;
+  if (it.qty == null || !Number.isFinite(it.qty) || (it.qty as number) <= 0) return true;
+  if (NOT_ASSESSABLE.test(it.basis ?? "")) return true;
+  const status = it.status ?? "";
+  if (NOT_ASSESSABLE.test(status)) return true;
+  if (countNotEstablished(it.note, status)) return true;   // the COUNT itself is unestablished
+  return false;
+}
+
+/** Enforce quantity provenance on a set of DrawingItems: any item whose own evidence
+ *  does not establish a defensible count is forced to pending (qty null, no invented
+ *  basis) — nulling a stored/mis-parsed number rather than letting it flow downstream.
+ *  Defensible counts pass through untouched. Idempotent and item-name-agnostic. */
+export function resolveDrawingProvenance<T extends DrawingItem>(items: T[] | undefined): T[] {
+  return (items ?? []).map((it) =>
+    drawingItemIsPending(it) ? ({ ...it, qty: null, pending: true, basis: undefined }) : it,
+  );
+}
+
+/** Provenance-resolved copy of a drawing summary (see resolveDrawingProvenance). */
+export function resolveDrawingSummary(summary: DrawingSummary | null | undefined): DrawingSummary {
+  return { ...(summary ?? {}), items: resolveDrawingProvenance(summary?.items) };
 }
 
 /** Structured drawing provenance carried onto a BOQ line (persisted as jsonb). */

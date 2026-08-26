@@ -87,10 +87,13 @@ describe("matchScore ranks a specific catalogue line above a generic one", () =>
   });
 });
 
-// A pending/unestablished quantity must never be promoted to a numeric count at the
-// PARSER stage — a stray number the evaluation supplies for a "total not established"
-// row is not a defensible count. This is distinct from a missing dimension/spec
-// (COUNTABLE ≠ MEASURABLE), where the count IS kept.
+// STRICT quantity provenance: the DrawingItem STATUS is authoritative. A row whose
+// status is "Identified — Needs detail" (or "Not assessable") must remain
+// unquantified regardless of any number the evaluation supplied alongside it — a
+// stray number on a pending row is not a defensible count. A defensible count is one
+// the evaluator marked "Quantified"; only that number is promoted. (A missing
+// dimension/spec is a note the evaluator records on a "Quantified" row, so its count
+// is kept — the count itself was established.)
 describe("pending quantities are never promoted to a number by the parser", () => {
   const e = parseChatGptEvaluation(JSON.stringify({
     project_type: "Residential", archetype: "Apartment", floor: 1, boq_allocation: "Floor 1",
@@ -111,9 +114,11 @@ describe("pending quantities are never promoted to a number by the parser", () =
       { allocation: "Floor 1", requirement: "Ceiling fan", qty: 6, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
       { allocation: "Floor 1", requirement: "DB", qty: 1, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
       { allocation: "Floor 1", requirement: "Calling bell", qty: 1, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
-      // COUNTABLE ≠ MEASURABLE: dimension/spec missing but count IS defensible → stays counted
-      { allocation: "Floor 1", requirement: "Wardrobe", qty: 4, unit: "nos", basis: "Counted", note: "running length/material not established", scope: "Works", status: "Identified — Needs detail" },
-      { allocation: "Floor 1", requirement: "Overhead storage", qty: 6, unit: "nos", basis: "Counted", note: "running length not established", scope: "Works", status: "Identified — Needs detail" },
+      // Defensible count with a missing DIMENSION only: the evaluator marks the row
+      // "Quantified" (the count IS established; only the running length/material is a
+      // note) → the count is kept. STATUS is authoritative.
+      { allocation: "Floor 1", requirement: "Wardrobe", qty: 4, unit: "nos", basis: "Counted", note: "running length/material not established", scope: "Works", status: "Quantified" },
+      { allocation: "Floor 1", requirement: "Overhead storage", qty: 6, unit: "nos", basis: "Counted", note: "running length not established", scope: "Works", status: "Quantified" },
       { allocation: "Floor 1", requirement: "D1 door", qty: 7, unit: "nos", basis: "Counted", scope: "Works", status: "Quantified" },
     ], confidence: {}, confirmations: [],
   }));
@@ -131,8 +136,16 @@ describe("pending quantities are never promoted to a number by the parser", () =
       expect(q(m)?.qty, m).toBe(n);
   });
 
-  it("COUNTABLE ≠ MEASURABLE preserved — a MISSING DIMENSION keeps the count", () => {
-    expect(q("Wardrobe")?.qty).toBe(4);        // "running length/material not established" → still 4
+  it("a defensible count (status Quantified) keeps its number despite a missing-dimension note", () => {
+    expect(q("Wardrobe")?.qty).toBe(4);        // status Quantified; "running length not established" is only a note → still 4
     expect(q("Overhead storage")?.qty).toBe(6);
+  });
+
+  it("a COUNT-gap row is pending, a defensible count is kept — even when both are tagged needs-detail", () => {
+    // 15A carries a COUNT-gap note ("complete defensible total not established") → pending.
+    // Wardrobe (missing running length only — a SPEC/dimension gap) keeps its count.
+    expect(pend("15A socket points")?.qty).toBeNull();   // count gap → pending
+    expect(q("Wardrobe")?.qty).toBe(4);                   // spec/dimension gap → counted
+    expect(q("15A socket points")).toBeUndefined();
   });
 });
