@@ -686,6 +686,25 @@ function escapeInnerQuotes(s: string): string {
   return out;
 }
 
+/** Escape RAW control characters that appear INSIDE a string literal — a literal
+ *  newline, carriage return or tab inside a "note"/"value" (common in real ChatGPT
+ *  output) is INVALID JSON and makes JSON.parse fail, which then loses the whole
+ *  object. String-aware, so control chars BETWEEN tokens (pretty-printed layout) are
+ *  left untouched; only those inside a string are turned into their escaped form. */
+function escapeControlChars(s: string): string {
+  let out = "", inStr = false, esc = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (!inStr) { out += c; if (c === '"') inStr = true; continue; }
+    if (esc) { out += c; esc = false; continue; }
+    if (c === "\\") { out += c; esc = true; continue; }
+    if (c === '"') { out += c; inStr = false; continue; }
+    if (c.charCodeAt(0) < 0x20) { out += c === "\n" ? "\\n" : c === "\r" ? "\\r" : c === "\t" ? "\\t" : " "; continue; }
+    out += c;
+  }
+  return out;
+}
+
 /** Best-effort repairs applied only when strict parsing fails: smart quotes → ASCII,
  *  comments removed, trailing commas dropped, stray control chars neutralised. */
 function repairJson(s: string): string {
@@ -696,10 +715,16 @@ function repairJson(s: string): string {
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, " ");   // stray control chars
 }
 
-/** Strict parse, then progressively repaired parse — returns a plain object or null. */
+/** Strict parse, then progressively repaired parse — returns a plain OBJECT (never an
+ *  array) or null. Repairs are cumulative: smart quotes/comments/trailing commas, then
+ *  unescaped inner quotes (inch marks), then raw control chars inside strings (literal
+ *  newlines/tabs in notes) — and both string repairs combined, so an item with BOTH an
+ *  inch-mark quote and a raw newline still parses. Well-formed JSON parses on attempt 1. */
 function parseLenient(candidate: string): Record<string, unknown> | null {
   const repaired = repairJson(candidate);
-  for (const attempt of [candidate, repaired, escapeInnerQuotes(repaired)]) {
+  const quotesFixed = escapeInnerQuotes(repaired);
+  const attempts = [candidate, repaired, quotesFixed, escapeControlChars(repaired), escapeControlChars(quotesFixed)];
+  for (const attempt of attempts) {
     try {
       const o = JSON.parse(attempt);
       if (o && typeof o === "object" && !Array.isArray(o)) return o as Record<string, unknown>;
@@ -708,24 +733,54 @@ function parseLenient(candidate: string): Record<string, unknown> | null {
   return null;
 }
 
-/** Pull a single JSON object out of the raw response — tolerating ```json fences,
- *  stray prose/braces before or after, trailing commas, comments, smart quotes and
- *  unescaped inner quotes — or null when there is no parseable object. */
+/** The recognised top-level keys of a structured project-information object. Used to
+ *  pick the RIGHT object out of a paste — a nested fragment (e.g. one `spaces` entry
+ *  `{name, qty}`) parses fine but carries none of these, so it must not be mistaken
+ *  for the evaluation. Key-based, never sentence/prefix matching. */
+const EVAL_TOP_KEYS = [
+  "project_type", "archetype", "floor", "boq_allocation", "floor_scope", "area", "area_type",
+  "spaces", "disciplines", "measurements", "requirements", "category_summary", "confidence", "confirmations",
+] as const;
+function looksLikeEval(o: Record<string, unknown>): boolean {
+  return EVAL_TOP_KEYS.some((k) => k in o);
+}
+
+/** Pull the structured project-information JSON object out of the raw response —
+ *  tolerating ```json fences, surrounding prose, leading/trailing whitespace, stray
+ *  braces, trailing commas, comments, smart quotes, unescaped inner quotes and raw
+ *  control chars inside strings. Returns the FIRST parseable object that CONTAINS the
+ *  structured-project keys; if none is key-matching, the first parseable object as a
+ *  best-effort fallback; or null when there is no parseable object at all. Always an
+ *  object, never an array. */
 export function extractJson(text: string): Record<string, unknown> | null {
   if (!text) return null;
-  let t = text.trim();
+  const t = text.trim();
+  // Scan a source string for the eval object; also remember the first non-eval object.
+  const scan = (src: string): { evalObj: Record<string, unknown> | null; any: Record<string, unknown> | null } => {
+    let firstAny: Record<string, unknown> | null = null;
+    let tries = 0;
+    for (let start = src.indexOf("{"); start >= 0 && tries < 500; start = src.indexOf("{", start + 1), tries++) {
+      const candidate = balancedObject(src, start);
+      if (!candidate) continue;
+      const obj = parseLenient(candidate);
+      if (!obj) continue;
+      if (looksLikeEval(obj)) return { evalObj: obj, any: firstAny };   // the structured-project object wins
+      if (!firstAny) firstAny = obj;                                     // remember a non-eval object as fallback
+    }
+    return { evalObj: null, any: firstAny };
+  };
+  // Prefer a ```json fenced block, but if it does not hold the eval object, fall back
+  // to scanning the whole text (the object may sit outside/after the fence, or the
+  // fence may be absent) — never require the JSON to begin at a specific position.
   const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fence) t = fence[1].trim();
-  // Try each "{" as a possible object start; the first that yields a real object wins.
-  // (Prose like "see {SB1}" fails to parse, so the actual evaluation object is used.)
-  let tries = 0;
-  for (let start = t.indexOf("{"); start >= 0 && tries < 200; start = t.indexOf("{", start + 1), tries++) {
-    const candidate = balancedObject(t, start);
-    if (!candidate) continue;
-    const obj = parseLenient(candidate);
-    if (obj) return obj;
+  if (fence) {
+    const inFence = scan(fence[1].trim());
+    if (inFence.evalObj) return inFence.evalObj;
+    const whole = scan(t);
+    return whole.evalObj ?? inFence.any ?? whole.any;
   }
-  return null;
+  const whole = scan(t);
+  return whole.evalObj ?? whole.any;
 }
 
 function areaFromJson(area: unknown, areaType: unknown): EvalArea | null {
