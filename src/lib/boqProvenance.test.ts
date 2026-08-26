@@ -2,9 +2,9 @@ import { describe, it, expect } from "vitest";
 import { parseChatGptEvaluation, specFromEvaluation } from "./chatgptEval";
 import { generateForDiscipline } from "./disciplines";
 import { classifyRequirements } from "./boqMapping";
-import { applyDrawing, type DrawingItem, type DrawingSummary } from "./boqDrawing";
+import { applyDrawing, drawingItemIsPending, resolveDrawingProvenance, type DrawingItem, type DrawingSummary } from "./boqDrawing";
 import { buildDsrQuoteHtml, computeCommercials, type DsrQuotePayload } from "./boqDsrDocument";
-import { defaultSpec } from "./boqSpec";
+import { defaultSpec, type Spec } from "./boqSpec";
 import type { GeneratedLine } from "./boqDsrGenerate";
 
 // STRICT quantity provenance. The ONLY authoritative source of a drawing quantity is
@@ -179,5 +179,106 @@ describe("explicit drawing quantities remain unchanged end-to-end", () => {
   it("15A socket points is null/pending (no defensible count in source)", () => {
     expect(drawItem(spec, "15A socket points")?.qty).toBeNull();
     expect(drawItem(spec, "15A socket points")?.pending).toBe(true);
+  });
+});
+
+// The REGENERATION path. A BOQ is generated from the PERSISTED spec._drawing, which
+// is never re-parsed. So the provenance gate must also re-run at generation time on
+// the stored items: a stored/mis-parsed number whose own evidence never established a
+// defensible count MUST be forced back to pending before it can become a boq_line.
+// These build spec._drawing DIRECTLY (bypassing the parser) to model stored data.
+const stored = (items: DrawingItem[]): Spec => ({
+  _source: "chatgpt",
+  _boq_allocation: "Floor 1",
+  _floors: 1,
+  _disciplines: ["Architectural", "Electrical", "Plumbing"],
+  _drawing: { items },
+} as unknown as Spec);
+const genLine = (spec: Spec, disc: string, re: RegExp) =>
+  generateForDiscipline(disc, spec, { area_sqft: 3960, floors: 4 }).find((l) => re.test(l.label));
+
+describe("regeneration cannot manufacture a quantity from a stored non-defensible item", () => {
+  it("a stored 15A item with qty 25 but a 'total not established' note is re-nulled → no priced/drawing line carries 25", () => {
+    const spec = stored([
+      { match: "15A socket points", qty: 25, unit: "nos", basis: "Counted", note: "complete defensible total not established" },
+    ]);
+    const lines = generateForDiscipline("electrical", spec, { area_sqft: 3960, floors: 4 });
+    expect(lines.some((l) => l.qty === 25)).toBe(false);
+    expect(lines.some((l) => /15\s*a/i.test(l.label) && !!l.drawing)).toBe(false);
+  });
+
+  it("a stored 15A item with qty 25 and status 'Identified — Needs detail' is re-nulled (status survives storage)", () => {
+    const spec = stored([
+      { match: "15A socket points", qty: 25, unit: "nos", basis: "Counted", status: "Identified — Needs detail" },
+    ]);
+    expect(generateForDiscipline("electrical", spec, { area_sqft: 3960, floors: 4 }).some((l) => l.qty === 25)).toBe(false);
+  });
+
+  it("a stored geyser item with qty 4 and a 'count not established' note becomes pending — the 4 does not survive", () => {
+    const spec = stored([
+      { match: "Geyser points", qty: 4, unit: "nos", basis: "Counted", note: "geyser count not established" },
+    ]);
+    expect(generateForDiscipline("electrical", spec, { area_sqft: 3960, floors: 4 }).some((l) => /geyser/i.test(l.label) && l.qty === 4)).toBe(false);
+    expect(generateForDiscipline("plumbing", spec, { area_sqft: 3960, floors: 4 }).some((l) => /geyser/i.test(l.label) && l.qty === 4)).toBe(false);
+  });
+
+  it("the INVERSE holds: a stored defensibly-counted item (qty 4, no unestablished signal) keeps its 4", () => {
+    const spec = stored([
+      { match: "Geyser points", qty: 4, unit: "nos", basis: "Counted", status: "Quantified", note: "four private bathrooms" },
+    ]);
+    // the geyser count survives onto its line, unchanged
+    const line = genLine(spec, "electrical", /geyser/i) ?? genLine(spec, "plumbing", /geyser/i);
+    expect(line?.qty).toBe(4);
+    expect(line?.drawing).toBeTruthy();
+  });
+});
+
+// The generic invariant the whole fix rests on, tested at the gate itself so it holds
+// for EVERY item, not just the audited ones.
+describe("generic provenance gate: qty=null in → never a number out; qty=n (defensible) in → exactly n out", () => {
+  it("drawingItemIsPending flags every non-defensible shape and no defensible one", () => {
+    // non-defensible → pending
+    expect(drawingItemIsPending({ qty: null })).toBe(true);
+    expect(drawingItemIsPending({ qty: 25, pending: true })).toBe(true);
+    expect(drawingItemIsPending({ qty: 25, basis: "Assumed", status: "Not assessable" })).toBe(true);
+    expect(drawingItemIsPending({ qty: 25, status: "Identified — Needs detail" })).toBe(true);
+    expect(drawingItemIsPending({ qty: 25, note: "symbols visible, total not established" })).toBe(true);
+    expect(drawingItemIsPending({ qty: 0 })).toBe(true);
+    // defensible → not pending
+    expect(drawingItemIsPending({ qty: 4, basis: "Counted", status: "Quantified" })).toBe(false);
+    expect(drawingItemIsPending({ qty: 4, basis: "Counted", note: "running length not established" })).toBe(false); // missing DIMENSION keeps the count
+    expect(drawingItemIsPending({ qty: 7 })).toBe(false);
+  });
+
+  it("resolveDrawingProvenance nulls a non-defensible number and preserves a defensible one", () => {
+    const [pend, keep] = resolveDrawingProvenance([
+      { match: "X", qty: 25, note: "total not established" },
+      { match: "Y", qty: 4, basis: "Counted", status: "Quantified" },
+    ]);
+    expect(pend).toMatchObject({ qty: null, pending: true });
+    expect(keep).toMatchObject({ qty: 4 });
+  });
+
+  it("applyDrawing never emits a line for a pending item, and never invents a number for one", () => {
+    // a pending item next to a template line that has a heuristic number: the template
+    // number must be superseded, and no drawing line may carry it
+    const templateLine: GeneratedLine = { section: "Electrical", code: null, qty: 30, label: "15A socket points", unit: "point", ns: true, basis: "HEURISTIC" };
+    const summary: DrawingSummary = { items: [{ match: "15A socket points", qty: null, pending: true, unit: "nos" }] };
+    const out = applyDrawing([templateLine], summary);
+    // the pending drawing item is not priced, and the heuristic 30 is superseded out of the total
+    expect(out.some((l) => !!l.drawing)).toBe(false);
+    expect(out.find((l) => /15\s*a/i.test(l.label))?.included).toBe(false);
+  });
+
+  it("a fully-null drawing set produces zero priced lines on a drawing-driven BOQ (no fabrication)", () => {
+    const spec = stored([
+      { match: "15A socket points", qty: null, unit: "nos", pending: true },
+      { match: "Geyser points", qty: null, unit: "nos", pending: true },
+      { match: "5A socket points", qty: null, unit: "nos", pending: true },
+    ]);
+    for (const disc of ["civil", "electrical", "plumbing"]) {
+      const lines = generateForDiscipline(disc, spec, { area_sqft: 3960, floors: 4 });
+      expect(lines.every((l) => l.qty == null), `${disc} fabricated a quantity from an all-null drawing set`).toBe(true);
+    }
   });
 });

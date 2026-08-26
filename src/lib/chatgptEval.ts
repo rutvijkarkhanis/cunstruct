@@ -9,7 +9,7 @@
 // unstated fields stay empty and every quantity is exactly what was pasted.
 
 import { defaultSpec, type Spec } from "./boqSpec";
-import { parseDrawingSummary, type DrawingBasis, type DrawingItem } from "./boqDrawing";
+import { parseDrawingSummary, resolveDrawingProvenance, type DrawingBasis, type DrawingItem } from "./boqDrawing";
 
 // Spec keys seeded from a ChatGPT evaluation (drawing requirements, measurements,
 // spaces, provenance). They must survive a spec reset — e.g. when the operator
@@ -561,12 +561,12 @@ function parseRequirements(sec?: string): { items: DrawingItem[]; needsDetail: D
       const countUnresolved = countNotEstablished(note, status);
       const blockCount = basisNA || statusNeedsDetail || statusNA || countUnresolved;
       if (qty != null && qty > 0 && !blockCount) {
-        items.push({ match: req, qty, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, scope, note, allocation: alloc });
+        items.push({ match: req, qty, unit: unit?.trim() || undefined, basis: normBasis(basisRaw), equipment, scope, note, allocation: alloc, status: status || undefined });
       } else if (statusNeedsDetail || countUnresolved) {
         // Identified scope with no usable count yet — RETAINED as pending: qty stays
         // null (never coerced to 0/assumed) and no basis is invented, so the row is
         // clearly "identified, quantity to be confirmed" rather than "0 counted".
-        needsDetail.push({ match: req, qty: null, unit: unit?.trim() || undefined, equipment, scope, note, allocation: alloc, pending: true });
+        needsDetail.push({ match: req, qty: null, unit: unit?.trim() || undefined, equipment, scope, note, allocation: alloc, pending: true, status: status || undefined });
       } else {
         // Blank quantity, or a quantity the drawing itself does not support
         // ("Not assessable" basis) — recorded, never priced.
@@ -794,8 +794,11 @@ function requirementsFromJson(v: unknown): { items: DrawingItem[]; needsDetail: 
     // defensible count and is never promoted. (A missing dimension/spec stays a
     // note; the correct evaluator marks a defensible count "Quantified".)
     const blockCount = basisNA || statusNeedsDetail || statusNA || countUnresolved;
-    if (qty != null && qty > 0 && !blockCount) items.push({ match, qty, unit, basis, equipment, scope, note, allocation });
-    else if (statusNeedsDetail || countUnresolved) needsDetail.push({ match, qty: null, unit, equipment, scope, note, allocation, pending: true });
+    // The status verbatim is carried onto the item so the quantity's provenance
+    // survives storage — generation re-checks it (drawingItemIsPending) so a stored
+    // number can never outlive the evidence that it is not a defensible count.
+    if (qty != null && qty > 0 && !blockCount) items.push({ match, qty, unit, basis, equipment, scope, note, allocation, status: status || undefined });
+    else if (statusNeedsDetail || countUnresolved) needsDetail.push({ match, qty: null, unit, equipment, scope, note, allocation, pending: true, status: status || undefined });
     else notAssessable.push(match);
   }
   const seen = new Set<string>();
@@ -1052,7 +1055,10 @@ export function specFromEvaluation(e: ChatGptEval): Spec {
   // THIS BOQ's bucket are included — common-area / other-floor scope is dropped.
   const bucket = boqBucketOf(e);
   const all = [...e.requirements, ...e.needsDetail];
-  const drawItems = all.filter((it) => itemBelongsToBoq(it.allocation, bucket));
+  // Enforce quantity provenance at the source: any item whose own evidence does not
+  // establish a defensible count is stored as pending (qty null), so the persisted
+  // _drawing can never carry an undefensible number into a later regeneration.
+  const drawItems = resolveDrawingProvenance(all.filter((it) => itemBelongsToBoq(it.allocation, bucket)));
   if (drawItems.length) (base as Record<string, unknown>)._drawing = { items: drawItems };
   // Requirements the drawing identified but that belong to ANOTHER allocation
   // (e.g. Common Area on a private-floor BOQ) are retained — never priced here —

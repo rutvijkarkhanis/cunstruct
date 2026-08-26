@@ -6,7 +6,7 @@
 
 import { buildContext, type QtyContext, type RoomDims } from "./boqDsrCatalog";
 import { generateLines, type GeneratedLine, type ProjectBasics } from "./boqDsrGenerate";
-import { applyDrawing, defaultBasis, type DrawingSummary } from "./boqDrawing";
+import { applyDrawing, defaultBasis, resolveDrawingSummary, type DrawingSummary } from "./boqDrawing";
 import { withinAllocation, allocationFloors, type BoqScope } from "./boqAllocation";
 import { withAssessableDisciplines } from "./boqDiscipline";
 import { withQuantityEvidence } from "./boqEvidence";
@@ -147,7 +147,13 @@ export function generateForDiscipline(key: string, spec: Spec, project: ProjectB
   // Then let the operator's drawing summary override the items it explicitly
   // covers, append drawing-only requirements, and supersede duplicated template
   // scope. Everything else keeps its assumption basis.
-  const summary = (spec as Record<string, unknown>)._drawing as DrawingSummary | undefined;
+  // QUANTITY PROVENANCE (authoritative): re-enforce the evidence gate on the STORED
+  // drawing items first. A spec is generated from persisted _drawing (never
+  // re-parsed), so an item whose own evidence never established a defensible count —
+  // a stale/mis-parsed number, a "Needs detail" status, a "count not established"
+  // note — is forced back to pending (qty null) HERE, before it can bind to a line
+  // and manufacture a priced quantity. Defensible counts pass through unchanged.
+  const summary = resolveDrawingSummary((spec as Record<string, unknown>)._drawing as DrawingSummary | undefined);
   out = applyDrawing(out, summary);
   // QUANTITY EVIDENCE GATE: on a drawing-driven BOQ the catalogue may supply the
   // item + rate but never a fabricated quantity. Keep only lines whose quantity is
