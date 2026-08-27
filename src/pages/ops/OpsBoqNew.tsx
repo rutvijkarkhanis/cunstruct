@@ -545,7 +545,12 @@ export default function OpsBoqNew() {
         )}
       </div>
 
-      <div className="sticky bottom-0 bg-background/95 backdrop-blur border-t py-3 flex justify-end gap-2">
+      <div className="sticky bottom-0 bg-background/95 backdrop-blur border-t py-3 flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+        {!readyToBuild && !busy && (
+          <span className="text-xs text-muted-foreground mr-auto">
+            Pick a starting project above, or enter a built-up area, to continue.
+          </span>
+        )}
         <Button variant="outline" onClick={() => navigate(-1)} disabled={busy}>Cancel</Button>
         <Button onClick={save} disabled={busy || !readyToBuild}>
           {busy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}

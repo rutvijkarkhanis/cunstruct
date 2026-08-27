@@ -1479,9 +1479,14 @@ export default function OpsBoqBuilder() {
                           )}
                         </div>
                         <div className="text-[13px] leading-snug text-foreground/90">{l.description}<span className="text-muted-foreground">{drawingSuffix(l)}</span></div>
+                        {/* Mobile-only line summary — the qty/rate/amount columns are desktop-only, so surface the number here too. */}
+                        <div className="text-[11px] text-muted-foreground sm:hidden mt-0.5">
+                          {l.qty.toLocaleString("en-IN", { maximumFractionDigits: 2 })} {l.unit}
+                          {rate != null ? <> · {inr(rate)}/{l.unit} · <b className="text-foreground">{inr(l.qty * rate)}</b></> : <> · rate not set</>}
+                        </div>
                       </div>
                       <Input type="number" className="h-8 hidden sm:block" defaultValue={l.qty}
-                        onBlur={(e) => { const v = Number(e.target.value); if (v !== l.qty) updateLine(l.id, { qty: v }); }} />
+                        onBlur={(e) => { if (e.target.value.trim() === "") { e.target.value = String(l.qty); return; } const v = Number(e.target.value); if (Number.isFinite(v) && v !== l.qty) updateLine(l.id, { qty: v }); }} />
                       <span className="text-xs text-muted-foreground hidden sm:block pt-2">{l.unit}</span>
                       <Input type="number" className="h-8 hidden sm:block" defaultValue={rate ?? ""} placeholder="rate"
                         title={l.custom_rate != null ? "Your rate (overrides DSR)" : "DSR reference rate — edit to set your rate"}
