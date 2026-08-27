@@ -209,6 +209,33 @@ describe("typographic / smart quotes used as JSON delimiters (the reported paste
     const text = retype(RAW, "“", "”", "’").replace("rating not established", "rating not established;\nlegend incomplete");
     expect(parseChatGptEvaluation(text).ok).toBe(true);
   });
+
+  it("MIXED quotes: smart-quote DELIMITERS with ASCII inch-marks (U+0022) inside values", () => {
+    // The exact real-world failure: a phone converted the JSON delimiters to curly
+    // quotes but left the inch-marks in dimension/note strings as ASCII ". An ODD
+    // number of stray ASCII " desynchronises the brace scanner (it tracks strings by
+    // ASCII "), so the object's bounds were never found → "Couldn't identify…".
+    const o = "“", c = "”", a = "’";   // “ ” ’
+    const k = (key: string) => `${o}${key}${c}`;
+    // three ASCII inch-marks total (odd) — 16'6" x 13'3" (2) + note 7'9" (1)
+    const text =
+      `{${k("project_type")}:${k("Residential")},${k("floor")}:1,${k("boq_allocation")}:${k("Floor 1")},` +
+      `${k("spaces")}:[{${k("name")}:${k("Master Bedroom")},${k("qty")}:1}],` +
+      `${k("disciplines")}:{${k("identified")}:[${k("Electrical")}]},` +
+      `${k("measurements")}:[{${k("name")}:${k("MBR")},${k("value")}:${o}16${a}6" x 13${a}3"${c}}],` +
+      `${k("requirements")}:[{${k("requirement")}:${k("WC")},${k("qty")}:5,${k("note")}:${o}Clear 7${a}9" at head${c},${k("status")}:${k("Quantified")}},` +
+      `{${k("requirement")}:${k("Floor drains / traps")},${k("qty")}:null,${k("status")}:${o}Identified — Needs detail${c}}]}`;
+    const e = parseChatGptEvaluation(text);
+    expect(e.ok, "mixed smart-delimiter + ASCII-inch-mark paste must parse").toBe(true);
+    expect(e.projectType).toBe("Residential");
+    expect(e.requirements.find((r) => r.match === "WC")?.qty).toBe(5);
+    expect(e.needsDetail.some((r) => r.match === "Floor drains / traps")).toBe(true);
+    expect(e.measurements.find((m) => m.label === "MBR")?.value).toContain("16'6");
+    // and it is the full object, not a nested fragment
+    const o2 = extractJson(text)!;
+    expect(o2).toHaveProperty("requirements");
+    expect(o2).toHaveProperty("measurements");
+  });
 });
 
 describe("importer returns a validation error ONLY when genuinely malformed / missing fields", () => {
