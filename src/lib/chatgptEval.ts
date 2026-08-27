@@ -750,46 +750,61 @@ const EVAL_TOP_KEYS = [
   "project_type", "archetype", "floor", "boq_allocation", "floor_scope", "area", "area_type",
   "spaces", "disciplines", "measurements", "requirements", "category_summary", "confidence", "confirmations",
 ] as const;
-function looksLikeEval(o: Record<string, unknown>): boolean {
-  return EVAL_TOP_KEYS.some((k) => k in o);
+/** How many structured-project top-level keys an object carries. The real evaluation
+ *  has many; a stray nested fragment (a `spaces` entry, a `confidence` block) has 0–1,
+ *  so scoring by this reliably picks the whole object over any fragment. */
+function evalKeyScore(o: Record<string, unknown>): number {
+  return EVAL_TOP_KEYS.reduce((n, k) => n + (k in o ? 1 : 0), 0);
 }
 
 /** Pull the structured project-information JSON object out of the raw response —
  *  tolerating ```json fences, surrounding prose, leading/trailing whitespace, stray
- *  braces, trailing commas, comments, smart quotes, unescaped inner quotes and raw
- *  control chars inside strings. Returns the FIRST parseable object that CONTAINS the
- *  structured-project keys; if none is key-matching, the first parseable object as a
- *  best-effort fallback; or null when there is no parseable object at all. Always an
- *  object, never an array. */
+ *  braces, trailing commas, comments, typographic quotes, unescaped inner quotes and
+ *  raw control chars inside strings. Returns the object carrying the MOST structured-
+ *  project keys (so a nested fragment never wins); a key-less object as a best-effort
+ *  fallback; or null when nothing parses. Always an object, never an array.
+ *
+ *  Crucially it also handles a paste that MIXES typographic quote DELIMITERS (U+201C/D…)
+ *  with ASCII inch-mark quotes inside values (16'6"). A brace scan tracks strings by
+ *  ASCII " only, so those stray inner quotes desynchronise it and the object's bounds
+ *  are never found — the failure behind "Couldn't identify…". So besides scanning the
+ *  raw text, it also scans a PREPPED copy where typographic quotes are normalised to
+ *  ASCII and every stray inner/control quote is escaped, making each remaining " a real
+ *  delimiter so brace-matching is exact. */
 export function extractJson(text: string): Record<string, unknown> | null {
   if (!text) return null;
   const t = text.trim();
-  // Scan a source string for the eval object; also remember the first non-eval object.
-  const scan = (src: string): { evalObj: Record<string, unknown> | null; any: Record<string, unknown> | null } => {
-    let firstAny: Record<string, unknown> | null = null;
+  // Normalise typographic quotes → ASCII, then escape stray inner (inch-mark) and raw
+  // control quotes, BEFORE any brace-matching. Well-formed ASCII JSON is unchanged.
+  const prep = (src: string): string => escapeControlChars(escapeInnerQuotes(repairJson(src)));
+  const scan = (src: string): { best: Record<string, unknown> | null; score: number; any: Record<string, unknown> | null } => {
+    let best: Record<string, unknown> | null = null, bestScore = 0, firstAny: Record<string, unknown> | null = null;
     let tries = 0;
     for (let start = src.indexOf("{"); start >= 0 && tries < 500; start = src.indexOf("{", start + 1), tries++) {
       const candidate = balancedObject(src, start);
       if (!candidate) continue;
       const obj = parseLenient(candidate);
       if (!obj) continue;
-      if (looksLikeEval(obj)) return { evalObj: obj, any: firstAny };   // the structured-project object wins
-      if (!firstAny) firstAny = obj;                                     // remember a non-eval object as fallback
+      const score = evalKeyScore(obj);
+      if (score > bestScore) { best = obj; bestScore = score; }
+      if (!firstAny) firstAny = obj;
     }
-    return { evalObj: null, any: firstAny };
+    return { best, score: bestScore, any: firstAny };
   };
-  // Prefer a ```json fenced block, but if it does not hold the eval object, fall back
-  // to scanning the whole text (the object may sit outside/after the fence, or the
-  // fence may be absent) — never require the JSON to begin at a specific position.
   const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fence) {
-    const inFence = scan(fence[1].trim());
-    if (inFence.evalObj) return inFence.evalObj;
-    const whole = scan(t);
-    return whole.evalObj ?? inFence.any ?? whole.any;
+  const sources = fence ? [fence[1].trim(), t] : [t];
+  let overallBest: Record<string, unknown> | null = null, overallScore = 0, firstAny: Record<string, unknown> | null = null;
+  // Pass 1 scans the raw text (valid JSON parses untouched); pass 2 scans the prepped
+  // copy (typographic / mixed-quote pastes). Pick the highest-scoring object across all.
+  for (const transform of [(s: string) => s, prep]) {
+    for (const src of sources) {
+      const { best, score, any } = scan(transform(src));
+      if (best && score > overallScore) { overallBest = best; overallScore = score; }
+      firstAny = firstAny ?? any;
+    }
+    if (overallScore >= 2) return overallBest;   // a real evaluation object — done
   }
-  const whole = scan(t);
-  return whole.evalObj ?? whole.any;
+  return overallBest ?? firstAny;
 }
 
 function areaFromJson(area: unknown, areaType: unknown): EvalArea | null {
