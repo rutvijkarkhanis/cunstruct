@@ -9,13 +9,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Plus, Upload, ChevronUp, ChevronDown, Trash2, Pencil, Check, X, Layers } from "lucide-react";
+import { Plus, Upload, ChevronUp, ChevronDown, Trash2, Pencil, Check, X, Layers, Sparkles, FolderInput } from "lucide-react";
 import { SCOPE_KINDS, type ProjectScope } from "@/lib/projectDocs";
 import { parseBoqImport } from "@/lib/boqImport";
 
 interface BoqRow { id: string; name: string; description: string | null; scope_id: string | null; sort: number; status: string; }
+interface MovableBoq { id: string; name: string; project_id: string | null; scope_id: string | null; updated_at: string; }
 const NEW_SCOPE = "__new__";
-type Mode = null | "create" | "import";
+type Mode = null | "create" | "generate" | "import" | "move";
 
 export default function ProjectBoqs() {
   const { id: projectId } = useParams<{ id: string }>();
@@ -59,19 +60,44 @@ export default function ProjectBoqs() {
 
   const scopeName = (sid: string | null) => scopes?.find((s) => s.id === sid)?.name ?? "—";
 
-  // ---- Shared form state (Create + Import) --------------------------------
+  // BOQs that can be moved into this project: standalone (no project) or under a
+  // different project. Loaded only when the Move panel is open.
   const [mode, setMode] = useState<Mode>(null);
+  const { data: movable } = useQuery({
+    queryKey: ["movable-boqs", projectId],
+    enabled: mode === "move" && !!projectId,
+    queryFn: async () => {
+      const { data } = await supabase.from("boq")
+        .select("id, name, project_id, scope_id, updated_at")
+        .or(`project_id.is.null,project_id.neq.${projectId}`)
+        .order("updated_at", { ascending: false });
+      return (data ?? []) as MovableBoq[];
+    },
+  });
+  const { data: projectNames } = useQuery({
+    queryKey: ["project-names"],
+    enabled: mode === "move",
+    queryFn: async () => {
+      const { data } = await supabase.from("projects").select("id, name");
+      const m: Record<string, string> = {};
+      for (const p of (data ?? []) as { id: string; name: string }[]) m[p.id] = p.name;
+      return m;
+    },
+  });
+
+  // ---- Shared form state (Create / Generate / Import / Move) ---------------
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [scopeId, setScopeId] = useState<string>("");
   const [newScopeName, setNewScopeName] = useState("");
   const [newScopeKind, setNewScopeKind] = useState<string>("floor");
   const [importText, setImportText] = useState("");
+  const [moveBoqId, setMoveBoqId] = useState<string>("");
   const [busy, setBusy] = useState(false);
 
   const resetForm = () => {
     setMode(null); setName(""); setDescription(""); setScopeId("");
-    setNewScopeName(""); setNewScopeKind("floor"); setImportText("");
+    setNewScopeName(""); setNewScopeKind("floor"); setImportText(""); setMoveBoqId("");
   };
 
   const preview = useMemo(() => (mode === "import" && importText.trim() ? parseBoqImport(importText) : null), [mode, importText]);
@@ -138,6 +164,44 @@ export default function ProjectBoqs() {
       finishAndOpen(boqId, `Imported ${rows.length} line${rows.length === 1 ? "" : "s"}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to import BOQ");
+    } finally { setBusy(false); }
+  };
+
+  // Generate from a drawing (ChatGPT): resolve the scope here, then hand off to the
+  // existing, fully-tested drawing pipeline pre-set to this project + scope. It saves
+  // the BOQ and returns to this project's workspace.
+  const generateContinue = async () => {
+    if (!projectId) return;
+    setBusy(true);
+    try {
+      const sid = await resolveScopeId();
+      if (!sid) return;
+      qc.invalidateQueries({ queryKey: ["project-scopes", projectId] });
+      const q = new URLSearchParams({ project: projectId, scope: sid, return: "1" });
+      if (name.trim()) q.set("name", name.trim());
+      navigate(`/ops/boq/new?${q.toString()}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't start the generator");
+    } finally { setBusy(false); }
+  };
+
+  // Move an existing BOQ (standalone or under another project) into this project.
+  // Non-destructive: its lines, quantities, rates and spec are untouched — only its
+  // parent project and scope change.
+  const moveBoq = async () => {
+    if (!projectId) return;
+    if (!moveBoqId) return toast.error("Pick a BOQ to move");
+    setBusy(true);
+    try {
+      const sid = await resolveScopeId();
+      if (!sid) return;
+      const { error } = await supabase.from("boq")
+        .update({ project_id: projectId, scope_id: sid, sort: boqs?.length ?? 0 }).eq("id", moveBoqId);
+      if (error) throw error;
+      qc.invalidateQueries({ queryKey: ["movable-boqs", projectId] });
+      finishAndOpen(moveBoqId, "BOQ moved into this project");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to move BOQ");
     } finally { setBusy(false); }
   };
 
@@ -221,14 +285,18 @@ export default function ProjectBoqs() {
           </div>
         </div>
       )}
-      <div className="space-y-1">
-        <label className="text-xs font-medium text-muted-foreground">BOQ name</label>
-        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Floor 2 Electrical" />
-      </div>
-      <div className="space-y-1">
-        <label className="text-xs font-medium text-muted-foreground">Description (optional)</label>
-        <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Short note" />
-      </div>
+      {mode !== "move" && (
+        <>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">BOQ name{mode === "generate" ? " (optional)" : ""}</label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Floor 2 Electrical" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Description (optional)</label>
+            <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Short note" />
+          </div>
+        </>
+      )}
     </div>
   );
 
@@ -240,9 +308,11 @@ export default function ProjectBoqs() {
           <p className="text-sm text-muted-foreground">Define the BOQ structure for this project. One scope can have several BOQs.</p>
         </div>
         {!mode && (
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Button onClick={() => setMode("create")}><Plus className="h-4 w-4 mr-2" />Create BOQ</Button>
+            <Button variant="outline" onClick={() => setMode("generate")}><Sparkles className="h-4 w-4 mr-2" />Generate from Drawing</Button>
             <Button variant="outline" onClick={() => setMode("import")}><Upload className="h-4 w-4 mr-2" />Import Existing BOQ</Button>
+            <Button variant="outline" onClick={() => setMode("move")}><FolderInput className="h-4 w-4 mr-2" />Move a BOQ Here</Button>
           </div>
         )}
       </div>
@@ -252,6 +322,20 @@ export default function ProjectBoqs() {
           {ScopeFields}
           <div className="flex gap-2">
             <Button onClick={createBoq} disabled={busy}>{busy ? "Creating…" : "Create BOQ"}</Button>
+            <Button variant="ghost" onClick={resetForm} disabled={busy}>Cancel</Button>
+          </div>
+        </CardContent></Card>
+      )}
+
+      {mode === "generate" && (
+        <Card><CardContent className="p-4 space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Generate a BOQ from a drawing using ChatGPT. Pick the scope and name, then continue to the drawing
+            analysis — you copy a prompt, paste ChatGPT's evaluation, review it, and the BOQ is filed here under this scope.
+          </p>
+          {ScopeFields}
+          <div className="flex gap-2">
+            <Button onClick={generateContinue} disabled={busy}>{busy ? "Starting…" : "Continue to drawing analysis"}</Button>
             <Button variant="ghost" onClick={resetForm} disabled={busy}>Cancel</Button>
           </div>
         </CardContent></Card>
@@ -304,8 +388,41 @@ export default function ProjectBoqs() {
         </CardContent></Card>
       )}
 
+      {mode === "move" && (
+        <Card><CardContent className="p-4 space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Move a BOQ you generated separately into this project. Its lines, quantities and rates are kept exactly as they
+            are — only its project and scope change.
+          </p>
+          {ScopeFields}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">BOQ to move</label>
+            {movable == null ? (
+              <div className="text-xs text-muted-foreground">Loading BOQs…</div>
+            ) : movable.length === 0 ? (
+              <div className="text-xs text-muted-foreground">No BOQs available to move — every BOQ is already in this project.</div>
+            ) : (
+              <Select value={moveBoqId} onValueChange={setMoveBoqId}>
+                <SelectTrigger><SelectValue placeholder="Pick a BOQ" /></SelectTrigger>
+                <SelectContent>
+                  {movable.map((b) => (
+                    <SelectItem key={b.id} value={b.id}>
+                      {b.name} — {b.project_id ? (projectNames?.[b.project_id] ?? "another project") : "standalone"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={moveBoq} disabled={busy || !moveBoqId}>{busy ? "Moving…" : "Move here"}</Button>
+            <Button variant="ghost" onClick={resetForm} disabled={busy}>Cancel</Button>
+          </div>
+        </CardContent></Card>
+      )}
+
       {!boqs?.length && !mode && (
-        <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No BOQs yet. Create one from scratch, or import a BOQ you already have.</CardContent></Card>
+        <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No BOQs yet. Create one from scratch, generate from a drawing, import a BOQ you already have, or move one in.</CardContent></Card>
       )}
 
       <div className="space-y-2">

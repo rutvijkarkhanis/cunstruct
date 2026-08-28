@@ -27,6 +27,11 @@ interface ProjectLite {
 export default function OpsBoqNew() {
   const [params] = useSearchParams();
   const urlProjectId = params.get("project");
+  // When launched from a project's BOQs tab: the scope to file the BOQ under, an
+  // optional preset name, and a flag to return to the project workspace on save.
+  const scopeParam = params.get("scope");
+  const nameParam = params.get("name");
+  const returnToProject = params.get("return") === "1";
   const navigate = useNavigate();
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(urlProjectId);
   const [project, setProject] = useState<ProjectLite | null>(null);
@@ -136,12 +141,12 @@ export default function OpsBoqNew() {
       .then(({ data }) => {
         if (data) {
           setProject(data as ProjectLite);
-          setName(`${data.name} — BOQ`);
+          setName(nameParam || `${data.name} — BOQ`);
           setSpec((s) => ({ ...s, _area_sqft: s._area_sqft ?? data.area_sqft ?? undefined, _floors: s._floors ?? data.floors ?? undefined }));
         }
         setLoading(false);
       });
-  }, [selectedProjectId]);
+  }, [selectedProjectId, nameParam]);
 
   const set = (key: string, value: SpecValue) => setSpec((s) => ({ ...s, [key]: value }));
 
@@ -210,10 +215,14 @@ export default function OpsBoqNew() {
       }
       const { data, error } = await supabase.from("boq").insert({
         project_id: selectedProjectId, name, spec, discipline, contractor_id: cid, created_by: user?.id,
+        // When launched from a project's BOQs tab, file the generated BOQ under the chosen scope.
+        ...(scopeParam ? { scope_id: scopeParam } : {}),
       }).select("id").single();
       if (error) throw error;
       // Land on the builder — it generates the draft on arrival (output before input).
-      navigate(`/ops/boq/${data.id}`);
+      // Return to the project workspace when we came from there; else the legacy route.
+      if (returnToProject && selectedProjectId) navigate(`/ops/projects/${selectedProjectId}/boqs/${data.id}`);
+      else navigate(`/ops/boq/${data.id}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save");
     } finally {
