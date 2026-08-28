@@ -8,15 +8,32 @@ describe("computeCommercials (CPWD abstract)", () => {
     });
     expect(c.costIndexAmt).toBe(10000);       // 10% of 100000
     expect(c.worksAdjusted).toBe(110000);
-    expect(c.contingencyAmt).toBeCloseTo(3300, 2);   // 3% of 110000
-    expect(c.overheadAmt).toBeCloseTo(16500, 2);     // 15% of 110000
-    expect(c.subTotal).toBeCloseTo(129800, 2);       // 110000 + 3300 + 16500
-    expect(c.cessAmt).toBeCloseTo(1298, 2);          // 1% of 129800
-    expect(c.gstAmt).toBeCloseTo(23597.64, 2);       // 18% of (129800 + 1298)
-    expect(c.grandTotal).toBeCloseTo(154695.64, 2);
+    expect(c.contingencyAmt).toBe(3300);      // 3% of 110000
+    expect(c.overheadAmt).toBe(16500);        // 15% of 110000
+    expect(c.subTotal).toBe(129800);          // 110000 + 3300 + 16500
+    expect(c.cessAmt).toBe(1298);             // 1% of 129800
+    expect(c.gstAmt).toBe(23598);             // round(18% of 131098) = round(23597.64)
+    expect(c.grandTotal).toBe(154696);
   });
 
-  it("with all extras zero, reduces to works value", () => {
+  // The bug the rounding strategy fixes: the parts the reader sees must sum EXACTLY
+  // to the total the reader sees. Every amount is a whole rupee and the grand total
+  // equals the sum of the rounded stages — no sum-of-rounded-parts ≠ rounded-sum drift.
+  it("every amount is a whole rupee and the stages sum exactly to the grand total", () => {
+    // 41785.4 is deliberately fractional so full-precision math would drift by ₹1.
+    const c = computeCommercials(41785.4, {
+      costIndexPct: 0, contingencyPct: 3, overheadPct: 15, cessPct: 1, gstPct: 18,
+    });
+    for (const v of [c.works, c.costIndexAmt, c.contingencyAmt, c.overheadAmt, c.cessAmt, c.gstAmt, c.grandTotal]) {
+      expect(Number.isInteger(v)).toBe(true);
+    }
+    const sumOfStages =
+      c.works + c.costIndexAmt + c.contingencyAmt + c.overheadAmt + c.cessAmt + c.gstAmt;
+    expect(sumOfStages).toBe(c.grandTotal);          // what you see adds up
+    expect(c.subTotal).toBe(c.worksAdjusted + c.contingencyAmt + c.overheadAmt);
+  });
+
+  it("with all extras zero, reduces to works value (rounded)", () => {
     const c = computeCommercials(50000, { costIndexPct: 0, contingencyPct: 0, overheadPct: 0, cessPct: 0, gstPct: 0 });
     expect(c.grandTotal).toBe(50000);
   });

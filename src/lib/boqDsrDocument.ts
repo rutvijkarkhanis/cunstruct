@@ -50,8 +50,9 @@ export interface QuotePendingItem {
   note?: string;         // location / reason it is pending
   scope?: string;        // works | equipment | needs_confirmation
 }
-/** A drawing requirement with a defensible quantity but no reliable catalogue
- *  price mapping yet — kept visible (never dropped) as an unpriced Drawing Item. */
+/** Loose client equipment identified on the drawing (TV, fridge, projector screen…)
+ *  — not contractor works, shown for reference so it is never silently dropped, but
+ *  kept out of the priced contract table. */
 export interface QuoteDrawingItem {
   no: string;
   spec: string;
@@ -127,21 +128,33 @@ export function amountInWords(amount: number): string {
   ].filter(Boolean).join(" ");
 }
 
+/** Single rounding strategy for the whole document: every monetary amount is a
+ *  whole number of rupees. Aggregates are ALWAYS sums of already-rounded child
+ *  amounts, never a rounded sum of full-precision values — so what the reader sees
+ *  adds up exactly (line amounts → sub-head subtotal → works → the abstract
+ *  waterfall). This is why the printed parts previously summed to ₹58,764 while the
+ *  grand total read ₹58,763: the parts were rounded for display but the total was a
+ *  rounded full-precision sum. Round once, here, at every stage. */
+export const roundRupee = (n: number): number => Math.round(n);
+
 /**
  * CPWD-style abstract: works → +cost index → +contingency → +overhead → +cess → +GST.
+ * Every stage is rounded to whole rupees and each subsequent stage is computed from
+ * the rounded running value, so the waterfall the reader sees is internally exact.
  */
 export function computeCommercials(works: number, i: CommercialInputs): QuoteCommercials {
-  const costIndexAmt = works * (i.costIndexPct / 100);
-  const worksAdjusted = works + costIndexAmt;
-  const contingencyAmt = worksAdjusted * (i.contingencyPct / 100);
-  const overheadAmt = worksAdjusted * (i.overheadPct / 100);
+  const w = roundRupee(works);
+  const costIndexAmt = roundRupee(w * (i.costIndexPct / 100));
+  const worksAdjusted = w + costIndexAmt;
+  const contingencyAmt = roundRupee(worksAdjusted * (i.contingencyPct / 100));
+  const overheadAmt = roundRupee(worksAdjusted * (i.overheadPct / 100));
   const subTotal = worksAdjusted + contingencyAmt + overheadAmt;
-  const cessAmt = subTotal * (i.cessPct / 100);
+  const cessAmt = roundRupee(subTotal * (i.cessPct / 100));
   const taxable = subTotal + cessAmt;
-  const gstAmt = taxable * (i.gstPct / 100);
+  const gstAmt = roundRupee(taxable * (i.gstPct / 100));
   const grandTotal = taxable + gstAmt;
   return {
-    ...i, works, costIndexAmt, worksAdjusted, contingencyAmt, overheadAmt,
+    ...i, works: w, costIndexAmt, worksAdjusted, contingencyAmt, overheadAmt,
     subTotal, cessAmt, gstAmt, grandTotal, grandTotalWords: amountInWords(grandTotal),
   };
 }
@@ -160,6 +173,10 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
   ].filter(Boolean).join(" &nbsp;·&nbsp; ");
 
   const blank = !!p.blankRates;
+  // DSR basis is asserted ONLY when a rate year was supplied (the operator explicitly
+  // chose DSR pricing). Private projects carry no rateYear → neutral basis language,
+  // never "Basis: DSR 2023".
+  const dsr = !!p.rateYear;
   const money = (n: number | null) => (blank ? "" : inr(n));
 
   const rows = p.subheads.map((sh) => `
@@ -193,19 +210,20 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
   // When present, the abstract total covers only the PRICED scope, so it is
   // labelled as such and never shown as the full project value. Generalized —
   // applies to any BOQ (drawing-driven or questionnaire).
-  const unpricedSubheadLines = blank ? 0 : p.subheads.reduce((n, sh) => n + sh.lines.filter((l) => l.rate == null).length, 0);
-  const unpricedCount = blank ? 0 : unpricedSubheadLines + drawing.length;
+  // Rate-pending WORKS lines: quantified, in the contract table, awaiting a rate.
+  const unpricedCount = blank ? 0 : p.subheads.reduce((n, sh) => n + sh.lines.filter((l) => l.rate == null).length, 0);
+  const equipmentCount = drawing.length;
   const pendingCount = pending.length;
   const excludedCount = excludedList.length;
   const partiallyPriced = !blank && (unpricedCount > 0 || pendingCount > 0);
   const grandLabel = partiallyPriced ? "Grand total of currently priced scope only" : "Grand total";
   const statusRow = partiallyPriced
     ? `<tr class="status"><td colspan="2">BOQ status: <b>Partially priced</b>. The amount above is the <b>currently priced scope only</b>, not the full project value.
-        <br>Priced scope: ${inr(c.works)} &nbsp;·&nbsp; Unpriced drawing scope: ${unpricedCount} item${unpricedCount === 1 ? "" : "s"} &nbsp;·&nbsp; Pending quantity: ${pendingCount} item${pendingCount === 1 ? "" : "s"}${excludedCount ? ` &nbsp;·&nbsp; Excluded (other allocation): ${excludedCount} item${excludedCount === 1 ? "" : "s"}` : ""}.</td></tr>`
+        <br>Priced scope: ${inr(c.works)} &nbsp;·&nbsp; Rate pending: ${unpricedCount} item${unpricedCount === 1 ? "" : "s"} &nbsp;·&nbsp; Quantity pending: ${pendingCount} item${pendingCount === 1 ? "" : "s"}${equipmentCount ? ` &nbsp;·&nbsp; Client equipment: ${equipmentCount} item${equipmentCount === 1 ? "" : "s"}` : ""}${excludedCount ? ` &nbsp;·&nbsp; Excluded (other allocation): ${excludedCount} item${excludedCount === 1 ? "" : "s"}` : ""}.</td></tr>`
     : "";
   const summary = `
     <table class="summary">
-      <tr><td>Cost of works (at DSR rates, excl. GST)</td><td class="num">${inr(c.works)}</td></tr>
+      <tr><td>Cost of works${dsr ? " (at DSR rates, excl. GST)" : " (excl. GST)"}</td><td class="num">${inr(c.works)}</td></tr>
       ${wrow(`Add: Cost index @ ${c.costIndexPct}%`, c.costIndexAmt, c.costIndexPct !== 0)}
       ${wrow(`Add: Contingencies @ ${c.contingencyPct}%`, c.contingencyAmt, c.contingencyPct !== 0)}
       ${wrow(`Add: Overhead &amp; profit @ ${c.overheadPct}%`, c.overheadAmt, c.overheadPct !== 0)}
@@ -236,13 +254,12 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
     <div class="foot" style="margin-top:8px">These ${pending.length} requirement${pending.length === 1 ? " is" : "s are"} identified on the drawing but not yet quantified. They are listed for completeness and are <b>not included in the priced totals</b> — confirm a quantity for each to price it.</div>
   ` : "";
 
-  // Quantified drawing requirements not mapped to a priced catalogue item — kept
-  // visible with their drawing quantity (never converted, never dropped). This is
-  // where counted joinery/interior/equipment scope lives until a rate is mapped.
+  // Loose client equipment identified on the drawing — not contractor works, shown
+  // for reference with its drawing quantity, kept out of the priced contract table.
   const drawingSection = drawing.length ? `
-    <h2>Drawing Items — Identified, Not Priced</h2>
+    <h2>Client Equipment &amp; Loose Items — Not in Contract Works</h2>
     <table class="pending">
-      <thead><tr><th>Sl. No</th><th>Requirement</th><th class="num">Qty</th><th>Unit</th><th>Scope</th></tr></thead>
+      <thead><tr><th>Sl. No</th><th>Item</th><th class="num">Qty</th><th>Unit</th><th>Scope</th></tr></thead>
       <tbody>${drawing.map((it) => `
         <tr>
           <td class="no">${esc(it.no)}</td>
@@ -253,7 +270,7 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
         </tr>`).join("")}
       </tbody>
     </table>
-    <div class="foot" style="margin-top:8px">These ${drawing.length} requirement${drawing.length === 1 ? " is" : "s are"} counted/measured on the drawing but have <b>no reliable catalogue price mapping</b> (or would require an unsupported unit conversion). The drawing quantity is preserved unchanged; they are <b>not included in the priced totals</b> until a rate is mapped.</div>
+    <div class="foot" style="margin-top:8px">These ${drawing.length} item${drawing.length === 1 ? " is" : "s are"} loose client equipment identified on the drawing (supplied by the client, not the contractor). They are listed for reference with the drawing quantity and are <b>excluded from the contract works and the priced totals</b>.</div>
   ` : "";
 
   // Common-area / other-allocation requirements seen in the drawing but owned by
@@ -359,12 +376,13 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
   ${abstractSection}
 
   <div class="foot">
-    <b>Basis &amp; conditions.</b> Rates are composite rates from the Delhi Schedule of Rates${p.rateYear ? ` ${esc(p.rateYear)}` : ""} (material + labour + plant),
-    exclusive of GST, adjusted by the stated cost index for location. Non-Schedule (NS) items, where shown, are outside the DSR and their rates are to be
-    analysed from prevailing market / State PWD rates. <b>Quantities are based on supplied drawing evidence and explicit project inputs.</b> Counted
+    <b>Basis &amp; conditions.</b> ${dsr
+      ? `Rates are composite rates from the Delhi Schedule of Rates ${esc(p.rateYear)} (material + labour + plant), exclusive of GST, adjusted by the stated cost index for location. Non-Schedule (NS) items, where shown, are outside the DSR and their rates are to be analysed from prevailing market / State PWD rates.`
+      : `Quantities are established from the supplied drawings; rates are the estimator's own composite rates (material, labour and installation), exclusive of GST, and are confirmed separately with the architect/client. This is a private-project quotation and is not priced on any government schedule of rates.`}
+    <b>Quantities are based on supplied drawing evidence and explicit project inputs.</b> Counted
     quantities are visually counted from the supplied drawing. Measured quantities are based on drawing measurements. Derived quantities identify their
-    derivation. Requirements that cannot be defensibly quantified remain pending. Catalogue/DSR rates do not create quantities. Final measurements and
-    specifications should be verified before execution. Items are grouped by DSR sub-head in construction sequence. This quote is indicative and valid for
+    derivation. Requirements that cannot be defensibly quantified remain pending. Catalogue rates do not create quantities. Final measurements and
+    specifications should be verified before execution. Items are grouped in construction sequence. This quotation is indicative and valid for
     15 days from the date above. Generated by Cunstruct.
   </div>
 
@@ -393,10 +411,10 @@ export function buildBoqCsv(
   pending?: { spec: string; unit: string; note?: string }[],
 ): string {
   const HEADER_LINE = 4;
-  const head = ["Sub-head", "Item", "DSR code", "Specification", "Unit", "Qty", "Rate (ref, excl GST)", "Your rate", "Amount"];
+  const head = ["Sub-head", "Item", "Code", "Specification", "Unit", "Qty", "Rate (ref, excl GST)", "Your rate", "Amount"];
   const lines: string[] = [
     csvCell(`Bill of Quantities — ${meta.boqName}`),
-    csvCell(`${meta.project ?? "Standalone"}  ·  ${meta.generatedOn}  ·  Rates: DSR 2023 reference, excl. GST — edit "Your rate"`),
+    csvCell(`${meta.project ?? "Standalone"}  ·  ${meta.generatedOn}  ·  Quantities from drawings; enter "Your rate" (excl. GST)`),
     "",
     head.map(csvCell).join(","),
   ];

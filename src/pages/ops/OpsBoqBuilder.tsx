@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { generateForDiscipline, disciplineByKey } from "@/lib/disciplines";
 import { computeDimensions } from "@/lib/dimensions";
 import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
-import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, type QuoteSubHead, type CsvRow } from "@/lib/boqDsrDocument";
+import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, roundRupee, type QuoteSubHead, type CsvRow } from "@/lib/boqDsrDocument";
 import { openIntakeForm } from "@/lib/boqIntakeForm";
 import { sanityForCode, countFlagged } from "@/lib/boqSanity";
 import { BASIS_META, categoryCovered, DRAWING_CHECKLIST, findCatalogueMatch, isEquipment, isSupersededByDrawing, parseDrawingSummary, resolveDrawingProvenance, type DrawingBasis, type DrawingItem, type DrawingSummary, type LineDrawingMeta, type QtyBasis } from "@/lib/boqDrawing";
@@ -46,6 +46,9 @@ const drawingSuffix = (l: { drawing: LineDrawingMeta | null }, opts?: { short?: 
 };
 /** The rate in effect: the estimator's case-specific override, else the DSR reference. */
 const effRate = (l: BoqLine) => l.custom_rate ?? l.dsr_rate;
+/** A single line's amount in whole rupees (0 when unrated). All money aggregates are
+ *  sums of THIS value so the printed figures add up exactly (see roundRupee). */
+const lineAmount = (l: BoqLine) => roundRupee(l.qty * (effRate(l) ?? 0));
 
 // The provenance columns (basis / basis_note / drawing) come from migrations that
 // may not be run on every deployment. Select them when present, but fall back to
@@ -195,7 +198,7 @@ export default function OpsBoqBuilder() {
     const summary = (sp as Record<string, unknown>)?._drawing as DrawingSummary | undefined;
     const works = ls
       .filter((l) => l.included && !(!l.drawing && isSupersededByDrawing(l.description, l.dsr_code, summary)))
-      .reduce((s, l) => s + l.qty * (effRate(l) ?? 0), 0);
+      .reduce((s, l) => s + lineAmount(l), 0);
     const pct = (k: string, d: number) => Number(sp[k] ?? d);
     return computeCommercials(works, {
       costIndexPct: pct("_cost_index_pct", 0), contingencyPct: pct("_contingency_pct", 3),
@@ -593,7 +596,7 @@ export default function OpsBoqBuilder() {
     });
   };
 
-  const sumIncl = (ls: BoqLine[]) => ls.filter((l) => l.included).reduce((s, l) => s + l.qty * (effRate(l) ?? 0), 0);
+  const sumIncl = (ls: BoqLine[]) => ls.filter((l) => l.included).reduce((s, l) => s + lineAmount(l), 0);
 
   // Group by DSR sub-head (type of work), ordered by chapter number — which is
   // also the construction sequence. Each sub-head gets a number; items within
@@ -620,7 +623,7 @@ export default function OpsBoqBuilder() {
   }, [lines]);
 
   const total = useMemo(() =>
-    lines.filter((l) => l.included).reduce((sum, l) => sum + l.qty * (effRate(l) ?? 0), 0),
+    lines.filter((l) => l.included).reduce((sum, l) => sum + lineAmount(l), 0),
     [lines]);
 
   // Built-up area drives the sanity bands (project first, else the spec anchor).
@@ -632,8 +635,8 @@ export default function OpsBoqBuilder() {
     let quote = 0, cost = 0, hasCost = false;
     for (const l of lines) {
       if (!l.included) continue;
-      quote += l.qty * (effRate(l) ?? 0);
-      if (l.cost != null) { cost += l.qty * l.cost; hasCost = true; }
+      quote += lineAmount(l);
+      if (l.cost != null) { cost += roundRupee(l.qty * l.cost); hasCost = true; }
     }
     return { quote, cost, make: quote - cost, marginPct: quote > 0 ? ((quote - cost) / quote) * 100 : 0, hasCost };
   }, [lines]);
@@ -719,27 +722,32 @@ export default function OpsBoqBuilder() {
   const firmTagline = String(spec._firm_tagline ?? "").trim() || null;
 
   const exportQuote = (blankRates = false, autoPrint = false) => {
-    // A generated line is a PRICED catalogue line only when it carries a rate.
-    // A drawing-derived line with no rate is a Drawing Item (state B) — it is moved
-    // out of the priced table into its own section so nothing counted disappears
-    // (equipment included=false items too) and the priced subtotal stays honest.
-    const isUnpricedDrawing = (l: BoqLine) => !!l.drawing && effRate(l) == null;
+    // THE BOQ IS ORGANISED AROUND QUANTITY, NOT AROUND WHETHER A RATE EXISTS. Any
+    // item with a defensible quantity that is contractor works (included) is a
+    // first-class BOQ line — priced or not. A missing rate leaves Rate/Amount blank
+    // ("—"), it does NOT banish the line to a secondary "identified, not priced"
+    // list. This is the fix for the headline failure where 50 quantified
+    // requirements were hidden below the fold because only DSR-coded WC/basin lines
+    // carried a rate. The priced subtotal still counts only rated lines (lineAmount
+    // is 0 when unrated), so the abstract stays honest; the "partially priced"
+    // status communicates the unpriced count.
     const subheads: QuoteSubHead[] = bySubhead.map((sh) => ({
       no: sh.no, name: sh.name, subtotal: sh.subtotal,
-      lines: sh.rows.filter(({ line }) => line.included && !isUnpricedDrawing(line)).map(({ line, no }) => {
+      lines: sh.rows.filter(({ line }) => line.included && line.qty != null && line.qty > 0).map(({ line, no }) => {
         const rate = effRate(line);
-        return { no, code: line.dsr_code, spec: (line.description ?? "") + drawingSuffix(line), qty: line.qty, unit: line.unit ?? "", rate, amount: rate != null ? line.qty * rate : null };
+        return { no, code: line.dsr_code, spec: (line.description ?? "") + drawingSuffix(line), qty: line.qty, unit: line.unit ?? "", rate, amount: rate != null ? roundRupee(line.qty * rate) : null };
       }),
     })).filter((sh) => sh.lines.length > 0);
 
-    // Drawing Items — identified & quantified on the drawing but not mapped to a
-    // priced catalogue item (no reliable/compatible mapping). Includes equipment
-    // (included=false) so e.g. a media-room screen can never silently disappear.
-    // The drawing quantity is preserved unchanged; never priced, never converted.
+    // Loose client equipment (TV, fridge, projector screen …) is NOT contractor
+    // works — applyDrawing marks it included=false. It is shown for reference so it
+    // is never silently dropped, but it stays out of the priced contract table. Only
+    // genuinely non-contract quantified drawing items land here now; every included
+    // works item (priced or not) lives in the main BOQ above.
     const drawingItemsQ = lines
-      .filter((l) => isUnpricedDrawing(l) && l.qty != null && l.qty > 0 && !l.superseded)
+      .filter((l) => !!l.drawing && !l.included && l.qty != null && l.qty > 0 && !l.superseded)
       .map((l, i) => ({
-        no: `D.${String(i + 1).padStart(2, "0")}`,
+        no: `E.${String(i + 1).padStart(2, "0")}`,
         spec: (l.description ?? "").trim() + drawingSuffix(l),
         qty: l.qty, unit: l.unit ?? "nos",
         note: l.basis_note?.trim() || undefined,
@@ -762,11 +770,17 @@ export default function OpsBoqBuilder() {
       .filter((d) => (d.match ?? "").trim())
       .map((d) => ({ spec: (d.match ?? "").trim(), allocation: d.allocation, qty: d.qty ?? null, unit: d.unit }));
 
+    // Pricing basis. Private projects are the default: quantities come from the
+    // drawings and rates are the estimator's own (entered per line / quoted
+    // separately) — so the document must NOT claim a Delhi-Schedule-of-Rates basis.
+    // Only when the operator has explicitly selected DSR pricing (spec._pricing_basis
+    // === "dsr") do we stamp "Basis: DSR <year>" and the DSR conditions footer.
+    const useDsrBasis = String(spec._pricing_basis ?? "").toLowerCase() === "dsr";
     const ok = openDsrQuote({
       boqName: boq!.name,
       projectName: project?.name, clientName: project?.client_name, location: project?.location,
       builtUpSqft: project?.area_sqft, floors: project?.floors,
-      generatedOn: gen(), rateYear: "2023",
+      generatedOn: gen(), rateYear: useDsrBasis ? "2023" : null,
       projectType: project?.project_type,
       flatsPerFloor: Number(spec._flats_per_floor ?? spec.flats_per_floor) || null,
       firmName, firmTagline, blankRates,
@@ -1343,8 +1357,8 @@ export default function OpsBoqBuilder() {
           <CardContent className="space-y-3">
             {bySubhead.map(({ no, name, rows }) => {
               const incl = rows.filter(({ line }) => line.included);
-              const q = incl.reduce((s, { line }) => s + line.qty * (effRate(line) ?? 0), 0);
-              const c = incl.reduce((s, { line }) => s + line.qty * (line.cost ?? 0), 0);
+              const q = incl.reduce((s, { line }) => s + lineAmount(line), 0);
+              const c = incl.reduce((s, { line }) => s + roundRupee(line.qty * (line.cost ?? 0)), 0);
               const m = q - c, mp = q > 0 ? (m / q) * 100 : 0;
               return (
                 <div key={name}>
