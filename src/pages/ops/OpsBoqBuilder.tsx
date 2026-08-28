@@ -8,6 +8,8 @@ import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
 import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, roundRupee, type QuoteSubHead, type CsvRow } from "@/lib/boqDsrDocument";
 import { openIntakeForm } from "@/lib/boqIntakeForm";
 import { sanityForCode, countFlagged } from "@/lib/boqSanity";
+import { auditBoq, auditCountsLine } from "@/lib/boqAudit";
+import type { GeneratedLine } from "@/lib/boqDsrGenerate";
 import { BASIS_META, categoryCovered, DRAWING_CHECKLIST, findCatalogueMatch, isEquipment, isSupersededByDrawing, parseDrawingSummary, resolveDrawingProvenance, type DrawingBasis, type DrawingItem, type DrawingSummary, type LineDrawingMeta, type QtyBasis } from "@/lib/boqDrawing";
 import { BOQ_SPEC, type Spec, type SpecValue, type SpecField } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
@@ -630,6 +632,19 @@ export default function OpsBoqBuilder() {
   const builtUp = project?.area_sqft ?? (Number((boq?.spec as Spec)?._area_sqft) || 0);
   const flaggedCount = useMemo(() => countFlagged(lines, builtUp), [lines, builtUp]);
 
+  // Consistency audit over the drawing summary + generated lines: per-BOQ counts and
+  // any conflicts (duplicates / quantity conflicts / double-counting / gate leaks /
+  // missing scope). Read-only — surfaced for the operator, never auto-resolved.
+  const audit = useMemo(() => {
+    if (!drawingSummary?.items?.length) return null;
+    const excluded = ((boq?.spec as Record<string, unknown> | undefined)?._excluded as DrawingSummary | undefined) ?? null;
+    const glines: GeneratedLine[] = lines.map((l) => ({
+      section: l.section ?? "Other", code: l.dsr_code, qty: l.qty, label: l.description ?? "",
+      unit: l.unit ?? "nos", drawing: l.drawing ?? undefined, basis: l.basis as GeneratedLine["basis"], included: l.included,
+    }));
+    return auditBoq(drawingSummary, excluded, glines);
+  }, [drawingSummary, lines, boq?.spec]);
+
   // "Make" (margin) = quote − your cost, per line and overall.
   const make = useMemo(() => {
     let quote = 0, cost = 0, hasCost = false;
@@ -928,8 +943,8 @@ export default function OpsBoqBuilder() {
           <FileDown className="h-4 w-4 mr-2" />Export quote
         </Button>
         <Button variant="outline" onClick={() => exportQuote(true, false)} disabled={lines.length === 0}
-          title="Rates left blank — issue to contractors to price">
-          <FileDown className="h-4 w-4 mr-2" />Blank BOQ
+          title="Specification & quantities, rates left blank — the version to confirm with the architect / issue for pricing">
+          <FileDown className="h-4 w-4 mr-2" />Spec &amp; Qty BOQ
         </Button>
         <Button variant="outline" onClick={exportExcel} disabled={lines.length === 0}>
           <Sheet className="h-4 w-4 mr-2" />Export to Excel
@@ -944,6 +959,33 @@ export default function OpsBoqBuilder() {
           </Button>
         </div>
       </div>
+
+      {audit && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <ClipboardList className="h-4 w-4" />Drawing audit
+              {audit.findings.length > 0 && (
+                <Badge variant="outline" className="border-amber-500 text-amber-600 dark:text-amber-400">
+                  {audit.findings.length} to review
+                </Badge>
+              )}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">{auditCountsLine(audit.counts)}</p>
+          </CardHeader>
+          {audit.findings.length > 0 && (
+            <CardContent className="space-y-1.5 pt-0">
+              {audit.findings.map((f, i) => (
+                <div key={i} className="flex items-start gap-2 text-sm">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-500" />
+                  <span className="text-foreground/90">{f.detail}</span>
+                </div>
+              ))}
+              <p className="text-xs text-muted-foreground pt-1">Conflicts are reported, not auto-resolved — confirm the authoritative quantity before finalising.</p>
+            </CardContent>
+          )}
+        </Card>
+      )}
 
       {changes.length > 0 && (
         <Card>
