@@ -420,7 +420,10 @@ const NEEDS_DETAIL = /needs?[-\s]*detail|^\W*identified\b/i;
 // / "material not established" (dimension/spec) still keep their count.
 const COUNT_UNRESOLVED = new RegExp([
   // "<count-word> … not/cannot/to-be/pending … established/confirmed/counted/…"
-  String.raw`\b(?:counts?|totals?|numbers?|tall(?:y|ies)|quantit(?:y|ies)|qty)\b[^.;\n]{0,45}\b(?:not|cannot|can[’']?t|un(?:able)?|to\s+be|pending|await\w*)\b[^.;\n]{0,25}\b(?:establish\w*|assess\w*|confirm\w*|determin\w*|quantif\w*|count(?:ed)?|verif\w*|resolv\w*|final\w*|reliab\w*|defensib\w*)\b`,
+  // The count-word must NOT directly precede a dimension noun — "total running length
+  // not established" / "total area not established" is a MISSING DIMENSION (the count
+  // is fine), not a count gap, so the negative lookahead excludes it.
+  String.raw`\b(?:counts?|totals?|numbers?|tall(?:y|ies)|quantit(?:y|ies)|qty)\b(?!\s+(?:running|length|area|width|height|depth|dimension|footage|size|material|thickness|volume|weight|run)s?\b)[^.;\n]{0,45}\b(?:not|cannot|can[’']?t|un(?:able)?|to\s+be|pending|await\w*)\b[^.;\n]{0,25}\b(?:establish\w*|assess\w*|confirm\w*|determin\w*|quantif\w*|count(?:ed)?|verif\w*|resolv\w*|final\w*|reliab\w*|defensib\w*)\b`,
   // "not/unable to establish/confirm/count … a total/count/number/quantity"
   String.raw`\b(?:not|cannot|can[’']?t|un(?:able)?)\b[^.;\n]{0,30}\b(?:establish\w*|assess\w*|confirm\w*|determin\w*|count\w*|quantif\w*)\b[^.;\n]{0,30}\b(?:counts?|totals?|numbers?|quantit(?:y|ies)|qty)\b`,
   String.raw`\bpending\s+quantit`,

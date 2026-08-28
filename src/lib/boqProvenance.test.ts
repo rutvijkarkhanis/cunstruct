@@ -271,6 +271,17 @@ describe("generic provenance gate: qty=null in → never a number out; qty=n (de
     expect(keep).toMatchObject({ qty: 4 });
   });
 
+  it("a count-word before a DIMENSION noun is a dimension gap, not a count gap (total running length)", () => {
+    // "total running length ... not established" modifies a dimension — the COUNT is
+    // fine. It must stay counted; only a genuine count gap ("total not established")
+    // is pending. (Regression: wet-kitchen platform on a floor whose note said "total
+    // running length" was wrongly demoted to pending.)
+    expect(drawingItemIsPending({ qty: 1, basis: "Counted", note: "Counter shown; total running length and material not established" })).toBe(false);
+    expect(drawingItemIsPending({ qty: 1, basis: "Counted", note: "total area not established" })).toBe(false);
+    expect(drawingItemIsPending({ qty: 25, basis: "Counted", note: "complete defensible total not established" })).toBe(true);
+    expect(drawingItemIsPending({ qty: 30, basis: "Counted", note: "total number not established" })).toBe(true);
+  });
+
   it("applyDrawing never emits a line for a pending item, and never invents a number for one", () => {
     // a pending item next to a template line that has a heuristic number: the template
     // number must be superseded, and no drawing line may carry it
