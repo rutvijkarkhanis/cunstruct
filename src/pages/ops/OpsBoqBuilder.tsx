@@ -40,7 +40,7 @@ const drawingSuffix = (l: { drawing: LineDrawingMeta | null }, opts?: { short?: 
   if (!d) return "";
   const parts = opts?.short
     ? [d.location, d.scope === "equipment" ? "by client" : null]
-    : [d.location, d.basis, d.scope === "equipment" ? "Client equipment" : null];
+    : [d.location, d.calculation || d.basis, d.scope === "equipment" ? "Client equipment" : null];
   const kept = parts.filter(Boolean) as string[];
   return kept.length ? ` — ${kept.join(" · ")}` : "";
 };

@@ -56,6 +56,32 @@ export interface DrawingItem {
    *  supplied number is NOT a defensible count, and generation re-checks it so a
    *  stale/mis-parsed number can never leak into a priced line. */
   status?: string;
+  /** How the quantity was established, kept as an explicit audit field distinct from
+   *  `basis` (operator vocabulary): "counted" (visible symbols tallied), "measured"
+   *  (a dimension/area read straight off the drawing), "derived" (computed from
+   *  drawing dimensions — see `calculation`), "schedule" (from a door/window/equipment
+   *  schedule), or "pending" (no defensible quantity). Persisted in _drawing jsonb. */
+  measurement_method?: MeasurementMethod;
+  /** The derivation, human-readable, for a measured/derived quantity — e.g.
+   *  `12'-0" × 10'-6" = 126 sqft`. Retained as the audit trail; never invented. */
+  calculation?: string;
+}
+
+export type MeasurementMethod = "counted" | "measured" | "derived" | "schedule" | "pending";
+
+/** The measurement method for a DrawingItem, from an explicit field when the
+ *  evaluation supplied one, otherwise inferred from the quantity + basis. Pending
+ *  whenever there is no defensible quantity. Keyed on evidence, not item names. */
+export function measurementMethodOf(
+  it: Pick<DrawingItem, "qty" | "basis" | "measurement_method" | "calculation">,
+): MeasurementMethod {
+  if (it.measurement_method) return it.measurement_method;
+  if (it.qty == null || !Number.isFinite(it.qty) || (it.qty as number) <= 0) return "pending";
+  const b = (it.basis ?? "").toLowerCase();
+  if (b.includes("deriv") || it.calculation) return "derived";
+  if (b.includes("measur")) return "measured";
+  if (b.includes("schedule")) return "schedule";
+  return "counted";
 }
 
 // --- Quantity provenance gate (single source of truth) -----------------------
@@ -116,7 +142,7 @@ export function drawingItemIsPending(it: Pick<DrawingItem, "qty" | "pending" | "
  *  Defensible counts pass through untouched. Idempotent and item-name-agnostic. */
 export function resolveDrawingProvenance<T extends DrawingItem>(items: T[] | undefined): T[] {
   return (items ?? []).map((it) =>
-    drawingItemIsPending(it) ? ({ ...it, qty: null, pending: true, basis: undefined }) : it,
+    drawingItemIsPending(it) ? ({ ...it, qty: null, pending: true, basis: undefined, measurement_method: "pending" as MeasurementMethod }) : it,
   );
 }
 
@@ -131,6 +157,10 @@ export interface LineDrawingMeta {
   location?: string;
   scope: "works" | "equipment" | "needs_confirmation";
   rooms?: { location: string; qty: number }[];
+  /** How the quantity was established (audit trail; see measurementMethodOf). */
+  method?: MeasurementMethod;
+  /** The derivation for a measured/derived quantity, e.g. `12' × 10.5' = 126 sqft`. */
+  calculation?: string;
 }
 
 /** The operator's basis → the line-level quantity provenance. */
@@ -343,6 +373,8 @@ export function applyDrawing(lines: GeneratedLine[], summary?: DrawingSummary | 
     location: it.note?.trim() || undefined,
     scope,
     rooms: it.rooms,
+    method: measurementMethodOf(it),
+    calculation: it.calculation?.trim() || undefined,
   });
   // The item's final Works / Equipment / Needs-confirmation scope. A loose appliance
   // is never plain Works; a fixed item honours its own stated scope. The more cautious
