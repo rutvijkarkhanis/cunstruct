@@ -138,8 +138,8 @@ describe("13. partial pricing is not presented as a complete project total", () 
     const html = buildDsrQuoteHtml(payload({ unpriced: true, pending: true }), { autoPrint: false });
     expect(html).toContain("currently priced scope only");
     expect(html).toContain("Partially priced");
-    expect(html).toMatch(/Unpriced drawing scope: \d+ item/);
-    expect(html).toMatch(/Pending quantity: \d+ item/);
+    expect(html).toMatch(/Rate pending: \d+ item/);       // quantified works line, no rate yet
+    expect(html).toMatch(/Quantity pending: \d+ item/);
     expect(html).not.toContain(">Grand total<");   // the bare "Grand total" label is replaced
   });
 
@@ -154,17 +154,38 @@ describe("13. partial pricing is not presented as a complete project total", () 
     expect(html).toContain("supplied drawing evidence");
     expect(html).not.toContain("derived from project parameters and room dimensions");
   });
+
+  // Private-project default: no rateYear → the document must NOT claim a DSR basis.
+  it("a private project (no rateYear) is not labelled 'Basis: DSR'", () => {
+    const html = buildDsrQuoteHtml(payload({ unpriced: true }), { autoPrint: false });
+    expect(html).not.toContain("Basis: DSR");
+    expect(html).not.toContain("Delhi Schedule of Rates");
+    expect(html).toContain("private-project quotation");
+  });
+  // DSR basis is asserted only when a rate year was explicitly supplied.
+  it("a DSR-priced project (rateYear set) does assert the DSR basis", () => {
+    const html = buildDsrQuoteHtml({ ...payload({ unpriced: false }), rateYear: "2023" }, { autoPrint: false });
+    expect(html).toContain("Basis: DSR 2023");
+    expect(html).toContain("Delhi Schedule of Rates 2023");
+  });
 });
 
-describe("new document sections — drawing items & excluded audit (media screen cannot disappear)", () => {
+describe("new document sections — quantified works in the BOQ, equipment & excluded audited", () => {
+  // The new structure: a quantified WORKS item with no rate yet is a first-class BOQ
+  // line (Wardrobe, in the sub-head, rate null); only loose client EQUIPMENT (media
+  // screen) lives in the reference section. Nothing the drawing counted disappears.
   const base: DsrQuotePayload = {
     boqName: "Floor 1", generatedOn: "2026-08-25",
-    subheads: [{ no: 1, name: "Sanitary", subtotal: 5000, lines: [{ no: "1.01", code: "17.2.1", spec: "WC", qty: 5, unit: "each", rate: 1000, amount: 5000 }] }],
+    subheads: [{
+      no: 1, name: "Sanitary", subtotal: 5000, lines: [
+        { no: "1.01", code: "17.2.1", spec: "WC", qty: 5, unit: "each", rate: 1000, amount: 5000 },
+        { no: "1.02", code: null, spec: "Wardrobe", qty: 4, unit: "rft", rate: null, amount: null },
+      ],
+    }],
     abstract: [{ no: 1, name: "Sanitary", amount: 5000 }],
     commercials: computeCommercials(5000, { costIndexPct: 0, contingencyPct: 3, overheadPct: 10, cessPct: 1, gstPct: 18 }),
     drawingItems: [
-      { no: "D.01", spec: "Media room screen", qty: 1, unit: "nos", scope: "equipment" },
-      { no: "D.02", spec: "Wardrobe", qty: 4, unit: "nos", scope: "works" },
+      { no: "E.01", spec: "Media room screen", qty: 1, unit: "nos", scope: "equipment" },
     ],
     excludedItems: [
       { spec: "Common lift", allocation: "Common Area", qty: 1, unit: "nos" },
@@ -172,11 +193,16 @@ describe("new document sections — drawing items & excluded audit (media screen
     ],
   };
 
-  it("renders the Drawing Items section and the media room screen survives into the PDF", () => {
+  it("a quantified works item with no rate is a first-class BOQ line, not banished below the fold", () => {
     const html = buildDsrQuoteHtml(base, { autoPrint: false });
-    expect(html).toContain("Drawing Items — Identified, Not Priced");
+    // Wardrobe appears inside the main Bill of Quantities table, above the equipment section.
+    const boqTable = html.slice(html.indexOf("Bill of Quantities"), html.indexOf("Client Equipment"));
+    expect(boqTable).toContain("Wardrobe");
+  });
+  it("renders the client-equipment section and the media room screen survives into the PDF", () => {
+    const html = buildDsrQuoteHtml(base, { autoPrint: false });
+    expect(html).toContain("Client Equipment &amp; Loose Items");
     expect(html).toContain("Media room screen");   // equipment item no longer disappears
-    expect(html).toContain("Wardrobe");
   });
   it("renders the excluded Common-Area audit section (seen → excluded, not missed)", () => {
     const html = buildDsrQuoteHtml(base, { autoPrint: false });
@@ -184,10 +210,11 @@ describe("new document sections — drawing items & excluded audit (media screen
     expect(html).toContain("Common lift");
     expect(html).toContain("Common staircase");
   });
-  it("the partial-pricing status counts the unpriced drawing items", () => {
+  it("the partial-pricing status counts rate-pending works, equipment and excluded scope", () => {
     const html = buildDsrQuoteHtml(base, { autoPrint: false });
     expect(html).toContain("Partially priced");
-    expect(html).toMatch(/Unpriced drawing scope: 2 items/);
+    expect(html).toMatch(/Rate pending: 1 item/);          // Wardrobe
+    expect(html).toMatch(/Client equipment: 1 item/);      // Media room screen
     expect(html).toMatch(/Excluded \(other allocation\): 2 items/);
   });
 });

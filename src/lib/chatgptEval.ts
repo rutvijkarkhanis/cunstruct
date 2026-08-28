@@ -10,6 +10,7 @@
 
 import { defaultSpec, type Spec } from "./boqSpec";
 import { parseDrawingSummary, resolveDrawingProvenance, type DrawingBasis, type DrawingItem } from "./boqDrawing";
+import { deriveAreaQuantities } from "./boqDerive";
 
 // Spec keys seeded from a ChatGPT evaluation (drawing requirements, measurements,
 // spaces, provenance). They must survive a spec reset — e.g. when the operator
@@ -110,7 +111,7 @@ Field guidance:
 - area / area_type: only if explicitly stated or reliably measurable (area_type is "built-up" | "carpet" | "covered"); otherwise BOTH null. Never estimate the area.
 - spaces[]: every identifiable room / space, with "qty" when the drawing supports a count.
 - disciplines: "identified" lists ONLY disciplines with actual scope/evidence in this drawing (from Civil, Architectural, Electrical, Plumbing, HVAC, Fire, Furniture); "not_assessable" lists the rest. Do NOT list a discipline as identified just because it could exist.
-- measurements[]: dimensions and specifications ONLY (switchboard heights, TV size, offsets) — never quantities.
+- measurements[]: dimensions and specifications ONLY (switchboard heights, TV size, offsets) — never quantities. IMPORTANT: whenever the drawing states a ROOM SIZE, emit one measurement per room as { "name": "Room dimension", "value": "<L> x <W>" (e.g. "12'-0\\" x 10'-6\\""), "location": "<room name>" }. These let Cunstruct DERIVE floor/finish areas (length × width) for that room — so report the room dimension even for rooms whose flooring you cannot otherwise quantify. Keep the value as the drawing states it (feet-inches); do not convert it to an area yourself.
 - requirements[]: EVERY item of scope you can see — QUANTIFIED wherever the drawing lets you count it. Count each symbol type SEPARATELY; do NOT collapse different symbols into one generic "electrical point". For EACH category below you MUST make an explicit COUNT DECISION and emit a row: give a numeric "qty" with "status": "Quantified" whenever the symbols/units are visible (a missing spec/rating/model/material/length NEVER blocks the count — put it in "note"); use "qty": null with "status": "Identified — Needs detail" ONLY when the symbol is genuinely absent/illegible, or the item is inherently area/length-based with no area/length given, or the COUNT itself cannot be established (say so in "note"). Do NOT leave a visible electrical category out, and do NOT return it null merely because its rating/legend is incomplete. Cover at least:
   - Electrical: 5A/6A sockets; 15A/16A sockets; combined sockets; switchboards (SB1/SB2/SB3…); DB / distribution board; ceiling lamps / lights; tube lights; ceiling fans; tower / wall fans; AC points; TV / plasma points; cable-TV points; audio points; calling bell; floor points / floor boxes; geyser points; exhaust / inline exhaust; conduits; appliance points; projector; screen; blind provisions.
   - Plumbing: WC; wash basin; shower; bathtub; CP fittings; floor drain / floor trap; kitchen sink; kitchen & wet-kitchen plumbing points; water points; waste points; geyser connections; washing-machine provision; refrigerator provision; dishwasher; other visible fixtures.
@@ -122,6 +123,8 @@ Field guidance:
   - basis: "Counted" | "Measured" | "Derived" | "Not assessable".
   - scope: "Works" (contractor work incl. fixed joinery / built-ins) | "Equipment" (loose client-supplied items) | "Needs confirmation".
   - status: "Quantified" (a count is present) | "Identified — Needs detail" (genuinely uncountable) | "Not assessable".
+  - measurement_method (optional): "counted" | "measured" | "derived" | "schedule" | "pending" — how the quantity was established. Use "schedule" when a door/window/equipment SCHEDULE on the drawing gives the quantity.
+  - calculation (optional): for a measured/derived quantity, the arithmetic, e.g. "12'-0\\" x 10'-6\\" = 126 sqft". Never invent a calculation for a number you did not derive.
 - category_summary: per discipline, a "status" ("Identified" | "None seen" | "Not assessable") plus any "items" you want to flag.
 - confidence: "High" | "Medium" | "Low" for project_type, archetype, floor, area, major_spaces, overall_scope.
 - confirmations[]: only questions resolvable from the supplied drawing.
@@ -873,6 +876,13 @@ function requirementsFromJson(v: unknown): { items: DrawingItem[]; needsDetail: 
     const equipment = equipFromScope(scope);
     const note = [jstr(o.location), jstr(o.note)].filter(Boolean).join(" · ") || undefined;
     const qty = jnum(o.qty);
+    // Optional audit fields the evaluation may supply. measurement_method is
+    // normalised to the known set; anything unrecognised is dropped so it is
+    // re-inferred from basis/qty (measurementMethodOf) rather than trusted blindly.
+    const mmRaw = jstr(o.measurement_method).toLowerCase();
+    const measurement_method = (["counted", "measured", "derived", "schedule", "pending"] as const)
+      .find((m) => m === mmRaw);
+    const calculation = jstr(o.calculation) || undefined;
     const basisNA = /not\s*assessable/i.test(basisRaw);
     const statusNeedsDetail = NEEDS_DETAIL.test(status);
     const statusNA = /not\s*assessable/i.test(status);
@@ -887,8 +897,8 @@ function requirementsFromJson(v: unknown): { items: DrawingItem[]; needsDetail: 
     // The status verbatim is carried onto the item so the quantity's provenance
     // survives storage — generation re-checks it (drawingItemIsPending) so a stored
     // number can never outlive evidence that the COUNT itself is not established.
-    if (qty != null && qty > 0 && !blockCount) items.push({ match, qty, unit, basis, equipment, scope, note, allocation, status: status || undefined });
-    else if (statusNeedsDetail || countUnresolved) needsDetail.push({ match, qty: null, unit, equipment, scope, note, allocation, pending: true, status: status || undefined });
+    if (qty != null && qty > 0 && !blockCount) items.push({ match, qty, unit, basis, equipment, scope, note, allocation, status: status || undefined, measurement_method, calculation });
+    else if (statusNeedsDetail || countUnresolved) needsDetail.push({ match, qty: null, unit, equipment, scope, note, allocation, pending: true, status: status || undefined, calculation });
     else notAssessable.push(match);
   }
   const seen = new Set<string>();
@@ -1144,7 +1154,13 @@ export function specFromEvaluation(e: ChatGptEval): Spec {
   // but are never priced until the operator fills them in. Only rows allocated to
   // THIS BOQ's bucket are included — common-area / other-floor scope is dropped.
   const bucket = boqBucketOf(e);
-  const all = [...e.requirements, ...e.needsDetail];
+  // LEVEL-2 DERIVATION (see boqDerive.ts): before the provenance gate, upgrade a
+  // pending AREA requirement (flooring/plaster/paint/false ceiling…) to a DERIVED
+  // quantity when — and only when — an explicit room dimension in measurements[]
+  // resolves unambiguously to the same space. This is drawing evidence (L×W read off
+  // the plan), stamped measurement_method="derived" with its calculation, so it
+  // passes the evidence gate; anything ambiguous or unmatched stays pending.
+  const all = deriveAreaQuantities([...e.requirements, ...e.needsDetail], e.measurements);
   // Enforce quantity provenance at the source: any item whose own evidence does not
   // establish a defensible count is stored as pending (qty null), so the persisted
   // _drawing can never carry an undefensible number into a later regeneration.
