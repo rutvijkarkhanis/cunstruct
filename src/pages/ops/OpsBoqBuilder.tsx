@@ -10,6 +10,7 @@ import { openIntakeForm } from "@/lib/boqIntakeForm";
 import { sanityForCode, countFlagged } from "@/lib/boqSanity";
 import { auditBoq, auditCountsLine } from "@/lib/boqAudit";
 import type { GeneratedLine } from "@/lib/boqDsrGenerate";
+import BoqDocumentsPanel from "@/components/ops/BoqDocumentsPanel";
 import { BASIS_META, categoryCovered, DRAWING_CHECKLIST, findCatalogueMatch, isEquipment, isSupersededByDrawing, parseDrawingSummary, resolveDrawingProvenance, type DrawingBasis, type DrawingItem, type DrawingSummary, type LineDrawingMeta, type QtyBasis } from "@/lib/boqDrawing";
 import { BOQ_SPEC, type Spec, type SpecValue, type SpecField } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
@@ -155,12 +156,17 @@ function tierBasis(spec: Spec): string {
 }
 
 export default function OpsBoqBuilder() {
-  const { id } = useParams<{ id: string }>();
+  // Works at BOTH the legacy route (/ops/boq/:id → id is the BOQ id) and the
+  // re-parented route (/ops/projects/:id/boqs/:boqId → id is the project, boqId is
+  // the BOQ). `id` below stays the BOQ id for the rest of the component.
+  const { id: routeId, boqId: routeBoqId } = useParams<{ id?: string; boqId?: string }>();
+  const id = routeBoqId ?? routeId;
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
   const [showBrowser, setShowBrowser] = useState(false);
+  const [showDocs, setShowDocs] = useState(false);
   const [view, setView] = useState<"lines" | "make" | "materials">("lines");
   const [targetMargin, setTargetMargin] = useState(15);
   // Present mode: strip every operator-only element so the screen can be turned
@@ -926,6 +932,12 @@ export default function OpsBoqBuilder() {
           title="Enter measured quantities read off the drawings — they override the estimates">
           <Ruler className="h-4 w-4 mr-2" />{showDrawing ? "Hide drawing" : "Drawing"}{!showDrawing && drawingItems.length ? ` (${drawingItems.length})` : ""}
         </Button>
+        {boq.project_id && (
+          <Button variant={showDocs ? "default" : "outline"} onClick={() => setShowDocs((s) => !s)}
+            title="Assign project documents to this BOQ and pick the analysed revision">
+            <FileText className="h-4 w-4 mr-2" />{showDocs ? "Hide documents" : "Documents"}
+          </Button>
+        )}
         <Button variant="outline" onClick={() => printIntake(false)} title="Printable project details form — pre-filled where known, blank lines to complete by hand">
           <ClipboardList className="h-4 w-4 mr-2" />Intake form
         </Button>
@@ -1151,6 +1163,10 @@ export default function OpsBoqBuilder() {
         <span className="text-xs text-muted-foreground">Appears on the exported BOQ instead of Cunstruct</span>
       </div>
       </>)}
+
+      {!present && showDocs && boq.project_id && (
+        <BoqDocumentsPanel boqId={id!} projectId={boq.project_id} />
+      )}
 
       {!present && showDrawing && (
         <Card ref={drawingRef} className="ring-2 ring-accent/40 scroll-mt-4">
