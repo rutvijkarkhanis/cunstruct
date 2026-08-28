@@ -31,6 +31,11 @@ const OpsLayout = lazy(() => import("./components/ops/OpsLayout.tsx"));
 const OpsDashboard = lazy(() => import("./pages/ops/OpsDashboard.tsx"));
 const OpsProjects = lazy(() => import("./pages/ops/OpsProjects.tsx"));
 const OpsProjectDetail = lazy(() => import("./pages/ops/OpsProjectDetail.tsx"));
+const ProjectLayout = lazy(() => import("./components/ops/ProjectLayout.tsx"));
+const ProjectOverview = lazy(() => import("./pages/ops/ProjectOverview.tsx"));
+const ProjectDocuments = lazy(() => import("./pages/ops/ProjectDocuments.tsx"));
+const ProjectBoqs = lazy(() => import("./pages/ops/ProjectBoqs.tsx"));
+const ProjectProcurement = lazy(() => import("./pages/ops/ProjectProcurement.tsx"));
 const OpsStages = lazy(() => import("./pages/ops/OpsStages.tsx"));
 const OpsMappings = lazy(() => import("./pages/ops/OpsMappings.tsx"));
 const OpsForecasts = lazy(() => import("./pages/ops/OpsForecasts.tsx"));
@@ -122,7 +127,14 @@ function AppRoutes() {
       <Route path="/ops" element={<OpsLayout />}>
         <Route index element={<OpsDashboard />} />
         <Route path="projects" element={<OpsProjects />} />
-        <Route path="projects/:id" element={<OpsProjectDetail />} />
+        <Route path="projects/:id" element={<ProjectLayout />}>
+          <Route index element={<ProjectOverview />} />
+          <Route path="documents" element={<ProjectDocuments />} />
+          <Route path="boqs" element={<ProjectBoqs />} />
+          <Route path="boqs/:boqId" element={<OpsBoqBuilder />} />
+          <Route path="procurement" element={<ProjectProcurement />} />
+          <Route path="activity" element={<OpsProjectDetail />} />
+        </Route>
         <Route path="stages" element={<OpsStages />} />
         <Route path="mappings" element={<OpsMappings />} />
         <Route path="forecasts" element={<OpsForecasts />} />
