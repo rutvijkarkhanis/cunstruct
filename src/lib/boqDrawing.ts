@@ -129,7 +129,7 @@ export function resolveDrawingSummary(summary: DrawingSummary | null | undefined
 export interface LineDrawingMeta {
   basis: DrawingBasis;
   location?: string;
-  scope: "works" | "equipment";
+  scope: "works" | "equipment" | "needs_confirmation";
   rooms?: { location: string; qty: number }[];
 }
 
@@ -148,6 +148,28 @@ const EQUIP_WORD = /\b(tv|television|projector|screen|washing\s*machine|dishwash
 const WORK_WORD = /\b(point|socket|outlet|wiring|conduit|cabling|provision|switch|switchboard|board|panel|earthing|db|light|fixture|fitting|pipe|piping|plumbing|drain|tap|faucet|valve|duct)\b/i;
 export function isEquipment(label: string): boolean {
   return EQUIP_WORD.test(label) && !WORK_WORD.test(label);
+}
+
+// Generic scope classification for a drawing-derived item. A drawing can establish
+// that a LOOSE appliance/equipment item (TV, fridge, washing machine, hob, projector,
+// screen…) exists and how many — but NOT who supplies the loose item — so such an
+// item is never plain contractor "Works". Distinguish, from the label alone:
+//   • it reads as fixed infrastructure the contractor builds (a socket / point /
+//     wiring / pipe for the appliance) → not loose equipment (null → stays Works);
+//   • it reads as a PROVISION / location for a loose appliance → responsibility can't
+//     be established from a drawing → "needs_confirmation";
+//   • a bare loose appliance shown on the drawing → client "equipment".
+// Fixed construction / joinery (no appliance noun) → null → stays Works. Name-agnostic
+// (keyed on appliance vs infrastructure vs provision wording), not per-item hacks.
+const APPLIANCE_WORD = /\b(tv|television|plasma|projector|screen|washing\s*machine|dish\s*washer|dishwasher|refrigerator|fridge|freezer|microwave|oven|hob|cook\s*top|cooktop|stove|range|dryer|speakers?|soundbar|amplifier|home\s*theat(?:re|er)|geyser\s*unit|water\s*heater\s*unit)\b/i;
+const INFRA_WORD = /\b(point|points|socket|outlet|wiring|conduit|cabling|circuit|wire|switch|switchboard|board|panel|earthing|db|pipe|piping|plumbing|drain|tap|faucet|valve|duct)\b/i;
+const PROVISION_WORD = /\b(provision|provisions|location|locations|mount|mounting|niche|recess|placeholder)\b/i;
+export function equipmentScope(label: string): "equipment" | "needs_confirmation" | null {
+  const l = label || "";
+  if (!APPLIANCE_WORD.test(l)) return null;   // not a loose appliance → leave as-is (Works/joinery)
+  if (INFRA_WORD.test(l)) return null;        // it's the contractor-built point/wiring for it → Works
+  if (PROVISION_WORD.test(l)) return "needs_confirmation";   // a provision for a loose item — who supplies it is unclear
+  return "equipment";                          // a bare loose appliance shown on the drawing → client equipment
 }
 
 /** The drawing summary, stored on boq.spec._drawing (jsonb — no migration). */
@@ -316,12 +338,23 @@ export function applyDrawing(lines: GeneratedLine[], summary?: DrawingSummary | 
   const items = named.filter(
     (i): i is DrawingItem & { qty: number } => i.qty != null && Number.isFinite(i.qty) && i.qty > 0,
   );
-  const metaOf = (it: DrawingItem, equip: boolean): LineDrawingMeta => ({
+  const metaOf = (it: DrawingItem, scope: LineDrawingMeta["scope"]): LineDrawingMeta => ({
     basis: it.basis ?? "Counted",
     location: it.note?.trim() || undefined,
-    scope: equip ? "equipment" : "works",
+    scope,
     rooms: it.rooms,
   });
+  // The item's final Works / Equipment / Needs-confirmation scope. A loose appliance
+  // is never plain Works; a fixed item honours its own stated scope. The more cautious
+  // classification wins — an explicit "needs confirmation" on a loose item is kept.
+  const resolveScope = (it: DrawingItem): LineDrawingMeta["scope"] => {
+    const kind = equipmentScope(it.match);
+    if (kind === "equipment") return it.scope === "needs_confirmation" ? "needs_confirmation" : "equipment";
+    if (kind === "needs_confirmation") return it.scope === "equipment" ? "equipment" : "needs_confirmation";
+    if (it.equipment || it.scope === "equipment") return "equipment";
+    if (it.scope === "needs_confirmation") return "needs_confirmation";
+    return "works";
+  };
   // Bind each drawing item to the catalogue line that is genuinely its counterpart:
   // a BEST-match, ONE-TO-ONE assignment (not first-match). A drawing quantity may
   // only ever transfer onto the line it most specifically matches — so a generic
@@ -347,17 +380,19 @@ export function applyDrawing(lines: GeneratedLine[], summary?: DrawingSummary | 
     const ii = boundItem.get(li);
     if (ii === undefined) return l;
     const it = items[ii];
-    const equip = it.equipment ?? isEquipment(it.match);
-    return { ...l, qty: it.qty, basis: toQtyBasis(it.basis), note: it.note?.trim() || undefined, drawing: metaOf(it, equip), included: equip ? false : l.included };
+    const scope = resolveScope(it);
+    // Only clear client equipment is dropped from the priced total by default; a
+    // "needs confirmation" item is kept (never suppressed) — its quantity is real.
+    return { ...l, qty: it.qty, basis: toQtyBasis(it.basis), note: it.note?.trim() || undefined, drawing: metaOf(it, scope), included: scope === "equipment" ? false : l.included };
   });
   items.forEach((it, i) => {
     if (usedItems.has(i)) return;
-    const equip = it.equipment ?? isEquipment(it.match);
+    const scope = resolveScope(it);
     out.push({
-      section: it.section?.trim() || (equip ? "Client equipment (excluded)" : "Drawing items"),
+      section: it.section?.trim() || (scope === "equipment" ? "Client equipment (excluded)" : "Drawing items"),
       code: null, qty: it.qty, label: it.match.trim(), unit: it.unit?.trim() || "nos", ns: true,
-      basis: toQtyBasis(it.basis), note: it.note?.trim() || undefined, drawing: metaOf(it, equip),
-      included: equip ? false : undefined,   // client equipment isn't contractor works
+      basis: toQtyBasis(it.basis), note: it.note?.trim() || undefined, drawing: metaOf(it, scope),
+      included: scope === "equipment" ? false : undefined,   // client equipment isn't contractor works
     });
   });
   // DrawingItem precedence: the drawing evaluation is authoritative. Any template/

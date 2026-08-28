@@ -66,13 +66,16 @@ describe("applyDrawing", () => {
     expect(point?.included).toBeUndefined();   // contractor works — priced normally
   });
 
-  it("honours an explicit Works/Equipment override over auto-detection", () => {
-    // auto-detected works, but operator marks it equipment → not priced
+  it("honours explicit force-equipment; a bare loose appliance is client equipment under the generic rule", () => {
+    // a non-appliance line the operator explicitly flags equipment → not priced
     const asEquip = applyDrawing(lines, { items: [{ match: "special panel", qty: 1, equipment: true }] }).find((l) => l.label === "special panel");
     expect(asEquip?.included).toBe(false);
-    // auto-detected equipment, but operator marks it works → priced
-    const asWorks = applyDrawing(lines, { items: [{ match: "55\" TV", qty: 1, equipment: false }] }).find((l) => l.label === "55\" TV");
-    expect(asWorks?.included).toBeUndefined();
+    // a bare loose appliance is classified client equipment by the generic scope rule
+    // (a drawing cannot establish the contractor supplies a loose TV) → not priced,
+    // scope "equipment" — never plain contractor Works.
+    const tv = applyDrawing(lines, { items: [{ match: "55\" TV", qty: 1 }] }).find((l) => l.label === "55\" TV");
+    expect(tv?.included).toBe(false);
+    expect(tv?.drawing?.scope).toBe("equipment");
   });
 
   it("never invents / never prices a quantity-less item, and leaves the lines untouched", () => {
@@ -172,5 +175,59 @@ describe("categoryCovered (completeness checklist — reminder only)", () => {
     expect(categoryCovered("6A socket", ["6A socket", "16A point"])).toBe(true);
     expect(categoryCovered("AC point", ["AC points"])).toBe(true);          // plural/singular
     expect(categoryCovered("Exhaust point", ["6A socket", "TV point"])).toBe(false);
+  });
+});
+
+// Generic scope classification: a loose appliance/equipment item the drawing shows is
+// never plain contractor "Works" — the drawing can establish it exists and its count,
+// but not who supplies the loose item. Fixed construction/joinery stays "Works", and
+// quantities are never changed. Name-agnostic (appliance vs infrastructure vs provision).
+describe("scope classification — loose equipment vs fixed works vs provision", () => {
+  const scopeOf = (match: string, extra: { scope?: "works" | "equipment" | "needs_confirmation" } = {}) => {
+    const out = applyDrawing([], { items: [{ match, qty: 3, unit: "nos", basis: "Counted", ...extra }] });
+    const l = out.find((x) => x.label === match);
+    return { scope: l?.drawing?.scope, qty: l?.qty, included: l?.included };
+  };
+
+  it("washing machine provision → Needs confirmation (qty kept)", () => {
+    const r = scopeOf("Washing machine provision", { scope: "works" });
+    expect(r.scope).toBe("needs_confirmation");
+    expect(r.qty).toBe(3);
+  });
+  it("refrigerator provision → Needs confirmation", () => {
+    expect(scopeOf("Refrigerator provision", { scope: "works" }).scope).toBe("needs_confirmation");
+  });
+  it("kitchen hob/cooktop → not Works (loose appliance)", () => {
+    expect(scopeOf("Kitchen hob/cooktop").scope).not.toBe("works");
+    // a bare appliance with no cautionary scope is client equipment…
+    expect(scopeOf("Kitchen hob/cooktop").scope).toBe("equipment");
+    // …but an explicit "needs confirmation" from the evaluation is kept (the safer call)
+    expect(scopeOf("Kitchen hob/cooktop", { scope: "needs_confirmation" }).scope).toBe("needs_confirmation");
+  });
+  it("TV / plasma provision → Needs confirmation", () => {
+    expect(scopeOf("TV / plasma provision", { scope: "works" }).scope).toBe("needs_confirmation");
+  });
+  it("media room screen / projector provision → Needs confirmation", () => {
+    expect(scopeOf("Media room screen / projector provision", { scope: "needs_confirmation" }).scope).toBe("needs_confirmation");
+  });
+
+  it("fixed kitchen platform/counter stays Works (qty kept)", () => {
+    const r = scopeOf("Kitchen platform/counter", { scope: "works" });
+    expect(r.scope).toBe("works");
+    expect(r.qty).toBe(3);
+  });
+  it("fixed bedroom wardrobe stays Works", () => {
+    expect(scopeOf("Wardrobe - bedrooms", { scope: "works" }).scope).toBe("works");
+    expect(scopeOf("Kitchen island", { scope: "works" }).scope).toBe("works");
+  });
+
+  it("electrical TV/cable POINTS are infrastructure — stay Works, not reclassified", () => {
+    expect(scopeOf("Cable TV points", { scope: "works" }).scope).toBe("works");
+    expect(scopeOf("TV point", { scope: "works" }).scope).toBe("works");
+  });
+
+  it("drawing-derived quantities are never changed by classification", () => {
+    for (const m of ["Washing machine provision", "TV / plasma provision", "Kitchen hob/cooktop", "Kitchen platform/counter"])
+      expect(scopeOf(m).qty, m).toBe(3);
   });
 });
