@@ -335,3 +335,89 @@ describe("smart-quote normalization → same structured object", () => {
       .toBe(fromAscii.measurements.find((m) => m.label === "Master Bedroom")?.value);
   });
 });
+
+// The ACTUAL iPhone paste: curly “ ” delimiters + curly ’ feet, but STRAIGHT ASCII "
+// inch-marks inside curly-delimited values ("16'6\" x 13'3\""). An ODD number of stray
+// inch-marks used to desync the brace scan so only the nested `confidence` block (which
+// has 4 eval-shaped keys) was recovered — the "Couldn't identify…" failure. The
+// normalizer + always-run-both-passes must recover the true root instead.
+describe("curly delimiters + straight ASCII inch-marks (real iPhone paste)", () => {
+  // Curl the DELIMITERS and feet apostrophes, but keep straight " inch-marks literal.
+  const curlKeepInch = (ascii: string) => {
+    const protectedStr = ascii.replace(/\\"/g, "");   // escaped inner quotes → placeholder (private-use char)
+    let out = "", prev = "";
+    for (const ch of protectedStr) {
+      if (ch === '"') out += (/[\s{[:,]/.test(prev) || prev === "") ? "“" : "”";
+      else if (ch === "'") out += "’";
+      else out += ch;
+      prev = ch;
+    }
+    return out.replace(//g, '"');                     // restore straight inch-marks
+  };
+  const INTENDED = {
+    project_type: "Residential", archetype: "Apartment", floor: 3, boq_allocation: "Floor 3",
+    floor_scope: "Third Floor / Floor 3 private apartment", area: 3960, area_type: "built-up",
+    spaces: [{ name: "Master Bedroom", qty: 1 }, { name: "Kitchen", qty: 1 }],
+    disciplines: { identified: ["Architectural", "Plumbing"], not_assessable: ["Electrical", "Fire"] },
+    measurements: [
+      { name: "Master Bedroom", value: "16'6\" x 13'3\"", location: "Master Bedroom" },
+      { name: "Guest Bedroom", value: "18'6\" x 14'", location: "Guest Bedroom" },
+      { name: "Additional storage", value: "5'2\" x 6'3\"", location: "Storage" },
+      { name: "Main door MD", value: "4' x 7'9\" wood", location: "Apartment entrance" },
+      { name: "UD1", value: "10'6\" x 7'9\" UPVC", location: "Apartment" },
+    ],
+    requirements: [
+      { allocation: "Floor 3", requirement: "Main door MD", qty: 2, unit: "nos", basis: "Counted", note: "Schedule lists 02 MD; 4' x 7'9\" wood.", scope: "Works", status: "Quantified" },
+      { allocation: "Floor 3", requirement: "WC", qty: 5, unit: "nos", basis: "Counted", note: "Five WC symbols visible.", scope: "Works", status: "Quantified" },
+      { allocation: "Floor 3", requirement: "Electrical points", qty: null, unit: null, basis: "Not assessable", note: "No Floor 3 electrical plan.", scope: "Works", status: "Identified — Needs detail" },
+    ],
+    // the decoy: this nested block has project_type/archetype/floor/area — 4 eval keys
+    confidence: { project_type: "High", archetype: "High", floor: "High", area: "High", major_spaces: "High", overall_scope: "High" },
+    confirmations: ["Confirm BOQ allocation is Floor 3."],
+  };
+  const ascii = JSON.stringify(INTENDED);
+  const paste = curlKeepInch(ascii);
+
+  it("reaches structured project information (not the confidence fragment)", () => {
+    const e = parseChatGptEvaluation(paste);
+    expect(e.ok).toBe(true);
+    expect(e.projectType).toBe("Residential");   // NOT "High" (the confidence decoy)
+    expect(e.archetype).toBe("Apartment");
+    expect(e.floor).toBe(3);
+    expect(e.boqAllocation).toBe("Floor 3");
+    expect(e.area?.value).toBe(3960);
+    expect(e.requirements.length + e.needsDetail.length).toBeGreaterThan(0);
+    expect(e.measurements.length).toBe(5);
+  });
+
+  it("stores 16'6\" x 13'3\" as the exact string 16'6\" x 13'3\"", () => {
+    const e = parseChatGptEvaluation(paste);
+    expect(e.measurements.find((m) => m.label === "Master Bedroom")?.value).toBe("16'6\" x 13'3\"");
+  });
+
+  it("preserves multiple feet/inch dimensions and dimensions inside notes", () => {
+    const e = parseChatGptEvaluation(paste);
+    expect(e.measurements.find((m) => m.label === "Additional storage")?.value).toBe("5'2\" x 6'3\"");
+    expect(e.measurements.find((m) => m.label === "UD1")?.value).toBe("10'6\" x 7'9\" UPVC");
+    expect(e.requirements.find((r) => r.match === "Main door MD")?.note).toContain("4' x 7'9\" wood");
+  });
+
+  it("the same object as plain ASCII (escaped inch-marks) parses identically", () => {
+    const fromAscii = parseChatGptEvaluation(ascii);
+    const fromPaste = parseChatGptEvaluation(paste);
+    expect(fromPaste.projectType).toBe(fromAscii.projectType);
+    expect(fromPaste.floor).toBe(fromAscii.floor);
+    expect(fromPaste.area?.value).toBe(fromAscii.area?.value);
+    expect(fromPaste.measurements.map((m) => m.value)).toEqual(fromAscii.measurements.map((m) => m.value));
+    expect(fromPaste.requirements.map((r) => [r.match, r.qty])).toEqual(fromAscii.requirements.map((r) => [r.match, r.qty]));
+  });
+
+  it("apostrophes in ordinary text are not corrupted, and malformed input is still rejected", () => {
+    const withApos = JSON.stringify({ project_type: "Residential", floor: 1, disciplines: {}, spaces: [], requirements: [{ requirement: "Owner's suite joinery", qty: 1, status: "Quantified" }] });
+    const e = parseChatGptEvaluation(curlKeepInch(withApos));
+    expect(e.ok).toBe(true);
+    expect(e.requirements.find((r) => r.match === "Owner's suite joinery")?.qty).toBe(1);
+    expect(parseChatGptEvaluation("no json here at all").ok).toBe(false);
+    expect(parseChatGptEvaluation("“just curly prose, not json”").ok).toBe(false);
+  });
+});

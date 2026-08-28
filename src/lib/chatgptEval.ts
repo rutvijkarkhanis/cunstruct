@@ -798,14 +798,18 @@ export function extractJson(text: string): Record<string, unknown> | null {
   const sources = fence ? [fence[1].trim(), t] : [t];
   let overallBest: Record<string, unknown> | null = null, overallScore = 0, firstAny: Record<string, unknown> | null = null;
   // Pass 1 scans the raw text (valid JSON parses untouched); pass 2 scans the prepped
-  // copy (typographic / mixed-quote pastes). Pick the highest-scoring object across all.
+  // copy (typographic / mixed-quote pastes). ALWAYS run both and keep the object with
+  // the most structured-project keys — never early-return on the raw pass. Reason: with
+  // an ODD number of straight inch-marks inside curly-delimited values, the raw brace
+  // scan can only recover a nested fragment (e.g. the `confidence` block, which has 4
+  // eval-shaped keys). Returning that early would skip the prepped pass that recovers
+  // the true root (many more keys). The higher-scoring root therefore wins.
   for (const transform of [(s: string) => s, prep]) {
     for (const src of sources) {
       const { best, score, any } = scan(transform(src));
       if (best && score > overallScore) { overallBest = best; overallScore = score; }
       firstAny = firstAny ?? any;
     }
-    if (overallScore >= 2) return overallBest;   // a real evaluation object — done
   }
   return overallBest ?? firstAny;
 }
