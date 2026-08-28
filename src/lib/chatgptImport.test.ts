@@ -252,3 +252,86 @@ describe("importer returns a validation error ONLY when genuinely malformed / mi
     expect(parseChatGptEvaluation("[1, 2, 3]").ok).toBe(false);
   });
 });
+
+// Smart/curly-punctuation normalization contract (copy/paste from ChatGPT/iPhone).
+// ChatGPT emits valid ASCII-quoted JSON; a copy/paste can convert " → “ ”, ' → ’.
+// The importer normalizes those to ASCII BEFORE parsing, then runs the existing parser
+// unchanged — the resulting structured object is identical to the ASCII original.
+describe("smart-quote normalization → same structured object", () => {
+  const O = "“", C = "”", A = "’";   // “  ”  ’
+  // Build a curly-quoted copy of an ASCII JSON string: straight " delimiters become
+  // “ (opening, after {[,: or start) / ” (closing); straight ' becomes ’.
+  const curl = (ascii: string) => {
+    let out = "", prev = "";
+    for (const ch of ascii) {
+      if (ch === '"') out += (/[\s{[:,]/.test(prev) || prev === "") ? O : C;
+      else if (ch === "'") out += A;
+      else out += ch;
+      prev = ch;
+    }
+    return out;
+  };
+  const INTENDED = {
+    project_type: "Residential", archetype: "Apartment", floor: 3, area: 3960, area_type: "built-up",
+    disciplines: { identified: ["Architectural", "Plumbing"], not_assessable: ["Fire"] },
+    spaces: [{ name: "Kitchen", qty: 1 }],
+    measurements: [{ name: "Master Bedroom", value: "16'6\" x 13'3\"", location: "Master Bedroom" }],
+    requirements: [
+      { allocation: "Floor 3", requirement: "WC", qty: 5, unit: "nos", basis: "Counted", note: "Five WC symbols visible.", scope: "Works", status: "Quantified" },
+      { allocation: "Floor 3", requirement: "15A socket points", qty: 25, unit: "nos", basis: "Counted", note: "", scope: "Works", status: "Quantified" },
+    ],
+    confidence: {}, confirmations: [],
+  };
+  const ascii = JSON.stringify(INTENDED);
+
+  it("1. normal valid ASCII JSON still works", () => {
+    const e = parseChatGptEvaluation(ascii);
+    expect(e.ok).toBe(true);
+    expect(e.projectType).toBe("Residential");
+  });
+
+  it("2. curly DOUBLE quotes around keys/values work", () => {
+    // curly the delimiters only (leave the ASCII inch-marks inside the measurement)
+    const e = parseChatGptEvaluation(curl(ascii));
+    expect(e.ok).toBe(true);
+    expect(e.projectType).toBe("Residential");
+    expect(e.requirements.find((r) => r.match === "WC")?.qty).toBe(5);
+  });
+
+  it("3. curly APOSTROPHES inside a dimension/note string work", () => {
+    const withFeet = { ...INTENDED, requirements: [{ allocation: "Floor 3", requirement: "Balcony ledge", qty: 1, unit: "nos", basis: "Counted", note: "16'6\" clear width", scope: "Works", status: "Quantified" }] };
+    const e = parseChatGptEvaluation(curl(JSON.stringify(withFeet)));
+    expect(e.ok).toBe(true);
+    expect(e.requirements.find((r) => r.match === "Balcony ledge")?.qty).toBe(1);
+  });
+
+  it("4. MIXED ASCII and curly punctuation works", () => {
+    // curly only the two project_type quotes; leave the rest ASCII
+    const mixed = ascii.replace('"Residential"', O + "Residential" + C);
+    const e = parseChatGptEvaluation(mixed);
+    expect(e.ok).toBe(true);
+    expect(e.projectType).toBe("Residential");
+  });
+
+  it("5. malformed / non-JSON input is still rejected", () => {
+    expect(parseChatGptEvaluation("just some prose, no JSON here").ok).toBe(false);
+    expect(parseChatGptEvaluation("").ok).toBe(false);
+    expect(parseChatGptEvaluation("{“foo”:1}").ok).toBe(false);   // valid-but-keyless (curly) → rejected
+    expect(parseChatGptEvaluation("[1,2,3]").ok).toBe(false);
+  });
+
+  it("6. parsed values after normalization are identical to the ASCII original", () => {
+    const fromAscii = parseChatGptEvaluation(ascii);
+    const fromCurly = parseChatGptEvaluation(curl(ascii));
+    expect(fromCurly.projectType).toBe(fromAscii.projectType);
+    expect(fromCurly.archetype).toBe(fromAscii.archetype);
+    expect(fromCurly.floor).toBe(fromAscii.floor);
+    expect(fromCurly.area?.value).toBe(fromAscii.area?.value);
+    expect(fromCurly.requirements.map((r) => [r.match, r.qty]))
+      .toEqual(fromAscii.requirements.map((r) => [r.match, r.qty]));
+    expect(fromCurly.needsDetail.map((r) => r.match)).toEqual(fromAscii.needsDetail.map((r) => r.match));
+    // the em-dash / inch value survives unchanged
+    expect(fromCurly.measurements.find((m) => m.label === "Master Bedroom")?.value)
+      .toBe(fromAscii.measurements.find((m) => m.label === "Master Bedroom")?.value);
+  });
+});
