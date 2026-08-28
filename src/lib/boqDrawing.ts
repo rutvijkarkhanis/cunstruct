@@ -79,7 +79,9 @@ const NOT_ASSESSABLE = /not\s*assessable/i;
 // opposed to a missing dimension/spec/material, which under COUNTABLE ≠ MEASURABLE
 // must NOT block a count). Requires a count-word next to a not-established phrase.
 const COUNT_UNRESOLVED = new RegExp([
-  String.raw`\b(?:counts?|totals?|numbers?|tall(?:y|ies)|quantit(?:y|ies)|qty)\b[^.;\n]{0,45}\b(?:not|cannot|can[’']?t|un(?:able)?|to\s+be|pending|await\w*)\b[^.;\n]{0,25}\b(?:establish\w*|assess\w*|confirm\w*|determin\w*|quantif\w*|count(?:ed)?|verif\w*|resolv\w*|final\w*|reliab\w*|defensib\w*)\b`,
+  // A count-word directly followed by a dimension noun ("total running length not
+  // established") is a MISSING DIMENSION, not a count gap — excluded via lookahead.
+  String.raw`\b(?:counts?|totals?|numbers?|tall(?:y|ies)|quantit(?:y|ies)|qty)\b(?!\s+(?:running|length|area|width|height|depth|dimension|footage|size|material|thickness|volume|weight|run)s?\b)[^.;\n]{0,45}\b(?:not|cannot|can[’']?t|un(?:able)?|to\s+be|pending|await\w*)\b[^.;\n]{0,25}\b(?:establish\w*|assess\w*|confirm\w*|determin\w*|quantif\w*|count(?:ed)?|verif\w*|resolv\w*|final\w*|reliab\w*|defensib\w*)\b`,
   String.raw`\b(?:not|cannot|can[’']?t|un(?:able)?)\b[^.;\n]{0,30}\b(?:establish\w*|assess\w*|confirm\w*|determin\w*|count\w*|quantif\w*)\b[^.;\n]{0,30}\b(?:counts?|totals?|numbers?|quantit(?:y|ies)|qty)\b`,
   String.raw`\bpending\s+quantit`,
   String.raw`\bnot\s+(?:fully\s+|reliably\s+)?count(?:ed|able)?\b`,
