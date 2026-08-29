@@ -7,6 +7,7 @@ import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
 import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, roundRupee, type QuoteSubHead, type CsvRow } from "@/lib/boqDsrDocument";
 import { openIntakeForm } from "@/lib/boqIntakeForm";
 import { sanityForCode, countFlagged } from "@/lib/boqSanity";
+import { parseBoqEvalJson, evalLinesToRows, pendingCount, PENDING_BASIS } from "@/lib/boqEvalJson";
 import BoqDocumentsPanel from "@/components/ops/BoqDocumentsPanel";
 import { type Spec, type SpecValue } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, Plus, Trash2, Search, Layers, FileDown, FileText, Sheet, ClipboardList, Percent, AlertTriangle, Eye, Presentation, ChevronDown, UserCheck } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Trash2, Search, Layers, FileDown, FileText, Sheet, ClipboardList, Percent, AlertTriangle, Eye, Presentation, ChevronDown, UserCheck, Braces } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DsrItem { id: string; code: string; description: string | null; unit: string | null; rate: number | null; chapter: string | null; }
@@ -112,6 +113,8 @@ export default function OpsBoqBuilder() {
   const [search, setSearch] = useState("");
   const [showBrowser, setShowBrowser] = useState(false);
   const [showDocs, setShowDocs] = useState(false);
+  const [showJson, setShowJson] = useState(false);
+  const [jsonText, setJsonText] = useState("");
   const [view, setView] = useState<"lines" | "make" | "materials">("lines");
   const [targetMargin, setTargetMargin] = useState(15);
   // Present mode: strip every operator-only element so the screen can be turned
@@ -307,6 +310,31 @@ export default function OpsBoqBuilder() {
       },
       backward: async () => { if (newId) { await supabase.from("boq_line").delete().eq("id", newId); refetchLines(); } },
     });
+  };
+
+  // Add lines from a structured drawing-evaluation JSON (deterministic; no AI). The
+  // JSON's requirements[] are appended to THIS BOQ as manual lines — numeric qty kept,
+  // null qty becomes a quantity-pending line. Existing lines are untouched.
+  const jsonPreview = useMemo(() => (showJson && jsonText.trim() ? parseBoqEvalJson(jsonText) : null), [showJson, jsonText]);
+  const addFromJson = async () => {
+    if (!id) return;
+    const parsed = jsonPreview;
+    if (!parsed) return toast.error("Paste the evaluation JSON");
+    if (!parsed.ok) return toast.error(parsed.error ?? "Invalid JSON");
+    setBusy(true);
+    try {
+      const rows = evalLinesToRows(id, parsed.lines, lines.length);
+      let { error } = await supabase.from("boq_line").insert(rows);
+      if (error && /\bbasis\b|schema cache|could not find|does not exist/i.test(error.message)) {
+        const stripped = rows.map(({ basis, basis_note, ...r }) => r);
+        ({ error } = await supabase.from("boq_line").insert(stripped));
+      }
+      if (error) throw error;
+      toast.success(`Added ${rows.length} line${rows.length === 1 ? "" : "s"} from JSON`);
+      setJsonText(""); setShowJson(false); refetchLines();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to add from JSON");
+    } finally { setBusy(false); }
   };
 
   const applyLinePatch = async (lineId: string, patch: Partial<BoqLine>) => {
@@ -562,6 +590,10 @@ export default function OpsBoqBuilder() {
         <Button variant="outline" onClick={addBlankLine} disabled={busy}>
           <Plus className="h-4 w-4 mr-2" />Add blank line
         </Button>
+        <Button variant={showJson ? "default" : "outline"} onClick={() => setShowJson((s) => !s)}
+          title="Add lines from a structured drawing-evaluation JSON (deterministic; no AI)">
+          <Braces className="h-4 w-4 mr-2" />{showJson ? "Hide JSON" : "From JSON"}
+        </Button>
         {boq.project_id && (
           <Button variant={showDocs ? "default" : "outline"} onClick={() => setShowDocs((s) => !s)}
             title="Assign project documents (drawings, references) to this BOQ">
@@ -674,6 +706,41 @@ export default function OpsBoqBuilder() {
 
       {!present && showDocs && boq.project_id && (
         <BoqDocumentsPanel boqId={id!} projectId={boq.project_id} />
+      )}
+
+      {!present && showJson && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2"><Braces className="h-4 w-4" />Add lines from JSON</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Paste a structured drawing-evaluation JSON. Its <code>requirements[]</code> are appended to this BOQ as lines —
+              quantities, units, basis and notes kept as given; a <code>null</code> quantity becomes a quantity-pending line.
+              Deterministic conversion — no analysis or AI.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <textarea value={jsonText} onChange={(e) => setJsonText(e.target.value)}
+              className="w-full min-h-[140px] rounded-md border bg-background px-3 py-2 text-xs font-mono"
+              placeholder={'{\n  "requirements": [\n    { "requirement": "WC", "qty": 4, "unit": "nos", "basis": "Counted", "scope": "Works" },\n    { "requirement": "Wardrobe", "qty": null, "unit": null, "scope": "Needs confirmation" }\n  ]\n}'} />
+            {jsonPreview && (
+              jsonPreview.ok ? (
+                <div className="text-xs text-muted-foreground">
+                  {jsonPreview.lines.length} line{jsonPreview.lines.length === 1 ? "" : "s"} detected
+                  {pendingCount(jsonPreview.lines) > 0 && <span className="text-amber-600 dark:text-amber-500"> · {pendingCount(jsonPreview.lines)} quantity-pending</span>}
+                  {jsonPreview.warnings.length > 0 && <span> · {jsonPreview.warnings.length} warning{jsonPreview.warnings.length === 1 ? "" : "s"}</span>}
+                </div>
+              ) : (
+                <div className="text-xs text-destructive">{jsonPreview.error}</div>
+              )
+            )}
+            <div className="flex gap-2">
+              <Button size="sm" onClick={addFromJson} disabled={busy || !jsonPreview?.ok}>
+                {busy && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}Add {jsonPreview?.ok ? jsonPreview.lines.length : 0} lines
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => { setShowJson(false); setJsonText(""); }} disabled={busy}>Cancel</Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {!present && showBrowser && (
@@ -798,7 +865,7 @@ export default function OpsBoqBuilder() {
         <div className="p-8 flex justify-center"><Loader2 className="animate-spin" /></div>
       ) : lines.length === 0 ? (
         <Card><CardContent className="py-10 text-center text-muted-foreground">
-          No items yet — add an item from the DSR, add a blank line, or import a BOQ from the project's BOQs tab.
+          No items yet — add an item from the DSR, add a blank line, add lines from a JSON evaluation, or import a BOQ from the project's BOQs tab.
         </CardContent></Card>
       ) : (
         bySubhead.map(({ no, name, rows, subtotal }) => (
@@ -842,6 +909,9 @@ export default function OpsBoqBuilder() {
                         <div className="text-[11px] font-mono text-accent-foreground/70 mb-0.5 flex items-center gap-1">
                           <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform", isExp && "rotate-180")} />
                           <span className="text-muted-foreground">{itemNo}</span>{l.dsr_code ?? "Priced separately"}
+                          {l.basis === PENDING_BASIS && (
+                            <span className="text-amber-600 dark:text-amber-500 font-sans" title="Quantity pending — enter a quantity to price this line">quantity pending</span>
+                          )}
                           {flagged && (
                             <span className="inline-flex items-center gap-0.5 text-amber-600 dark:text-amber-500 font-sans" title={flag.message ?? ""}>
                               <AlertTriangle className="h-3 w-3" />{flag.level}
