@@ -95,6 +95,23 @@ function normalizePunct(s: string): string {
     .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035\uFF07]/g, String.fromCharCode(39)); // smart/prime/fullwidth single -> '
 }
 
+/** When the JSON's string delimiters are CURLY quotes (as ChatGPT emits), a STRAIGHT
+ *  double-quote can only be content \u2014 an inch mark inside a value (e.g. 9' x 19'6").
+ *  Those would break the string once the curly delimiters are mapped to ASCII ", so
+ *  escape the straight quotes first, THEN normalise. Deterministic and only applied
+ *  when curly delimiters are actually present. */
+function normalizeSmartJson(s: string): string {
+  const DQUOTE = String.fromCharCode(34), CURLY_OPEN = String.fromCharCode(0x201C), CURLY_CLOSE = String.fromCharCode(0x201D);
+  const hasCurlyDelims = s.indexOf(CURLY_OPEN) >= 0 || s.indexOf(CURLY_CLOSE) >= 0;
+  let t = s;
+  if (hasCurlyDelims) {
+    // Escape every unescaped straight double-quote (content inch marks), leaving any
+    // already-escaped \" alone.
+    t = t.replace(/\\?"/g, (m) => (m === "\\" + DQUOTE ? m : "\\" + DQUOTE));
+  }
+  return normalizePunct(t);
+}
+
 /** Index of the char that closes the JSON value opening at `start` ({ or [),
  *  honouring string literals and escapes so braces inside strings don't count.
  *  Returns -1 if the value never closes (unbalanced). */
@@ -154,16 +171,18 @@ export function extractJson(text: string): unknown | undefined {
   const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(t);
   if (fence && fence[1].trim()) t = fence[1].trim();
   // Try the raw text first so already-valid JSON is returned byte-for-byte; only if
-  // that fails do we normalise smart quotes / stray spaces and try again. Region
-  // scanning runs on the normalised text so curly-quoted strings track correctly.
+  // that fails do we normalise. `n` maps smart quotes / stray spaces to ASCII; `c`
+  // additionally escapes straight-quote inch marks when the delimiters are curly.
   const n = normalizePunct(t);
-  for (const cand of t === n ? [t] : [t, n]) {
+  const c = normalizeSmartJson(t);
+  const candidates = [...new Set([t, n, c])];
+  for (const cand of candidates) {
     const whole = tryParse(cand);
     if (whole !== undefined) return whole;
   }
-  // A JSON value is embedded in surrounding prose: scan every balanced region and
-  // take the first that parses, preferring one that carries requirements/items.
-  const parsed = balancedRegions(n).map(tryParse).filter((v) => v !== undefined);
+  // A JSON value is embedded in surrounding prose: scan every balanced region on the
+  // fully-normalised text and take the first that parses, preferring requirements/items.
+  const parsed = balancedRegions(c).map(tryParse).filter((v) => v !== undefined);
   if (!parsed.length) return undefined;
   const withReq = parsed.find((v) => {
     if (Array.isArray(v)) return v.length > 0;
