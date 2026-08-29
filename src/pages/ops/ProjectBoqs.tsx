@@ -9,14 +9,26 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Plus, Upload, ChevronUp, ChevronDown, Trash2, Pencil, Check, X, Layers, FolderInput } from "lucide-react";
+import { Plus, Upload, ChevronUp, ChevronDown, Trash2, Pencil, Check, X, Layers, FolderInput, Braces } from "lucide-react";
 import { SCOPE_KINDS, type ProjectScope } from "@/lib/projectDocs";
 import { parseBoqImport } from "@/lib/boqImport";
+import { parseBoqEvalJson, evalLinesToRows, pendingCount } from "@/lib/boqEvalJson";
 
 interface BoqRow { id: string; name: string; description: string | null; scope_id: string | null; sort: number; status: string; }
 interface MovableBoq { id: string; name: string; project_id: string | null; scope_id: string | null; updated_at: string; }
 const NEW_SCOPE = "__new__";
-type Mode = null | "create" | "import" | "move";
+type Mode = null | "create" | "import" | "move" | "json";
+
+// Insert eval-derived boq_line rows, retrying without the optional provenance
+// columns (basis / basis_note) on a stale DB that hasn't run that migration.
+async function insertEvalRows(rows: ReturnType<typeof evalLinesToRows>) {
+  let { error } = await supabase.from("boq_line").insert(rows);
+  if (error && /\bbasis\b|schema cache|could not find|does not exist/i.test(error.message)) {
+    const stripped = rows.map(({ basis, basis_note, ...r }) => r);
+    ({ error } = await supabase.from("boq_line").insert(stripped));
+  }
+  if (error) throw error;
+}
 
 export default function ProjectBoqs() {
   const { id: projectId } = useParams<{ id: string }>();
@@ -92,15 +104,17 @@ export default function ProjectBoqs() {
   const [newScopeName, setNewScopeName] = useState("");
   const [newScopeKind, setNewScopeKind] = useState<string>("floor");
   const [importText, setImportText] = useState("");
+  const [jsonText, setJsonText] = useState("");
   const [moveBoqId, setMoveBoqId] = useState<string>("");
   const [busy, setBusy] = useState(false);
 
   const resetForm = () => {
     setMode(null); setName(""); setDescription(""); setScopeId("");
-    setNewScopeName(""); setNewScopeKind("floor"); setImportText(""); setMoveBoqId("");
+    setNewScopeName(""); setNewScopeKind("floor"); setImportText(""); setJsonText(""); setMoveBoqId("");
   };
 
   const preview = useMemo(() => (mode === "import" && importText.trim() ? parseBoqImport(importText) : null), [mode, importText]);
+  const jsonPreview = useMemo(() => (mode === "json" && jsonText.trim() ? parseBoqEvalJson(jsonText) : null), [mode, jsonText]);
 
   // Resolve (creating if needed) the scope to use for a new BOQ.
   const resolveScopeId = async (): Promise<string | null> => {
@@ -167,6 +181,33 @@ export default function ProjectBoqs() {
     } finally { setBusy(false); }
   };
 
+  // Generate a BOQ from a structured drawing-evaluation JSON. Deterministic: the JSON
+  // is validated and its requirements[] are converted into lines verbatim (no AI, no
+  // drawing analysis). A numeric qty is kept; a null qty becomes a quantity-pending
+  // line — a count is never fabricated.
+  const generateFromJson = async () => {
+    if (!projectId) return;
+    if (!name.trim()) return toast.error("Enter a BOQ name");
+    const parsed = jsonPreview;
+    if (!parsed) return toast.error("Paste the evaluation JSON");
+    if (!parsed.ok) return toast.error(parsed.error ?? "Invalid JSON");
+    setBusy(true);
+    try {
+      const sid = await resolveScopeId();
+      if (!sid) return;
+      const { data, error } = await supabase.from("boq")
+        .insert({ project_id: projectId, name: name.trim(), description: description.trim() || null, scope_id: sid, sort: boqs?.length ?? 0, spec: { _source: "json" }, created_by: user?.id })
+        .select("id").single();
+      if (error) throw error;
+      const boqId = (data as { id: string }).id;
+      const rows = evalLinesToRows(boqId, parsed.lines);
+      await insertEvalRows(rows);
+      finishAndOpen(boqId, `Generated ${rows.length} line${rows.length === 1 ? "" : "s"} from JSON`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to generate from JSON");
+    } finally { setBusy(false); }
+  };
+
   // Move an existing BOQ (standalone or under another project) into this project.
   // Non-destructive: its lines, quantities, rates and spec are untouched — only its
   // parent project and scope change.
@@ -199,6 +240,12 @@ export default function ProjectBoqs() {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => setImportText(String(reader.result ?? ""));
+    reader.readAsText(file);
+  };
+  const onJsonFile = (file: File | undefined) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setJsonText(String(reader.result ?? ""));
     reader.readAsText(file);
   };
 
@@ -292,6 +339,7 @@ export default function ProjectBoqs() {
         {!mode && (
           <div className="flex gap-2 flex-wrap">
             <Button onClick={() => setMode("create")}><Plus className="h-4 w-4 mr-2" />Create BOQ</Button>
+            <Button variant="outline" onClick={() => setMode("json")}><Braces className="h-4 w-4 mr-2" />Generate from JSON</Button>
             <Button variant="outline" onClick={() => setMode("import")}><Upload className="h-4 w-4 mr-2" />Import Existing BOQ</Button>
             <Button variant="outline" onClick={() => setMode("move")}><FolderInput className="h-4 w-4 mr-2" />Move a BOQ Here</Button>
           </div>
@@ -303,6 +351,61 @@ export default function ProjectBoqs() {
           {ScopeFields}
           <div className="flex gap-2">
             <Button onClick={createBoq} disabled={busy}>{busy ? "Creating…" : "Create BOQ"}</Button>
+            <Button variant="ghost" onClick={resetForm} disabled={busy}>Cancel</Button>
+          </div>
+        </CardContent></Card>
+      )}
+
+      {mode === "json" && (
+        <Card><CardContent className="p-4 space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Paste a structured <b>drawing-evaluation JSON</b> (produced outside Cunstruct). Its <code>requirements[]</code> are
+            converted into BOQ lines deterministically — quantities, units, basis, location and notes are kept as given.
+            A numeric quantity is used as-is; a <code>null</code> quantity becomes a <b>quantity-pending</b> line. No analysis or AI runs.
+          </p>
+          {ScopeFields}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium text-muted-foreground">Paste the evaluation JSON</label>
+              <label className="text-xs text-primary hover:underline cursor-pointer">
+                Upload .json<input type="file" accept=".json,application/json,.txt" className="hidden" onChange={(e) => onJsonFile(e.target.files?.[0])} />
+              </label>
+            </div>
+            <Textarea value={jsonText} onChange={(e) => setJsonText(e.target.value)} rows={8}
+              placeholder={'{\n  "requirements": [\n    { "requirement": "WC", "qty": 4, "unit": "nos", "basis": "Counted", "scope": "Works" },\n    { "requirement": "Wardrobe", "qty": null, "unit": null, "scope": "Needs confirmation" }\n  ]\n}'} className="font-mono text-xs" />
+          </div>
+          {jsonPreview && (
+            <div className="rounded-md border p-3 text-sm space-y-2">
+              {jsonPreview.ok ? (
+                <>
+                  <div className="font-medium">
+                    {jsonPreview.lines.length} line{jsonPreview.lines.length === 1 ? "" : "s"} detected
+                    {pendingCount(jsonPreview.lines) > 0 && <span className="text-amber-600 dark:text-amber-500"> · {pendingCount(jsonPreview.lines)} quantity-pending</span>}
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead><tr className="text-muted-foreground text-left"><th className="py-1 pr-3">Requirement</th><th className="pr-3">Unit</th><th className="pr-3 text-right">Qty</th><th className="pr-3">Scope</th></tr></thead>
+                      <tbody>
+                        {jsonPreview.lines.slice(0, 6).map((l, i) => (
+                          <tr key={i} className="border-t"><td className="py-1 pr-3">{l.description}</td><td className="pr-3">{l.unit ?? "—"}</td><td className="pr-3 text-right tabular-nums">{l.qty == null ? <span className="text-amber-600 dark:text-amber-500">pending</span> : l.qty.toLocaleString("en-IN")}</td><td className="pr-3">{l.scope ?? "works"}</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {jsonPreview.lines.length > 6 && <div className="text-muted-foreground pt-1">…and {jsonPreview.lines.length - 6} more</div>}
+                  </div>
+                  {jsonPreview.warnings.length > 0 && (
+                    <ul className="text-xs text-amber-600 dark:text-amber-400 list-disc pl-4">
+                      {jsonPreview.warnings.slice(0, 5).map((w, i) => <li key={i}>{w}</li>)}
+                    </ul>
+                  )}
+                </>
+              ) : (
+                <div className="text-sm text-destructive">{jsonPreview.error}</div>
+              )}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <Button onClick={generateFromJson} disabled={busy || !jsonPreview?.ok}>{busy ? "Generating…" : `Generate ${jsonPreview?.ok ? jsonPreview.lines.length : 0} lines`}</Button>
             <Button variant="ghost" onClick={resetForm} disabled={busy}>Cancel</Button>
           </div>
         </CardContent></Card>
@@ -389,7 +492,7 @@ export default function ProjectBoqs() {
       )}
 
       {!boqs?.length && !mode && (
-        <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No BOQs yet. Create one from scratch, import a BOQ you already have, or move one in.</CardContent></Card>
+        <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No BOQs yet. Create one from scratch, generate from an evaluation JSON, import a BOQ you already have, or move one in.</CardContent></Card>
       )}
 
       <div className="space-y-2">
