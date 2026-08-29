@@ -1,9 +1,9 @@
-// IMPORT EXISTING BOQ (structured lines) — NOT drawing analysis.
+// IMPORT EXISTING BOQ (structured lines).
 //
 // Parses a BOQ the user already has (pasted from Excel/Google Sheets, or a CSV file,
 // including a Cunstruct CSV export) into structured lines. The user's BOQ is the
 // SOURCE OF TRUTH: quantities, units, rates and amounts are taken as given and never
-// reinterpreted. No drawing-generation, no evidence gate, no DSR matching runs here.
+// re-interpreted. Nothing is generated or matched — the lines are stored verbatim.
 //
 // Delimiter is auto-detected (tab for spreadsheet paste, else comma with quote
 // handling). Columns are mapped by fuzzy header names; a row with a description but no
