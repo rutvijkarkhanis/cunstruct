@@ -177,6 +177,42 @@ describe("robust extraction of pasted ChatGPT output", () => {
     expect(r.error).toMatch(/invalid json/i);
   });
 
+  it("accepts smart/curly double quotes (the ChatGPT paste bug)", () => {
+    const LDQ = String.fromCharCode(0x201C), RDQ = String.fromCharCode(0x201D);
+    // Alternating “ ” as ChatGPT emits them, plus straight quotes replaced entirely.
+    const curly = CLEAN.replace(/"/g, (m, off, full) => {
+      // opening quote = one preceded by { [ , : or whitespace; else closing
+      return /[[{,:\s]$/.test(full.slice(0, off)) ? LDQ : RDQ;
+    });
+    expect(curly).not.toContain('"');       // no straight quotes remain — raw parse must fail
+    const r = parseBoqEvalJson(curly);
+    expect(r.ok).toBe(true);
+    expect(names(curly)).toEqual(EXPECTED);
+  });
+
+  it("accepts smart quotes even inside a fence with surrounding prose", () => {
+    const LDQ = String.fromCharCode(0x201C), RDQ = String.fromCharCode(0x201D);
+    const curly = CLEAN.replace(/"/g, (m, off, full) => (/[[{,:\s]$/.test(full.slice(0, off)) ? LDQ : RDQ));
+    const text = "Here you go:\n```json\n" + curly + "\n```";
+    expect(parseBoqEvalJson(text).ok).toBe(true);
+  });
+
+  it("accepts a non-breaking space between tokens", () => {
+    const NBSP = String.fromCharCode(0xA0);
+    const text = `{${NBSP}"requirements":${NBSP}[{ "requirement": "WC", "qty": 4 }]${NBSP}}`;
+    expect(parseBoqEvalJson(text).ok).toBe(true);
+    expect(parseBoqEvalJson(text).lines[0].qty).toBe(4);
+  });
+
+  it("preserves a curly quote that is legitimate content of a valid JSON string", () => {
+    const LDQ = String.fromCharCode(0x201C), RDQ = String.fromCharCode(0x201D);
+    const text = `{"requirements":[{"requirement":"WC ${LDQ}premium${RDQ}","qty":4}]}`;
+    const r = parseBoqEvalJson(text);
+    expect(r.ok).toBe(true);
+    // Raw JSON is valid, so the curly quotes inside the value survive unchanged.
+    expect(r.lines[0].description).toBe(`WC ${LDQ}premium${RDQ}`);
+  });
+
   it("extractJson: same parsed value from raw, fenced, and prose-wrapped forms", () => {
     const raw = extractJson(CLEAN);
     expect(extractJson("```json\n" + CLEAN + "\n```")).toEqual(raw);
