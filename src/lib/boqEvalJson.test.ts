@@ -197,6 +197,26 @@ describe("robust extraction of pasted ChatGPT output", () => {
     expect(parseBoqEvalJson(text).ok).toBe(true);
   });
 
+  it("accepts curly delimiters with straight-quote inch marks inside a value (the OHT paste)", () => {
+    const L = String.fromCharCode(0x201C), R = String.fromCharCode(0x201D), FT = String.fromCharCode(0x2019); // “ ” ’
+    // Curly-quoted JSON whose note contains straight " inch marks and ' feet marks.
+    const text =
+      `{${L}requirements${R}:[` +
+      `{${L}requirement${R}:${L}Overhead Water Tank${R},${L}qty${R}:1,${L}unit${R}:${L}nos${R},` +
+      `${L}note${R}:${L}Dimensioned 9${FT} x 19${FT}6" with 4${FT}6" depth. Not established.${R},` +
+      `${L}scope${R}:${L}Works${R}},` +
+      `{${L}requirement${R}:${L}OHT reinforcement${R},${L}qty${R}:null,${L}unit${R}:${L}kg${R}}` +
+      `]}`;
+    const r = parseBoqEvalJson(text);
+    expect(r.ok).toBe(true);
+    expect(r.lines).toHaveLength(2);
+    expect(r.lines[0].description).toBe("Overhead Water Tank");
+    expect(r.lines[0].qty).toBe(1);
+    // The inch marks survive as content (straight ") and feet as ' — nothing lost.
+    expect(r.lines[0].note).toContain('19\'6" with 4\'6" depth');
+    expect(r.lines[1].qty).toBeNull();   // pending preserved
+  });
+
   it("accepts a non-breaking space between tokens", () => {
     const NBSP = String.fromCharCode(0xA0);
     const text = `{${NBSP}"requirements":${NBSP}[{ "requirement": "WC", "qty": 4 }]${NBSP}}`;
