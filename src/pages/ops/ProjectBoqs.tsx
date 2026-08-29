@@ -9,14 +9,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Plus, Upload, ChevronUp, ChevronDown, Trash2, Pencil, Check, X, Layers, Sparkles, FolderInput } from "lucide-react";
+import { Plus, Upload, ChevronUp, ChevronDown, Trash2, Pencil, Check, X, Layers, FolderInput } from "lucide-react";
 import { SCOPE_KINDS, type ProjectScope } from "@/lib/projectDocs";
 import { parseBoqImport } from "@/lib/boqImport";
 
 interface BoqRow { id: string; name: string; description: string | null; scope_id: string | null; sort: number; status: string; }
 interface MovableBoq { id: string; name: string; project_id: string | null; scope_id: string | null; updated_at: string; }
 const NEW_SCOPE = "__new__";
-type Mode = null | "create" | "generate" | "import" | "move";
+type Mode = null | "create" | "import" | "move";
 
 export default function ProjectBoqs() {
   const { id: projectId } = useParams<{ id: string }>();
@@ -167,24 +167,6 @@ export default function ProjectBoqs() {
     } finally { setBusy(false); }
   };
 
-  // Generate from a drawing (ChatGPT): resolve the scope here, then hand off to the
-  // existing, fully-tested drawing pipeline pre-set to this project + scope. It saves
-  // the BOQ and returns to this project's workspace.
-  const generateContinue = async () => {
-    if (!projectId) return;
-    setBusy(true);
-    try {
-      const sid = await resolveScopeId();
-      if (!sid) return;
-      qc.invalidateQueries({ queryKey: ["project-scopes", projectId] });
-      const q = new URLSearchParams({ project: projectId, scope: sid, return: "1" });
-      if (name.trim()) q.set("name", name.trim());
-      navigate(`/ops/boq/new?${q.toString()}`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't start the generator");
-    } finally { setBusy(false); }
-  };
-
   // Move an existing BOQ (standalone or under another project) into this project.
   // Non-destructive: its lines, quantities, rates and spec are untouched — only its
   // parent project and scope change.
@@ -310,7 +292,6 @@ export default function ProjectBoqs() {
         {!mode && (
           <div className="flex gap-2 flex-wrap">
             <Button onClick={() => setMode("create")}><Plus className="h-4 w-4 mr-2" />Create BOQ</Button>
-            <Button variant="outline" onClick={() => setMode("generate")}><Sparkles className="h-4 w-4 mr-2" />Generate from Drawing</Button>
             <Button variant="outline" onClick={() => setMode("import")}><Upload className="h-4 w-4 mr-2" />Import Existing BOQ</Button>
             <Button variant="outline" onClick={() => setMode("move")}><FolderInput className="h-4 w-4 mr-2" />Move a BOQ Here</Button>
           </div>
@@ -322,20 +303,6 @@ export default function ProjectBoqs() {
           {ScopeFields}
           <div className="flex gap-2">
             <Button onClick={createBoq} disabled={busy}>{busy ? "Creating…" : "Create BOQ"}</Button>
-            <Button variant="ghost" onClick={resetForm} disabled={busy}>Cancel</Button>
-          </div>
-        </CardContent></Card>
-      )}
-
-      {mode === "generate" && (
-        <Card><CardContent className="p-4 space-y-3">
-          <p className="text-sm text-muted-foreground">
-            Generate a BOQ from a drawing using ChatGPT. Pick the scope and name, then continue to the drawing
-            analysis — you copy a prompt, paste ChatGPT's evaluation, review it, and the BOQ is filed here under this scope.
-          </p>
-          {ScopeFields}
-          <div className="flex gap-2">
-            <Button onClick={generateContinue} disabled={busy}>{busy ? "Starting…" : "Continue to drawing analysis"}</Button>
             <Button variant="ghost" onClick={resetForm} disabled={busy}>Cancel</Button>
           </div>
         </CardContent></Card>
@@ -422,7 +389,7 @@ export default function ProjectBoqs() {
       )}
 
       {!boqs?.length && !mode && (
-        <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No BOQs yet. Create one from scratch, generate from a drawing, import a BOQ you already have, or move one in.</CardContent></Card>
+        <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No BOQs yet. Create one from scratch, import a BOQ you already have, or move one in.</CardContent></Card>
       )}
 
       <div className="space-y-2">

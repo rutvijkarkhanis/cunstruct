@@ -2,25 +2,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { generateForDiscipline, disciplineByKey } from "@/lib/disciplines";
-import { computeDimensions } from "@/lib/dimensions";
+import { disciplineByKey } from "@/lib/disciplines";
 import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
 import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, roundRupee, type QuoteSubHead, type CsvRow } from "@/lib/boqDsrDocument";
 import { openIntakeForm } from "@/lib/boqIntakeForm";
 import { sanityForCode, countFlagged } from "@/lib/boqSanity";
-import { auditBoq, auditCountsLine } from "@/lib/boqAudit";
-import type { GeneratedLine } from "@/lib/boqDsrGenerate";
 import BoqDocumentsPanel from "@/components/ops/BoqDocumentsPanel";
-import { BASIS_META, categoryCovered, DRAWING_CHECKLIST, findCatalogueMatch, isEquipment, isSupersededByDrawing, parseDrawingSummary, resolveDrawingProvenance, type DrawingBasis, type DrawingItem, type DrawingSummary, type LineDrawingMeta, type QtyBasis } from "@/lib/boqDrawing";
-import { BOQ_SPEC, type Spec, type SpecValue, type SpecField } from "@/lib/boqSpec";
+import { type Spec, type SpecValue } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, Plus, Trash2, Wand2, Search, Layers, FileDown, FileText, Sheet, Ruler, ClipboardList, Percent, AlertTriangle, Eye, Presentation, ChevronDown, UserCheck } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Trash2, Search, Layers, FileDown, FileText, Sheet, ClipboardList, Percent, AlertTriangle, Eye, Presentation, ChevronDown, UserCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DsrItem { id: string; code: string; description: string | null; unit: string | null; rate: number | null; chapter: string | null; }
@@ -29,34 +23,19 @@ interface BoqLine {
   unit: string | null; qty: number; dsr_rate: number | null; custom_rate: number | null;
   cost: number | null;
   basis: string | null; basis_note: string | null;
-  drawing: LineDrawingMeta | null;
   included: boolean; source: string; sort: number;
-  /** View-only: a template line the drawing evaluation supersedes (a requirement the
-   *  drawing owns, priced or pending). Forced out of the total and not editable —
-   *  the drawing is authoritative. Never persisted. */
-  superseded?: boolean;
 }
 
-/** Drawing provenance appended to the item description in every output. */
-const drawingSuffix = (l: { drawing: LineDrawingMeta | null }, opts?: { short?: boolean }): string => {
-  const d = l.drawing;
-  if (!d) return "";
-  const parts = opts?.short
-    ? [d.location, d.scope === "equipment" ? "by client" : null]
-    : [d.location, d.calculation || d.basis, d.scope === "equipment" ? "Client equipment" : null];
-  const kept = parts.filter(Boolean) as string[];
-  return kept.length ? ` — ${kept.join(" · ")}` : "";
-};
 /** The rate in effect: the estimator's case-specific override, else the DSR reference. */
 const effRate = (l: BoqLine) => l.custom_rate ?? l.dsr_rate;
 /** A single line's amount in whole rupees (0 when unrated). All money aggregates are
  *  sums of THIS value so the printed figures add up exactly (see roundRupee). */
 const lineAmount = (l: BoqLine) => roundRupee(l.qty * (effRate(l) ?? 0));
 
-// The provenance columns (basis / basis_note / drawing) come from migrations that
-// may not be run on every deployment. Select them when present, but fall back to
-// the base columns if they are missing so the builder never breaks on a stale DB.
-const LINE_COLS = "id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, cost, basis, basis_note, drawing, included, source, sort";
+// The provenance columns (basis / basis_note) come from migrations that may not be
+// run on every deployment. Select them when present, but fall back to the base
+// columns if they are missing so the builder never breaks on a stale DB.
+const LINE_COLS = "id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, cost, basis, basis_note, included, source, sort";
 const LINE_COLS_BASE = "id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, cost, included, source, sort";
 const missingCol = (msg?: string) => !!msg && /\b(drawing|basis|basis_note)\b|schema cache|could not find|does not exist/i.test(msg);
 async function selectBoqLines(boqId: string): Promise<BoqLine[]> {
@@ -68,39 +47,12 @@ async function selectBoqLines(boqId: string): Promise<BoqLine[]> {
   return (r.data ?? []) as BoqLine[];
 }
 
-interface RoomRow {
-  id: string; name: string | null; room_type: string;
-  length_ft: number; width_ft: number; height_ft: number; count: number; electrical_points: number;
-}
-const ROOM_TYPES = ["room", "bedroom", "living", "kitchen", "bathroom", "balcony", "utility", "pooja"];
-
-// The assumptions worth confirming, triaged so the queue reads like a triage,
-// not a questionnaire:
-//   must    — moves the number most; always asked (keep ≤4)
-//   default — pre-filled; shown as a summary line, expand only if wrong
-//   defer   — client-owned; keep a provisional value, mark "client will decide"
-type ConfirmTier = "must" | "default" | "defer";
-const CONFIRM_TIERS: { key: string; tier: ConfirmTier }[] = [
-  { key: "quality_tier", tier: "must" },
-  { key: "structure", tier: "must" },
-  { key: "compound_wall", tier: "must" },
-  { key: "windows", tier: "default" },
-  { key: "main_door", tier: "default" },
-  { key: "cp_tier", tier: "default" },
-  { key: "wp_terrace", tier: "default" },
-  { key: "living_floor", tier: "defer" },
-  { key: "false_ceiling", tier: "defer" },
-];
-const FIELD_BY_KEY: Record<string, SpecField> = {};
-for (const s of BOQ_SPEC) for (const f of s.fields) FIELD_BY_KEY[f.key] = f;
-
 const inr = (n: number) => "₹" + Math.round(n).toLocaleString("en-IN");
 
-// A single reversible change to the estimate — the unit of the session ledger.
-// Kept in memory for the meeting (defensible audit persistence is a P1).
+// A single reversible change to the BOQ — the unit of the session ledger.
 interface EstimateChange {
   id: string; seq: number;
-  kind: "line" | "assumption" | "add" | "remove" | "commercial";
+  kind: "line" | "add" | "remove" | "commercial";
   label: string; detail?: string;
   totalBefore: number; totalAfter: number; delta: number;
   forward: () => Promise<void>;   // (re-)apply
@@ -108,8 +60,8 @@ interface EstimateChange {
   at: number;
 }
 
-// Scope-first estimate framing so the headline number can never be misread as
-// the whole-project cost. A civil-only draft says so, on the same beat.
+// Scope-first valuation framing so the headline number can never be misread as
+// the whole-project cost. A civil-only BOQ says so, on the same beat.
 function scopeLine(discipline: string): string {
   if (discipline === "civil") return "Plumbing & electrical priced separately";
   return "Civil & other trades priced separately";
@@ -148,13 +100,6 @@ function useCountUp(value: number, ms = 450): number {
 const shortDesc = (l: { dsr_code: string | null; description: string | null }) =>
   (l.description ?? l.dsr_code ?? "Line").slice(0, 30);
 
-// Level-2 "Why?" — the plain-language basis behind a line's quantity.
-function tierBasis(spec: Spec): string {
-  const struct = spec.structure === "load_bearing" ? "load-bearing" : "RCC-frame";
-  const tier = (TIER_LABEL[String(spec.quality_tier ?? "standard")] ?? "standard finish").toLowerCase();
-  return `Standard ${struct} assumption at ${tier}. The quantity scales with built-up area — change the quality tier or the quantity to adjust.`;
-}
-
 export default function OpsBoqBuilder() {
   // Works at BOTH the legacy route (/ops/boq/:id → id is the BOQ id) and the
   // re-parented route (/ops/projects/:id/boqs/:boqId → id is the project, boqId is
@@ -187,14 +132,13 @@ export default function OpsBoqBuilder() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Change ledger (in-memory, per meeting) — every assumption/rate/quantity move
-  // is recorded with its rupee delta, so the final number is defensible and any
-  // step is reversible. Entries [0,cursor) are applied; [cursor,) is the redo stack.
+  // Change ledger (in-memory, per session) — every rate/quantity/commercial move is
+  // recorded with its rupee delta, so any step is reversible. Entries [0,cursor) are
+  // applied; [cursor,) is the redo stack.
   const [changes, setChanges] = useState<EstimateChange[]>([]);
   const [cursor, setCursor] = useState(0);
   const [firstTotal, setFirstTotal] = useState<number | null>(null);
   const [showLedger, setShowLedger] = useState(true);
-  const [showDefaults, setShowDefaults] = useState(false);
   const seqRef = useRef(0);
 
   const fetchLinesNow = async (): Promise<BoqLine[]> => (id ? selectBoqLines(id) : []);
@@ -203,10 +147,7 @@ export default function OpsBoqBuilder() {
     return (data?.spec ?? {}) as Spec;
   };
   const grandOf = (ls: BoqLine[], sp: Spec) => {
-    const summary = (sp as Record<string, unknown>)?._drawing as DrawingSummary | undefined;
-    const works = ls
-      .filter((l) => l.included && !(!l.drawing && isSupersededByDrawing(l.description, l.dsr_code, summary)))
-      .reduce((s, l) => s + lineAmount(l), 0);
+    const works = ls.filter((l) => l.included).reduce((s, l) => s + lineAmount(l), 0);
     const pct = (k: string, d: number) => Number(sp[k] ?? d);
     return computeCommercials(works, {
       costIndexPct: pct("_cost_index_pct", 0), contingencyPct: pct("_contingency_pct", 3),
@@ -279,25 +220,8 @@ export default function OpsBoqBuilder() {
     },
   });
 
-  // Room-by-room dimensions drive accurate quantities (falls back to built-up
-  // heuristics when the project has no rooms). Shared with the template BOQ.
-  const { data: rooms = [] } = useQuery({
-    queryKey: ["boq-rooms", boq?.project_id],
-    enabled: !!boq?.project_id,
-    queryFn: async () => {
-      const { data } = await supabase.from("project_rooms")
-        .select("id, name, room_type, length_ft, width_ft, height_ft, count, electrical_points")
-        .eq("project_id", boq!.project_id!).order("created_at");
-      return (data ?? []) as RoomRow[];
-    },
-  });
-  const dims = useMemo(() => computeDimensions(rooms), [rooms]);
-  const hasRooms = rooms.length > 0;
-
-  // All billable DSR items — used for both generation matching and the browser.
-  // DSR catalog browser: search server-side (the table has 2,758 rows — loading
-  // them all silently truncated at Supabase's 1000-row cap, which is why half the
-  // generated lines couldn't find their rate).
+  // DSR catalog browser: search server-side (the table has 2,758 rows — loading them
+  // all silently truncated at Supabase's 1000-row cap).
   const { data: searchResults = [] } = useQuery({
     queryKey: ["dsr-search", search],
     enabled: search.trim().length >= 2,
@@ -313,32 +237,13 @@ export default function OpsBoqBuilder() {
     },
   });
 
-  const { data: rawLines = [], isLoading: linesLoading } = useQuery({
+  const { data: lines = [], isLoading: linesLoading } = useQuery({
     queryKey: ["boq-lines", id],
     queryFn: async () => selectBoqLines(id!),
     enabled: !!id,
   });
 
   const refetchLines = () => qc.invalidateQueries({ queryKey: ["boq-lines", id] });
-
-  // DrawingItem precedence, applied as a render-time view so it holds regardless of
-  // when the persisted lines were generated: a template line the drawing evaluation
-  // supersedes (a requirement the drawing owns, priced or pending) is forced out of
-  // the total and flagged, so a generic template quantity never duplicates or stands
-  // in for a drawing requirement. Never mutates the database — the drawing is the
-  // single source of truth for these requirements.
-  const drawingSummary = useMemo(
-    () => ((boq?.spec as Record<string, unknown>)?._drawing as DrawingSummary | undefined) ?? null,
-    [boq?.spec],
-  );
-  const lines = useMemo<BoqLine[]>(
-    () => rawLines.map((l) =>
-      !l.drawing && l.included && isSupersededByDrawing(l.description, l.dsr_code, drawingSummary)
-        ? { ...l, included: false, superseded: true }
-        : l,
-    ),
-    [rawLines, drawingSummary],
-  );
 
   // AOR coefficients for the DSR codes present on this BOQ, for the material schedule.
   const codes = useMemo(
@@ -368,187 +273,6 @@ export default function OpsBoqBuilder() {
   ), [lines, coeffsByCode]);
 
   const [expanded, setExpanded] = useState<string | null>(null);
-  // Progressive "Why?" — every line opens at Level 1 (a plain sentence) and the
-  // operator taps deeper only if asked. Resets whenever a different line opens.
-  const [whyLevel, setWhyLevel] = useState(1);
-  useEffect(() => { setWhyLevel(1); }, [expanded]);
-
-  const runGenerate = async (useSpec: Spec, opts?: { silent?: boolean }) => {
-    if (!boq) return;
-    setBusy(true);
-    try {
-      const generated = generateForDiscipline(boq.discipline ?? "civil", useSpec, {
-        area_sqft: project?.area_sqft ?? (Number(useSpec._area_sqft) || null),
-        floors: project?.floors ?? (Number(useSpec._floors) || null),
-      }, hasRooms ? dims : undefined);
-      // Fetch the live DSR rows for exactly the codes we need (not a capped
-      // load-all), so every generated line resolves its description/unit/rate.
-      const codes = [...new Set(generated.map((g) => g.code).filter(Boolean))] as string[];
-      const { data: dsrRows, error: dsrErr } = await supabase.from("dsr_item")
-        .select("code, description, unit, rate, chapter").in("code", codes);
-      if (dsrErr) throw dsrErr;
-      const byDsrCode = new Map<string, { code: string; description: string | null; unit: string | null; rate: number | null; chapter: string | null }>();
-      for (const r of dsrRows ?? []) byDsrCode.set(r.code, r);
-      // Regenerating changes QUANTITIES (what the spec drives) but must preserve
-      // the operator's own overrides — their rate, their cost, and any line they
-      // de-selected. Snapshot those (keyed by code + sub-head) before we delete,
-      // and re-apply them to the freshly generated rows. Without this, every
-      // "Confirm" silently wiped the estimator's rates.
-      const ovKey = (code: string | null, section: string | null, desc: string | null) => `${code ?? ""}|${section ?? ""}|${desc ?? ""}`;
-      const { data: prevAuto } = await supabase.from("boq_line")
-        .select("dsr_code, section, description, custom_rate, cost, included").eq("boq_id", id).eq("source", "auto");
-      const overrides = new Map<string, { custom_rate: number | null; cost: number | null; included: boolean }>();
-      for (const p of (prevAuto ?? []) as { dsr_code: string | null; section: string | null; description: string | null; custom_rate: number | null; cost: number | null; included: boolean }[]) {
-        overrides.set(ovKey(p.dsr_code, p.section, p.description), { custom_rate: p.custom_rate, cost: p.cost, included: p.included });
-      }
-      // Regenerate auto lines; keep anything the user added by hand.
-      await supabase.from("boq_line").delete().eq("boq_id", id).eq("source", "auto");
-      const rows = generated.map((g, i) => {
-        const dsr = byDsrCode.get(g.code);   // exact code lookup
-        // section holds the DSR sub-head (type of work); the construction
-        // stage is derived from the code at render/export time.
-        const section = dsr?.chapter ?? g.section;
-        const desc = dsr?.description ?? g.label;
-        const ov = overrides.get(ovKey(g.code, section, desc));
-        return {
-          boq_id: id, section, dsr_code: g.code,
-          description: desc,
-          unit: dsr?.unit ?? g.unit, qty: g.qty, dsr_rate: dsr?.rate ?? null,
-          custom_rate: ov?.custom_rate ?? null,
-          cost: ov?.cost ?? null,
-          basis: g.basis ?? null, basis_note: g.note ?? null,
-          drawing: g.drawing ?? null,
-          included: ov?.included ?? g.included ?? true,   // client equipment defaults out; operator can include
-          source: "auto", sort: i,
-        };
-      });
-      let { error } = await supabase.from("boq_line").insert(rows);
-      // Provenance columns (basis / basis_note / drawing) are added by migrations
-      // that may not be run yet — never let a missing optional column abort the
-      // estimate. Retry once without them so the BOQ still generates.
-      if (error && /\b(drawing|basis|basis_note)\b|schema cache|could not find|does not exist/i.test(error.message)) {
-        const stripped = rows.map((r) => { const c = { ...r } as Record<string, unknown>; delete c.basis; delete c.basis_note; delete c.drawing; return c; });
-        ({ error } = await supabase.from("boq_line").insert(stripped));
-        if (!error && !opts?.silent) toast.message("Estimate ready — run the boq_line.drawing / basis migration to keep drawing provenance");
-      }
-      if (error) throw error;
-      if (!opts?.silent) toast.success(`Estimate ready — ${rows.length} items`);
-      refetchLines();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Generation failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-  const generate = () => runGenerate(boq?.spec ?? {});
-
-  // Confirm queue: change one assumption and re-draft from it (the contractor
-  // reacts to a guess instead of filling a form). Recorded in the ledger with the
-  // net rupee impact, and reversible.
-  const confirmChange = async (key: string, value: SpecValue) => {
-    if (!boq) return;
-    const prev = (boq.spec ?? {})[key];
-    const f = FIELD_BY_KEY[key];
-    const optLabel = (v: SpecValue) =>
-      f?.type === "toggle" ? (v ? "Yes" : "No") : (f?.options?.find((o) => o.value === v)?.label ?? String(v ?? "—"));
-    await commit({
-      kind: "assumption", label: f?.label ?? key, detail: `${optLabel(prev)} → ${optLabel(value)}`,
-      forward: async () => { const ns = await setSpecKeys({ [key]: value }); await runGenerate(ns, { silent: true }); },
-      backward: async () => { const ns = await setSpecKeys({ [key]: prev }); await runGenerate(ns, { silent: true }); },
-    });
-  };
-
-  // Defer a client-owned decision: keep the provisional value (so the total still
-  // holds) but mark it "client will decide". Stored as spec._deferred (an array in
-  // the jsonb — no schema change). No regenerate: the value hasn't changed.
-  const deferredKeys = (((boq?.spec as Record<string, unknown> | undefined)?._deferred as string[] | undefined) ?? []);
-  const toggleDefer = async (key: string) => {
-    if (!boq) return;
-    const cur = deferredKeys;
-    const next = cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key];
-    const newSpec = { ...(boq.spec ?? {}), _deferred: next } as unknown as Spec;
-    await supabase.from("boq").update({ spec: newSpec }).eq("id", id);
-    qc.setQueryData(["boq", id], (old: typeof boq | undefined) => (old ? { ...old, spec: newSpec } : old));
-  };
-
-  // Drawing summary: the operator's measured/counted quantities from the drawings.
-  // Saved on spec._drawing; regeneration lets it override the generic heuristics.
-  const drawingItems = (((boq?.spec as Record<string, unknown> | undefined)?._drawing as DrawingSummary | undefined)?.items ?? []);
-  const [showDrawing, setShowDrawing] = useState(false);
-  const drawingRef = useRef<HTMLDivElement>(null);
-  // The card renders below a tall stack of cards, so scroll it into view when it
-  // opens — otherwise the button looks like it does nothing.
-  useEffect(() => {
-    if (showDrawing) drawingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [showDrawing]);
-  // Seeded from a ChatGPT evaluation (or a prior session): open the Drawing card
-  // once on arrival so the operator reviews the requirements.
-  const drawingOpened = useRef(false);
-  useEffect(() => {
-    if (!drawingOpened.current && drawingItems.length > 0) { drawingOpened.current = true; setShowDrawing(true); }
-  }, [drawingItems.length]);
-  const [drawDraft, setDrawDraft] = useState<DrawingItem[] | null>(null);
-  const drawRows = drawDraft ?? drawingItems;
-  const editDraw = (i: number, patch: Partial<DrawingItem>) =>
-    setDrawDraft((d) => (d ?? drawingItems).map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
-  // New rows start with NO quantity (null = pending) and no invented basis — a
-  // basis is only set once the operator enters a count.
-  const addDraw = () => setDrawDraft((d) => [...(d ?? drawingItems), { match: "", qty: null, unit: "nos", note: "" }]);
-  const addDrawWith = (label: string) => setDrawDraft((d) => [...(d ?? drawingItems), { match: label, qty: null, unit: "nos", note: "" }]);
-  const [showChecklist, setShowChecklist] = useState(false);
-  const delDraw = (i: number) => setDrawDraft((d) => (d ?? drawingItems).filter((_, idx) => idx !== i));
-  const [pasteText, setPasteText] = useState("");
-  const parsePaste = () => {
-    const parsed = parseDrawingSummary(pasteText);
-    if (!parsed.length) { toast.error("Couldn't find any quantities in that text"); return; }
-    setDrawDraft((d) => [...(d ?? drawingItems).filter((r) => (r.match ?? "").trim()), ...parsed]);
-    setPasteText("");
-    toast.success(`Parsed ${parsed.length} item${parsed.length === 1 ? "" : "s"} — review the match & quantity, then Apply`);
-  };
-  const saveDrawing = async () => {
-    if (!boq) return;
-    const prev = ((boq.spec as Record<string, unknown>)?._drawing ?? null) as unknown;
-    // Keep every named requirement — including those still awaiting a quantity.
-    // A row with no positive count is retained as PENDING: qty stays null (never
-    // coerced to 0/assumed) and no basis is invented, so an identified requirement
-    // is never lost — nor mislabelled as "counted" — when the drawing is re-applied.
-    const clean: DrawingItem[] = drawRows.filter((r) => (r.match ?? "").trim())
-      .map((r) => {
-        const n = Number(r.qty);
-        const hasQty = r.qty != null && String(r.qty) !== "" && Number.isFinite(n) && n > 0;
-        return {
-          match: (r.match ?? "").trim(),
-          qty: hasQty ? n : null,
-          unit: r.unit?.trim() || undefined,
-          basis: hasQty ? (r.basis ?? "Counted") : undefined,
-          equipment: r.equipment,
-          scope: r.scope,
-          note: r.note?.trim() || undefined,
-          allocation: r.allocation,
-          pending: hasQty ? undefined : true,
-        };
-      });
-    const priced = clean.filter((r) => r.qty != null).length;
-    const detail = priced === clean.length ? `${clean.length} applied` : `${clean.length} kept · ${priced} priced · ${clean.length - priced} pending`;
-    await commit({
-      kind: "assumption", label: "Drawing measurements", detail,
-      forward: async () => { const ns = await setSpecKeys({ _drawing: { items: clean } } as unknown as Spec); await runGenerate(ns, { silent: true }); },
-      backward: async () => { const ns = await setSpecKeys({ _drawing: prev } as unknown as Spec); await runGenerate(ns, { silent: true }); },
-    });
-    setDrawDraft(null);
-    toast.success("Drawing measurements applied");
-  };
-
-  // Output before input: a brand-new BOQ generates its draft on arrival, so you
-  // land on a full BOQ to react to — never an empty screen.
-  const autoGen = useRef(false);
-  useEffect(() => {
-    if (autoGen.current) return;
-    if (!boq || linesLoading || busy || lines.length > 0) return;
-    autoGen.current = true;
-    generate();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boq, linesLoading, lines.length, busy]);
 
   const addFromCatalog = async (it: DsrItem) => {
     let newId: string | null = null;
@@ -558,6 +282,24 @@ export default function OpsBoqBuilder() {
         const { data, error } = await supabase.from("boq_line").insert({
           boq_id: id, section: it.chapter ?? "Other", dsr_code: it.code,
           description: it.description, unit: it.unit, qty: 1, dsr_rate: it.rate, source: "manual", sort: 999,
+        }).select("id").single();
+        if (error) { toast.error(error.message); return; }
+        newId = (data as { id: string }).id;
+        refetchLines();
+      },
+      backward: async () => { if (newId) { await supabase.from("boq_line").delete().eq("id", newId); refetchLines(); } },
+    });
+  };
+
+  // Add a blank, manual line for the operator to fill in (no catalogue match).
+  const addBlankLine = async () => {
+    let newId: string | null = null;
+    await commit({
+      kind: "add", label: "Added line",
+      forward: async () => {
+        const { data, error } = await supabase.from("boq_line").insert({
+          boq_id: id, section: "Other", dsr_code: null, description: "New item",
+          unit: "nos", qty: 1, dsr_rate: null, source: "manual", sort: 999,
         }).select("id").single();
         if (error) { toast.error(error.message); return; }
         newId = (data as { id: string }).id;
@@ -606,9 +348,9 @@ export default function OpsBoqBuilder() {
 
   const sumIncl = (ls: BoqLine[]) => ls.filter((l) => l.included).reduce((s, l) => s + lineAmount(l), 0);
 
-  // Group by DSR sub-head (type of work), ordered by chapter number — which is
-  // also the construction sequence. Each sub-head gets a number; items within
-  // are numbered <sub-head>.01, .02 … like a real tender BOQ. NS lines last.
+  // Group by DSR sub-head (type of work), ordered by chapter number — which is also
+  // the construction sequence. Each sub-head gets a number; items within are numbered
+  // <sub-head>.01, .02 … like a real tender BOQ. NS/uncoded lines last.
   const bySubhead = useMemo(() => {
     const groups = new Map<string, BoqLine[]>();
     for (const l of lines) {
@@ -638,19 +380,6 @@ export default function OpsBoqBuilder() {
   const builtUp = project?.area_sqft ?? (Number((boq?.spec as Spec)?._area_sqft) || 0);
   const flaggedCount = useMemo(() => countFlagged(lines, builtUp), [lines, builtUp]);
 
-  // Consistency audit over the drawing summary + generated lines: per-BOQ counts and
-  // any conflicts (duplicates / quantity conflicts / double-counting / gate leaks /
-  // missing scope). Read-only — surfaced for the operator, never auto-resolved.
-  const audit = useMemo(() => {
-    if (!drawingSummary?.items?.length) return null;
-    const excluded = ((boq?.spec as Record<string, unknown> | undefined)?._excluded as DrawingSummary | undefined) ?? null;
-    const glines: GeneratedLine[] = lines.map((l) => ({
-      section: l.section ?? "Other", code: l.dsr_code, qty: l.qty, label: l.description ?? "",
-      unit: l.unit ?? "nos", drawing: l.drawing ?? undefined, basis: l.basis as GeneratedLine["basis"], included: l.included,
-    }));
-    return auditBoq(drawingSummary, excluded, glines);
-  }, [drawingSummary, lines, boq?.spec]);
-
   // "Make" (margin) = quote − your cost, per line and overall.
   const make = useMemo(() => {
     let quote = 0, cost = 0, hasCost = false;
@@ -662,8 +391,8 @@ export default function OpsBoqBuilder() {
     return { quote, cost, make: quote - cost, marginPct: quote > 0 ? ((quote - cost) / quote) * 100 : 0, hasCost };
   }, [lines]);
 
-  // Commercials (cost index, contingency, overhead, cess, GST) live in boq.spec
-  // so no migration is needed. Defaults follow common CPWD practice.
+  // Commercials (cost index, contingency, overhead, cess, GST) live in boq.spec so
+  // no migration is needed. Defaults follow common CPWD practice.
   const spec = useMemo(() => (boq?.spec ?? {}) as Spec, [boq?.spec]);
   const commercials = useMemo(() => {
     const pct = (k: string, d: number) => Number(spec[k] ?? d);
@@ -704,98 +433,28 @@ export default function OpsBoqBuilder() {
     else toast.success(`Saved ${contractor?.name ?? "contractor"}'s usual choices`);
   };
 
-  // ---- Rooms editor (drives accurate quantities) --------------------------
-  const [showRooms, setShowRooms] = useState(false);
-  const [roomDraft, setRoomDraft] = useState<RoomRow[] | null>(null);
-  const [savingRooms, setSavingRooms] = useState(false);
-  const draftRooms = roomDraft ?? rooms;
-  const draftDims = useMemo(() => computeDimensions(draftRooms), [draftRooms]);
-  const editRoom = (i: number, patch: Partial<RoomRow>) =>
-    setRoomDraft((d) => (d ?? rooms).map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
-  const addRoom = () =>
-    setRoomDraft((d) => [...(d ?? rooms), { id: crypto.randomUUID(), name: "", room_type: "bedroom", length_ft: 10, width_ft: 10, height_ft: 10, count: 1, electrical_points: 4 }]);
-  const delRoom = (i: number) => setRoomDraft((d) => (d ?? rooms).filter((_, idx) => idx !== i));
-  const saveRooms = async () => {
-    if (!boq?.project_id) return;
-    setSavingRooms(true);
-    try {
-      await supabase.from("project_rooms").delete().eq("project_id", boq.project_id);
-      if (draftRooms.length) {
-        const { error } = await supabase.from("project_rooms").insert(draftRooms.map((r) => ({
-          project_id: boq.project_id, name: r.name || null, room_type: r.room_type,
-          length_ft: r.length_ft, width_ft: r.width_ft, height_ft: r.height_ft,
-          count: r.count, electrical_points: r.electrical_points,
-        })));
-        if (error) throw error;
-      }
-      setRoomDraft(null);
-      qc.invalidateQueries({ queryKey: ["boq-rooms", boq.project_id] });
-      toast.success("Rooms saved — Regenerate to apply the new quantities");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to save rooms");
-    } finally {
-      setSavingRooms(false);
-    }
-  };
-
   const gen = () => new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
   const firmName = String(spec._firm_name ?? "").trim() || null;
   const firmTagline = String(spec._firm_tagline ?? "").trim() || null;
 
   const exportQuote = (blankRates = false, autoPrint = false) => {
     // THE BOQ IS ORGANISED AROUND QUANTITY, NOT AROUND WHETHER A RATE EXISTS. Any
-    // item with a defensible quantity that is contractor works (included) is a
-    // first-class BOQ line — priced or not. A missing rate leaves Rate/Amount blank
-    // ("—"), it does NOT banish the line to a secondary "identified, not priced"
-    // list. This is the fix for the headline failure where 50 quantified
-    // requirements were hidden below the fold because only DSR-coded WC/basin lines
-    // carried a rate. The priced subtotal still counts only rated lines (lineAmount
-    // is 0 when unrated), so the abstract stays honest; the "partially priced"
-    // status communicates the unpriced count.
+    // included line with a defensible quantity is a first-class BOQ line — priced or
+    // not. A missing rate leaves Rate/Amount blank ("—"); it never hides the line.
+    // The priced subtotal counts only rated lines (lineAmount is 0 when unrated), so
+    // the abstract stays honest.
     const subheads: QuoteSubHead[] = bySubhead.map((sh) => ({
       no: sh.no, name: sh.name, subtotal: sh.subtotal,
       lines: sh.rows.filter(({ line }) => line.included && line.qty != null && line.qty > 0).map(({ line, no }) => {
         const rate = effRate(line);
-        return { no, code: line.dsr_code, spec: (line.description ?? "") + drawingSuffix(line), qty: line.qty, unit: line.unit ?? "", rate, amount: rate != null ? roundRupee(line.qty * rate) : null };
+        return { no, code: line.dsr_code, spec: line.description ?? "", qty: line.qty, unit: line.unit ?? "", rate, amount: rate != null ? roundRupee(line.qty * rate) : null };
       }),
     })).filter((sh) => sh.lines.length > 0);
 
-    // Loose client equipment (TV, fridge, projector screen …) is NOT contractor
-    // works — applyDrawing marks it included=false. It is shown for reference so it
-    // is never silently dropped, but it stays out of the priced contract table. Only
-    // genuinely non-contract quantified drawing items land here now; every included
-    // works item (priced or not) lives in the main BOQ above.
-    const drawingItemsQ = lines
-      .filter((l) => !!l.drawing && !l.included && l.qty != null && l.qty > 0 && !l.superseded)
-      .map((l, i) => ({
-        no: `E.${String(i + 1).padStart(2, "0")}`,
-        spec: (l.description ?? "").trim() + drawingSuffix(l),
-        qty: l.qty, unit: l.unit ?? "nos",
-        note: l.basis_note?.trim() || undefined,
-        scope: l.drawing?.scope,
-      }));
-
-    // Identified-but-unquantified drawing requirements — carried into the document
-    // as an unpriced "pending" section so every drawing requirement appears, none
-    // is dropped, and none is given a fabricated quantity.
-    // Provenance-resolved: an item whose own evidence never established a defensible
-    // count is pending regardless of a stored number, so it appears here (not with a
-    // fabricated quantity in the priced/drawing tables). Same gate as generation.
-    const pendingItems = resolveDrawingProvenance(drawingItems)
-      .filter((d) => d.pending || d.qty == null)
-      .map((d, i) => ({ no: `P.${String(i + 1).padStart(2, "0")}`, spec: (d.match ?? "").trim(), unit: d.unit?.trim() || "nos", note: d.note?.trim() || undefined, scope: d.scope }));
-
-    // Common-area / other-allocation requirements seen in the drawing but owned by
-    // another BOQ — shown for audit (never priced here), so they never look missed.
-    const excludedItems = ((((boq?.spec as Record<string, unknown> | undefined)?._excluded as DrawingSummary | undefined)?.items) ?? [])
-      .filter((d) => (d.match ?? "").trim())
-      .map((d) => ({ spec: (d.match ?? "").trim(), allocation: d.allocation, qty: d.qty ?? null, unit: d.unit }));
-
-    // Pricing basis. Private projects are the default: quantities come from the
-    // drawings and rates are the estimator's own (entered per line / quoted
-    // separately) — so the document must NOT claim a Delhi-Schedule-of-Rates basis.
-    // Only when the operator has explicitly selected DSR pricing (spec._pricing_basis
-    // === "dsr") do we stamp "Basis: DSR <year>" and the DSR conditions footer.
+    // Pricing basis. Private projects are the default: rates are the operator's own
+    // (entered per line / quoted separately) — so the document must NOT claim a
+    // Delhi-Schedule-of-Rates basis. Only when the operator has explicitly selected
+    // DSR pricing (spec._pricing_basis === "dsr") do we stamp "Basis: DSR <year>".
     const useDsrBasis = String(spec._pricing_basis ?? "").toLowerCase() === "dsr";
     const ok = openDsrQuote({
       boqName: boq!.name,
@@ -808,9 +467,9 @@ export default function OpsBoqBuilder() {
       subheads,
       abstract: subheads.map((sh) => ({ no: sh.no, name: sh.name, amount: sh.subtotal })),
       commercials,
-      pendingItems,
-      drawingItems: drawingItemsQ,
-      excludedItems,
+      pendingItems: [],
+      drawingItems: [],
+      excludedItems: [],
     }, { autoPrint });
     if (!ok) toast.error("Allow pop-ups to export");
   };
@@ -820,7 +479,7 @@ export default function OpsBoqBuilder() {
       projectName: project?.name, projectType: project?.project_type, scope: project?.scope,
       clientName: project?.client_name, location: project?.location,
       builtUpSqft: project?.area_sqft, floors: project?.floors,
-      firmName, firmTagline, generatedOn: gen(), spec, rooms, blank,
+      firmName, firmTagline, generatedOn: gen(), spec, rooms: [], blank,
     });
     if (!ok) toast.error("Allow pop-ups to print the form");
   };
@@ -829,13 +488,10 @@ export default function OpsBoqBuilder() {
     const rows: CsvRow[] = bySubhead.flatMap((sh) =>
       sh.rows.filter(({ line }) => line.included).map(({ line, no }) => ({
         subhead: `${sh.no}.00 ${sh.name}`, itemNo: no, code: line.dsr_code,
-        spec: (line.description ?? "") + drawingSuffix(line), unit: line.unit ?? "", qty: line.qty, rate: effRate(line),
+        spec: line.description ?? "", unit: line.unit ?? "", qty: line.qty, rate: effRate(line),
       })));
     if (!rows.length) return toast.error("Nothing to export yet");
-    const pending = resolveDrawingProvenance(drawingItems)
-      .filter((d) => d.pending || d.qty == null)
-      .map((d) => ({ spec: (d.match ?? "").trim(), unit: d.unit?.trim() || "nos", note: d.note?.trim() || undefined }));
-    downloadCsv(`${boq!.name.replace(/[^\w]+/g, "_")}_BOQ.csv`, buildBoqCsv(rows, { boqName: boq!.name, project: project?.name, generatedOn: gen() }, pending));
+    downloadCsv(`${boq!.name.replace(/[^\w]+/g, "_")}_BOQ.csv`, buildBoqCsv(rows, { boqName: boq!.name, project: project?.name, generatedOn: gen() }, []));
   };
 
   if (!boq) return <div className="p-8 flex justify-center"><Loader2 className="animate-spin" /></div>;
@@ -859,21 +515,11 @@ export default function OpsBoqBuilder() {
             {contractor && <Badge variant="secondary">{contractor.name}</Badge>}
             {project?.name ?? "Standalone"} · {lines.length} lines · <Badge variant="outline">{boq.status}</Badge>
           </p>
-          {!present && (
-            <p className="text-xs mt-0.5 flex items-center gap-2 flex-wrap">
-              {hasRooms
-                ? <span className="text-emerald-600 dark:text-emerald-400">Quantities from {rooms.length} rooms · {dims.floorAreaSqft.toLocaleString("en-IN")} sqft measured</span>
-                : <span className="text-amber-600 dark:text-amber-500">Quantities estimated from built-up area — add rooms for accuracy</span>}
-              {flaggedCount > 0 && (
-                <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-500">
-                  <AlertTriangle className="h-3 w-3" />{flaggedCount} to review
-                </span>
-              )}
-              {lines.some((l) => l.basis === "DRAWING_INPUT") && (
-                <span className="text-emerald-600 dark:text-emerald-400">
-                  {lines.filter((l) => l.basis === "DRAWING_INPUT").length} from drawing
-                </span>
-              )}
+          {!present && flaggedCount > 0 && (
+            <p className="text-xs mt-0.5">
+              <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-500">
+                <AlertTriangle className="h-3 w-3" />{flaggedCount} to review
+              </span>
             </p>
           )}
         </div>
@@ -881,11 +527,11 @@ export default function OpsBoqBuilder() {
           title="Show a clean, client-facing view (or press P; Esc to exit)">
           {present ? <><Eye className="h-4 w-4 mr-2" />Exit client view</> : <><Presentation className="h-4 w-4 mr-2" />Show to client</>}
         </Button>
-        {/* Scope-first estimate: the headline number can never read as the whole
+        {/* Scope-first valuation: the headline number can never read as the whole
             project cost — its discipline and exclusions sit right on it. */}
         <div className="text-right min-w-[11rem]">
           <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            {disciplineByKey(boq.discipline).name} works estimate
+            {disciplineByKey(boq.discipline).name} works
           </div>
           <div className="text-2xl md:text-3xl font-semibold tabular-nums leading-tight">{inr(displayGrand)}</div>
           {(() => {
@@ -908,33 +554,17 @@ export default function OpsBoqBuilder() {
         </div>
       </div>
 
-      {present && deferredKeys.length > 0 && (
-        <p className="text-xs text-muted-foreground border-l-2 border-accent pl-2">
-          Client to confirm: {deferredKeys.map((k) => FIELD_BY_KEY[k]?.label).filter(Boolean).join(", ")} — provisional rates shown.
-        </p>
-      )}
-
       {!present && (<>
       <div className="flex flex-wrap items-center gap-2">
-        <Button onClick={() => (drawDraft ? saveDrawing() : generate())} disabled={busy}>
-          {busy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Wand2 className="h-4 w-4 mr-2" />}
-          {drawDraft ? "Apply drawing & rebuild" : lines.some((l) => l.source === "auto") ? "Rebuild estimate" : "Prepare estimate"}
-        </Button>
-        <Button variant="outline" onClick={() => setShowBrowser((s) => !s)}>
+        <Button onClick={() => setShowBrowser((s) => !s)}>
           <Plus className="h-4 w-4 mr-2" />Add item
         </Button>
-        {boq.project_id && (
-          <Button variant={hasRooms ? "outline" : "default"} onClick={() => setShowRooms((s) => !s)}>
-            <Ruler className="h-4 w-4 mr-2" />Rooms{rooms.length ? ` (${rooms.length})` : ""}
-          </Button>
-        )}
-        <Button variant={showDrawing || drawingItems.length ? "default" : "outline"} onClick={() => setShowDrawing((s) => !s)}
-          title="Enter measured quantities read off the drawings — they override the estimates">
-          <Ruler className="h-4 w-4 mr-2" />{showDrawing ? "Hide drawing" : "Drawing"}{!showDrawing && drawingItems.length ? ` (${drawingItems.length})` : ""}
+        <Button variant="outline" onClick={addBlankLine} disabled={busy}>
+          <Plus className="h-4 w-4 mr-2" />Add blank line
         </Button>
         {boq.project_id && (
           <Button variant={showDocs ? "default" : "outline"} onClick={() => setShowDocs((s) => !s)}
-            title="Assign project documents to this BOQ and pick the analysed revision">
+            title="Assign project documents (drawings, references) to this BOQ">
             <FileText className="h-4 w-4 mr-2" />{showDocs ? "Hide documents" : "Documents"}
           </Button>
         )}
@@ -971,33 +601,6 @@ export default function OpsBoqBuilder() {
           </Button>
         </div>
       </div>
-
-      {audit && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base flex items-center gap-2">
-              <ClipboardList className="h-4 w-4" />Drawing audit
-              {audit.findings.length > 0 && (
-                <Badge variant="outline" className="border-amber-500 text-amber-600 dark:text-amber-400">
-                  {audit.findings.length} to review
-                </Badge>
-              )}
-            </CardTitle>
-            <p className="text-xs text-muted-foreground">{auditCountsLine(audit.counts)}</p>
-          </CardHeader>
-          {audit.findings.length > 0 && (
-            <CardContent className="space-y-1.5 pt-0">
-              {audit.findings.map((f, i) => (
-                <div key={i} className="flex items-start gap-2 text-sm">
-                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-500" />
-                  <span className="text-foreground/90">{f.detail}</span>
-                </div>
-              ))}
-              <p className="text-xs text-muted-foreground pt-1">Conflicts are reported, not auto-resolved — confirm the authoritative quantity before finalising.</p>
-            </CardContent>
-          )}
-        </Card>
-      )}
 
       {changes.length > 0 && (
         <Card>
@@ -1039,101 +642,6 @@ export default function OpsBoqBuilder() {
         </Card>
       )}
 
-      {boq.discipline === "civil" && lines.length > 0 && (() => {
-        // A control for one assumption — the same Select/Switch reused across tiers.
-        const control = (k: string) => {
-          const f = FIELD_BY_KEY[k];
-          if (!f) return null;
-          const v = (boq.spec as Spec)?.[k];
-          return f.type === "toggle" ? (
-            <Switch checked={!!v} onCheckedChange={(c) => confirmChange(k, c)} />
-          ) : (
-            <Select value={(v as string) ?? undefined} onValueChange={(val) => confirmChange(k, val)}>
-              <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {f.options!.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          );
-        };
-        const optLabel = (k: string) => {
-          const f = FIELD_BY_KEY[k]; const v = (boq.spec as Spec)?.[k];
-          if (!f) return "";
-          return f.type === "toggle" ? (v ? "Yes" : "No") : (f.options?.find((o) => o.value === v)?.label ?? "—");
-        };
-        const inTier = (t: ConfirmTier) => CONFIRM_TIERS.filter((c) => c.tier === t && FIELD_BY_KEY[c.key]);
-        const musts = inTier("must"), defaults = inTier("default"), defers = inTier("defer");
-        return (
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Confirm with the contractor</CardTitle>
-              <p className="text-xs text-muted-foreground">The few things that move the number — the rest we assumed.</p>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {/* MUST — always visible, prominent */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {musts.map(({ key: k }) => (
-                  <div key={k} className="flex items-center justify-between gap-2 rounded-md border border-accent/60 bg-accent/5 px-3 py-1.5">
-                    <span className="text-sm font-medium">{FIELD_BY_KEY[k].label}</span>
-                    {control(k)}
-                  </div>
-                ))}
-              </div>
-
-              {/* DEFAULT — collapsed to a summary line; expand only if wrong */}
-              {defaults.length > 0 && (
-                <div className="rounded-md border">
-                  <button className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-left"
-                    onClick={() => setShowDefaults((s) => !s)}>
-                    <span className="text-xs uppercase tracking-wide text-muted-foreground">We assumed — tap to change</span>
-                    <span className="flex items-center gap-1 text-xs text-muted-foreground min-w-0">
-                      <span className="truncate">{defaults.map(({ key: k }) => optLabel(k)).join(" · ")}</span>
-                      <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform", showDefaults && "rotate-180")} />
-                    </span>
-                  </button>
-                  {showDefaults && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 px-3 pb-2">
-                      {defaults.map(({ key: k }) => (
-                        <div key={k} className="flex items-center justify-between gap-2 rounded-md border px-3 py-1.5">
-                          <span className="text-sm">{FIELD_BY_KEY[k].label}</span>
-                          {control(k)}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* DEFER — client-owned; provisional value still totals */}
-              {defers.length > 0 && (
-                <div className="space-y-2">
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Client will decide later</div>
-                  {defers.map(({ key: k }) => {
-                    const isDef = deferredKeys.includes(k);
-                    return (
-                      <div key={k} className="flex items-center justify-between gap-2 rounded-md border px-3 py-1.5">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-sm">{FIELD_BY_KEY[k].label}</span>
-                          {isDef && <Badge variant="outline" className="text-[10px]">provisional: {optLabel(k)}</Badge>}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {!isDef && control(k)}
-                          <Button size="sm" variant={isDef ? "secondary" : "ghost"} className="h-8"
-                            onClick={() => toggleDefer(k)}
-                            title={isDef ? "Decide now instead" : "Mark as client's decision — keeps a provisional rate"}>
-                            {isDef ? "Client deciding" : "Client will decide"}
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        );
-      })()}
-
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md bg-muted/40 px-3 py-2 text-sm">
         <span className="text-muted-foreground font-medium">Abstract</span>
         {([
@@ -1166,209 +674,6 @@ export default function OpsBoqBuilder() {
 
       {!present && showDocs && boq.project_id && (
         <BoqDocumentsPanel boqId={id!} projectId={boq.project_id} />
-      )}
-
-      {!present && showDrawing && (
-        <Card ref={drawingRef} className="ring-2 ring-accent/40 scroll-mt-4">
-          <CardHeader className="pb-2 flex-row items-center justify-between">
-            <div>
-              <CardTitle className="text-base">Drawing measurements</CardTitle>
-              <p className="text-xs text-muted-foreground">
-                Quantities you measured or counted on the drawings. Each overrides the estimate for the matching
-                item and is marked drawing-sourced. Anything left out stays an estimate.
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <Button size="sm" variant={showChecklist ? "secondary" : "outline"} onClick={() => setShowChecklist((s) => !s)}>
-                <ClipboardList className="h-4 w-4 mr-1" />Checklist
-              </Button>
-              <Button size="sm" variant="outline" onClick={addDraw}><Plus className="h-4 w-4 mr-1" />Add</Button>
-              <Button size="sm" onClick={saveDrawing} disabled={busy}>
-                {busy && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}Apply
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            <div className="mb-3 space-y-1.5">
-              <textarea
-                className="w-full min-h-[92px] rounded-md border bg-background px-3 py-2 text-sm"
-                placeholder={"Paste a drawing summary (e.g. from ChatGPT)…\n\nLiving room: 8 × 6A sockets, 2 × 16A sockets, 1 × TV point\n4M switchboards: 6 nos\nConduit: 185 m"}
-                value={pasteText} onChange={(e) => setPasteText(e.target.value)} />
-              <div className="flex flex-wrap items-center gap-2">
-                <Button size="sm" variant="secondary" onClick={parsePaste} disabled={!pasteText.trim()}>Parse into rows</Button>
-                <span className="text-[11px] text-muted-foreground">
-                  Turns the summary into editable rows below — same item summed across rooms. Review, then Apply.
-                </span>
-              </div>
-            </div>
-
-            {showChecklist && (() => {
-              const dk = boq.discipline ?? "civil";
-              const groups = [...DRAWING_CHECKLIST].sort((a, b) => (a.key === dk ? 0 : 1) - (b.key === dk ? 0 : 1));
-              const rowMatches = drawRows.map((r) => r.match).filter(Boolean);
-              return (
-                <div className="mb-3 rounded-md border bg-muted/30 p-3 space-y-2">
-                  <p className="text-[11px] text-muted-foreground">
-                    Reminder only — categories commonly visible on a drawing. Adding one drops an <b>empty</b> row for you to fill;
-                    it never invents a quantity. Nothing here changes the BOQ until you enter a quantity and Apply.
-                  </p>
-                  {groups.map((grp) => (
-                    <div key={grp.key}>
-                      <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">{grp.discipline}</div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {grp.categories.map((c) => categoryCovered(c, rowMatches) ? (
-                          <span key={c} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">✓ {c}</span>
-                        ) : (
-                          <button key={c} type="button" onClick={() => addDrawWith(c)}
-                            className="text-[11px] px-2 py-0.5 rounded-full border hover:bg-accent" title="Add an empty row for this category">
-                            + {c}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              );
-            })()}
-            <datalist id="boq-line-match">
-              {lines.map((l) => (
-                <option key={l.id} value={l.dsr_code ?? l.description ?? ""}>
-                  {l.dsr_code ? `${l.dsr_code} — ` : ""}{l.description}
-                </option>
-              ))}
-            </datalist>
-            {drawRows.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-3 text-center">
-                No measurements yet — Add a row, name the requirement (a DSR code, or words like "16A socket"), enter the quantity.
-              </p>
-            ) : (
-              <table className="w-full text-sm min-w-[820px]">
-                <thead><tr className="text-xs text-muted-foreground text-left">
-                  <th className="py-1 font-medium">Requirement (DSR code or words)</th>
-                  <th className="font-medium w-16">Qty</th>
-                  <th className="font-medium w-16">Unit</th>
-                  <th className="font-medium w-28">Basis</th>
-                  <th className="font-medium">Location / Note</th>
-                  <th className="font-medium w-28">Type</th>
-                  <th className="font-medium w-40">Catalogue</th><th></th>
-                </tr></thead>
-                <tbody>
-                  {drawRows.map((r, i) => {
-                    const hasQty = r.qty != null && Number(r.qty) > 0;
-                    const valid = !!(r.match ?? "").trim() && hasQty;
-                    const equip = valid && (r.equipment ?? isEquipment(r.match));
-                    const scopeVal = r.scope ?? ((r.equipment ?? (valid && isEquipment(r.match))) ? "equipment" : "works");
-                    const cat = valid && !equip
-                      ? findCatalogueMatch(r.match, lines.map((l) => ({ code: l.dsr_code, label: l.description ?? "" })))
-                      : null;
-                    return (
-                    <tr key={i} className="border-t">
-                      <td className="py-1 pr-2">
-                        <Input list="boq-line-match" className="h-8" value={r.match} placeholder='e.g. 16A socket · TV point · 5.22.6'
-                          onChange={(e) => editDraw(i, { match: e.target.value })} />
-                      </td>
-                      <td className="pr-1"><Input className="h-8" type="number" value={r.qty ?? ""} placeholder="—"
-                        onChange={(e) => editDraw(i, { qty: e.target.value === "" ? null : Number(e.target.value) })} /></td>
-                      <td className="pr-1"><Input className="h-8" value={r.unit ?? ""} placeholder="nos"
-                        onChange={(e) => editDraw(i, { unit: e.target.value })} /></td>
-                      <td className="pr-2">
-                        {hasQty ? (
-                          <select className="h-8 rounded border bg-background px-1 text-sm" value={r.basis ?? "Counted"}
-                            onChange={(e) => editDraw(i, { basis: e.target.value as DrawingBasis })}>
-                            {(["Counted", "Measured", "Derived", "Assumed"] as const).map((b) => <option key={b} value={b}>{b}</option>)}
-                          </select>
-                        ) : (
-                          <span className="text-xs text-amber-600 dark:text-amber-500" title="No quantity yet — a basis is set once you enter a count">pending</span>
-                        )}
-                      </td>
-                      <td className="pr-2"><Input className="h-8" value={r.note ?? ""} placeholder="e.g. Living / TV area"
-                        onChange={(e) => editDraw(i, { note: e.target.value })} /></td>
-                      <td className="pr-2">
-                        <select className="h-8 rounded border bg-background px-1 text-sm" value={scopeVal}
-                          title="Works = contractor scope (priced) · Equipment = client-provided (not priced) · Needs confirmation = scope to be confirmed"
-                          onChange={(e) => { const v = e.target.value as NonNullable<DrawingItem["scope"]>; editDraw(i, { scope: v, equipment: v === "equipment" }); }}>
-                          <option value="works">Works</option>
-                          <option value="equipment">Equipment</option>
-                          <option value="needs_confirmation">Needs confirmation</option>
-                        </select>
-                      </td>
-                      <td className="pr-2 text-xs">
-                        {!valid ? ((r.match ?? "").trim()
-                            ? <span className="text-amber-600 dark:text-amber-500" title="Identified on the drawing — kept as an unpriced line until you enter a quantity">pending — enter qty</span>
-                            : <span className="text-muted-foreground">—</span>)
-                          : equip ? <span className="text-amber-600 dark:text-amber-500" title="Client equipment — added as a line but not priced in works by default">client equipment</span>
-                          : cat ? <span className="text-emerald-600 dark:text-emerald-400" title={cat.code ? `${cat.code} — ${cat.label}` : cat.label}>→ links to a catalogue item</span>
-                          : <span className="text-amber-600 dark:text-amber-500">＋ new item (no match)</span>}
-                      </td>
-                      <td><Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => delDraw(i)}>
-                        <Trash2 className="h-4 w-4 text-muted-foreground" /></Button></td>
-                    </tr>
-                  );})}
-                </tbody>
-              </table>
-            )}
-            <p className="text-[11px] text-muted-foreground mt-2">
-              Paste plain or as a list — locations are kept and the same item is summed across rooms. Every requirement becomes a
-              BOQ line: <span className="text-emerald-600 dark:text-emerald-400">links to a catalogue item</span> → priced from the DSR;
-              <span className="text-amber-600 dark:text-amber-500"> new item (no match)</span> → a valid line you price yourself;
-              <span className="text-amber-600 dark:text-amber-500"> client equipment</span> (the TV itself, a projector) → added but not priced in works.
-              Basis is Counted / Measured / Derived / Assumed. Room-by-room dimensions go in <b>Rooms</b>.
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {!present && showRooms && boq.project_id && (
-        <Card>
-          <CardHeader className="pb-2 flex-row items-center justify-between">
-            <div>
-              <CardTitle className="text-base">Rooms</CardTitle>
-              <p className="text-xs text-muted-foreground">
-                Drives finishing quantities. {draftDims.floorAreaSqft.toLocaleString("en-IN")} sqft floor · {draftDims.wallAreaSqft.toLocaleString("en-IN")} sqft wall · {draftDims.bathrooms} bath
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={addRoom}><Plus className="h-4 w-4 mr-1" />Add</Button>
-              <Button size="sm" onClick={saveRooms} disabled={savingRooms}>
-                {savingRooms && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}Save rooms
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            {draftRooms.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-3 text-center">No rooms yet — Add rooms so quantities are measured, not estimated.</p>
-            ) : (
-              <table className="w-full text-sm min-w-[560px]">
-                <thead><tr className="text-xs text-muted-foreground text-left">
-                  <th className="py-1 font-medium">Type</th><th className="font-medium">Label</th>
-                  <th className="font-medium w-14">L (ft)</th><th className="font-medium w-14">W (ft)</th>
-                  <th className="font-medium w-14">H (ft)</th><th className="font-medium w-12">Qty</th>
-                  <th className="font-medium w-14">Elec.</th><th></th>
-                </tr></thead>
-                <tbody>
-                  {draftRooms.map((r, i) => (
-                    <tr key={r.id} className="border-t">
-                      <td className="py-1 pr-2">
-                        <select className="h-8 rounded border bg-background px-1 text-sm" value={r.room_type}
-                          onChange={(e) => editRoom(i, { room_type: e.target.value })}>
-                          {ROOM_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                        </select>
-                      </td>
-                      <td className="pr-2"><Input className="h-8" value={r.name ?? ""} placeholder="e.g. Master"
-                        onChange={(e) => editRoom(i, { name: e.target.value })} /></td>
-                      {(["length_ft", "width_ft", "height_ft", "count", "electrical_points"] as const).map((f) => (
-                        <td key={f} className="pr-1"><Input className="h-8" type="number" value={r[f]}
-                          onChange={(e) => editRoom(i, { [f]: Number(e.target.value) })} /></td>
-                      ))}
-                      <td><Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => delRoom(i)}>
-                        <Trash2 className="h-4 w-4 text-muted-foreground" /></Button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </CardContent>
-        </Card>
       )}
 
       {!present && showBrowser && (
@@ -1465,7 +770,7 @@ export default function OpsBoqBuilder() {
           <CardContent>
             {schedule.rows.length === 0 ? (
               <p className="text-sm text-muted-foreground py-6 text-center">
-                No AOR coefficients matched these lines. Generate lines with DSR codes, or the AOR has no data for them.
+                No AOR coefficients matched these lines — add DSR-coded lines, or the AOR has no data for them.
               </p>
             ) : (
               (["material", "labour", "plant"] as const).map((kind) => {
@@ -1493,7 +798,7 @@ export default function OpsBoqBuilder() {
         <div className="p-8 flex justify-center"><Loader2 className="animate-spin" /></div>
       ) : lines.length === 0 ? (
         <Card><CardContent className="py-10 text-center text-muted-foreground">
-          No items yet — Prepare estimate, or add an item.
+          No items yet — add an item from the DSR, add a blank line, or import a BOQ from the project's BOQs tab.
         </CardContent></Card>
       ) : (
         bySubhead.map(({ no, name, rows, subtotal }) => (
@@ -1517,7 +822,7 @@ export default function OpsBoqBuilder() {
                     <div key={l.id} className="grid grid-cols-[1fr_4.5rem_3rem_5.5rem_6rem] items-start gap-x-3 py-1.5 border-b last:border-0">
                       <div className="min-w-0">
                         <span className="text-[11px] font-mono text-muted-foreground mr-1">{itemNo}</span>
-                        <span className="text-[13px] leading-snug text-foreground/90">{l.description}<span className="text-muted-foreground">{drawingSuffix(l, { short: true })}</span></span>
+                        <span className="text-[13px] leading-snug text-foreground/90">{l.description}</span>
                       </div>
                       <span className="text-sm tabular-nums text-right">{qtyTxt}</span>
                       <span className="text-xs text-muted-foreground">{l.unit}</span>
@@ -1531,26 +836,21 @@ export default function OpsBoqBuilder() {
                 return (
                   <div key={l.id} className={cn("border-b last:border-0", !l.included && "opacity-40")}>
                     <div className="grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_4.5rem_3rem_5rem_5.5rem_auto] items-start gap-x-3 gap-y-1 py-2">
-                      <input type="checkbox" className="mt-1" checked={l.included} disabled={l.superseded}
-                        title={l.superseded ? "Superseded by a drawing requirement — the drawing is authoritative for this scope" : undefined}
+                      <input type="checkbox" className="mt-1" checked={l.included}
                         onChange={(e) => updateLine(l.id, { included: e.target.checked })} />
-                      <div className="min-w-0 cursor-pointer" onClick={() => setExpanded(isExp ? null : l.id)} title="Show how this line is derived">
+                      <div className="min-w-0 cursor-pointer" onClick={() => setExpanded(isExp ? null : l.id)} title="Show how this line is priced">
                         <div className="text-[11px] font-mono text-accent-foreground/70 mb-0.5 flex items-center gap-1">
                           <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform", isExp && "rotate-180")} />
                           <span className="text-muted-foreground">{itemNo}</span>{l.dsr_code ?? "Priced separately"}
-                          {l.basis === "DRAWING_INPUT" && (
-                            <span className="text-emerald-600 dark:text-emerald-400 font-sans" title={l.basis_note ?? "From the drawing"}>drawing</span>
-                          )}
-                          {l.superseded && (
-                            <span className="text-amber-600 dark:text-amber-500 font-sans" title="A drawing requirement covers this scope — template quantity withheld">superseded by drawing</span>
-                          )}
                           {flagged && (
                             <span className="inline-flex items-center gap-0.5 text-amber-600 dark:text-amber-500 font-sans" title={flag.message ?? ""}>
                               <AlertTriangle className="h-3 w-3" />{flag.level}
                             </span>
                           )}
                         </div>
-                        <div className="text-[13px] leading-snug text-foreground/90">{l.description}<span className="text-muted-foreground">{drawingSuffix(l)}</span></div>
+                        <Input className="h-8 text-[13px] mb-1" defaultValue={l.description ?? ""} placeholder="Item description"
+                          onClick={(e) => e.stopPropagation()}
+                          onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== (l.description ?? "")) updateLine(l.id, { description: v }); }} />
                         {/* Mobile-only line summary — the qty/rate/amount columns are desktop-only, so surface the number here too. */}
                         <div className="text-[11px] text-muted-foreground sm:hidden mt-0.5">
                           {l.qty.toLocaleString("en-IN", { maximumFractionDigits: 2 })} {l.unit}
@@ -1559,7 +859,8 @@ export default function OpsBoqBuilder() {
                       </div>
                       <Input type="number" className="h-8 hidden sm:block" defaultValue={l.qty}
                         onBlur={(e) => { if (e.target.value.trim() === "") { e.target.value = String(l.qty); return; } const v = Number(e.target.value); if (Number.isFinite(v) && v !== l.qty) updateLine(l.id, { qty: v }); }} />
-                      <span className="text-xs text-muted-foreground hidden sm:block pt-2">{l.unit}</span>
+                      <Input className="h-8 hidden sm:block px-1 text-xs" defaultValue={l.unit ?? ""} placeholder="unit"
+                        onBlur={(e) => { const v = e.target.value.trim() || null; if (v !== l.unit) updateLine(l.id, { unit: v }); }} />
                       <Input type="number" className="h-8 hidden sm:block" defaultValue={rate ?? ""} placeholder="rate"
                         title={l.custom_rate != null ? "Your rate (overrides DSR)" : "DSR reference rate — edit to set your rate"}
                         onBlur={(e) => { const v = e.target.value === "" ? null : Number(e.target.value); if (v !== rate) updateLine(l.id, { custom_rate: v }); }} />
@@ -1573,64 +874,26 @@ export default function OpsBoqBuilder() {
                     {isExp && (() => {
                       const r = effRate(l);
                       const amount = r != null ? inr(l.qty * r) : "—";
-                      const coef = builtUp > 0 ? l.qty / builtUp : null;
-                      const maxWhy = l.dsr_code && breakdown.length > 0 ? 4 : 3;
-                      const nextLabel = whyLevel === 1 ? "How is this figured?" : whyLevel === 2 ? "Show the source" : "Full breakdown";
                       return (
                         <div className="ml-6 mb-2 rounded-md bg-muted/40 border p-3 text-xs space-y-2">
-                          {/* Level 1 — one plain sentence, no jargon */}
                           <div className="text-[13px] text-foreground">
-                            {coef != null && r != null ? (
-                              <>{coef.toFixed(coef < 1 ? 3 : 2)} {l.unit}/sqft × {builtUp.toLocaleString("en-IN")} sqft × {inr(r)} = <b>{amount}</b></>
-                            ) : (
-                              <>{l.qty.toLocaleString("en-IN", { maximumFractionDigits: 2 })} {l.unit} × {r != null ? inr(r) : "—"} = <b>{amount}</b></>
-                            )}
+                            {l.qty.toLocaleString("en-IN", { maximumFractionDigits: 2 })} {l.unit} × {r != null ? inr(r) : "—"} = <b>{amount}</b>
                             {l.custom_rate != null && <span className="text-emerald-600 dark:text-emerald-400"> (your rate)</span>}
                           </div>
                           {flag.message && <div className="text-amber-600 dark:text-amber-500">{flag.message}</div>}
-
-                          {/* Level 2 — basis */}
-                          {whyLevel >= 2 && (
-                            <div className="text-muted-foreground border-t pt-2">{tierBasis(boq.spec as Spec)}</div>
-                          )}
-
-                          {/* Level 3 — provenance: quantity basis and rate source kept distinct */}
-                          {whyLevel >= 3 && (
-                            <div className="border-t pt-2 space-y-1">
-                              {(() => {
-                                const bm = l.basis ? BASIS_META[l.basis as QtyBasis] : null;
-                                const showCode = l.dsr_code && l.basis !== "HEURISTIC";
-                                return (
-                                  <div>
-                                    <span className="text-muted-foreground">Quantity basis: </span>
-                                    {bm ? bm.label : (l.dsr_code ? "DSR / AOR methodology" : "Estimated (non-schedule item)")}
-                                    {showCode && <span className="font-mono"> — {l.dsr_code}</span>}
-                                  </div>
-                                );
-                              })()}
-                              {l.drawing && (
-                                <div className="text-muted-foreground">
-                                  Source: Drawing summary · {[l.drawing.basis, l.drawing.location, l.drawing.scope === "equipment" ? "Client equipment (excluded)" : "Works"].filter(Boolean).join(" · ")}
-                                </div>
-                              )}
-                              {!l.drawing && l.basis_note && <div className="text-muted-foreground">{l.basis_note}</div>}
-                              <div>
-                                <span className="text-muted-foreground">Rate: </span>
-                                {!l.dsr_code ? (
-                                  l.custom_rate != null
-                                    ? <>Your rate <b>{inr(l.custom_rate)}</b> · <span className="text-amber-600 dark:text-amber-500">no catalogue match</span></>
-                                    : <span className="text-amber-600 dark:text-amber-500">No catalogue match — set your rate</span>
-                                ) : l.custom_rate != null ? (
-                                  <>Your rate <b>{inr(l.custom_rate)}</b>{l.dsr_rate != null && <span className="text-muted-foreground"> · DSR reference {inr(l.dsr_rate)}</span>}</>
-                                ) : (
-                                  <>DSR reference rate <b>{l.dsr_rate != null ? inr(l.dsr_rate) : "—"}</b></>
-                                )}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Level 4 — full material + labour analysis */}
-                          {whyLevel >= 4 && breakdown.length > 0 && (
+                          <div className="border-t pt-2">
+                            <span className="text-muted-foreground">Rate: </span>
+                            {!l.dsr_code ? (
+                              l.custom_rate != null
+                                ? <>Your rate <b>{inr(l.custom_rate)}</b> · <span className="text-amber-600 dark:text-amber-500">no catalogue match</span></>
+                                : <span className="text-amber-600 dark:text-amber-500">No catalogue match — set your rate</span>
+                            ) : l.custom_rate != null ? (
+                              <>Your rate <b>{inr(l.custom_rate)}</b>{l.dsr_rate != null && <span className="text-muted-foreground"> · DSR reference {inr(l.dsr_rate)}</span>}</>
+                            ) : (
+                              <>DSR reference rate <b>{l.dsr_rate != null ? inr(l.dsr_rate) : "—"}</b></>
+                            )}
+                          </div>
+                          {breakdown.length > 0 && (
                             <div className="border-t pt-2">
                               <div className="text-muted-foreground mb-1">Consumes (per AOR × {l.qty.toLocaleString("en-IN", { maximumFractionDigits: 2 })} {l.unit}):</div>
                               <div className="grid grid-cols-[1fr_5rem_3rem] gap-x-3 gap-y-0.5">
@@ -1644,18 +907,6 @@ export default function OpsBoqBuilder() {
                               </div>
                             </div>
                           )}
-
-                          <div className="pt-1">
-                            {whyLevel < maxWhy ? (
-                              <button className="text-accent-foreground/80 underline underline-offset-2"
-                                onClick={(e) => { e.stopPropagation(); setWhyLevel((w) => Math.min(maxWhy, w + 1)); }}>
-                                {nextLabel}
-                              </button>
-                            ) : (
-                              <button className="text-muted-foreground underline underline-offset-2"
-                                onClick={(e) => { e.stopPropagation(); setWhyLevel(1); }}>Collapse</button>
-                            )}
-                          </div>
                         </div>
                       );
                     })()}

@@ -349,7 +349,7 @@ function OnboardWizard({ onDone }: { onDone: () => void }) {
       }
       toast.success("Project onboarded");
       if (thenBoq) {
-        navigate(`/ops/boq/new?project=${project.id}`);
+        navigate(`/ops/projects/${project.id}/boqs`);
         return;
       }
       onDone();
