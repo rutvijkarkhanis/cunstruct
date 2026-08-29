@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseBoqEvalJson, pendingCount, evalLinesToRows, PENDING_BASIS } from "./boqEvalJson";
+import { parseBoqEvalJson, pendingCount, evalLinesToRows, PENDING_BASIS, extractJson } from "./boqEvalJson";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -119,6 +119,71 @@ describe("parseBoqEvalJson — 5. invalid JSON / schema rejected", () => {
     expect(r.ok).toBe(true);
     expect(r.lines).toHaveLength(1);
     expect(r.warnings.some((w) => /no requirement/i.test(w))).toBe(true);
+  });
+});
+
+describe("robust extraction of pasted ChatGPT output", () => {
+  const names = (text: string) => parseBoqEvalJson(text).lines.map((l) => l.description);
+  const EXPECTED = ["WC", "Wardrobe", '55" TV', "Vitrified flooring"];
+
+  it("accepts raw JSON", () => {
+    const r = parseBoqEvalJson(CLEAN);
+    expect(r.ok).toBe(true);
+    expect(names(CLEAN)).toEqual(EXPECTED);
+  });
+
+  it("accepts JSON inside a ```json fence (with surrounding prose)", () => {
+    const text = "Here is the evaluation you asked for:\n\n```json\n" + CLEAN + "\n```\n\nLet me know if you need changes.";
+    const r = parseBoqEvalJson(text);
+    expect(r.ok).toBe(true);
+    expect(names(text)).toEqual(EXPECTED);
+  });
+
+  it("accepts JSON inside a bare ``` fence", () => {
+    const text = "```\n" + CLEAN + "\n```";
+    expect(parseBoqEvalJson(text).ok).toBe(true);
+  });
+
+  it("accepts leading/trailing whitespace and blank lines", () => {
+    const text = "\n\n   \n" + CLEAN + "\n\n   \t\n";
+    expect(parseBoqEvalJson(text).ok).toBe(true);
+    expect(names(text)).toEqual(EXPECTED);
+  });
+
+  it("extracts a JSON object surrounded by explanatory prose (leading and trailing)", () => {
+    const text = "Sure! Based on the drawing, here is the BOQ scope inventory. " + CLEAN + " Please confirm the wardrobe run length before pricing.";
+    const r = parseBoqEvalJson(text);
+    expect(r.ok).toBe(true);
+    expect(names(text)).toEqual(EXPECTED);
+  });
+
+  it("extracts the JSON even when the prose contains stray braces", () => {
+    const text = "Confirm switchboard {SB1} and {SB2}.\n\n" + CLEAN + "\n\nNote: verify {panel} location.";
+    const r = parseBoqEvalJson(text);
+    expect(r.ok).toBe(true);
+    expect(names(text)).toEqual(EXPECTED);
+  });
+
+  it("still rejects genuinely invalid JSON (malformed object)", () => {
+    const r = parseBoqEvalJson('{ "requirements": [ { "requirement": "WC", qty: 4 } ] }'); // unquoted key
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/invalid json/i);
+    expect(r.lines).toHaveLength(0);
+  });
+
+  it("still rejects prose with no JSON at all", () => {
+    const r = parseBoqEvalJson("I couldn't read the drawing clearly, please re-send it.");
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/invalid json/i);
+  });
+
+  it("extractJson: same parsed value from raw, fenced, and prose-wrapped forms", () => {
+    const raw = extractJson(CLEAN);
+    expect(extractJson("```json\n" + CLEAN + "\n```")).toEqual(raw);
+    expect(extractJson("intro text " + CLEAN + " outro text")).toEqual(raw);
+    expect(extractJson("   " + CLEAN + "   ")).toEqual(raw);
+    expect(extractJson("no json here")).toBeUndefined();
+    expect(extractJson("")).toBeUndefined();
   });
 });
 
