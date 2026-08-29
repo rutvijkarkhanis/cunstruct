@@ -45,7 +45,6 @@ const OpsProjections = lazy(() => import("./pages/ops/OpsProjections.tsx"));
 const OpsOnboarding = lazy(() => import("./pages/ops/OpsOnboarding.tsx"));
 const OpsBoqTemplates = lazy(() => import("./pages/ops/OpsBoqTemplates.tsx"));
 const OpsBoqList = lazy(() => import("./pages/ops/OpsBoqList.tsx"));
-const OpsBoqNew = lazy(() => import("./pages/ops/OpsBoqNew.tsx"));
 const OpsBoqBuilder = lazy(() => import("./pages/ops/OpsBoqBuilder.tsx"));
 
 const PageLoader = () => (
@@ -144,7 +143,6 @@ function AppRoutes() {
         <Route path="onboarding" element={<OpsOnboarding />} />
         <Route path="boq-templates" element={<OpsBoqTemplates />} />
         <Route path="boq" element={<OpsBoqList />} />
-        <Route path="boq/new" element={<OpsBoqNew />} />
         <Route path="boq/:id" element={<OpsBoqBuilder />} />
       </Route>
       {/* Anything else (storefront paths) → back to the main domain */}

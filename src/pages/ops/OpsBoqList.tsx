@@ -85,9 +85,9 @@ export default function OpsBoqList() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold flex items-center gap-2"><Calculator className="h-5 w-5" /> BOQ</h1>
-          <p className="text-sm text-muted-foreground">Multi-discipline bills of quantities, rolled up per project.</p>
+          <p className="text-sm text-muted-foreground">All bills of quantities, rolled up per project. Create BOQs inside a project.</p>
         </div>
-        <Button onClick={() => navigate("/ops/boq/new")}><Plus className="h-4 w-4 mr-2" /> New BOQ</Button>
+        <Button variant="outline" onClick={() => navigate("/ops/projects")}>Projects</Button>
       </div>
 
       {isLoading ? (
