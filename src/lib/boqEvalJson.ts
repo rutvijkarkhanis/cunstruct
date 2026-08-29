@@ -81,6 +81,20 @@ function tryParse(s: string): unknown | undefined {
   try { return JSON.parse(s); } catch { return undefined; }
 }
 
+/** Deterministically normalise the punctuation that word processors, chat UIs and
+ *  copy-paste substitute for JSON's ASCII delimiters — smart/curly quotes, primes,
+ *  fullwidth quotes, non-breaking and zero-width spaces, and a BOM. This ONLY maps
+ *  characters to their ASCII equivalents; it never restructures the JSON, so
+ *  genuinely malformed JSON still fails to parse. */
+function normalizePunct(s: string): string {
+  return s
+    .replace(/\uFEFF/g, "")                                    // byte-order mark
+    .replace(/[\u200B-\u200D\u2060]/g, "")                     // zero-width spaces / joiners
+    .replace(/[\u00A0\u2007\u202F]/g, " ")                     // non-breaking / narrow spaces -> space
+    .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036\uFF02]/g, String.fromCharCode(34))  // smart/prime/fullwidth double -> "
+    .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035\uFF07]/g, String.fromCharCode(39)); // smart/prime/fullwidth single -> '
+}
+
 /** Index of the char that closes the JSON value opening at `start` ({ or [),
  *  honouring string literals and escapes so braces inside strings don't count.
  *  Returns -1 if the value never closes (unbalanced). */
@@ -127,10 +141,11 @@ function balancedRegions(s: string): string[] {
 /**
  * Deterministically pull the JSON value out of pasted text. Handles raw JSON, JSON
  * inside a ```json … ``` (or bare ```` ``` ````) fence, leading/trailing whitespace,
- * and a valid JSON object accidentally surrounded by explanatory prose (even prose
- * that itself contains stray braces). No repair of the JSON's *content* — genuinely
- * invalid JSON yields `undefined`. Returns the parsed value, or `undefined` if no
- * valid JSON object/array is present.
+ * smart/curly quotes and other pasted punctuation, and a valid JSON object
+ * accidentally surrounded by explanatory prose (even prose that itself contains stray
+ * braces). Only punctuation is normalised — the JSON's *structure* is never repaired,
+ * so genuinely invalid JSON yields `undefined`. Returns the parsed value, or
+ * `undefined` if no valid JSON object/array is present.
  */
 export function extractJson(text: string): unknown | undefined {
   let t = (text ?? "").trim();
@@ -138,12 +153,17 @@ export function extractJson(text: string): unknown | undefined {
   // Prefer a fenced block's contents when present (```json … ``` or ``` … ```).
   const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(t);
   if (fence && fence[1].trim()) t = fence[1].trim();
-  // 1) The whole (trimmed) string is JSON — the common case.
-  const whole = tryParse(t);
-  if (whole !== undefined) return whole;
-  // 2) A JSON value is embedded in surrounding prose: scan every balanced region
-  //    and take the first that parses, preferring one that carries requirements/items.
-  const parsed = balancedRegions(t).map(tryParse).filter((v) => v !== undefined);
+  // Try the raw text first so already-valid JSON is returned byte-for-byte; only if
+  // that fails do we normalise smart quotes / stray spaces and try again. Region
+  // scanning runs on the normalised text so curly-quoted strings track correctly.
+  const n = normalizePunct(t);
+  for (const cand of t === n ? [t] : [t, n]) {
+    const whole = tryParse(cand);
+    if (whole !== undefined) return whole;
+  }
+  // A JSON value is embedded in surrounding prose: scan every balanced region and
+  // take the first that parses, preferring one that carries requirements/items.
+  const parsed = balancedRegions(n).map(tryParse).filter((v) => v !== undefined);
   if (!parsed.length) return undefined;
   const withReq = parsed.find((v) => {
     if (Array.isArray(v)) return v.length > 0;
