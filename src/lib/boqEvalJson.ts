@@ -77,13 +77,80 @@ function normScope(v: unknown): EvalScope | undefined {
   return undefined;
 }
 
-/** Strip a leading/trailing markdown code fence (```json … ```) if present. The JSON
- *  itself is NOT otherwise repaired — invalid JSON is rejected, not guessed at. */
-function stripFence(text: string): string {
-  let t = text.trim();
-  const fence = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(t);
-  if (fence) t = fence[1].trim();
-  return t;
+function tryParse(s: string): unknown | undefined {
+  try { return JSON.parse(s); } catch { return undefined; }
+}
+
+/** Index of the char that closes the JSON value opening at `start` ({ or [),
+ *  honouring string literals and escapes so braces inside strings don't count.
+ *  Returns -1 if the value never closes (unbalanced). */
+function matchEnd(s: string, start: number): number {
+  let depth = 0, inStr = false, esc = false;
+  for (let i = start; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === "{" || c === "[") depth++;
+    else if (c === "}" || c === "]") { depth--; if (depth === 0) return i; }
+  }
+  return -1;
+}
+
+/** Every top-level balanced { … } / [ … ] region in the text, in order. Prose
+ *  between regions (even prose containing stray braces) is skipped. */
+function balancedRegions(s: string): string[] {
+  const out: string[] = [];
+  let i = 0, inStr = false, esc = false;
+  while (i < s.length) {
+    const c = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+      i++; continue;
+    }
+    if (c === '"') { inStr = true; i++; continue; }
+    if (c === "{" || c === "[") {
+      const end = matchEnd(s, i);
+      if (end > i) { out.push(s.slice(i, end + 1)); i = end + 1; continue; }
+    }
+    i++;
+  }
+  return out;
+}
+
+/**
+ * Deterministically pull the JSON value out of pasted text. Handles raw JSON, JSON
+ * inside a ```json … ``` (or bare ```` ``` ````) fence, leading/trailing whitespace,
+ * and a valid JSON object accidentally surrounded by explanatory prose (even prose
+ * that itself contains stray braces). No repair of the JSON's *content* — genuinely
+ * invalid JSON yields `undefined`. Returns the parsed value, or `undefined` if no
+ * valid JSON object/array is present.
+ */
+export function extractJson(text: string): unknown | undefined {
+  let t = (text ?? "").trim();
+  if (!t) return undefined;
+  // Prefer a fenced block's contents when present (```json … ``` or ``` … ```).
+  const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(t);
+  if (fence && fence[1].trim()) t = fence[1].trim();
+  // 1) The whole (trimmed) string is JSON — the common case.
+  const whole = tryParse(t);
+  if (whole !== undefined) return whole;
+  // 2) A JSON value is embedded in surrounding prose: scan every balanced region
+  //    and take the first that parses, preferring one that carries requirements/items.
+  const parsed = balancedRegions(t).map(tryParse).filter((v) => v !== undefined);
+  if (!parsed.length) return undefined;
+  const withReq = parsed.find((v) => {
+    if (Array.isArray(v)) return v.length > 0;
+    const o = v as Record<string, unknown>;
+    return !!o && typeof o === "object" && (Array.isArray(o.requirements) || Array.isArray(o.items));
+  });
+  return withReq ?? parsed[0];
 }
 
 /**
@@ -97,14 +164,13 @@ function stripFence(text: string): string {
  */
 export function parseBoqEvalJson(text: string): EvalImportResult {
   const warnings: string[] = [];
-  const raw = stripFence(text ?? "");
-  if (!raw) return { ok: false, error: "Paste the evaluation JSON to import.", lines: [], warnings };
+  if (!(text ?? "").trim()) return { ok: false, error: "Paste the evaluation JSON to import.", lines: [], warnings };
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (e) {
-    return { ok: false, error: `Invalid JSON — ${e instanceof Error ? e.message : "could not parse"}.`, lines: [], warnings };
+  // Robust, deterministic extraction: raw JSON, fenced JSON, whitespace, or a valid
+  // JSON object surrounded by explanatory prose. Genuinely invalid JSON → rejected.
+  const parsed = extractJson(text);
+  if (parsed === undefined) {
+    return { ok: false, error: "Invalid JSON — no JSON object found in the pasted text.", lines: [], warnings };
   }
 
   // Accept either the full evaluation object ({ requirements: [...] }) or a bare
