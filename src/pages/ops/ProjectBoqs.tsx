@@ -131,8 +131,8 @@ export default function ProjectBoqs() {
     } finally { setBusy(false); }
   };
 
-  // Import an existing BOQ: create the BOQ (no drawing analysis) and insert its lines
-  // verbatim as manual lines. The user's quantities/rates are the source of truth.
+  // Import an existing BOQ: create the BOQ and insert its lines verbatim as manual
+  // lines, never re-interpreted. The user's quantities/rates are the source of truth.
   const importBoq = async () => {
     if (!projectId) return;
     if (!name.trim()) return toast.error("Enter a BOQ name");
@@ -311,8 +311,8 @@ export default function ProjectBoqs() {
       {mode === "import" && (
         <Card><CardContent className="p-4 space-y-3">
           <p className="text-sm text-muted-foreground">
-            Import a BOQ you already have — its lines, quantities, units and rates are kept exactly as given. No drawing analysis runs.
-            Paste rows from Excel/Google Sheets, or upload a CSV.
+            Import a BOQ you already have — its lines, quantities, units and rates are kept exactly as given and never
+            re-interpreted. Paste rows from Excel/Google Sheets, or upload a CSV.
           </p>
           {ScopeFields}
           <div className="space-y-1">
