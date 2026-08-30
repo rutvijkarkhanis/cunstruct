@@ -439,43 +439,6 @@ export function buildBoqCsv(
   return lines.join("\r\n");
 }
 
-export interface ProjectCsvRow extends CsvRow { boq: string; scope: string; }
-
-/** One combined CSV for every BOQ in a project: each line carries its BOQ and Scope,
- *  grouped with a per-BOQ subtotal and a project grand total. Amounts are computed
- *  from the effective rate (a rate-pending line leaves Rate/Amount blank — never a
- *  fabricated 0). Opens in Excel. */
-export function buildProjectBoqsCsv(meta: { project: string; generatedOn: string; boqCount: number }, rows: ProjectCsvRow[]): string {
-  const head = ["BOQ", "Scope", "Sub-head", "Item", "Code", "Specification", "Unit", "Qty", "Rate (excl GST)", "Amount"];
-  const lines: string[] = [
-    csvCell(`Bills of Quantities — ${meta.project}`),
-    csvCell(`${meta.boqCount} BOQ${meta.boqCount === 1 ? "" : "s"}  ·  ${meta.generatedOn}  ·  Amounts exclude GST`),
-    "",
-    head.map(csvCell).join(","),
-  ];
-  // Group rows by BOQ (rows arrive already ordered by BOQ then line order).
-  const groups: { boq: string; scope: string; rows: ProjectCsvRow[] }[] = [];
-  for (const r of rows) {
-    const g = groups[groups.length - 1];
-    if (!g || g.boq !== r.boq) groups.push({ boq: r.boq, scope: r.scope, rows: [r] });
-    else g.rows.push(r);
-  }
-  let grand = 0;
-  for (const g of groups) {
-    let subtotal = 0;
-    for (const r of g.rows) {
-      const amount = r.rate != null ? roundRupee(r.qty * r.rate) : null;
-      if (amount != null) subtotal += amount;
-      lines.push([r.boq, r.scope, r.subhead, r.itemNo, r.code ?? "", r.spec, r.unit, r.qty, r.rate ?? "", amount ?? ""].map(csvCell).join(","));
-    }
-    grand += subtotal;
-    lines.push([g.boq, g.scope, "", "", "", `${g.boq} — subtotal`, "", "", "", subtotal].map(csvCell).join(","));
-    lines.push("");
-  }
-  lines.push(["", "", "", "", "", "PROJECT TOTAL", "", "", "", grand].map(csvCell).join(","));
-  return lines.join("\r\n");
-}
-
 /** Trigger a client-side download of a .csv (opens in Excel). */
 export function downloadCsv(filename: string, csv: string): void {
   const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
@@ -495,6 +458,165 @@ export function openDsrQuote(p: DsrQuotePayload, opts?: { autoPrint?: boolean })
   if (!w) return false;
   w.document.open();
   w.document.write(buildDsrQuoteHtml(p, opts));
+  w.document.close();
+  return true;
+}
+
+// ---- Combined project quote (all BOQs, one shareable client PDF) ------------
+export interface ProjectQuoteBoq {
+  name: string;
+  scope?: string | null;
+  subheads: QuoteSubHead[];
+  commercials: QuoteCommercials;   // computed from this BOQ's own commercial percentages
+}
+export interface ProjectQuotePayload {
+  projectName: string;
+  clientName?: string | null;
+  location?: string | null;
+  projectType?: string | null;
+  floors?: number | null;
+  builtUpSqft?: number | null;
+  generatedOn: string;
+  /** "firm" = your letterhead (for approval); "client" = the client's name, no firm
+   *  branding (the final version to hand over). */
+  branding: "firm" | "client";
+  firmName?: string | null;
+  firmTagline?: string | null;
+}
+
+/** One combined, client-facing priced quote covering every BOQ in the project. Each
+ *  BOQ is its own section with a priced table and total; a project abstract sums the
+ *  per-BOQ totals to a grand total. Rate-pending lines show a blank amount (never a
+ *  fabricated 0). Branding is either the firm's letterhead or the client's name only. */
+export function buildProjectQuoteHtml(p: ProjectQuotePayload, boqs: ProjectQuoteBoq[], opts?: { autoPrint?: boolean }): string {
+  const client = !!p.clientName && p.branding === "client";
+  const meta = [
+    p.clientName ? `Client: ${esc(p.clientName)}` : "",
+    p.location ? `Location: ${esc(p.location)}` : "",
+    p.projectType ? `Type: ${esc(p.projectType)}` : "",
+    p.floors ? `Floors: ${esc(p.floors)}` : "",
+    p.builtUpSqft ? `Built-up: ${esc(p.builtUpSqft)} sqft` : "",
+  ].filter(Boolean).join(" &nbsp;·&nbsp; ");
+
+  const section = (b: ProjectQuoteBoq, i: number) => {
+    const rows = b.subheads.map((sh) => `
+      <tr class="sub"><td colspan="6">${sh.no}.00 &nbsp; ${esc(sh.name).toUpperCase()}<span class="ssub">${inr(sh.subtotal)}</span></td></tr>
+      ${sh.lines.map((l) => `
+        <tr>
+          <td class="no">${esc(l.no)}</td>
+          <td class="spec">${l.code ? `<span class="code">${esc(l.code)}</span>` : ""}${esc(l.spec)}</td>
+          <td class="num">${qtyFmt(l.qty)}</td>
+          <td class="unit">${esc(l.unit)}</td>
+          <td class="num">${inr(l.rate)}</td>
+          <td class="num amt">${inr(l.amount)}</td>
+        </tr>`).join("")}`).join("");
+    const c = b.commercials;
+    const wrow = (label: string, amt: number, show: boolean) =>
+      show ? `<tr><td>${label}</td><td class="num">${inr(amt)}</td></tr>` : "";
+    return `
+      <h2>${i + 1}. ${esc(b.name)}${b.scope ? ` <span style="color:#889;font-weight:400;text-transform:none">— ${esc(b.scope)}</span>` : ""}</h2>
+      <table>
+        <thead><tr><th>Sl. No</th><th>Description</th><th class="num">Qty</th><th>Unit</th><th class="num">Rate (excl. GST)</th><th class="num">Amount (excl. GST)</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="6">No priced items.</td></tr>`}</tbody>
+      </table>
+      <table class="summary">
+        <tr><td>Cost of works (excl. GST)</td><td class="num">${inr(c.works)}</td></tr>
+        ${wrow(`Add: Cost index @ ${c.costIndexPct}%`, c.costIndexAmt, c.costIndexPct !== 0)}
+        ${wrow(`Add: Contingencies @ ${c.contingencyPct}%`, c.contingencyAmt, c.contingencyPct !== 0)}
+        ${wrow(`Add: Overhead &amp; profit @ ${c.overheadPct}%`, c.overheadAmt, c.overheadPct !== 0)}
+        ${wrow(`Add: Labour cess @ ${c.cessPct}%`, c.cessAmt, c.cessPct !== 0)}
+        ${wrow(`Add: GST @ ${c.gstPct}%`, c.gstAmt, c.gstPct !== 0)}
+        <tr class="grand"><td>${esc(b.name)} total</td><td class="num">${inr(c.grandTotal)}</td></tr>
+      </table>`;
+  };
+
+  const projectTotal = boqs.reduce((s, b) => s + b.commercials.grandTotal, 0);
+  const abstractRows = boqs.map((b, i) => `
+    <tr><td class="no">${i + 1}</td><td>${esc(b.name)}${b.scope ? ` — ${esc(b.scope)}` : ""}</td><td class="num">${inr(b.commercials.grandTotal)}</td></tr>`).join("");
+  const abstract = `
+    <div class="pagebreak"></div>
+    <h2>Project Abstract</h2>
+    <table class="abstract">
+      <thead><tr><th>#</th><th>Bill of Quantities</th><th class="num">Amount (incl. GST)</th></tr></thead>
+      <tbody>${abstractRows}</tbody>
+    </table>
+    <table class="summary">
+      <tr class="grand"><td>Project grand total</td><td class="num">${inr(projectTotal)}</td></tr>
+      <tr class="words"><td colspan="2">Rupees ${esc(amountInWords(projectTotal))} only</td></tr>
+    </table>`;
+
+  const brand = p.branding === "firm" && p.firmName ? `<div class="brand">${esc(p.firmName)}</div>${p.firmTagline ? `<div class="tagline">${esc(p.firmTagline)}</div>` : ""}` : "";
+
+  return `<!doctype html><html><head><meta charset="utf-8"><title>BOQ — ${esc(p.projectName)}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color:#1b2233; margin:0; padding:32px; font-size:12px; }
+  .head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid #f59e0b; padding-bottom:14px; margin-bottom:18px; }
+  .brand { font-size:22px; font-weight:800; letter-spacing:-0.5px; }
+  .tagline { font-size:11px; color:#778; margin-top:-2px; margin-bottom:2px; }
+  .doc-title { text-align:right; font-size:12px; color:#667; }
+  h1 { font-size:18px; margin:4px 0 2px; }
+  .meta { font-size:11.5px; color:#556; margin-bottom:4px; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:0.6px; color:#334; border-bottom:1px solid #e5e7eb; padding-bottom:6px; margin:26px 0 8px; }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; color:#889; font-weight:600; font-size:10px; text-transform:uppercase; letter-spacing:0.4px; padding:7px 8px; border-bottom:1.5px solid #cdd3dd; background:#f7f8fa; }
+  th.num { text-align:right; }
+  td { padding:6px 8px; border-bottom:1px solid #f1f2f4; vertical-align:top; }
+  td.num, th.num { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  td.no { color:#556; white-space:nowrap; width:44px; font-variant-numeric:tabular-nums; }
+  td.unit { color:#778; width:52px; }
+  td.amt { font-weight:600; }
+  td.spec { line-height:1.45; }
+  td.spec .code { display:inline-block; font-family:ui-monospace,Menlo,monospace; font-size:10px; color:#b06d08; background:#fdf4e3; padding:0 5px; border-radius:3px; margin-right:6px; white-space:nowrap; }
+  tr.sub td { background:#1b2233; color:#fff; font-weight:700; font-size:12px; padding:8px 8px; letter-spacing:.02em; }
+  tr.sub .ssub { float:right; font-weight:700; color:#f7c877; }
+  .summary { width:380px; margin-left:auto; margin-top:14px; }
+  .summary td { border:none; padding:6px 8px; font-size:12.5px; color:#445; }
+  .summary td.num { color:#1b2233; font-weight:600; }
+  .summary tr.grand td { border-top:2px solid #1b2233; font-size:16px; font-weight:800; color:#1b2233; padding-top:10px; }
+  .summary tr.words td { font-style:italic; color:#556; font-size:11.5px; padding-top:2px; }
+  .abstract { max-width:520px; }
+  .abstract td { font-size:12.5px; }
+  .foot { margin-top:26px; font-size:10px; color:#99a; border-top:1px solid #eee; padding-top:10px; line-height:1.5; }
+  .toolbar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; background:#1b2233; color:#fff; padding:10px 14px; border-radius:8px; margin-bottom:18px; font-size:12.5px; }
+  .toolbar button { background:#f7c877; color:#1b2233; border:none; border-radius:6px; padding:8px 16px; font-size:13px; font-weight:700; cursor:pointer; }
+  .toolbar .hint { color:#c9ced8; }
+  @media print { body { padding:0; } tr { break-inside:avoid; } .pagebreak { break-before:page; } .no-print { display:none !important; } }
+</style></head><body>
+  <div class="toolbar no-print">
+    <button type="button" onclick="window.print()">&#8681;&nbsp; Save as PDF</button>
+    <span class="hint">Opens your browser's print dialog — choose <b>Save as PDF</b> to download this quote.</span>
+  </div>
+  <div class="head">
+    <div>
+      ${brand}
+      <h1>${esc(p.projectName)}</h1>
+      <div class="meta">${meta}</div>
+      ${client ? `<div class="meta">Prepared for: <b>${esc(p.clientName)}</b></div>` : ""}
+    </div>
+    <div class="doc-title">Priced Bill of Quantities<br>${esc(p.generatedOn)}</div>
+  </div>
+
+  ${boqs.map(section).join("\n")}
+
+  ${abstract}
+
+  <div class="foot">
+    <b>Basis &amp; conditions.</b> Quantities are established from the supplied drawings and project inputs; rates are composite rates
+    (material, labour and installation), exclusive of GST unless stated, and are confirmed separately. This is a private-project quotation and is
+    not priced on any government schedule of rates. Final measurements and specifications should be verified before execution. This quotation is
+    indicative and valid for 15 days from the date above.
+  </div>
+
+  ${opts?.autoPrint === false ? "" : `<script>(function(){function pr(){try{window.focus();window.print();}catch(e){}}if(document.readyState==="complete"){setTimeout(pr,300);}else{window.addEventListener("load",function(){setTimeout(pr,300);});}})();</script>`}
+</body></html>`;
+}
+
+export function openProjectQuote(p: ProjectQuotePayload, boqs: ProjectQuoteBoq[], opts?: { autoPrint?: boolean }): boolean {
+  const w = window.open("", "_blank");
+  if (!w) return false;
+  w.document.open();
+  w.document.write(buildProjectQuoteHtml(p, boqs, opts));
   w.document.close();
   return true;
 }

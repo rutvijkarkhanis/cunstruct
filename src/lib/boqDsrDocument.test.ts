@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeCommercials, amountInWords, buildBoqCsv, buildProjectBoqsCsv, type ProjectCsvRow } from "./boqDsrDocument";
+import { computeCommercials, amountInWords, buildBoqCsv, buildProjectQuoteHtml, type ProjectQuoteBoq } from "./boqDsrDocument";
 
 describe("computeCommercials (CPWD abstract)", () => {
   it("applies cost index, contingency, overhead, cess, then GST in order", () => {
@@ -63,28 +63,38 @@ describe("buildBoqCsv", () => {
   });
 });
 
-describe("buildProjectBoqsCsv", () => {
-  const rows: ProjectCsvRow[] = [
-    { boq: "Floor 1 Civil", scope: "Floor 1", subhead: "Sanitary", itemNo: "1", code: "17.2.1", spec: "WC", unit: "nos", qty: 4, rate: 6500 },
-    { boq: "Floor 1 Civil", scope: "Floor 1", subhead: "Sanitary", itemNo: "2", code: null, spec: "Wardrobe (qty pending)", unit: "nos", qty: 0, rate: null },
-    { boq: "Terrace", scope: "Terrace", subhead: "Waterproofing", itemNo: "1", code: null, spec: "OHT waterproofing", unit: "sqm", qty: 50, rate: 300 },
-  ];
-  const csv = buildProjectBoqsCsv({ project: "Srikakulam", generatedOn: "1 Sep 2026", boqCount: 2 }, rows);
+describe("buildProjectQuoteHtml (combined client quote)", () => {
+  const mkBoq = (name: string, scope: string, works: number): ProjectQuoteBoq => ({
+    name, scope,
+    subheads: [{ no: 1, name: "Works", subtotal: works, lines: [
+      { no: "1.01", code: null, spec: `${name} item`, qty: 1, unit: "nos", rate: works, amount: works },
+    ] }],
+    commercials: computeCommercials(works, { costIndexPct: 0, contingencyPct: 0, overheadPct: 0, cessPct: 0, gstPct: 18 }),
+  });
+  const boqs = [mkBoq("Floor 1", "Floor 1", 100000), mkBoq("Terrace", "Terrace", 50000)];
+  const base = { projectName: "Srikakulam", clientName: "Dr. Sandeep", generatedOn: "1 Sep 2026" } as const;
 
-  it("carries a BOQ + Scope column and a header", () => {
-    expect(csv).toContain("Bills of Quantities — Srikakulam");
-    expect(csv.split("\r\n")[3]).toContain("BOQ,Scope,Sub-head,Item,Code,Specification,Unit,Qty,Rate (excl GST),Amount");
+  it("firm version shows the firm letterhead and not the client-addressed line", () => {
+    const html = buildProjectQuoteHtml({ ...base, branding: "firm", firmName: "The Grid Architects", firmTagline: "architects" }, boqs, { autoPrint: false });
+    expect(html).toContain("The Grid Architects");
+    expect(html).not.toContain("Prepared for:");
   });
-  it("computes amounts from the effective rate and leaves rate-pending lines blank", () => {
-    expect(csv).toContain("Floor 1 Civil,Floor 1,Sanitary,1,17.2.1,WC,nos,4,6500,26000");
-    // pending line: no rate, no amount (never a fabricated 0)
-    expect(csv).toMatch(/Wardrobe \(qty pending\),nos,0,,/);
+
+  it("client version shows the client name and drops all firm branding", () => {
+    const html = buildProjectQuoteHtml({ ...base, branding: "client", firmName: "The Grid Architects" }, boqs, { autoPrint: false });
+    expect(html).toContain("Prepared for:");
+    expect(html).toContain("Dr. Sandeep");
+    expect(html).not.toContain("The Grid Architects");   // no firm logo on the final
+    expect(html).not.toMatch(/cun<span>/);               // no Cunstruct brand
   });
-  it("emits a per-BOQ subtotal and a project grand total", () => {
-    expect(csv).toContain("Floor 1 Civil — subtotal");
-    expect(csv).toMatch(/Floor 1 Civil — subtotal,,,,26000/);
-    expect(csv).toMatch(/Terrace — subtotal,,,,15000/);
-    expect(csv).toMatch(/PROJECT TOTAL,,,,41000/);   // 26000 + 15000
+
+  it("renders each BOQ as a section and sums per-BOQ totals into a project grand total", () => {
+    const html = buildProjectQuoteHtml({ ...base, branding: "firm" }, boqs, { autoPrint: false });
+    expect(html).toContain("1. Floor 1");
+    expect(html).toContain("2. Terrace");
+    expect(html).toContain("Project grand total");
+    // 100000*1.18 + 50000*1.18 = 118000 + 59000 = 177000
+    expect(html).toContain("₹1,77,000");
   });
 });
 

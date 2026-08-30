@@ -9,16 +9,16 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Plus, Upload, ChevronUp, ChevronDown, Trash2, Pencil, Check, X, Layers, FolderInput, Braces, Download } from "lucide-react";
+import { Plus, Upload, ChevronUp, ChevronDown, Trash2, Pencil, Check, X, Layers, FolderInput, Braces, FileText } from "lucide-react";
 import { SCOPE_KINDS, type ProjectScope } from "@/lib/projectDocs";
 import { parseBoqImport } from "@/lib/boqImport";
 import { parseBoqEvalJson, evalLinesToRows, pendingCount } from "@/lib/boqEvalJson";
-import { buildProjectBoqsCsv, downloadCsv, type ProjectCsvRow } from "@/lib/boqDsrDocument";
+import { computeCommercials, roundRupee, openProjectQuote, type ProjectQuoteBoq, type QuoteSubHead } from "@/lib/boqDsrDocument";
 
 interface BoqRow { id: string; name: string; description: string | null; scope_id: string | null; sort: number; status: string; }
 interface MovableBoq { id: string; name: string; project_id: string | null; scope_id: string | null; updated_at: string; }
 const NEW_SCOPE = "__new__";
-type Mode = null | "create" | "import" | "move" | "json";
+type Mode = null | "create" | "import" | "move" | "json" | "share";
 
 // Insert eval-derived boq_line rows, retrying without the optional provenance
 // columns (basis / basis_note) on a stale DB that hasn't run that migration.
@@ -71,12 +71,13 @@ export default function ProjectBoqs() {
     },
   });
 
-  const { data: projectName } = useQuery({
-    queryKey: ["project-name", projectId],
+  const { data: project } = useQuery({
+    queryKey: ["project-meta", projectId],
     enabled: !!projectId,
     queryFn: async () => {
-      const { data } = await supabase.from("projects").select("name").eq("id", projectId!).single();
-      return (data as { name: string } | null)?.name ?? "Project";
+      const { data } = await supabase.from("projects")
+        .select("name, client_name, location, project_type, floors, area_sqft").eq("id", projectId!).single();
+      return data as { name: string; client_name: string | null; location: string | null; project_type: string | null; floors: number | null; area_sqft: number | null } | null;
     },
   });
 
@@ -238,43 +239,82 @@ export default function ProjectBoqs() {
     } finally { setBusy(false); }
   };
 
-  // Download every BOQ in this project as one combined CSV (each line tagged with its
-  // BOQ + Scope, per-BOQ subtotals, a project grand total). Opens in Excel.
-  const [downloading, setDownloading] = useState(false);
-  const downloadAll = async () => {
+  // ---- Share with client: one combined priced PDF of all BOQs ---------------
+  const [sharing, setSharing] = useState(false);
+  const [clientName, setClientName] = useState("");
+  const [firmName, setFirmName] = useState("");
+  const [firmTagline, setFirmTagline] = useState("");
+
+  // Group one BOQ's included, quantified lines into numbered sub-heads (same ordering
+  // as the builder: by DSR chapter, then name), each with a priced subtotal.
+  const subheadsFromLines = (lns: { section: string | null; dsr_code: string | null; description: string | null; unit: string | null; qty: number; dsr_rate: number | null; custom_rate: number | null }[]): QuoteSubHead[] => {
+    const groups = new Map<string, typeof lns>();
+    for (const l of lns) { const sec = l.section ?? "Other"; const a = groups.get(sec) ?? []; a.push(l); groups.set(sec, a); }
+    const chapterNo = (g: typeof lns) => { const coded = g.find((l) => l.dsr_code); return coded ? parseInt(coded.dsr_code!.split(".")[0], 10) || 900 : 999; };
+    return [...groups.entries()]
+      .sort((a, b) => chapterNo(a[1]) - chapterNo(b[1]) || a[0].localeCompare(b[0]))
+      .map(([name, g], gi) => {
+        const no = gi + 1;
+        let item = 0;
+        const lines = g.map((l) => {
+          const rate = l.custom_rate ?? l.dsr_rate;
+          return { no: `${no}.${String(++item).padStart(2, "0")}`, code: l.dsr_code, spec: l.description ?? "", qty: l.qty, unit: l.unit ?? "", rate, amount: rate != null ? roundRupee(l.qty * rate) : null };
+        });
+        const subtotal = lines.reduce((s, l) => s + (l.amount ?? 0), 0);
+        return { no, name, subtotal, lines };
+      });
+  };
+
+  const shareQuote = async (branding: "firm" | "client") => {
     const list = boqs ?? [];
-    if (!list.length) return toast.error("No BOQs to download");
-    setDownloading(true);
+    if (!list.length) return toast.error("No BOQs to share");
+    if (branding === "client" && !clientName.trim() && !project?.client_name) return toast.error("Enter the client's name for the final version");
+    setSharing(true);
     try {
       const ids = list.map((b) => b.id);
-      const { data, error } = await supabase.from("boq_line")
-        .select("boq_id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, included, sort")
-        .in("boq_id", ids).order("sort");
+      const [{ data: specRows }, { data: lineRows, error }] = await Promise.all([
+        supabase.from("boq").select("id, spec").in("id", ids),
+        supabase.from("boq_line").select("boq_id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, included, sort").in("boq_id", ids).order("sort"),
+      ]);
       if (error) throw error;
-      type Ln = { boq_id: string; section: string | null; dsr_code: string | null; description: string | null; unit: string | null; qty: number; dsr_rate: number | null; custom_rate: number | null; included: boolean; sort: number };
+      const specById = new Map<string, Record<string, unknown>>();
+      for (const r of (specRows ?? []) as { id: string; spec: Record<string, unknown> | null }[]) specById.set(r.id, r.spec ?? {});
+      type Ln = { boq_id: string; section: string | null; dsr_code: string | null; description: string | null; unit: string | null; qty: number; dsr_rate: number | null; custom_rate: number | null; included: boolean };
       const byBoq = new Map<string, Ln[]>();
-      for (const l of (data ?? []) as Ln[]) { const a = byBoq.get(l.boq_id) ?? []; a.push(l); byBoq.set(l.boq_id, a); }
-      const rows: ProjectCsvRow[] = [];
-      for (const b of list) {                                   // keep the project's BOQ order
-        const lns = (byBoq.get(b.id) ?? []).filter((l) => l.included);
-        let item = 0;
-        for (const l of lns) {
-          item++;
-          rows.push({
-            boq: b.name, scope: scopeName(b.scope_id),
-            subhead: l.section ?? "Other", itemNo: `${item}`, code: l.dsr_code,
-            spec: l.description ?? "", unit: l.unit ?? "", qty: l.qty, rate: l.custom_rate ?? l.dsr_rate,
-          });
-        }
+      for (const l of (lineRows ?? []) as Ln[]) { const a = byBoq.get(l.boq_id) ?? []; a.push(l); byBoq.set(l.boq_id, a); }
+
+      const quoteBoqs: ProjectQuoteBoq[] = [];
+      for (const b of list) {
+        const lns = (byBoq.get(b.id) ?? []).filter((l) => l.included && l.qty != null && l.qty > 0);
+        const subheads = subheadsFromLines(lns);
+        if (!subheads.length) continue;                         // skip a BOQ with no priced lines
+        const spec = specById.get(b.id) ?? {};
+        const pct = (k: string, d: number) => Number(spec[k] ?? d);
+        const works = subheads.reduce((s, sh) => s + sh.subtotal, 0);
+        const commercials = computeCommercials(works, {
+          costIndexPct: pct("_cost_index_pct", 0), contingencyPct: pct("_contingency_pct", 3),
+          overheadPct: pct("_overhead_pct", 15), cessPct: pct("_cess_pct", 1), gstPct: pct("_gst_pct", 18),
+        });
+        quoteBoqs.push({ name: b.name, scope: scopeName(b.scope_id), subheads, commercials });
       }
-      if (!rows.length) return toast.error("The BOQs have no lines to export yet");
+      if (!quoteBoqs.length) return toast.error("No priced BOQ lines to share yet — add rates first");
+
+      const firmFromSpec = [...specById.values()].map((s) => String(s._firm_name ?? "").trim()).find(Boolean) ?? "";
+      const taglineFromSpec = [...specById.values()].map((s) => String(s._firm_tagline ?? "").trim()).find(Boolean) ?? "";
       const gen = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
-      const csv = buildProjectBoqsCsv({ project: projectName ?? "Project", generatedOn: gen, boqCount: list.length }, rows);
-      downloadCsv(`${(projectName ?? "Project").replace(/[^\w]+/g, "_")}_BOQs.csv`, csv);
-      toast.success(`Downloaded ${list.length} BOQ${list.length === 1 ? "" : "s"}`);
+      const ok = openProjectQuote({
+        projectName: project?.name ?? "Project",
+        clientName: clientName.trim() || project?.client_name || null,
+        location: project?.location, projectType: project?.project_type,
+        floors: project?.floors, builtUpSqft: project?.area_sqft,
+        generatedOn: gen, branding,
+        firmName: branding === "firm" ? (firmName.trim() || firmFromSpec || null) : null,
+        firmTagline: branding === "firm" ? (firmTagline.trim() || taglineFromSpec || null) : null,
+      }, quoteBoqs);
+      if (!ok) toast.error("Allow pop-ups to open the quote");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to download BOQs");
-    } finally { setDownloading(false); }
+      toast.error(e instanceof Error ? e.message : "Failed to build the quote");
+    } finally { setSharing(false); }
   };
 
   const finishAndOpen = (boqId: string, msg: string) => {
@@ -392,9 +432,9 @@ export default function ProjectBoqs() {
             <Button variant="outline" onClick={() => setMode("import")}><Upload className="h-4 w-4 mr-2" />Import Existing BOQ</Button>
             <Button variant="outline" onClick={() => setMode("move")}><FolderInput className="h-4 w-4 mr-2" />Move a BOQ Here</Button>
             {!!boqs?.length && (
-              <Button variant="outline" onClick={downloadAll} disabled={downloading}
-                title="Download every BOQ in this project as one CSV (opens in Excel)">
-                <Download className="h-4 w-4 mr-2" />{downloading ? "Preparing…" : "Download all BOQs"}
+              <Button variant="outline" onClick={() => { setClientName(project?.client_name ?? ""); setFirmName(""); setFirmTagline(""); setMode("share"); }}
+                title="Create one combined PDF of all BOQs to send to the client">
+                <FileText className="h-4 w-4 mr-2" />Share with client
               </Button>
             )}
           </div>
@@ -543,6 +583,41 @@ export default function ProjectBoqs() {
             <Button onClick={moveBoq} disabled={busy || !moveBoqId}>{busy ? "Moving…" : "Move here"}</Button>
             <Button variant="ghost" onClick={resetForm} disabled={busy}>Cancel</Button>
           </div>
+        </CardContent></Card>
+      )}
+
+      {mode === "share" && (
+        <Card><CardContent className="p-4 space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Create <b>one combined PDF</b> of every BOQ in this project to send to the client — each BOQ as its own priced
+            section, with a project abstract and grand total. Choose the version, then <b>Save as PDF</b> in the print dialog.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Client name (for the final version)</label>
+              <Input value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder={project?.client_name ?? "e.g. Dr. Sandeep"} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Your firm name (for approval)</label>
+              <Input value={firmName} onChange={(e) => setFirmName(e.target.value)} placeholder="e.g. The Grid Architects" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Firm tagline (optional)</label>
+              <Input value={firmTagline} onChange={(e) => setFirmTagline(e.target.value)} placeholder="architects & interior designers" />
+            </div>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <Button onClick={() => shareQuote("firm")} disabled={sharing}>
+              {sharing ? "Preparing…" : "For approval (your letterhead)"}
+            </Button>
+            <Button variant="secondary" onClick={() => shareQuote("client")} disabled={sharing}>
+              {sharing ? "Preparing…" : "Final — client's name, no logo"}
+            </Button>
+            <Button variant="ghost" onClick={() => setMode(null)} disabled={sharing}>Cancel</Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Only priced lines are included; a BOQ with no rates yet is skipped. Rates come from each BOQ (your rate, else the DSR reference).
+          </p>
         </CardContent></Card>
       )}
 
