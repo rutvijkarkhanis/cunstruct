@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Plus, Upload, ChevronUp, ChevronDown, Trash2, Pencil, Check, X, Layers, FolderInput, Braces, FileText } from "lucide-react";
+import { Plus, Upload, ChevronUp, ChevronDown, Trash2, Pencil, Check, X, Layers, FolderInput, Braces, FileText, GripVertical } from "lucide-react";
 import { SCOPE_KINDS, type ProjectScope } from "@/lib/projectDocs";
 import { parseBoqImport } from "@/lib/boqImport";
 import { parseBoqEvalJson, evalLinesToRows, pendingCount } from "@/lib/boqEvalJson";
@@ -352,18 +352,25 @@ export default function ProjectBoqs() {
     qc.invalidateQueries({ queryKey: ["project-boqs", projectId] });
   };
 
-  const move = async (b: BoqRow, dir: -1 | 1) => {
+  // Reorder by rewriting a sequential sort (0..n-1) for the WHOLE list, so ordering is
+  // deterministic even when the existing sort values collide (BOQs made via different
+  // paths often share a sort). This order is what the generated/combined BOQ follows.
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const reorder = async (from: number, to: number) => {
     const list = [...(boqs ?? [])];
-    const i = list.findIndex((x) => x.id === b.id);
-    const j = i + dir;
-    if (j < 0 || j >= list.length) return;
-    const a = list[i], c = list[j];
-    const aSort = a.sort ?? i, cSort = c.sort ?? j;
-    await Promise.all([
-      supabase.from("boq").update({ sort: cSort }).eq("id", a.id),
-      supabase.from("boq").update({ sort: aSort }).eq("id", c.id),
-    ]);
+    if (from < 0 || from >= list.length || to < 0 || to >= list.length || from === to) return;
+    const [moved] = list.splice(from, 1);
+    list.splice(to, 0, moved);
+    const next = list.map((b, i) => ({ ...b, sort: i }));
+    qc.setQueryData(["project-boqs", projectId], next);           // optimistic
+    const results = await Promise.all(next.map((b) => supabase.from("boq").update({ sort: b.sort }).eq("id", b.id)));
+    const err = results.find((r) => r.error)?.error;
+    if (err) toast.error(err.message);
     qc.invalidateQueries({ queryKey: ["project-boqs", projectId] });
+  };
+  const move = (b: BoqRow, dir: -1 | 1) => {
+    const i = (boqs ?? []).findIndex((x) => x.id === b.id);
+    if (i >= 0) reorder(i, i + dir);
   };
 
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
@@ -625,13 +632,25 @@ export default function ProjectBoqs() {
         <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No BOQs yet. Create one from scratch, generate from an evaluation JSON, import a BOQ you already have, or move one in.</CardContent></Card>
       )}
 
+      {(boqs?.length ?? 0) > 1 && (
+        <p className="text-xs text-muted-foreground">Drag the handle (or use the arrows) to set the order — this is the order the shared/combined BOQ follows.</p>
+      )}
       <div className="space-y-2">
         {(boqs ?? []).map((b, i) => (
-          <Card key={b.id}>
+          <Card key={b.id}
+            draggable={editId !== b.id && confirmDel !== b.id}
+            onDragStart={() => setDragIndex(i)}
+            onDragOver={(e) => { if (dragIndex !== null && dragIndex !== i) e.preventDefault(); }}
+            onDrop={() => { if (dragIndex !== null) reorder(dragIndex, i); setDragIndex(null); }}
+            onDragEnd={() => setDragIndex(null)}
+            className={dragIndex === i ? "opacity-50" : dragIndex !== null ? "border-dashed" : undefined}>
             <CardContent className="p-3 flex items-center gap-3">
-              <div className="flex flex-col">
-                <Button variant="ghost" size="icon" className="h-5 w-6" onClick={() => move(b, -1)} disabled={i === 0} aria-label="Move up"><ChevronUp className="h-4 w-4" /></Button>
-                <Button variant="ghost" size="icon" className="h-5 w-6" onClick={() => move(b, 1)} disabled={i === (boqs!.length - 1)} aria-label="Move down"><ChevronDown className="h-4 w-4" /></Button>
+              <div className="flex items-center gap-1">
+                <GripVertical className={`h-4 w-4 text-muted-foreground shrink-0 ${editId === b.id ? "opacity-30" : "cursor-grab active:cursor-grabbing"}`} aria-hidden />
+                <div className="flex flex-col">
+                  <Button variant="ghost" size="icon" className="h-5 w-6" onClick={() => move(b, -1)} disabled={i === 0} aria-label="Move up"><ChevronUp className="h-4 w-4" /></Button>
+                  <Button variant="ghost" size="icon" className="h-5 w-6" onClick={() => move(b, 1)} disabled={i === (boqs!.length - 1)} aria-label="Move down"><ChevronDown className="h-4 w-4" /></Button>
+                </div>
               </div>
               <div className="min-w-0 flex-1">
                 {editId === b.id ? (
