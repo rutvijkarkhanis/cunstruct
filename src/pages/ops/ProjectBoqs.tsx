@@ -9,10 +9,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Plus, Upload, ChevronUp, ChevronDown, Trash2, Pencil, Check, X, Layers, FolderInput, Braces } from "lucide-react";
+import { Plus, Upload, ChevronUp, ChevronDown, Trash2, Pencil, Check, X, Layers, FolderInput, Braces, Download } from "lucide-react";
 import { SCOPE_KINDS, type ProjectScope } from "@/lib/projectDocs";
 import { parseBoqImport } from "@/lib/boqImport";
 import { parseBoqEvalJson, evalLinesToRows, pendingCount } from "@/lib/boqEvalJson";
+import { buildProjectBoqsCsv, downloadCsv, type ProjectCsvRow } from "@/lib/boqDsrDocument";
 
 interface BoqRow { id: string; name: string; description: string | null; scope_id: string | null; sort: number; status: string; }
 interface MovableBoq { id: string; name: string; project_id: string | null; scope_id: string | null; updated_at: string; }
@@ -67,6 +68,15 @@ export default function ProjectBoqs() {
         out[b.id] = count ?? 0;
       }));
       return out;
+    },
+  });
+
+  const { data: projectName } = useQuery({
+    queryKey: ["project-name", projectId],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const { data } = await supabase.from("projects").select("name").eq("id", projectId!).single();
+      return (data as { name: string } | null)?.name ?? "Project";
     },
   });
 
@@ -228,6 +238,45 @@ export default function ProjectBoqs() {
     } finally { setBusy(false); }
   };
 
+  // Download every BOQ in this project as one combined CSV (each line tagged with its
+  // BOQ + Scope, per-BOQ subtotals, a project grand total). Opens in Excel.
+  const [downloading, setDownloading] = useState(false);
+  const downloadAll = async () => {
+    const list = boqs ?? [];
+    if (!list.length) return toast.error("No BOQs to download");
+    setDownloading(true);
+    try {
+      const ids = list.map((b) => b.id);
+      const { data, error } = await supabase.from("boq_line")
+        .select("boq_id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, included, sort")
+        .in("boq_id", ids).order("sort");
+      if (error) throw error;
+      type Ln = { boq_id: string; section: string | null; dsr_code: string | null; description: string | null; unit: string | null; qty: number; dsr_rate: number | null; custom_rate: number | null; included: boolean; sort: number };
+      const byBoq = new Map<string, Ln[]>();
+      for (const l of (data ?? []) as Ln[]) { const a = byBoq.get(l.boq_id) ?? []; a.push(l); byBoq.set(l.boq_id, a); }
+      const rows: ProjectCsvRow[] = [];
+      for (const b of list) {                                   // keep the project's BOQ order
+        const lns = (byBoq.get(b.id) ?? []).filter((l) => l.included);
+        let item = 0;
+        for (const l of lns) {
+          item++;
+          rows.push({
+            boq: b.name, scope: scopeName(b.scope_id),
+            subhead: l.section ?? "Other", itemNo: `${item}`, code: l.dsr_code,
+            spec: l.description ?? "", unit: l.unit ?? "", qty: l.qty, rate: l.custom_rate ?? l.dsr_rate,
+          });
+        }
+      }
+      if (!rows.length) return toast.error("The BOQs have no lines to export yet");
+      const gen = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+      const csv = buildProjectBoqsCsv({ project: projectName ?? "Project", generatedOn: gen, boqCount: list.length }, rows);
+      downloadCsv(`${(projectName ?? "Project").replace(/[^\w]+/g, "_")}_BOQs.csv`, csv);
+      toast.success(`Downloaded ${list.length} BOQ${list.length === 1 ? "" : "s"}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to download BOQs");
+    } finally { setDownloading(false); }
+  };
+
   const finishAndOpen = (boqId: string, msg: string) => {
     toast.success(msg);
     qc.invalidateQueries({ queryKey: ["project-boqs", projectId] });
@@ -342,6 +391,12 @@ export default function ProjectBoqs() {
             <Button variant="outline" onClick={() => setMode("json")}><Braces className="h-4 w-4 mr-2" />Generate from JSON</Button>
             <Button variant="outline" onClick={() => setMode("import")}><Upload className="h-4 w-4 mr-2" />Import Existing BOQ</Button>
             <Button variant="outline" onClick={() => setMode("move")}><FolderInput className="h-4 w-4 mr-2" />Move a BOQ Here</Button>
+            {!!boqs?.length && (
+              <Button variant="outline" onClick={downloadAll} disabled={downloading}
+                title="Download every BOQ in this project as one CSV (opens in Excel)">
+                <Download className="h-4 w-4 mr-2" />{downloading ? "Preparing…" : "Download all BOQs"}
+              </Button>
+            )}
           </div>
         )}
       </div>

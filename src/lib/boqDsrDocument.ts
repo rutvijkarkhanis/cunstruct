@@ -439,6 +439,43 @@ export function buildBoqCsv(
   return lines.join("\r\n");
 }
 
+export interface ProjectCsvRow extends CsvRow { boq: string; scope: string; }
+
+/** One combined CSV for every BOQ in a project: each line carries its BOQ and Scope,
+ *  grouped with a per-BOQ subtotal and a project grand total. Amounts are computed
+ *  from the effective rate (a rate-pending line leaves Rate/Amount blank — never a
+ *  fabricated 0). Opens in Excel. */
+export function buildProjectBoqsCsv(meta: { project: string; generatedOn: string; boqCount: number }, rows: ProjectCsvRow[]): string {
+  const head = ["BOQ", "Scope", "Sub-head", "Item", "Code", "Specification", "Unit", "Qty", "Rate (excl GST)", "Amount"];
+  const lines: string[] = [
+    csvCell(`Bills of Quantities — ${meta.project}`),
+    csvCell(`${meta.boqCount} BOQ${meta.boqCount === 1 ? "" : "s"}  ·  ${meta.generatedOn}  ·  Amounts exclude GST`),
+    "",
+    head.map(csvCell).join(","),
+  ];
+  // Group rows by BOQ (rows arrive already ordered by BOQ then line order).
+  const groups: { boq: string; scope: string; rows: ProjectCsvRow[] }[] = [];
+  for (const r of rows) {
+    const g = groups[groups.length - 1];
+    if (!g || g.boq !== r.boq) groups.push({ boq: r.boq, scope: r.scope, rows: [r] });
+    else g.rows.push(r);
+  }
+  let grand = 0;
+  for (const g of groups) {
+    let subtotal = 0;
+    for (const r of g.rows) {
+      const amount = r.rate != null ? roundRupee(r.qty * r.rate) : null;
+      if (amount != null) subtotal += amount;
+      lines.push([r.boq, r.scope, r.subhead, r.itemNo, r.code ?? "", r.spec, r.unit, r.qty, r.rate ?? "", amount ?? ""].map(csvCell).join(","));
+    }
+    grand += subtotal;
+    lines.push([g.boq, g.scope, "", "", "", `${g.boq} — subtotal`, "", "", "", subtotal].map(csvCell).join(","));
+    lines.push("");
+  }
+  lines.push(["", "", "", "", "", "PROJECT TOTAL", "", "", "", grand].map(csvCell).join(","));
+  return lines.join("\r\n");
+}
+
 /** Trigger a client-side download of a .csv (opens in Excel). */
 export function downloadCsv(filename: string, csv: string): void {
   const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });

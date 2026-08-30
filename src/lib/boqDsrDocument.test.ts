@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeCommercials, amountInWords, buildBoqCsv } from "./boqDsrDocument";
+import { computeCommercials, amountInWords, buildBoqCsv, buildProjectBoqsCsv, type ProjectCsvRow } from "./boqDsrDocument";
 
 describe("computeCommercials (CPWD abstract)", () => {
   it("applies cost index, contingency, overhead, cess, then GST in order", () => {
@@ -60,6 +60,31 @@ describe("buildBoqCsv", () => {
     ], meta);
     const cols = csv.split("\r\n")[4].split(",");
     expect(cols[8]).toBe("");   // Amount column (9th) empty — no formula
+  });
+});
+
+describe("buildProjectBoqsCsv", () => {
+  const rows: ProjectCsvRow[] = [
+    { boq: "Floor 1 Civil", scope: "Floor 1", subhead: "Sanitary", itemNo: "1", code: "17.2.1", spec: "WC", unit: "nos", qty: 4, rate: 6500 },
+    { boq: "Floor 1 Civil", scope: "Floor 1", subhead: "Sanitary", itemNo: "2", code: null, spec: "Wardrobe (qty pending)", unit: "nos", qty: 0, rate: null },
+    { boq: "Terrace", scope: "Terrace", subhead: "Waterproofing", itemNo: "1", code: null, spec: "OHT waterproofing", unit: "sqm", qty: 50, rate: 300 },
+  ];
+  const csv = buildProjectBoqsCsv({ project: "Srikakulam", generatedOn: "1 Sep 2026", boqCount: 2 }, rows);
+
+  it("carries a BOQ + Scope column and a header", () => {
+    expect(csv).toContain("Bills of Quantities — Srikakulam");
+    expect(csv.split("\r\n")[3]).toContain("BOQ,Scope,Sub-head,Item,Code,Specification,Unit,Qty,Rate (excl GST),Amount");
+  });
+  it("computes amounts from the effective rate and leaves rate-pending lines blank", () => {
+    expect(csv).toContain("Floor 1 Civil,Floor 1,Sanitary,1,17.2.1,WC,nos,4,6500,26000");
+    // pending line: no rate, no amount (never a fabricated 0)
+    expect(csv).toMatch(/Wardrobe \(qty pending\),nos,0,,/);
+  });
+  it("emits a per-BOQ subtotal and a project grand total", () => {
+    expect(csv).toContain("Floor 1 Civil — subtotal");
+    expect(csv).toMatch(/Floor 1 Civil — subtotal,,,,26000/);
+    expect(csv).toMatch(/Terrace — subtotal,,,,15000/);
+    expect(csv).toMatch(/PROJECT TOTAL,,,,41000/);   // 26000 + 15000
   });
 });
 
