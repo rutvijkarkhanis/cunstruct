@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, Plus, Trash2, Search, Layers, FileDown, FileText, Sheet, ClipboardList, Percent, AlertTriangle, Eye, Presentation, ChevronDown, UserCheck, Braces } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Trash2, Search, Layers, FileDown, FileText, Sheet, ClipboardList, ClipboardCheck, Percent, AlertTriangle, Eye, Presentation, ChevronDown, UserCheck, Braces } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DsrItem { id: string; code: string; description: string | null; unit: string | null; rate: number | null; chapter: string | null; }
@@ -116,6 +116,7 @@ export default function OpsBoqBuilder() {
   const [showBrowser, setShowBrowser] = useState(false);
   const [showDocs, setShowDocs] = useState(false);
   const [showJson, setShowJson] = useState(false);
+  const [showAudit, setShowAudit] = useState(false);
   const [jsonText, setJsonText] = useState("");
   const [view, setView] = useState<"lines" | "make" | "materials">("lines");
   const [targetMargin, setTargetMargin] = useState(15);
@@ -596,6 +597,10 @@ export default function OpsBoqBuilder() {
           title="Add lines from a structured drawing-evaluation JSON (deterministic; no AI)">
           <Braces className="h-4 w-4 mr-2" />{showJson ? "Hide JSON" : "From JSON"}
         </Button>
+        <Button variant={showAudit ? "default" : "outline"} onClick={() => setShowAudit((s) => !s)}
+          title="Import an externally-produced audit JSON and review its findings (deterministic; no AI)">
+          <ClipboardCheck className="h-4 w-4 mr-2" />{showAudit ? "Hide review" : "BOQ Audit"}
+        </Button>
         {boq.project_id && (
           <Button variant={showDocs ? "default" : "outline"} onClick={() => setShowDocs((s) => !s)}
             title="Assign project documents (drawings, references) to this BOQ">
@@ -774,7 +779,7 @@ export default function OpsBoqBuilder() {
         </Card>
       )}
 
-      {!present && view === "lines" && id && (
+      {!present && showAudit && id && (
         <BoqAuditReview boqId={id} projectId={boq?.project_id ?? null} lines={lines} />
       )}
 
