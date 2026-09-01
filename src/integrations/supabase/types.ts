@@ -471,6 +471,117 @@ export type Database = {
           },
         ]
       }
+      boq_audit_finding: {
+        Row: {
+          action: string | null
+          boq_id: string
+          boq_line_id: string | null
+          category: string | null
+          created_at: string
+          current_value: string | null
+          evidence: string | null
+          external_key: string | null
+          finding_type: string
+          id: string
+          item: string | null
+          location: string | null
+          reason: string | null
+          recommended_method: string | null
+          recommended_unit: string | null
+          recommended_value: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          run_id: string
+          scope: string | null
+          sort: number
+          state: string
+        }
+        Insert: {
+          action?: string | null
+          boq_id: string
+          boq_line_id?: string | null
+          category?: string | null
+          created_at?: string
+          current_value?: string | null
+          evidence?: string | null
+          external_key?: string | null
+          finding_type: string
+          id?: string
+          item?: string | null
+          location?: string | null
+          reason?: string | null
+          recommended_method?: string | null
+          recommended_unit?: string | null
+          recommended_value?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          run_id: string
+          scope?: string | null
+          sort?: number
+          state?: string
+        }
+        Update: {
+          action?: string | null
+          boq_id?: string
+          boq_line_id?: string | null
+          category?: string | null
+          created_at?: string
+          current_value?: string | null
+          evidence?: string | null
+          external_key?: string | null
+          finding_type?: string
+          id?: string
+          item?: string | null
+          location?: string | null
+          reason?: string | null
+          recommended_method?: string | null
+          recommended_unit?: string | null
+          recommended_value?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          run_id?: string
+          scope?: string | null
+          sort?: number
+          state?: string
+        }
+        Relationships: []
+      }
+      boq_audit_run: {
+        Row: {
+          boq_id: string
+          created_at: string
+          created_by: string | null
+          finding_count: number
+          id: string
+          project_id: string | null
+          raw_json: Json | null
+          source: string
+          status: string
+        }
+        Insert: {
+          boq_id: string
+          created_at?: string
+          created_by?: string | null
+          finding_count?: number
+          id?: string
+          project_id?: string | null
+          raw_json?: Json | null
+          source?: string
+          status?: string
+        }
+        Update: {
+          boq_id?: string
+          created_at?: string
+          created_by?: string | null
+          finding_count?: number
+          id?: string
+          project_id?: string | null
+          raw_json?: Json | null
+          source?: string
+          status?: string
+        }
+        Relationships: []
+      }
       boq_template: {
         Row: {
           created_at: string

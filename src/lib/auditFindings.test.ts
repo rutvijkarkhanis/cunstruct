@@ -30,6 +30,29 @@ describe("matchFindingToLine", () => {
   it("respects a mismatched location", () => {
     expect(matchFindingToLine({ findingType: "OTHER", item: "Wardrobe", location: "Bedroom 5" }, LINES)).toBeNull();
   });
+
+  it("external_key is authoritative — two identical descriptions with different keys never cross-match", () => {
+    // Same description, different external_key on each line.
+    const twins: BoqLineRef[] = [
+      { id: "a", description: "Wardrobe", location: "Bedroom", externalKey: "WR-A" },
+      { id: "b", description: "Wardrobe", location: "Bedroom", externalKey: "WR-B" },
+    ];
+    expect(matchFindingToLine({ findingType: "METHODOLOGY_ERROR", item: "Wardrobe", externalKey: "WR-B" }, twins)).toBe("b");
+    expect(matchFindingToLine({ findingType: "METHODOLOGY_ERROR", item: "Wardrobe", externalKey: "WR-A" }, twins)).toBe("a");
+  });
+
+  it("a finding whose external_key matches no line returns null — it does NOT fall back to text", () => {
+    const twins: BoqLineRef[] = [
+      { id: "a", description: "Wardrobe", externalKey: "WR-A" },
+      { id: "b", description: "Wardrobe", externalKey: "WR-B" },
+    ];
+    // Key present but absent from the BOQ → no match, and crucially no text cross-match.
+    expect(matchFindingToLine({ findingType: "OTHER", item: "Wardrobe", externalKey: "WR-Z" }, twins)).toBeNull();
+  });
+
+  it("still falls back to text matching for a finding with NO external_key", () => {
+    expect(matchFindingToLine({ findingType: "OTHER", item: "Kitchen counter", location: "Kitchen" }, LINES)).toBe("l2");
+  });
 });
 
 describe("linkFindings", () => {

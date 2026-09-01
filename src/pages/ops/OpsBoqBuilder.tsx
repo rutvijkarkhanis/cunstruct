@@ -25,6 +25,7 @@ interface BoqLine {
   unit: string | null; qty: number; dsr_rate: number | null; custom_rate: number | null;
   cost: number | null;
   basis: string | null; basis_note: string | null;
+  external_key: string | null; measurement_method: string | null; quantity_status: string | null;
   included: boolean; source: string; sort: number;
 }
 
@@ -37,9 +38,9 @@ const lineAmount = (l: BoqLine) => roundRupee(l.qty * (effRate(l) ?? 0));
 // The provenance columns (basis / basis_note) come from migrations that may not be
 // run on every deployment. Select them when present, but fall back to the base
 // columns if they are missing so the builder never breaks on a stale DB.
-const LINE_COLS = "id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, cost, basis, basis_note, included, source, sort";
+const LINE_COLS = "id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, cost, basis, basis_note, external_key, measurement_method, quantity_status, included, source, sort";
 const LINE_COLS_BASE = "id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, cost, included, source, sort";
-const missingCol = (msg?: string) => !!msg && /\b(drawing|basis|basis_note)\b|schema cache|could not find|does not exist/i.test(msg);
+const missingCol = (msg?: string) => !!msg && /\b(drawing|basis|basis_note|external_key|measurement_method|quantity_status)\b|schema cache|could not find|does not exist/i.test(msg);
 async function selectBoqLines(boqId: string): Promise<BoqLine[]> {
   let r = await supabase.from("boq_line").select(LINE_COLS).eq("boq_id", boqId).order("sort");
   if (r.error && missingCol(r.error.message)) {
@@ -326,8 +327,8 @@ export default function OpsBoqBuilder() {
     try {
       const rows = evalLinesToRows(id, parsed.lines, lines.length);
       let { error } = await supabase.from("boq_line").insert(rows);
-      if (error && /\bbasis\b|schema cache|could not find|does not exist/i.test(error.message)) {
-        const stripped = rows.map(({ basis, basis_note, ...r }) => r);
+      if (error && /\bbasis\b|external_key|measurement_method|quantity_status|schema cache|could not find|does not exist/i.test(error.message)) {
+        const stripped = rows.map(({ basis, basis_note, external_key, measurement_method, quantity_status, ...r }) => r);
         ({ error } = await supabase.from("boq_line").insert(stripped));
       }
       if (error) throw error;

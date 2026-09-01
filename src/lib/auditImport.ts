@@ -5,6 +5,7 @@
 // boq_line — findings are a review layer the user resolves by hand.
 
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 import { parseAuditJson } from "./auditJson";
 import { linkFindings, type BoqLineRef, type FindingState } from "./auditFindings";
 
@@ -112,6 +113,6 @@ export async function setFindingState(findingId: string, state: FindingState): P
 }
 
 /** Best-effort parse so raw_json is stored as jsonb; falls back to a wrapper. */
-function safeJson(text: string): unknown {
-  try { return JSON.parse(text); } catch { return { raw: text }; }
+function safeJson(text: string): Json {
+  try { return JSON.parse(text) as Json; } catch { return { raw: text }; }
 }

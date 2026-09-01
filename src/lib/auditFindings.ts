@@ -33,17 +33,21 @@ const norm = (s: string | null | undefined) => (s ?? "").toLowerCase().replace(/
 /**
  * Match a finding to a BOQ line deterministically, most-reliable signal first:
  *   1) explicit boq_line_id
- *   2) shared external_key
- *   3) exact item==description (and, when both give a location, matching location)
- *   4) description contains the item text (and location compatible)
+ *   2) shared external_key — AUTHORITATIVE: when the finding carries an
+ *      external_key, ONLY a line with that same key matches. It never falls back
+ *      to text, so two similar descriptions with different keys can't cross-match.
+ *   3) (no key) exact item==description, with matching location when both give one
+ *   4) (no key) description contains the item text, location compatible
  * Returns the matched line id, or null — never silently attaches to the wrong line.
  */
 export function matchFindingToLine(finding: AuditFinding, lines: BoqLineRef[]): string | null {
   if (finding.boqLineId && lines.some((l) => l.id === finding.boqLineId)) return finding.boqLineId;
 
+  // external_key is the strongest deterministic match and is EXCLUSIVE: if the
+  // finding has one, the only acceptable match is the line with the same key.
   if (finding.externalKey) {
     const byKey = lines.find((l) => l.externalKey && norm(l.externalKey) === norm(finding.externalKey));
-    if (byKey) return byKey.id;
+    return byKey ? byKey.id : null;
   }
 
   const item = norm(finding.item);

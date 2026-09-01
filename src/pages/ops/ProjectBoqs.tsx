@@ -20,12 +20,13 @@ interface MovableBoq { id: string; name: string; project_id: string | null; scop
 const NEW_SCOPE = "__new__";
 type Mode = null | "create" | "import" | "move" | "json" | "share";
 
-// Insert eval-derived boq_line rows, retrying without the optional provenance
-// columns (basis / basis_note) on a stale DB that hasn't run that migration.
+// Insert eval-derived boq_line rows, retrying without the optional columns
+// (basis / basis_note / external_key / methodology / status) on a stale DB that
+// hasn't run those migrations.
 async function insertEvalRows(rows: ReturnType<typeof evalLinesToRows>) {
   let { error } = await supabase.from("boq_line").insert(rows);
-  if (error && /\bbasis\b|schema cache|could not find|does not exist/i.test(error.message)) {
-    const stripped = rows.map(({ basis, basis_note, ...r }) => r);
+  if (error && /\bbasis\b|external_key|measurement_method|quantity_status|schema cache|could not find|does not exist/i.test(error.message)) {
+    const stripped = rows.map(({ basis, basis_note, external_key, measurement_method, quantity_status, ...r }) => r);
     ({ error } = await supabase.from("boq_line").insert(stripped));
   }
   if (error) throw error;

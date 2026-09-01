@@ -284,3 +284,33 @@ describe("parseBoqEvalJson — 6. no AI / network / API dependency", () => {
     expect(a).toEqual(b);
   });
 });
+
+describe("evalLinesToRows — external_key + methodology/status persistence", () => {
+  const JSON_WITH_KEYS = JSON.stringify({
+    requirements: [
+      { requirement: "Floor finish", qty: 1200, unit: "sqft", measurement_method: "AREA", status: "MEASURED", external_key: "FF-FLR-01" },
+      { requirement: "Kitchen counter", qty: null, measurement_method: "LENGTH", status: "PENDING", external_key: "K-CTR-01" },
+      { requirement: "Mystery item", qty: 3, unit: "nos", measurement_method: "weird-method" },
+    ],
+  });
+
+  it("carries external_key from the analysis onto the boq_line row", () => {
+    const rows = evalLinesToRows("boq-x", parseBoqEvalJson(JSON_WITH_KEYS).lines);
+    expect(rows[0].external_key).toBe("FF-FLR-01");
+    expect(rows[1].external_key).toBe("K-CTR-01");
+    expect(rows[2].external_key).toBeNull();
+  });
+
+  it("persists a canonical measurement_method, or null for an unknown one", () => {
+    const rows = evalLinesToRows("boq-x", parseBoqEvalJson(JSON_WITH_KEYS).lines);
+    expect(rows[0].measurement_method).toBe("AREA");
+    expect(rows[1].measurement_method).toBe("LENGTH");
+    expect(rows[2].measurement_method).toBeNull(); // "weird-method" isn't canonical
+  });
+
+  it("forces quantity_status PENDING whenever the quantity is unknown", () => {
+    const rows = evalLinesToRows("boq-x", parseBoqEvalJson(JSON_WITH_KEYS).lines);
+    expect(rows[0].quantity_status).toBe("MEASURED");
+    expect(rows[1].quantity_status).toBe("PENDING"); // null qty → PENDING, never fabricated
+  });
+});

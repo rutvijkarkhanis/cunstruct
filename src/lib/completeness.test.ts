@@ -66,6 +66,52 @@ describe("auditCompleteness", () => {
   });
 });
 
+describe("detection vs quantification — the five distinct states", () => {
+  // One scenario exercising every state at once.
+  const expected: ExpectedComponent[] = [
+    { key: "flooring", name: "Flooring", moduleKey: "finishes" },        // detected + quantified
+    { key: "kitchen_counter", name: "Kitchen counter", moduleKey: "interior_joinery" }, // detected, unquantified
+    { key: "painting", name: "Painting", moduleKey: "finishes" },        // not detected / missing
+    { key: "reinforcement", name: "Reinforcement", moduleKey: "civil_structural" },      // info unavailable
+    { key: "hvac", name: "HVAC", moduleKey: "hvac" },                    // not applicable
+  ];
+  const generated: GeneratedComponent[] = [
+    { key: "flooring", status: "MEASURED", qty: 1200 },
+    { key: "kitchen_counter", status: "PENDING", qty: null },
+  ];
+  const rows = auditCompleteness({
+    applicableModules: ["finishes", "interior_joinery", "civil_structural"],
+    expected,
+    generated,
+    unavailableModules: ["civil_structural"], // structural drawings absent
+  });
+  const byKey = Object.fromEntries(rows.map((r) => [r.key, r.status]));
+
+  it("1) detected AND quantified → COMPLETE", () => {
+    expect(byKey.flooring).toBe("COMPLETE");
+  });
+  it("2) detected but UNQUANTIFIED → DETECTED_BUT_UNQUANTIFIED", () => {
+    expect(byKey.kitchen_counter).toBe("DETECTED_BUT_UNQUANTIFIED");
+  });
+  it("3) not detected / potentially missing → APPLICABLE_BUT_MISSING", () => {
+    expect(byKey.painting).toBe("APPLICABLE_BUT_MISSING");
+  });
+  it("4) information unavailable → INFORMATION_UNAVAILABLE", () => {
+    expect(byKey.reinforcement).toBe("INFORMATION_UNAVAILABLE");
+  });
+  it("5) not applicable → NOT_APPLICABLE", () => {
+    expect(byKey.hvac).toBe("NOT_APPLICABLE");
+  });
+
+  it("does NOT treat 'detected but unquantified' as equivalent to 'missing'", () => {
+    // The core rule: ChatGPT detecting an item it couldn't quantify is NOT the
+    // same as the item not existing.
+    expect(byKey.kitchen_counter).not.toBe(byKey.painting);
+    expect(byKey.kitchen_counter).toBe("DETECTED_BUT_UNQUANTIFIED");
+    expect(byKey.painting).toBe("APPLICABLE_BUT_MISSING");
+  });
+});
+
 describe("summariseCompleteness", () => {
   it("rolls rows up into per-verdict counts", () => {
     const rows = auditCompleteness({

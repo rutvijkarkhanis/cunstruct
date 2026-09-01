@@ -12,12 +12,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { ClipboardCheck, ChevronDown, ChevronUp, CheckCircle2, XCircle, RefreshCw, Clock } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { ClipboardCheck, ChevronDown, ChevronUp, CheckCircle2, XCircle, RefreshCw, Clock, Plus, Wrench } from "lucide-react";
 import { importAuditRun, setFindingState } from "@/lib/auditImport";
+import { addFindingAsLine, applyMethodUnit, setLineQty, markLinePending } from "@/lib/applyFinding";
 import { reviewSummary, type BoqLineRef, type FindingState } from "@/lib/auditFindings";
 import type { AuditFinding, FindingType } from "@/lib/auditJson";
 
-interface LineLike { id: string; section: string | null; description: string | null; unit: string | null; qty: number; }
+interface LineLike { id: string; section: string | null; description: string | null; unit: string | null; qty: number; external_key?: string | null; }
 
 interface FindingRow {
   id: string;
@@ -67,7 +69,7 @@ export default function BoqAuditReview({ boqId, projectId, lines }: { boqId: str
   });
 
   const lineRefs: BoqLineRef[] = useMemo(
-    () => lines.map((l) => ({ id: l.id, section: l.section, description: l.description, unit: l.unit })),
+    () => lines.map((l) => ({ id: l.id, section: l.section, description: l.description, unit: l.unit, externalKey: l.external_key ?? null })),
     [lines],
   );
 
@@ -98,6 +100,23 @@ export default function BoqAuditReview({ boqId, projectId, lines }: { boqId: str
     mutationFn: ({ id, state }: { id: string; state: FindingState }) => setFindingState(id, state),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["boq-audit-findings", boqId] }),
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to update finding"),
+  });
+
+  // Explicit, user-driven BOQ mutations. Each runs ONLY on a button click; the
+  // BOQ is never changed by importing an audit. After applying, the finding is
+  // moved to its resolved/pending state and both views are refreshed.
+  const [qtyDraft, setQtyDraft] = useState<Record<string, string>>({});
+  const applyMut = useMutation({
+    mutationFn: async ({ run, state, id }: { run: () => Promise<unknown>; state: FindingState; id: string }) => {
+      await run();
+      await setFindingState(id, state);
+    },
+    onSuccess: () => {
+      toast.success("Applied to the BOQ");
+      qc.invalidateQueries({ queryKey: ["boq-audit-findings", boqId] });
+      qc.invalidateQueries({ queryKey: ["boq-lines", boqId] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to apply to the BOQ"),
   });
 
   const open_ = findings.filter((f) => DB_TO_STATE[f.state] === "OPEN" || DB_TO_STATE[f.state] === "ACCEPTED" || DB_TO_STATE[f.state] === "KEPT_PENDING");
@@ -171,6 +190,42 @@ export default function BoqAuditReview({ boqId, projectId, lines }: { boqId: str
                           {f.reason && <div className="text-xs text-muted-foreground mt-0.5">{f.reason}</div>}
                           {f.evidence && <div className="text-[11px] text-muted-foreground/80 mt-0.5">Evidence: {f.evidence}</div>}
                           {!f.boq_line_id && <div className="text-[11px] text-amber-700 mt-0.5">Not matched to a BOQ line</div>}
+
+                          {/* Explicit apply actions — only ever mutate on click */}
+                          {!terminal && (
+                            <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                              {!f.boq_line_id && f.item && (
+                                <ActionBtn icon={Plus} label="Add to BOQ" onClick={() => applyMut.mutate({
+                                  id: f.id, state: "RESOLVED",
+                                  run: () => addFindingAsLine({ boqId, section: f.scope ?? f.category, description: f.item!, unit: f.recommended_unit, method: f.recommended_method, externalKey: f.external_key ?? null, sort: lines.length }),
+                                })} />
+                              )}
+                              {f.boq_line_id && (f.recommended_method || f.recommended_unit) && (
+                                <ActionBtn icon={Wrench} label="Apply method/unit" onClick={() => applyMut.mutate({
+                                  id: f.id, state: "RESOLVED",
+                                  run: () => applyMethodUnit(f.boq_line_id!, f.recommended_method, f.recommended_unit),
+                                })} />
+                              )}
+                              {f.boq_line_id && (
+                                <ActionBtn icon={Clock} label="Mark line pending" onClick={() => applyMut.mutate({
+                                  id: f.id, state: "KEPT_PENDING",
+                                  run: () => markLinePending(f.boq_line_id!),
+                                })} />
+                              )}
+                              {f.boq_line_id && (
+                                <span className="inline-flex items-center gap-1">
+                                  <Input className="h-7 w-20" type="number" min={0} placeholder="qty"
+                                    value={qtyDraft[f.id] ?? (f.recommended_value ?? "")}
+                                    onChange={(e) => setQtyDraft((d) => ({ ...d, [f.id]: e.target.value }))} />
+                                  <ActionBtn label="Set qty" onClick={() => {
+                                    const v = Number(qtyDraft[f.id] ?? f.recommended_value);
+                                    if (!Number.isFinite(v) || v < 0) return toast.error("Enter a valid quantity");
+                                    applyMut.mutate({ id: f.id, state: "RESOLVED", run: () => setLineQty(f.boq_line_id!, v, f.recommended_method) });
+                                  }} />
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
                           <IconBtn title="Accept" active={st === "ACCEPTED"} onClick={() => stateMut.mutate({ id: f.id, state: "ACCEPTED" })}><CheckCircle2 className="w-4 h-4" /></IconBtn>
@@ -199,6 +254,14 @@ function Stat({ label, value, cls }: { label: string; value: number; cls: string
       <div className={`text-lg font-bold ${cls}`}>{value}</div>
       <div className="text-[11px] text-muted-foreground">{label}</div>
     </div>
+  );
+}
+
+function ActionBtn({ icon: Icon, label, onClick }: { icon?: React.ComponentType<{ className?: string }>; label: string; onClick: () => void }) {
+  return (
+    <button onClick={onClick} className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded border hover:bg-muted">
+      {Icon && <Icon className="w-3 h-3" />}{label}
+    </button>
   );
 }
 
