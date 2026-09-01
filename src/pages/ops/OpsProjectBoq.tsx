@@ -49,6 +49,7 @@ interface Line {
   name: string; qty: number; unit: string; price: number | null;
   priced: boolean; lineTotal: number; match: LineMatch;
   productName: string | null; explanation?: string;
+  pending?: boolean; reason?: string;
   dsrCode: string | null; dsrRate: number | null; dsrUnit: string | null;
 }
 
@@ -281,19 +282,23 @@ export default function OpsProjectBoq({
       // built-up so per-sqft items fall through to the room-derived floor area.
       const stageBuiltUp = isStructuralStage(stage.name) ? builtUp : null;
       const tmplLines: Line[] = items.filter((it) => !removed[it.id]).map((it) => {
-        const c = computeBoqLine(it, engineDims, stageBuiltUp, tier, catalogMatches ?? []);
+        const c = computeBoqLine(it, engineDims, stageBuiltUp, tier, catalogMatches ?? [], projectType);
         const ov = overrides[it.id] ?? {};
         const qty = ov.qty ?? c.qty;
+        // PENDING = the item applies but its quantity can't be measured yet. It
+        // stays visible (never dropped, never priced) until a qty is supplied.
+        const pending = c.status === "PENDING" && ov.qty == null;
         const price = ov.price ?? c.price;
-        const priced = price != null;
+        const priced = !pending && price != null;
         const match: LineMatch = ov.productId ? "chosen" : c.matchType;
         return {
           key: it.id, refId: it.id, isCustom: false, name: it.item_name, qty,
           unit: ov.unit ?? c.unit, price, priced, lineTotal: priced ? Number(price) * qty : 0,
           match, productName: ov.productName ?? c.catalogProductName, explanation: c.explanation,
+          pending, reason: c.reason,
           dsrCode: ov.dsrCode ?? null, dsrRate: ov.dsrRate ?? null, dsrUnit: ov.dsrUnit ?? null,
         };
-      }).filter((l) => l.qty > 0);
+      }).filter((l) => l.pending || l.qty > 0);
 
       const custLines: Line[] = customLines.filter((c) => c.stageId === stage.id).map((c) => {
         const priced = c.price != null;
@@ -307,17 +312,20 @@ export default function OpsProjectBoq({
 
       return { stage, lines: [...tmplLines, ...custLines] };
     }).filter((b) => b.lines.length > 0);
-  }, [rawItems, stages, engineDims, builtUp, tier, catalogMatches, overrides, removed, customLines]);
+  }, [rawItems, stages, engineDims, builtUp, tier, catalogMatches, overrides, removed, customLines, projectType]);
 
   const allLines = stageBlocks.flatMap((b) => b.lines);
   const pricedCount = allLines.filter((l) => l.priced).length;
   const keywordCount = allLines.filter((l) => l.match === "keyword").length;
-  const gapCount = allLines.length - pricedCount;
+  const pendingCount = allLines.filter((l) => l.pending).length;
+  // A sourcing gap is an unpriced line we CAN quantify — pending lines are a
+  // measurement gap, not a sourcing gap, so they are excluded here.
+  const gapCount = allLines.filter((l) => !l.priced && !l.pending).length;
   const grandTotal = allLines.reduce((s, l) => s + l.lineTotal, 0);
   const offerBlocks = stageBlocks
     .map((b) => ({ stage: b.stage, lines: b.lines.filter((l) => l.priced) }))
     .filter((b) => b.lines.length > 0);
-  const gapLines = allLines.filter((l) => !l.priced && l.name.trim());
+  const gapLines = allLines.filter((l) => !l.priced && !l.pending && l.name.trim());
   const canGenerate = !!builtUp && allLines.length > 0;
 
   const openPickerTmpl = (id: string, query: string) => setPicker({ kind: "tmpl", id, query });
@@ -485,8 +493,16 @@ export default function OpsProjectBoq({
                           </td>
                           <td className="py-1.5 px-3">
                             <div className="flex items-center gap-1.5">
-                              <Input className="h-8 w-20" type="number" min={0} value={l.qty}
-                                onChange={(e) => l.isCustom ? patchCustom(l.refId, { qty: Math.max(0, +e.target.value) }) : patchOverride(l.refId, { qty: Math.max(0, +e.target.value) })} />
+                              {l.pending ? (
+                                <span className="inline-flex items-center gap-1 h-8">
+                                  <span className="w-20 text-muted-foreground tabular-nums">—</span>
+                                  <span className="text-[10px] font-medium text-amber-700 uppercase tracking-wide">Pending</span>
+                                  {l.reason && <InfoHint title="Quantity pending"><span className="text-xs">{l.reason}</span></InfoHint>}
+                                </span>
+                              ) : (
+                                <Input className="h-8 w-20" type="number" min={0} value={l.qty}
+                                  onChange={(e) => l.isCustom ? patchCustom(l.refId, { qty: Math.max(0, +e.target.value) }) : patchOverride(l.refId, { qty: Math.max(0, +e.target.value) })} />
+                              )}
                               {l.isCustom
                                 ? <Input className="h-8 w-16" value={l.unit} placeholder="unit" onChange={(e) => patchCustom(l.refId, { unit: e.target.value })} />
                                 : <span className="text-xs text-muted-foreground">{l.unit}</span>}
@@ -533,7 +549,7 @@ export default function OpsProjectBoq({
           <div className="flex items-center gap-2 pt-3">
             <PackageSearch className="w-4 h-4" />
             <h3 className="font-semibold">What we can supply</h3>
-            <span className="text-xs text-muted-foreground">{pricedCount} of {allLines.length} priced · {gapCount} to source</span>
+            <span className="text-xs text-muted-foreground">{pricedCount} of {allLines.length} priced · {gapCount} to source{pendingCount ? ` · ${pendingCount} pending measurement` : ""}</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

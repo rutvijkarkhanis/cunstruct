@@ -1,5 +1,11 @@
-import { suggestQtyDetailed } from "./boq";
+import { suggestQtyDetailed, type QtyFormula } from "./boq";
 import { resolveCoverage, hasBasis } from "./coverageDefaults";
+import { resolveQuantityRule } from "./quantityRules";
+import {
+  pendingReason,
+  type QuantityMethod,
+  type QuantityStatus,
+} from "./quantityMethod";
 import { tierWastageDelta } from "./smartSuggest";
 import type { Dimensions } from "./dimensions";
 
@@ -18,10 +24,11 @@ export interface BoqTemplateItem {
   item_name: string;
   match_keyword?: string | null;
   unit?: string | null;
-  qty_formula?: any;
+  qty_formula?: QtyFormula | null;
   product_id?: string | null;
   sort?: number | null;
   project_type?: string | null;
+  category?: string | null;
   stage_id?: string | null;
 }
 
@@ -41,6 +48,11 @@ export interface CatalogProduct {
 export type MatchType = "linked" | "keyword" | "none";
 
 export interface BoqComputedLine {
+  /**
+   * The computed quantity. 0 means either "nothing needed yet" (a basis whose
+   * driver is zero) or PENDING — the two are told apart by `status`. It is never
+   * a meaningless 1: an item we cannot measure is PENDING, not "1 nos".
+   */
   qty: number;
   price: number | null;
   unit: string;
@@ -49,6 +61,12 @@ export interface BoqComputedLine {
   catalogProductName: string | null;
   matchType: MatchType;
   explanation: string;
+  /** How this item is fundamentally measured (COUNT, AREA, LENGTH, …). */
+  method: QuantityMethod;
+  /** Provenance of the quantity (COUNTED, MEASURED, ESTIMATED, PENDING, …). */
+  status: QuantityStatus;
+  /** Why the quantity is PENDING, when it is. */
+  reason?: string;
 }
 
 /** Resolve a template item to a catalog product: explicit product_id wins, else keyword match. */
@@ -67,33 +85,108 @@ export function matchType(item: BoqTemplateItem, products: CatalogProduct[]): Ma
   return "none";
 }
 
-/** Compute the quantity, unit, price, and catalog status for a single template item. */
+/** Provenance of a quantity that a real basis produced, from the formula shape. */
+function statusForComputed(f: QtyFormula, method: QuantityMethod): QuantityStatus {
+  // A 1:1 count driver (one door per room, one WC per bathroom) is COUNTED.
+  if (f.per_room === 1 || f.per_bathroom === 1 || f.per_point === 1) return "COUNTED";
+  // A direct area measure (ratio 1) is MEASURED; anything else with a ratio is a
+  // consumption estimate.
+  if (f.per_floor_sqft === 1 || f.per_wall_sqft === 1) return "MEASURED";
+  if (method === "COUNT") return "COUNTED";
+  return "ESTIMATED";
+}
+
+/**
+ * Compute the quantity, unit, price, methodology and status for one template
+ * item, in the context of a project type.
+ *
+ * `projectType` threads the project's type explicitly into rule resolution (no
+ * global state). When no rule and no measurable basis exist, the line is PENDING
+ * with the correct methodology — never a fabricated "1 nos".
+ */
 export function computeBoqLine(
   item: BoqTemplateItem,
   dims: Dimensions,
   builtUp: number | null,
   tier: string,
   catalogMatches: CatalogProduct[],
+  projectType?: string | null,
 ): BoqComputedLine {
   const match = matchProduct(item, catalogMatches);
-  const cover = resolveCoverage(item.item_name);
-  const formula = hasBasis(item.qty_formula) ? item.qty_formula : (cover ?? item.qty_formula ?? {});
-  // Quality tier nudges the wastage buffer up (premium) or down (economy).
-  const baseWastage = cover?.wastage_pct ?? 8;
-  const wastage = Math.max(0, Math.min(40, baseWastage + tierWastageDelta(tier)));
-  const detail = suggestQtyDetailed({ product_id: item.id, qty_formula: formula, buffer_pct: wastage }, dims, builtUp);
   const inCatalog = !!match;
-  const price = match?.selling_price != null ? Number(match.selling_price)
-    : (formula.unit_price != null ? Number(formula.unit_price) : null);
-  const unit = item.unit ?? match?.unit ?? cover?.unit ?? "";
-  return {
-    qty: detail.qty,
+  const catalogProductId = match ? String(match.id) : null;
+  const catalogProductName = match?.name ?? null;
+  const mt = matchType(item, catalogMatches);
+
+  // Resolve the quantity rule (methodology + optional coverage/basis) with
+  // deterministic precedence, threading the project type through.
+  const rule = resolveQuantityRule({
+    itemName: item.item_name,
+    category: item.category ?? null,
+    projectType: projectType ?? item.project_type ?? null,
+    override: item.qty_formula,
+  });
+
+  // Coverage is still consulted for wastage/unit fallbacks so residential
+  // numbers stay byte-identical to before (the generic-item layer IS this rule).
+  const cover = resolveCoverage(item.item_name);
+  const baseWastage = rule.formula?.wastage_pct ?? cover?.wastage_pct ?? 8;
+  const wastage = Math.max(0, Math.min(40, baseWastage + tierWastageDelta(tier)));
+  const unit = item.unit ?? match?.unit ?? rule.unit ?? cover?.unit ?? "";
+  const price = match?.selling_price != null
+    ? Number(match.selling_price)
+    : (item.qty_formula?.unit_price != null ? Number(item.qty_formula.unit_price)
+      : (rule.formula?.unit_price != null ? Number(rule.formula.unit_price) : null));
+
+  const common = {
     price,
     unit,
     inCatalog,
-    catalogProductId: match ? String(match.id) : null,
-    catalogProductName: match?.name ?? null,
-    matchType: matchType(item, catalogMatches),
+    catalogProductId,
+    catalogProductName,
+    matchType: mt,
+  };
+
+  // No rule and no measurable basis → PENDING, with the methodology we DO know.
+  if (!hasBasis(rule.formula)) {
+    const reason = pendingReason(rule.method);
+    return {
+      ...common,
+      qty: 0,
+      explanation: `${rule.method.toLowerCase()} · pending — ${reason}`,
+      method: rule.method,
+      status: "PENDING",
+      reason,
+    };
+  }
+
+  const detail = suggestQtyDetailed(
+    { product_id: item.id, qty_formula: rule.formula, buffer_pct: wastage },
+    dims,
+    builtUp,
+  );
+
+  // suggestQtyDetailed only falls back to 1 when NO basis is present; we already
+  // guaranteed a basis, so this guards against that path ever surfacing here.
+  if (detail.isFallback) {
+    const reason = pendingReason(rule.method);
+    return {
+      ...common,
+      qty: 0,
+      explanation: `${rule.method.toLowerCase()} · pending — ${reason}`,
+      method: rule.method,
+      status: "PENDING",
+      reason,
+    };
+  }
+
+  const status: QuantityStatus =
+    detail.qty > 0 ? statusForComputed(rule.formula, rule.method) : "NOT_APPLICABLE";
+  return {
+    ...common,
+    qty: detail.qty,
     explanation: detail.explanation,
+    method: rule.method,
+    status,
   };
 }

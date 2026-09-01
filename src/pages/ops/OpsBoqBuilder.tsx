@@ -9,6 +9,7 @@ import { openIntakeForm } from "@/lib/boqIntakeForm";
 import { sanityForCode, countFlagged } from "@/lib/boqSanity";
 import { parseBoqEvalJson, evalLinesToRows, pendingCount, PENDING_BASIS } from "@/lib/boqEvalJson";
 import BoqDocumentsPanel from "@/components/ops/BoqDocumentsPanel";
+import BoqAuditReview from "@/components/ops/BoqAuditReview";
 import { type Spec, type SpecValue } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -770,6 +771,10 @@ export default function OpsBoqBuilder() {
             ))}
           </CardContent>
         </Card>
+      )}
+
+      {!present && view === "lines" && id && (
+        <BoqAuditReview boqId={id} projectId={boq?.project_id ?? null} lines={lines} />
       )}
 
       {!present && view === "make" ? (
