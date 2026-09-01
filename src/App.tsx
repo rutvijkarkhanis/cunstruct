@@ -22,6 +22,7 @@ const SearchResults = lazy(() => import("./pages/SearchResults.tsx"));
 const KitDetail = lazy(() => import("./pages/KitDetail.tsx"));
 const Kits = lazy(() => import("./pages/Kits.tsx"));
 const Auth = lazy(() => import("./pages/Auth.tsx"));
+const Privacy = lazy(() => import("./pages/Privacy.tsx"));
 
 // ── App-subdomain pages (projects + ops) ─────────────────────────────────────
 const MyProjects = lazy(() => import("./pages/MyProjects.tsx"));
@@ -99,6 +100,7 @@ function StorefrontRoutes() {
       <Route path="/search" element={<SearchResults />} />
       <Route path="/kit/:id" element={<KitDetail />} />
       <Route path="/kits" element={<Kits />} />
+      <Route path="/privacy" element={<Privacy />} />
       <Route path="/auth" element={<Auth />} />
       {/* Projects module lives on the app subdomain — redirect there */}
       <Route path="/my-projects" element={<CrossDomainRedirect base={app} />} />
@@ -118,6 +120,7 @@ function AppRoutes() {
     <Routes>
       {/* Root goes straight to the project list */}
       <Route path="/" element={<Navigate to="/my-projects" replace />} />
+      <Route path="/privacy" element={<Privacy />} />
       <Route path="/auth" element={<Auth />} />
       <Route path="/my-projects" element={<MyProjects />} />
       <Route path="/my-projects/:id" element={<MyProjectDetail />} />
