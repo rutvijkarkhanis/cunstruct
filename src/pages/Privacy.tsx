@@ -7,7 +7,7 @@ import SEO from "@/components/SEO";
 //  registered name & address before you rely on this in ads.)
 const COMPANY = "Cunstruct";
 const LEGAL_NAME = "";                       // optional registered entity, e.g. "Cunstruct Technologies Pvt. Ltd."
-const CONTACT_EMAIL = "privacy@cunstruct.com"; // ← update to a monitored address
+const CONTACT_EMAIL = "rutvij.karkhanis@gmail.com"; // monitored contact address
 const ADDRESS = "";                          // optional postal address
 const WEBSITE = "cunstruct.com";
 const LAST_UPDATED = "1 September 2026";
