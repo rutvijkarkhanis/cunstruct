@@ -14,6 +14,48 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_operation_log: {
+        Row: {
+          correlation_id: string | null
+          created_at: string
+          id: string
+          model: string | null
+          operation: string
+          project_id: string | null
+          provider: string | null
+          resource_id: string | null
+          resource_type: string | null
+          status: string
+          user_id: string | null
+        }
+        Insert: {
+          correlation_id?: string | null
+          created_at?: string
+          id?: string
+          model?: string | null
+          operation: string
+          project_id?: string | null
+          provider?: string | null
+          resource_id?: string | null
+          resource_type?: string | null
+          status?: string
+          user_id?: string | null
+        }
+        Update: {
+          correlation_id?: string | null
+          created_at?: string
+          id?: string
+          model?: string | null
+          operation?: string
+          project_id?: string | null
+          provider?: string | null
+          resource_id?: string | null
+          resource_type?: string | null
+          status?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       callback_tasks: {
         Row: {
           created_at: string
@@ -384,6 +426,7 @@ export type Database = {
       projects: {
         Row: {
           account_manager_id: string | null
+          ai_processing_enabled: boolean
           area_sqft: number | null
           client_name: string | null
           created_at: string
@@ -408,6 +451,7 @@ export type Database = {
         }
         Insert: {
           account_manager_id?: string | null
+          ai_processing_enabled?: boolean
           area_sqft?: number | null
           client_name?: string | null
           created_at?: string
@@ -432,6 +476,7 @@ export type Database = {
         }
         Update: {
           account_manager_id?: string | null
+          ai_processing_enabled?: boolean
           area_sqft?: number | null
           client_name?: string | null
           created_at?: string

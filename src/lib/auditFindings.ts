@@ -70,11 +70,17 @@ export interface LinkedFinding extends AuditFinding {
   matched: boolean;
 }
 
-/** Attach each finding to a BOQ line where possible (does not mutate anything). */
+/**
+ * Attach each finding to a BOQ line where possible (does not mutate anything).
+ * SECURITY: only a line id verified to be within the authorized `lines` set is
+ * carried through. An unverified boq_line_id from the imported payload (which
+ * could reference another project's line) is dropped, never persisted — so a
+ * crafted payload can't pin a finding onto a line outside this BOQ.
+ */
 export function linkFindings(findings: AuditFinding[], lines: BoqLineRef[]): LinkedFinding[] {
   return findings.map((f) => {
     const id = matchFindingToLine(f, lines);
-    return { ...f, boqLineId: id ?? f.boqLineId, matched: id != null };
+    return { ...f, boqLineId: id ?? undefined, matched: id != null };
   });
 }
 

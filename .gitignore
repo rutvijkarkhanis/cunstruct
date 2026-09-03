@@ -12,6 +12,18 @@ dist
 dist-ssr
 *.local
 
+# Secrets — server-side secret env files must NEVER be committed.
+# The project intentionally versions `.env` (public Supabase publishable keys
+# only). Any secret (AI provider keys, service-role keys) belongs in `.env.local`
+# or the deploy platform's secret store — both ignored here. See docs/SECURITY.md.
+.env.local
+.env.*.local
+.env.development.local
+.env.production.local
+.env.server
+*.pem
+*.key
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { parseAuditJson } from "./auditJson";
 import { linkFindings, type BoqLineRef, type FindingState } from "./auditFindings";
+import { recordAuditTrail } from "./security/auditTrail";
 
 export interface ImportAuditArgs {
   boqId: string;
@@ -87,6 +88,16 @@ export async function importAuditRun(args: ImportAuditArgs): Promise<ImportAudit
     const { error: findErr } = await supabase.from("boq_audit_finding").insert(rows);
     if (findErr) throw findErr;
   }
+
+  // Record the import in the application audit trail (safe metadata only — no
+  // findings content, no pasted JSON). Best-effort; never blocks the import.
+  await recordAuditTrail({
+    operation: "audit.import",
+    projectId: args.projectId ?? null,
+    resourceType: "boq",
+    resourceId: args.boqId,
+    status: "ok",
+  });
 
   return {
     runId,

@@ -51,8 +51,7 @@ Deno.serve(async (req) => {
     );
   }
 
-  console.log("WHATSAPP_ACCESS_TOKEN prefix:", accessToken.slice(0, 10));
-  console.log("WHATSAPP_ACCESS_TOKEN length:", accessToken.length);
+  // Security: never log the access token (not even a prefix/length) — it is a secret.
 
   const url = `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`;
 
@@ -73,7 +72,9 @@ Deno.serve(async (req) => {
     });
 
     const responseBody = await response.text();
-    console.log("Meta API response body:", responseBody);
+    // Security: log only the outcome status, not the full response body (it can
+    // carry recipient phone numbers / message metadata).
+    console.log("Meta API response status:", response.status);
 
     let data: any;
     try {
