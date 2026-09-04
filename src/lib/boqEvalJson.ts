@@ -41,6 +41,9 @@ export interface EvalLine {
   measurement_method?: string;
   calculation?: string;
   allocation?: string;
+  /** Stable external identity from the analysis, carried onto the BOQ line so an
+   *  external audit can match this exact line later. */
+  external_key?: string;
 }
 
 export interface EvalImportResult {
@@ -250,6 +253,7 @@ export function parseBoqEvalJson(text: string): EvalImportResult {
     const measurement_method = str(o.measurement_method);
     const calculation = str(o.calculation);
     const allocation = str(o.allocation);
+    const external_key = str(o.external_key) || str(o.externalKey) || str(o.key) || str(o.id);
     const scope = normScope(o.scope);
 
     // Preserve location / note / status / measurement metadata for the operator
@@ -269,6 +273,7 @@ export function parseBoqEvalJson(text: string): EvalImportResult {
       measurement_method: measurement_method || undefined,
       calculation: calculation || undefined,
       allocation: allocation || undefined,
+      external_key: external_key || undefined,
     });
   });
 
@@ -300,10 +305,30 @@ export interface EvalBoqRow {
   basis_note: string | null;
   source: "manual";
   sort: number;
+  /** Stable external key from the analysis, for later exact audit matching. */
+  external_key: string | null;
+  /** Canonical measurement methodology, when the analysis supplied a known one. */
+  measurement_method: string | null;
+  /** Canonical quantity status; PENDING whenever the quantity is unknown. */
+  quantity_status: string | null;
 }
 
 /** The sentinel `basis` value marking a quantity-pending line (qty unknown). */
 export const PENDING_BASIS = "PENDING";
+
+// Canonical enum vocabularies, matched case-insensitively. Kept inline (no
+// imports) so this module stays a self-contained, dependency-free consumer; the
+// alias-tolerant normalisers live in quantityMethod.ts for the audit path.
+const CANON_METHODS = ["COUNT", "AREA", "LENGTH", "VOLUME", "WEIGHT", "COVERAGE", "DERIVED", "SPECIFICATION", "PENDING"];
+const CANON_STATUSES = ["MEASURED", "COUNTED", "DERIVED", "ESTIMATED", "PENDING", "NOT_APPLICABLE"];
+const canonMethod = (v?: string): string | null => {
+  const u = (v ?? "").toUpperCase().trim();
+  return CANON_METHODS.includes(u) ? u : null;
+};
+const canonStatus = (v?: string): string | null => {
+  const u = (v ?? "").toUpperCase().replace(/[\s-]+/g, "_").trim();
+  return CANON_STATUSES.includes(u) ? u : null;
+};
 
 /** Convert parsed EvalLines into boq_line insert rows for a given BOQ. Deterministic:
  *  numeric qty is kept; a null qty becomes a pending line (qty 0, basis PENDING);
@@ -313,6 +338,8 @@ export function evalLinesToRows(boqId: string, lines: EvalLine[], startSort = 0)
     const pending = l.qty == null;
     const equipment = l.scope === "equipment";
     const basis_note = [l.note, equipment ? "Client equipment" : ""].map((s) => (s ?? "").trim()).filter(Boolean).join(" · ") || null;
+    // A pending line is ALWAYS status PENDING (a count is never fabricated).
+    const quantity_status = pending ? "PENDING" : canonStatus(l.status);
     return {
       boq_id: boqId,
       section: l.section || "Drawing requirements",
@@ -326,6 +353,9 @@ export function evalLinesToRows(boqId: string, lines: EvalLine[], startSort = 0)
       basis_note,
       source: "manual",
       sort: startSort + i,
+      external_key: l.external_key ?? null,
+      measurement_method: canonMethod(l.measurement_method),
+      quantity_status,
     };
   });
 }

@@ -195,7 +195,7 @@ export default function MyProjectOrder() {
   const [busy, setBusy] = useState(false);
 
   const lineFor = (item: any) => {
-    const l = computeBoqLine(item, dims, builtUp, tier, catalogMatches ?? []);
+    const l = computeBoqLine(item, dims, builtUp, tier, catalogMatches ?? [], (project as any)?.project_type ?? null);
     // Mobile lets the contractor nudge quantities by hand; apply that override.
     return { ...l, qty: overrides[item.id] ?? l.qty };
   };

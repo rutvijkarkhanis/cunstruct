@@ -45,8 +45,7 @@ function normalizePhone(p: string | null | undefined): string {
 // on projects.customer_phone (where forecasts are linked via project_id).
 async function findLatestForecastForPhone(incomingPhone: string) {
   const normalizedIncoming = normalizePhone(incomingPhone);
-  console.log("incoming phone:", incomingPhone);
-  console.log("normalized phone:", normalizedIncoming);
+  // Security: do not log raw phone numbers (customer PII). Match silently.
 
   const { data: projects, error: projErr } = await admin
     .from("projects")
