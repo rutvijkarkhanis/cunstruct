@@ -47,6 +47,7 @@ const OpsOnboarding = lazy(() => import("./pages/ops/OpsOnboarding.tsx"));
 const OpsBoqTemplates = lazy(() => import("./pages/ops/OpsBoqTemplates.tsx"));
 const OpsBoqList = lazy(() => import("./pages/ops/OpsBoqList.tsx"));
 const OpsBoqBuilder = lazy(() => import("./pages/ops/OpsBoqBuilder.tsx"));
+const BoqReviewWorkstation = lazy(() => import("./pages/ops/BoqReviewWorkstation.tsx"));
 
 const PageLoader = () => (
   <div className="min-h-screen bg-background flex items-center justify-center">
@@ -134,6 +135,7 @@ function AppRoutes() {
           <Route path="documents" element={<ProjectDocuments />} />
           <Route path="boqs" element={<ProjectBoqs />} />
           <Route path="boqs/:boqId" element={<OpsBoqBuilder />} />
+          <Route path="boqs/:boqId/review" element={<BoqReviewWorkstation />} />
           <Route path="procurement" element={<ProjectProcurement />} />
           <Route path="activity" element={<OpsProjectDetail />} />
         </Route>
