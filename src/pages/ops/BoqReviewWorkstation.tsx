@@ -27,6 +27,9 @@ import {
 import { transformBoxes, unionBox, hasPlaceableEvidence } from "@/lib/review/evidenceCoords";
 import { defaultInputMode, isProviderConfigured, PROVIDERS, type InputMode } from "@/lib/review/analysisProviders";
 import { createAnalysisRun, loadReviewItems, latestRunForBoq, saveReviewDecision, type StoredReviewItem } from "@/lib/review/reviewStore";
+import { resolveDrawing, type StoredDrawing } from "@/lib/review/documentResolve";
+import { signedDrawingUrl } from "@/lib/review/drawingStorage";
+import PdfEvidenceViewer from "@/components/review/PdfEvidenceViewer";
 
 const FLAG_REASONS: { key: FlagReason; label: string }[] = [
   { key: "DRAWING_UNCLEAR", label: "Drawing unclear" },
@@ -59,6 +62,25 @@ export default function BoqReviewWorkstation() {
     queryFn: async () => {
       const { data } = await supabase.from("projects").select("id, name, project_type").eq("id", boq!.project_id!).single();
       return data as { id: string; name: string; project_type: string | null } | null;
+    },
+  });
+
+  // The project's stored drawings, for resolving an analysis item's source doc.
+  const { data: drawings = [] } = useQuery({
+    queryKey: ["rw-drawings", boq?.project_id],
+    enabled: !!boq?.project_id,
+    queryFn: async (): Promise<StoredDrawing[]> => {
+      const { data: docs } = await supabase.from("project_document")
+        .select("id, name, current_revision_id").eq("project_id", boq!.project_id!);
+      const revIds = (docs ?? []).map((d) => d.current_revision_id).filter(Boolean) as string[];
+      const revs = revIds.length
+        ? (await supabase.from("document_revision").select("id, file_path, original_filename, page_count").in("id", revIds)).data ?? []
+        : [];
+      const revById = new Map(revs.map((r) => [r.id, r]));
+      return (docs ?? []).map((d) => {
+        const r = d.current_revision_id ? revById.get(d.current_revision_id) : undefined;
+        return { documentId: d.id, name: d.name, originalFilename: r?.original_filename ?? null, filePath: r?.file_path ?? null, pageCount: r?.page_count ?? null };
+      });
     },
   });
 
@@ -171,7 +193,7 @@ export default function BoqReviewWorkstation() {
             onNext={() => go(1)}
             keyboardEnabled
           />
-          <EvidenceViewer item={current} />
+          <ResolvedEvidenceViewer item={current} drawings={drawings} />
         </div>
       )}
     </div>
@@ -396,7 +418,48 @@ function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPending, on
   );
 }
 
-// ── Right evidence viewer ──────────────────────────────────────────────────────
+// ── Right panel: resolve the real drawing, else fall back to the coord plot ────
+function ResolvedEvidenceViewer({ item, drawings }: { item: StoredReviewItem; drawings: StoredDrawing[] }) {
+  const resolved = useMemo(() => resolveDrawing(item.ai.source, drawings), [item.ai.source, drawings]);
+  const [signed, setSigned] = useState<string | null>(null);
+  const [signState, setSignState] = useState<"idle" | "signing" | "unavailable">("idle");
+
+  useEffect(() => {
+    let alive = true;
+    setSigned(null);
+    if (resolved?.filePath) {
+      setSignState("signing");
+      signedDrawingUrl(resolved.filePath).then((url) => {
+        if (!alive) return;
+        setSigned(url);
+        setSignState(url ? "idle" : "unavailable");
+      });
+    } else {
+      setSignState("idle");
+    }
+    return () => { alive = false; };
+  }, [resolved?.filePath]);
+
+  // A real stored file we could sign → render the actual drawing with overlays.
+  if (resolved?.filePath) {
+    return (
+      <Card><CardContent className="p-4">
+        <PdfEvidenceViewer
+          fileUrl={signed}
+          source={item.ai.source}
+          documentName={item.ai.source?.document ?? "Drawing"}
+          unavailableReason={signState === "unavailable" ? "Source drawing unavailable." : null}
+        />
+      </CardContent></Card>
+    );
+  }
+
+  // Matched a document but it has no uploaded file, or nothing matched → keep the
+  // existing page-coordinate plot / non-positional fallback (never fabricated).
+  return <EvidenceViewer item={item} />;
+}
+
+// ── Right evidence viewer (page-coordinate plot fallback) ──────────────────────
 function EvidenceViewer({ item }: { item: StoredReviewItem }) {
   const boxRef = useRef<HTMLDivElement>(null);
   const [rendered, setRendered] = useState({ width: 0, height: 0 });

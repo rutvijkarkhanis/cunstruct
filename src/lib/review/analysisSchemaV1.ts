@@ -25,9 +25,16 @@ export interface EvidenceBox {
 }
 
 export interface AnalysisSource {
+  /** Stable id of the stored Cunstruct document, when the analysis knows it. The
+   *  most reliable way to resolve the drawing; falls back to `document` by name. */
+  documentId?: string;
   document?: string;
   page?: number;
   evidence: EvidenceBox[];
+  /** The coordinate space the bboxes are in (width×height, top-left origin). When
+   *  absent the viewer assumes the PDF page's own scale-1 size — see
+   *  evidenceCoords.resolvePageSpace. Never fabricated. */
+  pageSize?: { width: number; height: number };
 }
 
 export interface AnalysisItemV1 {
@@ -129,6 +136,7 @@ function parseSource(raw: unknown, warnings: string[], itemLabel: string): Analy
     return s ? { document: s, evidence: [] } : undefined;
   }
   const o = asObj(raw);
+  const documentId = str(o.document_id ?? o.documentId) || undefined;
   const document = str(o.document) || undefined;
   const page = num(o.page) ?? undefined;
   const evRaw = Array.isArray(o.evidence) ? o.evidence : [];
@@ -138,8 +146,18 @@ function parseSource(raw: unknown, warnings: string[], itemLabel: string): Analy
     if (box) evidence.push(box);
     else warnings.push(`"${itemLabel}": evidence[${i}] has no valid bbox — skipped (no coordinate fabricated).`);
   });
-  if (!document && page == null && evidence.length === 0) return undefined;
-  return { document, page, evidence };
+  // Optional declared coordinate space: [w,h] array or {width,height} object.
+  let pageSize: { width: number; height: number } | undefined;
+  const ps = o.page_size ?? o.pageSize;
+  if (Array.isArray(ps) && ps.length === 2) {
+    const w = num(ps[0]); const h = num(ps[1]);
+    if (w != null && h != null && w > 0 && h > 0) pageSize = { width: w, height: h };
+  } else if (ps && typeof ps === "object") {
+    const w = num((ps as Record<string, unknown>).width); const h = num((ps as Record<string, unknown>).height);
+    if (w != null && h != null && w > 0 && h > 0) pageSize = { width: w, height: h };
+  }
+  if (!documentId && !document && page == null && evidence.length === 0) return undefined;
+  return { documentId, document, page, evidence, pageSize };
 }
 
 /**

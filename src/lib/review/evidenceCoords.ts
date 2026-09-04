@@ -79,3 +79,36 @@ export function fitToEvidence(
 export function hasPlaceableEvidence(source?: { evidence?: EvidenceBox[] }): boolean {
   return (source?.evidence?.length ?? 0) > 0;
 }
+
+// ── Coordinate convention (single source of truth) ───────────────────────────
+//
+// Analysis bboxes use a TOP-LEFT origin (x right, y down) in a page coordinate
+// space. That space is, in priority order:
+//   1. `source.pageSize` when the analysis explicitly declares it (authoritative);
+//   2. otherwise the PDF page's own scale-1 size (the pdf.js viewport at scale 1).
+//
+// This is the ONE place the convention lives. If the analysis pipeline later
+// adopts a different convention (e.g. bottom-left PDF user units), change it here
+// and every overlay follows. We never guess a page size when neither source is
+// available — the caller then falls back to a non-positional evidence state.
+
+export interface EvidenceSource {
+  pageSize?: { width: number; height: number };
+}
+
+/**
+ * Resolve the page coordinate space for an item's bboxes. Returns the declared
+ * `pageSize`, else the supplied PDF page size, else null (unknown — do not guess).
+ */
+export function resolvePageSpace(
+  source: EvidenceSource | undefined,
+  pdfPageSize?: Size | null,
+): Size | null {
+  if (source?.pageSize && source.pageSize.width > 0 && source.pageSize.height > 0) {
+    return { width: source.pageSize.width, height: source.pageSize.height };
+  }
+  if (pdfPageSize && pdfPageSize.width > 0 && pdfPageSize.height > 0) {
+    return { width: pdfPageSize.width, height: pdfPageSize.height };
+  }
+  return null;
+}
