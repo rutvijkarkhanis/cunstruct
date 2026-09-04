@@ -56,6 +56,99 @@ export type Database = {
         }
         Relationships: []
       }
+      analysis_review_item: {
+        Row: {
+          ai_json: Json
+          boq_id: string | null
+          created_at: string
+          flag_reason: string | null
+          id: string
+          item_key: string | null
+          item_name: string | null
+          project_id: string | null
+          review_note: string | null
+          review_status: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          reviewer_json: Json | null
+          run_id: string
+          sort: number
+        }
+        Insert: {
+          ai_json: Json
+          boq_id?: string | null
+          created_at?: string
+          flag_reason?: string | null
+          id?: string
+          item_key?: string | null
+          item_name?: string | null
+          project_id?: string | null
+          review_note?: string | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          reviewer_json?: Json | null
+          run_id: string
+          sort?: number
+        }
+        Update: {
+          ai_json?: Json
+          boq_id?: string | null
+          created_at?: string
+          flag_reason?: string | null
+          id?: string
+          item_key?: string | null
+          item_name?: string | null
+          project_id?: string | null
+          review_note?: string | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          reviewer_json?: Json | null
+          run_id?: string
+          sort?: number
+        }
+        Relationships: []
+      }
+      analysis_run: {
+        Row: {
+          boq_id: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          item_count: number
+          model: string | null
+          project_id: string | null
+          provider: string | null
+          schema_version: string
+          source: string
+        }
+        Insert: {
+          boq_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          item_count?: number
+          model?: string | null
+          project_id?: string | null
+          provider?: string | null
+          schema_version?: string
+          source?: string
+        }
+        Update: {
+          boq_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          item_count?: number
+          model?: string | null
+          project_id?: string | null
+          provider?: string | null
+          schema_version?: string
+          source?: string
+        }
+        Relationships: []
+      }
       callback_tasks: {
         Row: {
           created_at: string

@@ -8,8 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Plus, FileText, ChevronDown, ChevronRight, CheckCircle2, Link2 } from "lucide-react";
+import { Plus, FileText, ChevronDown, ChevronRight, CheckCircle2, Link2, Upload, Trash2 } from "lucide-react";
 import { DOC_TYPES, DISCIPLINES, type ProjectDocument, type DocumentRevision } from "@/lib/projectDocs";
+import { validateDrawingFile, buildDrawingPath, uploadDrawing, deleteDrawing } from "@/lib/review/drawingStorage";
 
 export default function ProjectDocuments() {
   const { id: projectId } = useParams<{ id: string }>();
@@ -32,7 +33,7 @@ export default function ProjectDocuments() {
     enabled: ids.length > 0,
     queryFn: async () => {
       const { data } = await supabase.from("document_revision")
-        .select("id, document_id, label, revision_date, source, external_url, page_count, status, created_at")
+        .select("id, document_id, label, revision_date, source, file_path, external_url, page_count, status, created_at, mime_type, file_size, original_filename")
         .in("document_id", ids).order("created_at");
       return (data ?? []) as DocumentRevision[];
     },
@@ -83,6 +84,78 @@ export default function ProjectDocuments() {
     } finally { setBusy(false); }
   };
 
+  // ---- Upload a PDF drawing (private storage) ------------------------------
+  const [uploading, setUploading] = useState(false);
+  const uploadPdf = async (file: File) => {
+    if (!projectId) return;
+    const check = validateDrawingFile(file);
+    if (!check.ok) return toast.error(check.error ?? "Invalid file");
+    setUploading(true);
+    let docId: string | null = null;
+    let revId: string | null = null;
+    try {
+      // Count pages deterministically (pdf.js), best-effort.
+      let pageCount: number | null = null;
+      try {
+        const pdfjs = await import("pdfjs-dist");
+        pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+        const buf = await file.arrayBuffer();
+        const doc = await pdfjs.getDocument({ data: buf }).promise;
+        pageCount = doc.numPages;
+      } catch { /* page count is optional */ }
+
+      const docName = file.name.replace(/\.pdf$/i, "");
+      const { data: docRow, error: docErr } = await supabase.from("project_document")
+        .insert({ project_id: projectId, name: docName, doc_type: "Architectural", discipline: "Architectural", status: "uploaded" })
+        .select("id").single();
+      if (docErr) throw docErr;
+      docId = (docRow as { id: string }).id;
+
+      const { data: revRow, error: revErr } = await supabase.from("document_revision")
+        .insert({ document_id: docId, label: "Rev A", source: "upload", status: "uploaded", page_count: pageCount })
+        .select("id").single();
+      if (revErr) throw revErr;
+      revId = (revRow as { id: string }).id;
+
+      const path = buildDrawingPath(projectId, docId, revId);
+      await uploadDrawing(path, file);
+
+      const { error: updErr } = await supabase.from("document_revision")
+        .update({ file_path: path, mime_type: file.type || "application/pdf", file_size: file.size, original_filename: file.name })
+        .eq("id", revId);
+      if (updErr) throw updErr;
+      await supabase.from("project_document").update({ current_revision_id: revId }).eq("id", docId);
+
+      toast.success(`Uploaded ${file.name}${pageCount ? ` · ${pageCount} page(s)` : ""}`);
+      qc.invalidateQueries({ queryKey: ["project-documents", projectId] });
+      qc.invalidateQueries({ queryKey: ["document-revisions", projectId] });
+    } catch (e) {
+      // Best-effort cleanup so a failed upload leaves no orphan records.
+      if (revId) await supabase.from("document_revision").delete().eq("id", revId);
+      if (docId) await supabase.from("project_document").delete().eq("id", docId);
+      toast.error(e instanceof Error ? e.message : "Upload failed");
+    } finally { setUploading(false); }
+  };
+
+  // ---- Delete a document + its stored files (analysis history is untouched) --
+  const deleteDocument = async (doc: ProjectDocument) => {
+    if (!confirm(`Delete "${doc.name}" and its uploaded file? Existing analysis review history is kept.`)) return;
+    try {
+      // Remove storage objects for any uploaded revisions first (best-effort).
+      const paths = revsFor(doc.id).map((r) => r.file_path).filter(Boolean) as string[];
+      for (const p of paths) { try { await deleteDrawing(p); } catch { /* keep going */ } }
+      // Deleting the document row cascades its revisions. Analysis runs reference
+      // the document only by id in ai_json (no FK), so they remain intact.
+      const { error } = await supabase.from("project_document").delete().eq("id", doc.id);
+      if (error) throw error;
+      toast.success(`Deleted ${doc.name}`);
+      qc.invalidateQueries({ queryKey: ["project-documents", projectId] });
+      qc.invalidateQueries({ queryKey: ["document-revisions", projectId] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Delete failed");
+    }
+  };
+
   // ---- Add revision -------------------------------------------------------
   const [revFor, setRevFor] = useState<string | null>(null);
   const [revLabel, setRevLabel] = useState("");
@@ -116,7 +189,16 @@ export default function ProjectDocuments() {
           <h2 className="text-lg font-semibold">Documents</h2>
           <p className="text-sm text-muted-foreground">Every drawing/document exists once and can be referenced by multiple BOQs.</p>
         </div>
-        {!adding && <Button onClick={() => setAdding(true)}><Plus className="h-4 w-4 mr-2" />Add document</Button>}
+        <div className="flex items-center gap-2">
+          <Button asChild variant="outline" disabled={uploading}>
+            <label className="cursor-pointer">
+              <Upload className="h-4 w-4 mr-2" />{uploading ? "Uploading…" : "Upload PDF"}
+              <input type="file" accept="application/pdf,.pdf" className="hidden" disabled={uploading}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadPdf(f); e.currentTarget.value = ""; }} />
+            </label>
+          </Button>
+          {!adding && <Button onClick={() => setAdding(true)}><Plus className="h-4 w-4 mr-2" />Add document</Button>}
+        </div>
       </div>
 
       {adding && (
@@ -177,6 +259,9 @@ export default function ProjectDocuments() {
                   <Badge variant="outline" className="shrink-0">{d.status}</Badge>
                   <Button size="sm" variant="outline" onClick={() => { setRevFor(revFor === d.id ? null : d.id); setRevLabel(""); setRevUrl(""); }}>
                     <Plus className="h-3.5 w-3.5 mr-1" />Revision
+                  </Button>
+                  <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" title="Delete document" onClick={() => deleteDocument(d)}>
+                    <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </div>
 

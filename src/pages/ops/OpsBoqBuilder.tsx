@@ -601,6 +601,10 @@ export default function OpsBoqBuilder() {
           title="Import an externally-produced audit JSON and review its findings (deterministic; no AI)">
           <ClipboardCheck className="h-4 w-4 mr-2" />{showAudit ? "Hide review" : "BOQ Audit"}
         </Button>
+        <Button variant="outline" onClick={() => navigate(`review`)}
+          title="Open the split-screen Review Workstation for a drawing analysis (JSON import; works with no AI configured)">
+          <ClipboardCheck className="h-4 w-4 mr-2" />Review Analysis
+        </Button>
         {boq.project_id && (
           <Button variant={showDocs ? "default" : "outline"} onClick={() => setShowDocs((s) => !s)}
             title="Assign project documents (drawings, references) to this BOQ">

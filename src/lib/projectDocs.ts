@@ -33,10 +33,13 @@ export interface DocumentRevision {
   file_path: string | null;
   external_url: string | null;
   page_count: number | null;
-  eval_json: unknown;
-  analysed_at: string | null;
+  eval_json?: unknown;
+  analysed_at?: string | null;
   status: string;
   created_at?: string;
+  mime_type?: string | null;
+  file_size?: number | null;
+  original_filename?: string | null;
 }
 
 export interface BoqDocumentLink {
