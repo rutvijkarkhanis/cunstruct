@@ -54,3 +54,36 @@ describe("hasPlaceableEvidence", () => {
     expect(hasPlaceableEvidence(undefined)).toBe(false);
   });
 });
+
+describe("REGRESSION: Srikakulam W1 opening evidence overlay positioning", () => {
+  it("positions W1 window opening correctly on 595×842 page", () => {
+    // Ground Floor W1 opening at [100, 284, 106, 324] on page 595×842.
+    // When rendered at 50% (e.g., 297.5×421), the overlay should maintain proportional positioning.
+    const w1Box = box([100, 284, 106, 324]);
+    const pageSize = { width: 595, height: 842 };
+    const renderedSize = { width: 297, height: 421 }; // ~50% scale
+
+    const result = transformBox(w1Box, pageSize, renderedSize);
+
+    // Expected: proportional scaling
+    // x: 100 * (297/595) ≈ 50, width: 6 * (297/595) ≈ 3
+    // y: 284 * (421/842) ≈ 142, height: 40 * (421/842) ≈ 20
+    expect(result).not.toBeNull();
+    expect(result!.left).toBeCloseTo(50, 0);
+    expect(result!.top).toBeCloseTo(142, 0);
+    expect(result!.width).toBeCloseTo(3, 0);
+    expect(result!.height).toBeCloseTo(20, 0);
+  });
+
+  it("maintains overlay dimensions at full page scale (1:1)", () => {
+    // At 1:1 scale (same as page coordinates), bbox should map directly.
+    const w1Box = box([100, 284, 106, 324]);
+    const pageSize = { width: 595, height: 842 };
+    const renderedSize = { width: 595, height: 842 }; // 1:1 scale
+
+    const result = transformBox(w1Box, pageSize, renderedSize);
+
+    // At 1:1, output should match input coordinates
+    expect(result).toEqual({ left: 100, top: 284, width: 6, height: 40 });
+  });
+});
