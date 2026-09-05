@@ -18,6 +18,9 @@ export interface CreateRunArgs {
   source: "json_import" | "ai_api";
   provider?: string | null;
   model?: string | null;
+  /** Optional document ID to use when analysis source document cannot be resolved.
+   * Stored separately; does not modify ai_json. */
+  resolvedDocumentId?: string | null;
 }
 
 /** Persist a validated analysis as a run + one review item per analysis item. */
@@ -36,6 +39,7 @@ export async function createAnalysisRun(args: CreateRunArgs): Promise<{ runId: s
       model: args.model ?? null,
       item_count: args.analysis.items.length,
       created_by: createdBy,
+      resolved_document_id: args.resolvedDocumentId ?? null,
     })
     .select("id")
     .single();
@@ -94,10 +98,10 @@ export async function loadReviewItems(runId: string): Promise<StoredReviewItem[]
 }
 
 /** The most recent analysis run for a BOQ, or null. */
-export async function latestRunForBoq(boqId: string): Promise<{ id: string; source: string; item_count: number; created_at: string } | null> {
+export async function latestRunForBoq(boqId: string): Promise<{ id: string; source: string; item_count: number; created_at: string; resolved_document_id?: string | null } | null> {
   const { data, error } = await supabase
     .from("analysis_run")
-    .select("id, source, item_count, created_at")
+    .select("id, source, item_count, created_at, resolved_document_id")
     .eq("boq_id", boqId)
     .order("created_at", { ascending: false })
     .limit(1);
