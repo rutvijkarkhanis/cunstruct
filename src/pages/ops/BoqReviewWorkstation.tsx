@@ -144,7 +144,14 @@ export default function BoqReviewWorkstation() {
       <ImportGate
         boqName={boq?.name}
         projectType={project?.project_type ?? null}
-        onImported={(rid, its) => { setRunId(rid); setItems(its); setCursor(0); }}
+        onImported={async (rid, its) => {
+          setRunId(rid);
+          setItems(its);
+          setCursor(0);
+          // Fetch the newly created run to get resolved_document_id from database
+          const run = await latestRunForBoq(boqId);
+          if (run) setResolvedDocumentId(run.resolved_document_id ?? null);
+        }}
         boqId={boqId}
         projectId={boq?.project_id ?? null}
         drawings={drawings}
