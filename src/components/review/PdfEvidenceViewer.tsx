@@ -9,13 +9,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist";
+import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min?url";
 import { Button } from "@/components/ui/button";
 import { ZoomIn, ZoomOut, Maximize, Crosshair, ChevronLeft, ChevronRight, FileWarning, Loader2 } from "lucide-react";
 import { resolvePageSpace, transformBoxes, unionBox } from "@/lib/review/evidenceCoords";
 import type { AnalysisSource, EvidenceBox } from "@/lib/review/analysisSchemaV1";
 
 // Bundle the worker with Vite (kept off the main thread; no CDN dependency).
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+// The ?url import tells Vite to bundle the worker and return its URL as a string.
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 interface Props {
   fileUrl: string | null;         // short-lived signed URL, or null when no file
@@ -40,6 +42,7 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
   const [scale, setScale] = useState(1);
   const [pageBase, setPageBase] = useState<Size | null>(null); // page size at scale 1
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
 
   // Evidence boxes on the CURRENT page (per-box page overrides the item page).
   const boxes: EvidenceBox[] = useMemo(
@@ -52,9 +55,10 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
 
   // Load the document when the signed URL changes.
   useEffect(() => {
-    if (!fileUrl) { docRef.current = null; setStatus("idle"); return; }
+    if (!fileUrl) { docRef.current = null; setStatus("idle"); setErrorDetail(null); return; }
     let cancelled = false;
     setStatus("loading");
+    setErrorDetail(null);
     const task = pdfjsLib.getDocument(fileUrl);
     task.promise.then((doc) => {
       if (cancelled) return;
@@ -62,7 +66,14 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
       setNumPages(doc.numPages);
       setPage((p) => Math.min(Math.max(1, p), doc.numPages));
       setStatus("ready");
-    }).catch(() => { if (!cancelled) setStatus("error"); });
+    }).catch((err) => {
+      if (!cancelled) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[PdfEvidenceViewer] Failed to load PDF:", msg);
+        setErrorDetail(msg);
+        setStatus("error");
+      }
+    });
     return () => { cancelled = true; try { task.destroy?.(); } catch { /* noop */ } };
   }, [fileUrl]);
 
@@ -82,12 +93,28 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
       canvas.style.width = `${viewport.width}px`;
       canvas.style.height = `${viewport.height}px`;
       const ctx = canvas.getContext("2d");
-      if (!ctx) return;
+      if (!ctx) {
+        console.error("[PdfEvidenceViewer] Failed to get 2D context from canvas");
+        setErrorDetail("Canvas rendering unavailable");
+        setStatus("error");
+        return;
+      }
       renderTaskRef.current?.cancel?.();
       const task = pdfPage.render({ canvasContext: ctx, viewport, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined });
       renderTaskRef.current = task;
       await task.promise;
-    } catch { /* cancelled renders throw — ignore */ }
+      setErrorDetail(null);
+    } catch (err) {
+      // Only treat as error if not a cancellation (TextLayerMode errors during cancel are expected)
+      if (err instanceof Error && err.message?.includes("cancelled")) {
+        // Cancelled render is expected, don't treat as error
+        return;
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[PdfEvidenceViewer] Failed to render page:", msg);
+      setErrorDetail(`Render failed: ${msg}`);
+      setStatus("error");
+    }
   }, [page, scale]);
 
   useEffect(() => { if (status === "ready") void renderPage(); }, [status, renderPage]);
@@ -166,7 +193,14 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
     >
       <div ref={containerRef} className="relative overflow-auto border rounded bg-neutral-100" style={{ height: 460 }}>
         {status === "loading" && <div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>}
-        {status === "error" && <div className="absolute inset-0 flex items-center justify-center text-sm text-red-600">Failed to load the drawing.</div>}
+        {status === "error" && (
+          <div className="absolute inset-0 flex items-center justify-center p-4">
+            <div className="text-center text-sm space-y-1">
+              <div className="text-red-600 font-medium">Failed to load the drawing.</div>
+              {errorDetail && <div className="text-xs text-red-500">{errorDetail}</div>}
+            </div>
+          </div>
+        )}
         <div className="relative inline-block">
           <canvas ref={canvasRef} className="block" />
           {overlayRects.map((r, i) => (

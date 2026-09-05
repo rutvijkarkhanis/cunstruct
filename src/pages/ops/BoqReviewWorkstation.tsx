@@ -429,12 +429,18 @@ function ResolvedEvidenceViewer({ item, drawings }: { item: StoredReviewItem; dr
     setSigned(null);
     if (resolved?.filePath) {
       setSignState("signing");
+      console.log("[ReviewWorkstation] Signing URL for path:", resolved.filePath);
       signedDrawingUrl(resolved.filePath).then((url) => {
         if (!alive) return;
+        console.log("[ReviewWorkstation] Signed URL result:", url ? "success" : "null (access denied or file missing)");
         setSigned(url);
         setSignState(url ? "idle" : "unavailable");
+      }).catch((err) => {
+        console.error("[ReviewWorkstation] Error signing URL:", err);
+        if (alive) setSignState("unavailable");
       });
     } else {
+      console.log("[ReviewWorkstation] No file path to sign (document has no uploaded file)");
       setSignState("idle");
     }
     return () => { alive = false; };
