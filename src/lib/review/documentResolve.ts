@@ -17,13 +17,18 @@ export interface StoredDrawing {
   pageCount?: number | null;
 }
 
-export type MatchBasis = "document_id" | "filename" | "name" | "none";
+export type MatchBasis = "document_id" | "filename" | "name" | "explicit_override" | "none";
 
 export interface ResolvedDrawing {
   documentId: string;
   filePath: string | null;
   pageCount: number | null;
   matchedBy: MatchBasis;
+}
+
+export interface ResolutionDiagnostics {
+  searchedFor: string | null;
+  availableDrawings: { documentId: string; name: string; originalFilename?: string | null }[];
 }
 
 const base = (s: string | null | undefined) =>
@@ -58,4 +63,25 @@ export function resolveDrawing(source: AnalysisSource | undefined, drawings: Sto
   if (byName) return { documentId: byName.documentId, filePath: byName.filePath ?? null, pageCount: byName.pageCount ?? null, matchedBy: "name" };
 
   return null;
+}
+
+/**
+ * Attempt document resolution and return diagnostics if it fails.
+ * Helps users understand why a document reference couldn't be matched
+ * and what alternatives are available.
+ */
+export function resolveDrawingWithDiagnostics(
+  source: AnalysisSource | undefined,
+  drawings: StoredDrawing[],
+): { resolved: ResolvedDrawing; diagnostics: null } | { resolved: null; diagnostics: ResolutionDiagnostics } {
+  const resolved = resolveDrawing(source, drawings);
+  if (resolved) return { resolved, diagnostics: null };
+
+  return {
+    resolved: null,
+    diagnostics: {
+      searchedFor: source?.document ?? null,
+      availableDrawings: drawings.map((d) => ({ documentId: d.documentId, name: d.name, originalFilename: d.originalFilename })),
+    },
+  };
 }

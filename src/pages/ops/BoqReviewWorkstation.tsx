@@ -30,6 +30,7 @@ import { createAnalysisRun, loadReviewItems, latestRunForBoq, saveReviewDecision
 import { resolveDrawing, type StoredDrawing } from "@/lib/review/documentResolve";
 import { signedDrawingUrl } from "@/lib/review/drawingStorage";
 import PdfEvidenceViewer from "@/components/review/PdfEvidenceViewer";
+import DocumentSelector from "@/components/review/DocumentSelector";
 
 const FLAG_REASONS: { key: FlagReason; label: string }[] = [
   { key: "DRAWING_UNCLEAR", label: "Drawing unclear" },
@@ -86,6 +87,7 @@ export default function BoqReviewWorkstation() {
 
   const [items, setItems] = useState<StoredReviewItem[]>([]);
   const [runId, setRunId] = useState<string | null>(null);
+  const [resolvedDocumentId, setResolvedDocumentId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<ReviewFilter>("NEEDS_REVIEW");
   const [cursor, setCursor] = useState(0);
@@ -100,6 +102,7 @@ export default function BoqReviewWorkstation() {
         if (!alive) return;
         if (run) {
           setRunId(run.id);
+          setResolvedDocumentId(run.resolved_document_id ?? null);
           setItems(await loadReviewItems(run.id));
         }
       } catch { /* degrade to import view */ }
@@ -144,6 +147,7 @@ export default function BoqReviewWorkstation() {
         onImported={(rid, its) => { setRunId(rid); setItems(its); setCursor(0); }}
         boqId={boqId}
         projectId={boq?.project_id ?? null}
+        drawings={drawings}
         onBack={() => navigate(`../boqs/${boqId}`)}
       />
     );
@@ -193,7 +197,7 @@ export default function BoqReviewWorkstation() {
             onNext={() => go(1)}
             keyboardEnabled
           />
-          <ResolvedEvidenceViewer item={current} drawings={drawings} />
+          <ResolvedEvidenceViewer item={current} drawings={drawings} resolvedDocumentId={resolvedDocumentId} />
         </div>
       )}
     </div>
@@ -201,29 +205,67 @@ export default function BoqReviewWorkstation() {
 }
 
 // ── Import gate ────────────────────────────────────────────────────────────────
-function ImportGate({ boqId, projectId, projectType, boqName, onImported, onBack }: {
+function ImportGate({ boqId, projectId, projectType, boqName, onImported, drawings, onBack }: {
   boqId: string; projectId: string | null; projectType: string | null; boqName?: string;
-  onImported: (runId: string, items: StoredReviewItem[]) => void; onBack: () => void;
+  onImported: (runId: string, items: StoredReviewItem[]) => void; drawings: StoredDrawing[];
+  onBack: () => void;
 }) {
   const [mode, setMode] = useState<InputMode>(defaultInputMode());
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pendingAnalysis, setPendingAnalysis] = useState<AnalysisV1 | null>(null);
+  const [documentSelectorState, setDocumentSelectorState] = useState<{ searchedFor: string | null; availableDrawings: { documentId: string; name: string; originalFilename?: string | null }[] } | null>(null);
   const configured = isProviderConfigured();
   const preview = useMemo(() => (text.trim() ? parseAnalysisV1(text) : null), [text]);
 
-  const doImport = async () => {
-    const parsed = parseAnalysisV1(text);
-    if (!parsed.ok || !parsed.analysis) return toast.error(parsed.error ?? "Invalid analysis JSON");
+  const doImport = async (analysis: AnalysisV1, resolvedDocumentId?: string | null) => {
     setBusy(true);
     try {
-      const { runId } = await createAnalysisRun({ boqId, projectId, analysis: parsed.analysis, source: "json_import" });
+      const { runId } = await createAnalysisRun({ boqId, projectId, analysis, source: "json_import", resolvedDocumentId: resolvedDocumentId ?? null });
       const items = await loadReviewItems(runId);
-      parsed.warnings.slice(0, 3).forEach((w) => toast.warning(w));
+      setPendingAnalysis(null);
+      setDocumentSelectorState(null);
       toast.success(`Loaded ${items.length} item${items.length === 1 ? "" : "s"} for review`);
       onImported(runId, items);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to load analysis");
     } finally { setBusy(false); }
+  };
+
+  const handleImportClick = async () => {
+    const parsed = parseAnalysisV1(text);
+    if (!parsed.ok || !parsed.analysis) return toast.error(parsed.error ?? "Invalid analysis JSON");
+
+    // Check if any analysis item has a source document reference
+    const needsDocResolution = parsed.analysis.items.some((it) => it.source?.document);
+    if (!needsDocResolution || drawings.length === 0) {
+      // No document references in analysis or no drawings → import directly
+      parsed.warnings.slice(0, 3).forEach((w) => toast.warning(w));
+      await doImport(parsed.analysis);
+      return;
+    }
+
+    // Check if all items can be resolved
+    const { resolveDrawingWithDiagnostics } = await import("@/lib/review/documentResolve");
+    const allItems = parsed.analysis.items;
+    const unresolvedItems = allItems.filter((it) => {
+      const result = resolveDrawingWithDiagnostics(it.source, drawings);
+      return result.resolved === null;
+    });
+
+    if (unresolvedItems.length === 0) {
+      // All items resolved → proceed
+      parsed.warnings.slice(0, 3).forEach((w) => toast.warning(w));
+      await doImport(parsed.analysis);
+      return;
+    }
+
+    // At least one item unresolved → show selector
+    const firstUnresolved = unresolvedItems[0];
+    const diagnostics = resolveDrawingWithDiagnostics(firstUnresolved.source, drawings).diagnostics!;
+    parsed.warnings.slice(0, 3).forEach((w) => toast.warning(w));
+    setPendingAnalysis(parsed.analysis);
+    setDocumentSelectorState(diagnostics);
   };
 
   return (
@@ -269,12 +311,32 @@ function ImportGate({ boqId, projectId, projectType, boqName, onImported, onBack
               </div>
             )}
             <div className="flex items-center gap-2">
-              <Button size="sm" disabled={!preview?.ok || busy} onClick={doImport}>{busy ? "Loading…" : "Validate & load for review"}</Button>
+              <Button size="sm" disabled={!preview?.ok || busy} onClick={handleImportClick}>{busy ? "Loading…" : "Validate & load for review"}</Button>
               <span className="text-xs text-muted-foreground">Loading an analysis never changes the BOQ.</span>
             </div>
           </>
         )}
       </CardContent></Card>
+
+      {documentSelectorState && (
+        <div className="space-y-3">
+          <div className="text-sm font-medium">Select a drawing for this analysis</div>
+          <DocumentSelector
+            searchedFor={documentSelectorState.searchedFor}
+            availableDrawings={documentSelectorState.availableDrawings}
+            onSelect={(docId) => {
+              if (pendingAnalysis) {
+                doImport(pendingAnalysis, docId);
+              }
+            }}
+            onCancel={() => {
+              setPendingAnalysis(null);
+              setDocumentSelectorState(null);
+            }}
+          />
+        </div>
+      )}
+
       {projectType && <p className="text-xs text-muted-foreground">Project type: {projectType}</p>}
     </div>
   );
@@ -419,8 +481,16 @@ function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPending, on
 }
 
 // ── Right panel: resolve the real drawing, else fall back to the coord plot ────
-function ResolvedEvidenceViewer({ item, drawings }: { item: StoredReviewItem; drawings: StoredDrawing[] }) {
-  const resolved = useMemo(() => resolveDrawing(item.ai.source, drawings), [item.ai.source, drawings]);
+function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId }: { item: StoredReviewItem; drawings: StoredDrawing[]; resolvedDocumentId?: string | null }) {
+  const resolved = useMemo(() => {
+    // If a document was explicitly resolved during import (user selected it), use it
+    if (resolvedDocumentId) {
+      const doc = drawings.find((d) => d.documentId === resolvedDocumentId);
+      if (doc) return { documentId: doc.documentId, filePath: doc.filePath ?? null, pageCount: doc.pageCount ?? null, matchedBy: "explicit_override" as const };
+    }
+    // Otherwise attempt normal resolution
+    return resolveDrawing(item.ai.source, drawings);
+  }, [item.ai.source, drawings, resolvedDocumentId]);
   const [signed, setSigned] = useState<string | null>(null);
   const [signState, setSignState] = useState<"idle" | "signing" | "unavailable">("idle");
 
