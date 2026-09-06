@@ -8,6 +8,15 @@ whether the JSON came from ChatGPT, a human, CAD/BIM, or a future integration.
 There is **no AI, PDF parsing, OCR, or drawing interpretation inside
 Cunstruct.** Cunstruct only parses, validates, normalises and displays.
 
+There is also a richer, evidence-coordinate contract used specifically by the
+BOQ Review Workstation — `cunstruct.analysis.v1` (`parseAnalysisV1`,
+`src/lib/review/analysisSchemaV1.ts`), which adds per-item structured
+`source.evidence[]` bboxes and claim-level evidence (`quantity`, `dimension`,
+`specification`, `location`, or `general`). It's documented separately in
+[`review-workstation.md`](./review-workstation.md), including the coordinate
+convention and rotation handling — this file covers the flatter
+`analysisJson`/`auditJson` contracts below.
+
 ---
 
 ## 1. Analysis Input JSON  → `parseAnalysisJson` (`src/lib/analysisJson.ts`)
