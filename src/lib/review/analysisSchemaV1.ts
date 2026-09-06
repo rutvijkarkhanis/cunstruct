@@ -16,12 +16,16 @@ import { extractJson } from "@/lib/boqEvalJson";
 
 export type AiStatus = "MEASURED" | "INFERRED" | "PENDING";
 
+export type ClaimType = "general" | "quantity" | "dimension" | "specification" | "location";
+
 /** One evidence region on a drawing page. bbox is [x1,y1,x2,y2] in the page's own
  *  coordinate space (see evidenceCoords.ts for the transform to screen pixels). */
 export interface EvidenceBox {
   bbox: [number, number, number, number];
   page?: number;
   label?: string;
+  /** Identifies which claim this evidence supports. Defaults to "general" if absent. */
+  claim?: ClaimType;
 }
 
 export interface AnalysisSource {
@@ -116,7 +120,15 @@ export function parseEvidenceBox(raw: unknown): EvidenceBox | null {
   const out: EvidenceBox = { bbox: box };
   if (page != null) out.page = page;
   if (str(o.label)) out.label = str(o.label);
+  // Parse claim if present; validate against known claims.
+  const claimStr = str(o.claim).toLowerCase();
+  if (claimStr && isValidClaim(claimStr)) out.claim = claimStr as ClaimType;
   return out;
+}
+
+function isValidClaim(claim: string): claim is ClaimType {
+  const validClaims: ClaimType[] = ["general", "quantity", "dimension", "specification", "location"];
+  return validClaims.includes(claim as ClaimType);
 }
 
 function normalizeAiStatus(v: unknown, quantity: number | null): AiStatus {

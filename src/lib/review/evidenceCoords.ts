@@ -112,3 +112,13 @@ export function resolvePageSpace(
   }
   return null;
 }
+
+/** Get evidence boxes for a specific claim. Evidence without a claim is treated as "general". */
+export function getEvidenceForClaim(boxes: EvidenceBox[], claimType: string): EvidenceBox[] {
+  return boxes.filter((b) => (b.claim ?? "general") === claimType);
+}
+
+/** Check if evidence exists for a specific claim. */
+export function hasEvidenceForClaim(boxes: EvidenceBox[], claimType: string): boolean {
+  return boxes.some((b) => (b.claim ?? "general") === claimType);
+}

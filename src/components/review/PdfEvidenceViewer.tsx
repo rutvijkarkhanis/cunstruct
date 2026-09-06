@@ -12,8 +12,8 @@ import * as pdfjsLib from "pdfjs-dist";
 import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min?url";
 import { Button } from "@/components/ui/button";
 import { ZoomIn, ZoomOut, Maximize, Crosshair, ChevronLeft, ChevronRight, FileWarning, Loader2 } from "lucide-react";
-import { resolvePageSpace, transformBoxes, unionBox } from "@/lib/review/evidenceCoords";
-import type { AnalysisSource, EvidenceBox } from "@/lib/review/analysisSchemaV1";
+import { resolvePageSpace, transformBoxes, unionBox, getEvidenceForClaim } from "@/lib/review/evidenceCoords";
+import type { AnalysisSource, EvidenceBox, ClaimType } from "@/lib/review/analysisSchemaV1";
 
 // Bundle the worker with Vite (kept off the main thread; no CDN dependency).
 // The ?url import tells Vite to bundle the worker and return its URL as a string.
@@ -25,11 +25,13 @@ interface Props {
   documentName?: string | null;
   /** Reason to show instead of rendering (e.g. "Source drawing unavailable"). */
   unavailableReason?: string | null;
+  /** Filter evidence to show only this claim. Shows all evidence if undefined. */
+  selectedClaim?: ClaimType | null;
 }
 
 type Size = { width: number; height: number };
 
-export default function PdfEvidenceViewer({ fileUrl, source, documentName, unavailableReason }: Props) {
+export default function PdfEvidenceViewer({ fileUrl, source, documentName, unavailableReason, selectedClaim }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -45,10 +47,11 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
 
   // Evidence boxes on the CURRENT page (per-box page overrides the item page).
-  const boxes: EvidenceBox[] = useMemo(
-    () => (source?.evidence ?? []).filter((b) => (b.page ?? source?.page ?? page) === page),
-    [source, page],
-  );
+  const boxes: EvidenceBox[] = useMemo(() => {
+    let filtered = (source?.evidence ?? []).filter((b) => (b.page ?? source?.page ?? page) === page);
+    if (selectedClaim) filtered = getEvidenceForClaim(filtered, selectedClaim);
+    return filtered;
+  }, [source, page, selectedClaim]);
 
   // When the item changes, jump to its source page.
   useEffect(() => { setPage(source?.page ?? 1); }, [source]);
@@ -203,13 +206,18 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
         )}
         <div className="relative inline-block">
           <canvas ref={canvasRef} className="block" />
-          {overlayRects.map((r, i) => (
-            <div key={i}
-              className={`absolute pointer-events-none ${i === 0 ? "border-2 border-amber-500 bg-amber-400/25" : "border-2 border-dashed border-amber-500/80 bg-amber-400/10"}`}
-              style={{ left: r.left, top: r.top, width: r.width, height: r.height }}>
-              <span className="absolute -top-4 left-0 text-[10px] font-medium text-amber-700 bg-white/70 px-0.5 rounded">{boxes[i].label ?? `E${i + 1}`}</span>
-            </div>
-          ))}
+          {overlayRects.map((r, i) => {
+            const box = boxes[i];
+            const claim = box?.claim ?? "general";
+            const claimIndicator = selectedClaim ? `${claim.slice(0, 3).toUpperCase()}${i + 1}` : `E${i + 1}`;
+            return (
+              <div key={i}
+                className={`absolute pointer-events-none ${i === 0 ? "border-2 border-amber-500 bg-amber-400/25" : "border-2 border-dashed border-amber-500/80 bg-amber-400/10"}`}
+                style={{ left: r.left, top: r.top, width: r.width, height: r.height }}>
+                <span className="absolute -top-4 left-0 text-[10px] font-medium text-amber-700 bg-white/70 px-0.5 rounded">{box?.label ?? claimIndicator}</span>
+              </div>
+            );
+          })}
         </div>
       </div>
       {source?.evidence && source.evidence.length > 0 && boxes.length === 0 && (
