@@ -43,35 +43,36 @@ export function unionBox(boxes: EvidenceBox[]): [number, number, number, number]
   return [x1, y1, x2, y2];
 }
 
-export interface FitResult {
-  /** Multiplier to apply to a fit-to-width base so the evidence fills ~viewport. */
-  zoom: number;
-  /** Center of the evidence in PAGE space (for scroll/pan). */
-  centerX: number;
-  centerY: number;
+export interface FitToEvidenceResult {
+  /** Scale multiplier relative to `pageBase` (the PDF's own scale-1 size). */
+  scale: number;
 }
 
 /**
- * Compute a zoom + center that frames all evidence boxes within a viewport, with
- * padding. `pageSize` is the bbox coordinate space; `viewport` is the visible
- * area in the same units at zoom 1. Returns null when it can't be computed (no
- * boxes / degenerate sizes) so the caller keeps the current view rather than
- * guessing.
+ * The ONE canonical "fit to evidence" calculation. Computes the scale (relative
+ * to `pageBase`, the PDF's own scale-1 size) so the union of `boxes` fills
+ * roughly `fillFraction` of `viewportWidth` (CSS pixels). `space` is the
+ * coordinate space the bboxes are actually given in — ordinarily the same as
+ * `pageBase`, but can differ when the analysis declares its own `pageSize`
+ * (see resolvePageSpace below). Centering/scrolling is inherently a DOM
+ * concern (needs the container element and a post-resize tick) and stays with
+ * the caller; this function only decides the scale. Returns null when it
+ * can't be computed (no boxes, degenerate sizes) so the caller keeps the
+ * current view rather than guessing.
  */
 export function fitToEvidence(
   boxes: EvidenceBox[],
-  pageSize: Size,
-  viewport: Size,
-  paddingFactor = 1.4,
-  maxZoom = 6,
-): FitResult | null {
+  space: Size,
+  pageBase: Size,
+  viewportWidth: number,
+  opts: { fillFraction?: number; minScale?: number; maxScale?: number } = {},
+): FitToEvidenceResult | null {
+  const { fillFraction = 0.8, minScale = 0.2, maxScale = 8 } = opts;
   const u = unionBox(boxes);
-  if (!u || !pageSize.width || !viewport.width || !viewport.height) return null;
-  const [x1, y1, x2, y2] = u;
-  const w = Math.max(1, (x2 - x1) * paddingFactor);
-  const h = Math.max(1, (y2 - y1) * paddingFactor);
-  const zoom = Math.min(maxZoom, Math.max(1, Math.min(viewport.width / w, viewport.height / h)));
-  return { zoom, centerX: (x1 + x2) / 2, centerY: (y1 + y2) / 2 };
+  if (!u || !space.width || !pageBase.width || !viewportWidth) return null;
+  const uw = Math.max(1, u[2] - u[0]);
+  const scale = Math.max(minScale, Math.min(maxScale, (viewportWidth * fillFraction * space.width) / (uw * pageBase.width)));
+  return { scale };
 }
 
 /** Does this analysis item carry precise, placeable evidence? Drives the honest
@@ -91,6 +92,20 @@ export function hasPlaceableEvidence(source?: { evidence?: EvidenceBox[] }): boo
 // adopts a different convention (e.g. bottom-left PDF user units), change it here
 // and every overlay follows. We never guess a page size when neither source is
 // available — the caller then falls back to a non-positional evidence state.
+//
+// ROTATION: a PDF page can declare its own `/Rotate` (commonly 90/270 for a
+// landscape schedule or detail sheet embedded in an otherwise-portrait set).
+// pdf.js's `getViewport({ scale })` already returns the page's RENDERED size —
+// width/height swapped, rotation baked into the render transform — so what
+// this module calls "the PDF page's own scale-1 size" is ALWAYS the rotated,
+// as-displayed size, never the raw/unrotated content-stream size. The
+// contract for every bbox and every declared `pageSize` is therefore: measure
+// in that same rendered space (what you see when the page is opened normally
+// — top-left origin of the page AS DISPLAYED), never in the page's raw
+// content-stream coordinates. A bbox measured in the wrong (unrotated) space
+// for a 90°/270°-rotated page will have its axes swapped once transformed
+// against the rotated `pageSize` — see `detectPageSizeMismatch` below for a
+// heuristic that catches exactly this.
 
 export interface EvidenceSource {
   pageSize?: { width: number; height: number };
@@ -109,6 +124,29 @@ export function resolvePageSpace(
   }
   if (pdfPageSize && pdfPageSize.width > 0 && pdfPageSize.height > 0) {
     return { width: pdfPageSize.width, height: pdfPageSize.height };
+  }
+  return null;
+}
+
+/**
+ * Heuristic rotation-mismatch detector: a declared `pageSize` whose aspect
+ * ratio is the INVERSE of the PDF's own actual (rendered, rotation-applied)
+ * page size is exactly what you get when bboxes were measured in the page's
+ * raw/unrotated content-stream space instead of the rendered space the
+ * convention above requires — the width and height are swapped. This can't
+ * prove a rotation problem (a declared size can simply be wrong for other
+ * reasons), so it only ever returns a WARNING, never blocks or auto-corrects
+ * anything — nothing here guesses a "fixed" coordinate. Returns null when
+ * either size is unknown or when the aspect ratios are consistent.
+ */
+export function detectPageSizeMismatch(declared: Size | undefined | null, actual: Size | undefined | null): string | null {
+  if (!declared || !actual || !declared.width || !declared.height || !actual.width || !actual.height) return null;
+  const declaredRatio = declared.width / declared.height;
+  const actualRatio = actual.width / actual.height;
+  const closeTo = (a: number, b: number, tolerance = 0.08) => Math.abs(a - b) / b <= tolerance;
+  if (closeTo(declaredRatio, actualRatio)) return null; // same orientation family — fine, even if sizes differ.
+  if (closeTo(declaredRatio, 1 / actualRatio)) {
+    return `Declared page size (${declared.width}×${declared.height}) looks rotated 90° relative to the PDF's actual rendered page (${actual.width}×${actual.height}) — evidence coordinates may be on the wrong axis. Re-measure in the page's rendered (as-displayed) space.`;
   }
   return null;
 }

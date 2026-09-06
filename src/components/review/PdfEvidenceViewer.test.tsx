@@ -19,15 +19,25 @@ vi.mock("pdfjs-dist/build/pdf.worker.min?url", () => ({ default: "worker-url" })
 const PAGE_SIZE = { width: 595, height: 842 };
 const NUM_PAGES = 9;
 
+// Page 6 (unused by any other test in this file) simulates a page with a
+// 90° rotation: pdf.js's getViewport({scale}) always reports the RENDERED
+// (rotation-applied) size, so a rotated page's width/height come back
+// swapped relative to the document's other, unrotated pages.
+const ROTATED_PAGE = 6;
+const ROTATED_PAGE_SIZE = { width: 842, height: 595 };
+
 vi.mock("pdfjs-dist", () => ({
   GlobalWorkerOptions: {},
   getDocument: () => ({
     promise: Promise.resolve({
       numPages: NUM_PAGES,
-      getPage: async () => ({
-        getViewport: ({ scale }: { scale: number }) => ({ width: PAGE_SIZE.width * scale, height: PAGE_SIZE.height * scale }),
-        render: () => ({ promise: Promise.resolve() }),
-      }),
+      getPage: async (n: number) => {
+        const size = n === ROTATED_PAGE ? ROTATED_PAGE_SIZE : PAGE_SIZE;
+        return {
+          getViewport: ({ scale }: { scale: number }) => ({ width: size.width * scale, height: size.height * scale }),
+          render: () => ({ promise: Promise.resolve() }),
+        };
+      },
     }),
     destroy: () => {},
   }),
@@ -142,5 +152,72 @@ describe("PdfEvidenceViewer — page-filter fallback (Fix 2)", () => {
     // Nothing to navigate to (no box.page, no source.page) — stays on the default page 1.
     expect(await screen.findByText(`1 / ${NUM_PAGES}`)).toBeInTheDocument();
     expect(screen.queryByText("Synthetic no-page evidence")).toBeNull();
+  });
+});
+
+describe("PdfEvidenceViewer — rotation robustness", () => {
+  // Generic fixture: a plan-style region on a page whose own reported size is
+  // rotated (842×595) relative to this document's other, unrotated pages
+  // (595×842).
+  const sourceRotatedPage: AnalysisSource = {
+    document: "generic-drawing.pdf",
+    page: ROTATED_PAGE,
+    evidence: [
+      { page: ROTATED_PAGE, bbox: [700, 50, 800, 150], claim: "general", label: "Rotated-page region" },
+    ],
+  };
+
+  it("uses the rotated page's OWN reported dimensions, not a fixed default, when scaling evidence", async () => {
+    // A declared pageSize at exactly 2x the rotated page's true native size
+    // (842×595 → 1684×1190) makes the overlay math discriminating: at
+    // scale 1 (jsdom's clientWidth is 0, so fit-to-evidence never fires),
+    // sx = pageBase.width / space.width. If pageBase correctly holds this
+    // page's own rotated dimensions (842×595), sx = sy = 0.5 exactly. If a
+    // caching/refetch bug left pageBase on the document's OTHER (unrotated,
+    // 595×842) page size instead, sx ≈ 0.3533 and sy ≈ 0.7077 — a clearly
+    // different, wrong result. This is the same declared-pageSize-vs-actual
+    // relationship real analyses use when coordinates are captured at a
+    // different DPI than the PDF's native points.
+    const sourceWithDeclaredSpace: AnalysisSource = {
+      ...sourceRotatedPage,
+      pageSize: { width: 1684, height: 1190 },
+      evidence: [{ page: ROTATED_PAGE, bbox: [700, 400, 900, 500], claim: "general", label: "Rotated-page region" }],
+    };
+    render(<Viewer src={sourceWithDeclaredSpace} selectedClaim={null} />);
+
+    expect(await screen.findByText(`${ROTATED_PAGE} / ${NUM_PAGES}`)).toBeInTheDocument();
+    const label = await screen.findByText("Rotated-page region");
+    const box = label.parentElement as HTMLElement;
+    expect(parseFloat(box.style.left)).toBeCloseTo(350, 1);  // 700 * (842/1684)
+    expect(parseFloat(box.style.top)).toBeCloseTo(200, 1);   // 400 * (595/1190)
+    expect(parseFloat(box.style.width)).toBeCloseTo(100, 1); // (900-700) * 0.5
+    expect(parseFloat(box.style.height)).toBeCloseTo(50, 1); // (500-400) * 0.5
+  });
+
+  it("warns (without blocking or auto-correcting) when a declared pageSize looks rotated relative to the PDF's actual page", async () => {
+    const sourceWithMismatchedPageSize: AnalysisSource = {
+      ...sourceRotatedPage,
+      // Declared as if the page were the document's default (unrotated)
+      // orientation, but page 6 actually reports the swapped, rotated size.
+      pageSize: { width: 595, height: 842 },
+    };
+    render(<Viewer src={sourceWithMismatchedPageSize} selectedClaim={null} />);
+
+    expect(await screen.findByText(`${ROTATED_PAGE} / ${NUM_PAGES}`)).toBeInTheDocument();
+    expect(await screen.findByText(/looks rotated/i)).toBeInTheDocument();
+    // Still renders the evidence it was given — a warning, never a silent fix.
+    expect(await screen.findByText("Rotated-page region")).toBeInTheDocument();
+  });
+
+  it("does not warn when the declared pageSize matches the PDF's actual page orientation", async () => {
+    const sourceConsistent: AnalysisSource = {
+      ...sourceRotatedPage,
+      pageSize: { width: 842, height: 595 }, // matches ROTATED_PAGE_SIZE
+    };
+    render(<Viewer src={sourceConsistent} selectedClaim={null} />);
+
+    expect(await screen.findByText(`${ROTATED_PAGE} / ${NUM_PAGES}`)).toBeInTheDocument();
+    await screen.findByText("Rotated-page region");
+    expect(screen.queryByText(/looks rotated/i)).toBeNull();
   });
 });

@@ -15,8 +15,17 @@ export const ANALYSIS_SCHEMA_HINT = `{
   "items": [
     {
       "item": "W1", "quantity": 3, "unit": "nos",
-      "dimension": "6' x 6'9\\"", "specification": "...", "location": "First Floor",
-      "source": { "document": "floor-plan.pdf", "page": 4, "evidence": [ { "bbox": [x1,y1,x2,y2] } ] },
+      "dimension": "6' x 6'9\\"", "specification": "UPVC", "location": "First Floor",
+      "source": {
+        "document": "floor-plan.pdf", "page": 4,
+        "evidence": [
+          { "page": 4, "bbox": [x1,y1,x2,y2], "claim": "general" },
+          { "page": 7, "bbox": [x1,y1,x2,y2], "claim": "quantity" },
+          { "page": 7, "bbox": [x1,y1,x2,y2], "claim": "dimension" },
+          { "page": 4, "bbox": [x1,y1,x2,y2], "claim": "location" },
+          { "page": 5, "bbox": [x1,y1,x2,y2], "claim": "location" }
+        ]
+      },
       "confidence": 0.94, "status": "MEASURED"
     }
   ]
@@ -32,6 +41,12 @@ const BASE_RULES = [
   "Preserve measurement units.",
   "Include the source document and page for each item.",
   "Include evidence coordinates (bbox) whenever the drawing supports them; omit them rather than fabricating.",
+  "Tag each evidence region with a `claim`: `general` (item existence — the default when `claim` is omitted), `quantity`, `dimension`, `specification`, or `location`.",
+  "Different claims may point to different evidence regions, and those regions may be on different pages — do not assume one region covers every claim.",
+  "The same evidence region may support more than one claim (e.g. a schedule row listing quantity, dimension and specification together): add one evidence entry per claim, each with the same bbox and page.",
+  "A single claim may also be supported by more than one evidence region (e.g. a quantity confirmed on both a plan and a schedule) — include every region that supports it.",
+  "Evidence coordinates must be given in the page's own RENDERED coordinate space (top-left origin, as the page looks when opened normally) — never the page's raw/unrotated content-stream coordinates. This matters most for a rotated page (e.g. a landscape schedule or detail sheet inside an otherwise-portrait set).",
+  "Never invent evidence coordinates for any claim. If reliable evidence cannot be established for a claim, omit that evidence entry entirely; if the underlying value itself (e.g. the quantity) cannot be reliably established, use status PENDING (and quantity null) rather than fabricating either the value or its evidence.",
   "Return VALID Cunstruct analysis JSON only — no prose, no markdown, no code fences.",
 ];
 

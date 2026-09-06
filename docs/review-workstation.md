@@ -31,6 +31,49 @@ If neither is available the overlay is not drawn (we never guess a page size).
 To change the convention later (e.g. bottom-left PDF user units), change only
 `resolvePageSpace` and every overlay follows.
 
+**Rotation.** pdf.js's `getViewport({ scale })` always returns a page's
+RENDERED size — width/height already swapped and the rotation transform
+already baked in for a page with a `/Rotate` of 90 or 270 (common for a
+landscape schedule or detail sheet embedded in an otherwise-portrait set).
+"The PDF page's own scale-1 size" above is therefore always that rendered,
+as-displayed size. Every bbox and every declared `page_size` must be measured
+in that SAME rendered space — what you see when the page opens normally —
+never the page's raw/unrotated content-stream coordinates. Getting this wrong
+for a rotated page swaps the evidence's axes once it's transformed against
+the page's actual (rotated) size. `evidenceCoords.detectPageSizeMismatch()`
+is a heuristic, non-blocking check: if a declared `page_size`'s aspect ratio
+looks like the inverse of the PDF's actual rendered page, the viewer shows a
+warning (never an auto-correction — nothing here guesses a "fixed"
+coordinate).
+
+## Claim-level evidence
+
+An item's evidence can identify which specific attribute it supports, not
+just the item's general existence. Each entry in `source.evidence[]` may
+carry an optional `claim`: `general` (the default when omitted — full
+backward compatibility with evidence that predates this), `quantity`,
+`dimension`, `specification`, or `location`.
+
+- **Different claims, different regions.** Quantity, dimension, and
+  specification don't have to point at the same place in the drawing, and
+  don't have to be on the same page as each other or as the item's default
+  `source.page`. The Review Workstation navigates to whichever page a
+  claim's evidence is actually on when its `[Evidence]` button is clicked.
+- **One region, multiple claims.** When a single region genuinely supports
+  more than one claim — e.g. a schedule row listing quantity, dimension, and
+  specification together — add one evidence entry per claim, reusing the
+  same `bbox`/`page`. Nothing requires separate physical regions when one
+  region honestly covers more than one claim, but nothing requires sharing a
+  region either: a schedule with distinct columns per attribute should use
+  distinct, narrower bboxes per claim instead.
+- **Multiple regions, one claim.** A claim can also be supported by more
+  than one region (e.g. a quantity confirmed by both a plan count and a
+  schedule row) — include every region that supports it; the viewer shows
+  them together.
+- **Legacy evidence.** An evidence entry with no `claim` field is treated as
+  `general` everywhere (`getEvidenceForClaim`/`hasEvidenceForClaim` in
+  `evidenceCoords.ts`) — existing analyses need no migration.
+
 ## Testing with a real PDF (no client drawing committed)
 
 1. In **Project → Documents**, click **Upload PDF** and pick any multi-page PDF.
@@ -43,7 +86,10 @@ To change the convention later (e.g. bottom-left PDF user units), change only
 3. Move between items — the viewer opens the right page and highlights the
    evidence. `Fit to evidence` frames the boxes. Multiple boxes render together.
 
-Sample analysis JSON (adapt the filename, page and bbox to your PDF):
+Sample analysis JSON (adapt the filename, page and bbox to your PDF). The
+first item shows plain (unclaimed → `general`) evidence; the second shows
+claim-level evidence split across pages, with `quantity` and `dimension`
+sharing one schedule-row region and `location` supported by two regions:
 
 ```json
 {
@@ -56,6 +102,21 @@ Sample analysis JSON (adapt the filename, page and bbox to your PDF):
         "document": "your-uploaded.pdf", "page": 1,
         "page_size": { "width": 1224, "height": 1584 },
         "evidence": [ { "bbox": [200, 300, 320, 420] }, { "bbox": [520, 300, 640, 420] } ]
+      }
+    },
+    {
+      "item": "D1", "quantity": 2, "unit": "nos", "dimension": "3' x 7'",
+      "specification": "Flush, teak veneer", "location": "Ground Floor",
+      "confidence": 0.9, "status": "MEASURED",
+      "source": {
+        "document": "your-uploaded.pdf", "page": 1,
+        "evidence": [
+          { "page": 1, "bbox": [100, 200, 180, 260], "claim": "general" },
+          { "page": 3, "bbox": [50, 500, 300, 520], "claim": "quantity" },
+          { "page": 3, "bbox": [50, 500, 300, 520], "claim": "dimension" },
+          { "page": 1, "bbox": [400, 200, 420, 260], "claim": "location" },
+          { "page": 2, "bbox": [80, 80, 100, 140], "claim": "location" }
+        ]
       }
     },
     { "item": "Wardrobe", "quantity": null, "status": "PENDING", "location": "Bedroom 2",

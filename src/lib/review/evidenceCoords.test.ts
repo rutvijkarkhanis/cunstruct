@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { transformBox, transformBoxes, unionBox, fitToEvidence, hasPlaceableEvidence } from "./evidenceCoords";
+import { transformBox, transformBoxes, unionBox, fitToEvidence, hasPlaceableEvidence, detectPageSizeMismatch } from "./evidenceCoords";
 import type { EvidenceBox } from "./analysisSchemaV1";
 
 const box = (b: [number, number, number, number]): EvidenceBox => ({ bbox: b });
@@ -34,16 +34,58 @@ describe("unionBox", () => {
   });
 });
 
-describe("fitToEvidence", () => {
-  it("returns a zoom and center that frames the evidence", () => {
-    const fit = fitToEvidence([box([900, 400, 1100, 600])], { width: 2000, height: 1000 }, { width: 2000, height: 1000 });
+describe("fitToEvidence — canonical scale calculation", () => {
+  it("computes a scale that fills the target fraction of the viewport", () => {
+    // A 200-unit-wide box on a 2000-unit page (same as pageBase — no declared
+    // pageSize override), fit into a 500px-wide viewport at the default 80% fill.
+    const fit = fitToEvidence([box([900, 400, 1100, 600])], { width: 2000, height: 1000 }, { width: 2000, height: 1000 }, 500);
     expect(fit).not.toBeNull();
-    expect(fit!.centerX).toBe(1000);
-    expect(fit!.centerY).toBe(500);
-    expect(fit!.zoom).toBeGreaterThan(1);
+    expect(fit!.scale).toBeCloseTo(2, 5); // (500*0.8*2000) / (200*2000) = 2
   });
+
+  it("uses `space` (declared pageSize) separately from `pageBase` (PDF native size) when they differ", () => {
+    // Same box/viewport as above, but the analysis declares a pageSize twice
+    // the PDF's native size (e.g. coordinates given at 2x DPI) — the scale
+    // must be computed relative to pageBase, not space, per resolvePageSpace's
+    // own priority order.
+    const fit = fitToEvidence([box([1800, 800, 2200, 1200])], { width: 4000, height: 2000 }, { width: 2000, height: 1000 }, 500);
+    expect(fit).not.toBeNull();
+    expect(fit!.scale).toBeCloseTo(2, 5); // (500*0.8*4000) / (400*2000) = 2
+  });
+
+  it("clamps to minScale/maxScale rather than zooming without bound", () => {
+    const tiny = fitToEvidence([box([0, 0, 1, 1])], { width: 2000, height: 1000 }, { width: 2000, height: 1000 }, 500);
+    expect(tiny!.scale).toBeLessThanOrEqual(8);
+    const huge = fitToEvidence([box([0, 0, 1900, 900])], { width: 2000, height: 1000 }, { width: 2000, height: 1000 }, 10);
+    expect(huge!.scale).toBeGreaterThanOrEqual(0.2);
+  });
+
   it("returns null with no boxes (keep current view rather than guess)", () => {
-    expect(fitToEvidence([], { width: 100, height: 100 }, { width: 100, height: 100 })).toBeNull();
+    expect(fitToEvidence([], { width: 100, height: 100 }, { width: 100, height: 100 }, 500)).toBeNull();
+  });
+
+  it("returns null for a degenerate viewport width", () => {
+    expect(fitToEvidence([box([0, 0, 10, 10])], { width: 100, height: 100 }, { width: 100, height: 100 }, 0)).toBeNull();
+  });
+});
+
+describe("detectPageSizeMismatch — rotation heuristic (generic, no specific drawing)", () => {
+  it("returns null when declared and actual sizes share the same orientation", () => {
+    expect(detectPageSizeMismatch({ width: 595, height: 842 }, { width: 595, height: 842 })).toBeNull();
+    // Minor real-world size difference, same orientation family — not a rotation issue.
+    expect(detectPageSizeMismatch({ width: 600, height: 850 }, { width: 595, height: 842 })).toBeNull();
+  });
+
+  it("flags a declared size that looks rotated 90° relative to the PDF's actual rendered page", () => {
+    const warning = detectPageSizeMismatch({ width: 595, height: 842 }, { width: 842, height: 595 });
+    expect(warning).not.toBeNull();
+    expect(warning).toMatch(/rotated/i);
+  });
+
+  it("returns null when either size is unknown (never guesses)", () => {
+    expect(detectPageSizeMismatch(undefined, { width: 842, height: 595 })).toBeNull();
+    expect(detectPageSizeMismatch({ width: 595, height: 842 }, null)).toBeNull();
+    expect(detectPageSizeMismatch(undefined, undefined)).toBeNull();
   });
 });
 

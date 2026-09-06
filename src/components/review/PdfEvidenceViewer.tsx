@@ -12,7 +12,7 @@ import * as pdfjsLib from "pdfjs-dist";
 import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min?url";
 import { Button } from "@/components/ui/button";
 import { ZoomIn, ZoomOut, Maximize, Crosshair, ChevronLeft, ChevronRight, FileWarning, Loader2 } from "lucide-react";
-import { resolvePageSpace, transformBoxes, unionBox, getEvidenceForClaim } from "@/lib/review/evidenceCoords";
+import { resolvePageSpace, transformBoxes, fitToEvidence, getEvidenceForClaim, detectPageSizeMismatch } from "@/lib/review/evidenceCoords";
 import type { AnalysisSource, EvidenceBox, ClaimType } from "@/lib/review/analysisSchemaV1";
 
 // Bundle the worker with Vite (kept off the main thread; no CDN dependency).
@@ -149,19 +149,19 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
     setScale(Math.max(0.1, Math.min(8, (c.clientWidth - 24) / pageBase.width)));
   }, [pageBase]);
 
-  // Fit-to-evidence: scale so the evidence union fills ~80% of the container,
-  // using the shared page space; then scroll to centre it. No-ops without boxes.
+  // Fit-to-evidence: delegate the scale calculation to the ONE canonical
+  // implementation (evidenceCoords.fitToEvidence), then scroll to centre it.
+  // No-ops without boxes.
   const fitEvidence = useCallback(() => {
     const c = containerRef.current;
     const space = resolvePageSpace(source, pageBase);
-    const u = unionBox(boxes);
-    if (!c || !space || !u || !pageBase) return;
-    const uw = Math.max(1, u[2] - u[0]);
-    const s = Math.max(0.2, Math.min(8, (c.clientWidth * 0.8 * space.width) / (uw * pageBase.width)));
-    setScale(s);
+    if (!c || !space || !pageBase) return;
+    const fit = fitToEvidence(boxes, space, pageBase, c.clientWidth);
+    if (!fit) return;
+    setScale(fit.scale);
     // Centre after the canvas resizes.
     setTimeout(() => {
-      const rendered: Size = { width: pageBase.width * s, height: pageBase.height * s };
+      const rendered: Size = { width: pageBase.width * fit.scale, height: pageBase.height * fit.scale };
       const rects = transformBoxes(boxes, space, rendered);
       if (!rects.length) return;
       const cx = rects.reduce((m, r) => m + r.left + r.width / 2, 0) / rects.length;
@@ -180,6 +180,14 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
     if (!space || !pageBase || !boxes.length) return [];
     return transformBoxes(boxes, space, { width: pageBase.width * scale, height: pageBase.height * scale });
   }, [source, pageBase, boxes, scale]);
+
+  // Non-blocking heuristic: warn (never auto-correct) when a declared pageSize
+  // looks rotated relative to the PDF's own actual rendered page — see the
+  // rotation contract in evidenceCoords.ts.
+  const pageSizeWarning = useMemo(
+    () => detectPageSizeMismatch(source?.pageSize, pageBase),
+    [source?.pageSize, pageBase],
+  );
 
   // ── Non-render states ───────────────────────────────────────────────────────
   if (unavailableReason) {
@@ -246,6 +254,7 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
       {(!source?.evidence || source.evidence.length === 0) && (
         <p className="text-[11px] text-muted-foreground">Evidence coordinates unavailable — showing the source page only.</p>
       )}
+      {pageSizeWarning && <p className="text-[11px] text-amber-600">{pageSizeWarning}</p>}
     </Shell>
   );
 }
