@@ -155,7 +155,18 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
   const overlayRects = useMemo(() => {
     const space = resolvePageSpace(source, pageBase);
     if (!space || !pageBase || !boxes.length) return [];
-    return transformBoxes(boxes, space, { width: pageBase.width * scale, height: pageBase.height * scale });
+    const rendered = { width: pageBase.width * scale, height: pageBase.height * scale };
+    // DIAGNOSTIC: Verify coordinate spaces
+    if (boxes.length > 0) {
+      console.log("[DIAG] pageBase:", pageBase);
+      console.log("[DIAG] space (resolvePageSpace):", space);
+      console.log("[DIAG] scale:", scale);
+      console.log("[DIAG] rendered:", rendered);
+      console.log("[DIAG] sx =", rendered.width / space.width);
+      console.log("[DIAG] sy =", rendered.height / space.height);
+      console.log("[DIAG] first box:", boxes[0]?.bbox, "→ transformed:", transformBoxes([boxes[0]], space, rendered)[0]);
+    }
+    return transformBoxes(boxes, space, rendered);
   }, [source, pageBase, boxes, scale]);
 
   // ── Non-render states ───────────────────────────────────────────────────────
