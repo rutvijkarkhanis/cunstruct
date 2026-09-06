@@ -214,8 +214,9 @@ export default function BoqReviewWorkstation() {
             onPrev={() => go(-1)}
             onNext={() => go(1)}
             keyboardEnabled
+            onSelectClaim={setSelectedClaim}
           />
-          <ResolvedEvidenceViewer item={current} drawings={drawings} resolvedDocumentId={resolvedDocumentId} />
+          <ResolvedEvidenceViewer item={current} drawings={drawings} resolvedDocumentId={resolvedDocumentId} selectedClaim={selectedClaim} />
         </div>
       )}
 
@@ -383,10 +384,10 @@ function ImportGate({ boqId, projectId, projectType, boqName, onImported, drawin
 }
 
 // ── Left item panel ────────────────────────────────────────────────────────────
-function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPending, onPrev, onNext, keyboardEnabled }: {
+export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPending, onPrev, onNext, keyboardEnabled, onSelectClaim }: {
   item: StoredReviewItem; index: number; count: number;
   onVerify: () => void; onEdit: (r: ReviewerValues) => void; onFlag: (r: FlagReason, note: string) => void; onPending: () => void;
-  onPrev: () => void; onNext: () => void; keyboardEnabled?: boolean;
+  onPrev: () => void; onNext: () => void; keyboardEnabled?: boolean; onSelectClaim: (claim: ClaimType) => void;
 }) {
   const ai = item.ai;
   const [editing, setEditing] = useState(false);
@@ -433,10 +434,10 @@ function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPending, on
       </div>
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-        <Field label="Quantity" value={ai.quantity == null ? "—" : `${ai.quantity} ${ai.unit ?? ""}`.trim()} onEvidenceClick={hasEvidenceForClaim(ai.source?.evidence ?? [], "quantity") ? () => setSelectedClaim("quantity") : undefined} />
-        <Field label="Dimension" value={ai.dimension ?? "—"} onEvidenceClick={hasEvidenceForClaim(ai.source?.evidence ?? [], "dimension") ? () => setSelectedClaim("dimension") : undefined} />
-        <Field label="Location" value={ai.location ?? "—"} onEvidenceClick={hasEvidenceForClaim(ai.source?.evidence ?? [], "location") ? () => setSelectedClaim("location") : undefined} />
-        <Field label="Specification" value={ai.specification ?? "—"} onEvidenceClick={hasEvidenceForClaim(ai.source?.evidence ?? [], "specification") ? () => setSelectedClaim("specification") : undefined} />
+        <Field label="Quantity" value={ai.quantity == null ? "—" : `${ai.quantity} ${ai.unit ?? ""}`.trim()} onEvidenceClick={hasEvidenceForClaim(ai.source?.evidence ?? [], "quantity") ? () => onSelectClaim("quantity") : undefined} />
+        <Field label="Dimension" value={ai.dimension ?? "—"} onEvidenceClick={hasEvidenceForClaim(ai.source?.evidence ?? [], "dimension") ? () => onSelectClaim("dimension") : undefined} />
+        <Field label="Location" value={ai.location ?? "—"} onEvidenceClick={hasEvidenceForClaim(ai.source?.evidence ?? [], "location") ? () => onSelectClaim("location") : undefined} />
+        <Field label="Specification" value={ai.specification ?? "—"} onEvidenceClick={hasEvidenceForClaim(ai.source?.evidence ?? [], "specification") ? () => onSelectClaim("specification") : undefined} />
         <Field label="AI status" value={ai.aiStatus} />
         <Field label="Confidence" value={ai.confidence == null ? "—" : `${Math.round(ai.confidence * 100)}%`} />
         <Field label="Source" value={ai.source?.document ? `${ai.source.document}${ai.source.page != null ? ` — Page ${ai.source.page}` : ""}` : "—"} />
@@ -521,7 +522,7 @@ function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPending, on
 }
 
 // ── Right panel: resolve the real drawing, else fall back to the coord plot ────
-function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId }: { item: StoredReviewItem; drawings: StoredDrawing[]; resolvedDocumentId?: string | null }) {
+export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, selectedClaim }: { item: StoredReviewItem; drawings: StoredDrawing[]; resolvedDocumentId?: string | null; selectedClaim?: ClaimType | null }) {
   const resolved = useMemo(() => {
     // If a document was explicitly resolved during import (user selected it), use it
     if (resolvedDocumentId) {
