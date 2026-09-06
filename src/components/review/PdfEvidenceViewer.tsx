@@ -44,13 +44,6 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
 
-  // DIAGNOSTIC: Capture DOM measurements for debugging
-  const [diagMeasurements, setDiagMeasurements] = useState<{
-    canvasRect: DOMRect | null;
-    overlayRect: DOMRect | null;
-    containerRect: DOMRect | null;
-  }>({ canvasRect: null, overlayRect: null, containerRect: null });
-
   // Evidence boxes on the CURRENT page (per-box page overrides the item page).
   const boxes: EvidenceBox[] = useMemo(
     () => (source?.evidence ?? []).filter((b) => (b.page ?? source?.page ?? page) === page),
@@ -162,39 +155,8 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
   const overlayRects = useMemo(() => {
     const space = resolvePageSpace(source, pageBase);
     if (!space || !pageBase || !boxes.length) return [];
-    const rendered = { width: pageBase.width * scale, height: pageBase.height * scale };
-    // DIAGNOSTIC: Verify coordinate spaces
-    if (boxes.length > 0) {
-      console.log("[DIAG] pageBase:", pageBase);
-      console.log("[DIAG] space (resolvePageSpace):", space);
-      console.log("[DIAG] scale:", scale);
-      console.log("[DIAG] rendered:", rendered);
-      console.log("[DIAG] sx =", rendered.width / space.width);
-      console.log("[DIAG] sy =", rendered.height / space.height);
-      console.log("[DIAG] first box:", boxes[0]?.bbox, "→ transformed:", transformBoxes([boxes[0]], space, rendered)[0]);
-    }
-    return transformBoxes(boxes, space, rendered);
+    return transformBoxes(boxes, space, { width: pageBase.width * scale, height: pageBase.height * scale });
   }, [source, pageBase, boxes, scale]);
-
-  // DIAGNOSTIC: Capture DOM measurements after render
-  useEffect(() => {
-    if (status !== "ready" || !boxes.length) {
-      setDiagMeasurements({ canvasRect: null, overlayRect: null, containerRect: null });
-      return;
-    }
-    const timer = setTimeout(() => {
-      const canvas = canvasRef.current;
-      const container = containerRef.current;
-      const overlay = container?.querySelector('[class*="absolute"][class*="pointer-events-none"]');
-
-      setDiagMeasurements({
-        canvasRect: canvas?.getBoundingClientRect() ?? null,
-        overlayRect: overlay instanceof HTMLElement ? overlay.getBoundingClientRect() : null,
-        containerRect: container?.getBoundingClientRect() ?? null,
-      });
-    }, 50); // Let render complete
-    return () => clearTimeout(timer);
-  }, [status, boxes.length, overlayRects]);
 
   // ── Non-render states ───────────────────────────────────────────────────────
   if (unavailableReason) {
@@ -255,74 +217,6 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
       )}
       {(!source?.evidence || source.evidence.length === 0) && (
         <p className="text-[11px] text-muted-foreground">Evidence coordinates unavailable — showing the source page only.</p>
-      )}
-
-      {/* DIAGNOSTIC PANEL — temporary debug display */}
-      {status === "ready" && boxes.length > 0 && (
-        <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded text-xs font-mono space-y-1 overflow-x-auto" style={{ maxHeight: 300 }}>
-          <div className="font-bold text-yellow-900">📊 DIAGNOSTIC MEASUREMENTS</div>
-          <div className="text-gray-700 mt-2">
-            <div><span className="font-semibold">PDF Page:</span> {pageBase?.width} × {pageBase?.height}</div>
-            <div><span className="font-semibold">Scale:</span> {scale} ({Math.round(scale * 100)}%)</div>
-            <div><span className="font-semibold">Rendered Size:</span> {pageBase && Math.round(pageBase.width * scale)} × {pageBase && Math.round(pageBase.height * scale)}</div>
-
-            <div className="mt-2 border-t border-yellow-200 pt-2">
-              <div><span className="font-semibold">Resolved Space (source.pageSize):</span> {source?.pageSize ? `${source.pageSize.width} × ${source.pageSize.height}` : 'undefined (using pageBase)'}</div>
-              <div><span className="font-semibold">Actual Resolved:</span> {resolvePageSpace(source, pageBase)?.width} × {resolvePageSpace(source, pageBase)?.height}</div>
-            </div>
-
-            <div className="mt-2 border-t border-yellow-200 pt-2">
-              <div><span className="font-semibold">Scaling Factors:</span></div>
-              <div>sx = {(pageBase ? pageBase.width * scale / (resolvePageSpace(source, pageBase)?.width ?? 1) : 0).toFixed(2)}</div>
-              <div>sy = {(pageBase ? pageBase.height * scale / (resolvePageSpace(source, pageBase)?.height ?? 1) : 0).toFixed(2)}</div>
-            </div>
-
-            <div className="mt-2 border-t border-yellow-200 pt-2">
-              <div><span className="font-semibold">First Box Transform:</span></div>
-              <div>Input bbox: {boxes[0]?.bbox.join(', ')}</div>
-              <div>
-                {overlayRects[0] ? (
-                  <>
-                    <div>left: {overlayRects[0].left.toFixed(1)}, top: {overlayRects[0].top.toFixed(1)}</div>
-                    <div>width: {overlayRects[0].width.toFixed(1)}, height: {overlayRects[0].height.toFixed(1)}</div>
-                  </>
-                ) : (
-                  <div>—</div>
-                )}
-              </div>
-            </div>
-
-            <div className="mt-2 border-t border-yellow-200 pt-2">
-              <div><span className="font-semibold">Canvas Element:</span></div>
-              <div>canvas.width (backing): {canvasRef.current?.width}, canvas.height: {canvasRef.current?.height}</div>
-              <div>canvas.style.width (CSS): {canvasRef.current?.style.width}, canvas.style.height: {canvasRef.current?.style.height}</div>
-              {diagMeasurements.canvasRect && (
-                <div>
-                  <div>getBoundingClientRect(): {diagMeasurements.canvasRect.width.toFixed(1)} × {diagMeasurements.canvasRect.height.toFixed(1)}</div>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-2 border-t border-yellow-200 pt-2">
-              <div><span className="font-semibold">First Overlay:</span></div>
-              {diagMeasurements.overlayRect && (
-                <div>
-                  <div>getBoundingClientRect(): {diagMeasurements.overlayRect.width.toFixed(1)} × {diagMeasurements.overlayRect.height.toFixed(1)}</div>
-                  <div>position: {diagMeasurements.overlayRect.left.toFixed(1)}, {diagMeasurements.overlayRect.top.toFixed(1)}</div>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-2 border-t border-yellow-200 pt-2">
-              <div><span className="font-semibold">Container:</span></div>
-              {diagMeasurements.containerRect && (
-                <div>
-                  <div>getBoundingClientRect(): {diagMeasurements.containerRect.width.toFixed(1)} × {diagMeasurements.containerRect.height.toFixed(1)}</div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
       )}
     </Shell>
   );
