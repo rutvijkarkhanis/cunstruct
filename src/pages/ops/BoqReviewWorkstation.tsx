@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
   ArrowLeft, Check, Pencil, Flag, Clock, ChevronLeft, ChevronRight, Upload, Cpu, FileText, ChevronDown, ChevronUp,
@@ -88,9 +89,11 @@ export default function BoqReviewWorkstation() {
   const [items, setItems] = useState<StoredReviewItem[]>([]);
   const [runId, setRunId] = useState<string | null>(null);
   const [resolvedDocumentId, setResolvedDocumentId] = useState<string | null>(null);
+  const [runCreatedAt, setRunCreatedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<ReviewFilter>("NEEDS_REVIEW");
   const [cursor, setCursor] = useState(0);
+  const [showImportModal, setShowImportModal] = useState(false);
 
   // Load the latest run for this BOQ, if any.
   useEffect(() => {
@@ -103,6 +106,7 @@ export default function BoqReviewWorkstation() {
         if (run) {
           setRunId(run.id);
           setResolvedDocumentId(run.resolved_document_id ?? null);
+          setRunCreatedAt(run.created_at ?? null);
           setItems(await loadReviewItems(run.id));
         }
       } catch { /* degrade to import view */ }
@@ -160,6 +164,8 @@ export default function BoqReviewWorkstation() {
         <Button variant="ghost" size="sm" onClick={() => navigate(`../boqs/${boqId}`)}><ArrowLeft className="w-4 h-4 mr-1" /> BOQ</Button>
         <h2 className="font-semibold">BOQ Review</h2>
         <span className="text-sm text-muted-foreground">{boq?.name}</span>
+        {runCreatedAt && <span className="text-xs text-muted-foreground">run {new Date(runCreatedAt).toLocaleString()}</span>}
+        <Button variant="outline" size="sm" onClick={() => setShowImportModal(true)} className="ml-auto">Import New Analysis</Button>
         <span className="ml-auto text-sm text-muted-foreground">{summary.total - summary.remaining} / {summary.total} reviewed · {summary.completionPct}%</span>
       </div>
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
@@ -200,6 +206,28 @@ export default function BoqReviewWorkstation() {
           <ResolvedEvidenceViewer item={current} drawings={drawings} resolvedDocumentId={resolvedDocumentId} />
         </div>
       )}
+
+      {/* Import new analysis modal */}
+      <Dialog open={showImportModal} onOpenChange={setShowImportModal}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <ImportGate
+            boqName={boq?.name}
+            projectType={project?.project_type ?? null}
+            onImported={(rid, its) => {
+              setRunId(rid);
+              setItems(its);
+              setRunCreatedAt(new Date().toISOString());
+              setCursor(0);
+              setShowImportModal(false);
+              toast.success("New analysis imported successfully");
+            }}
+            boqId={boqId}
+            projectId={boq?.project_id ?? null}
+            drawings={drawings}
+            onBack={() => setShowImportModal(false)}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
