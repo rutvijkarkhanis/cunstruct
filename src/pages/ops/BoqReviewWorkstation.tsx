@@ -21,15 +21,15 @@ import {
   ArrowLeft, Check, Pencil, Flag, Clock, ChevronLeft, ChevronRight, Upload, Cpu, FileText, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { parseAnalysisV1, type ClaimType } from "@/lib/review/analysisSchemaV1";
-import { hasEvidenceForClaim } from "@/lib/review/evidenceCoords";
 import {
   orderQueue, matchesFilter, reviewSummary, isCritical, effectiveQuantity, diffItem, quantityDelta,
   type ReviewFilter, type ReviewStatus, type FlagReason, type ReviewerValues,
 } from "@/lib/review/reviewQueue";
 import { transformBoxes, unionBox, hasPlaceableEvidence } from "@/lib/review/evidenceCoords";
+import { claimLabel, formatClaimValue, summarizeClaimEvidence, type EvidenceSummary } from "@/lib/review/evidenceDisplay";
 import { defaultInputMode, isProviderConfigured, PROVIDERS, type InputMode } from "@/lib/review/analysisProviders";
 import { createAnalysisRun, loadReviewItems, latestRunForBoq, saveReviewDecision, type StoredReviewItem } from "@/lib/review/reviewStore";
-import { resolveDrawing, type StoredDrawing } from "@/lib/review/documentResolve";
+import { resolveItemDrawing, type StoredDrawing } from "@/lib/review/documentResolve";
 import { signedDrawingUrl } from "@/lib/review/drawingStorage";
 import PdfEvidenceViewer from "@/components/review/PdfEvidenceViewer";
 import DocumentSelector from "@/components/review/DocumentSelector";
@@ -215,6 +215,8 @@ export default function BoqReviewWorkstation() {
             onNext={() => go(1)}
             keyboardEnabled
             onSelectClaim={setSelectedClaim}
+            drawings={drawings}
+            resolvedDocumentId={resolvedDocumentId}
           />
           <ResolvedEvidenceViewer item={current} drawings={drawings} resolvedDocumentId={resolvedDocumentId} selectedClaim={selectedClaim} />
         </div>
@@ -384,10 +386,11 @@ function ImportGate({ boqId, projectId, projectType, boqName, onImported, drawin
 }
 
 // ── Left item panel ────────────────────────────────────────────────────────────
-export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPending, onPrev, onNext, keyboardEnabled, onSelectClaim }: {
+export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPending, onPrev, onNext, keyboardEnabled, onSelectClaim, drawings, resolvedDocumentId }: {
   item: StoredReviewItem; index: number; count: number;
   onVerify: () => void; onEdit: (r: ReviewerValues) => void; onFlag: (r: FlagReason, note: string) => void; onPending: () => void;
   onPrev: () => void; onNext: () => void; keyboardEnabled?: boolean; onSelectClaim: (claim: ClaimType) => void;
+  drawings: StoredDrawing[]; resolvedDocumentId?: string | null;
 }) {
   const ai = item.ai;
   const [editing, setEditing] = useState(false);
@@ -420,6 +423,30 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
   const diffs = diffItem(item);
   const delta = quantityDelta(item);
 
+  // Resolve the same drawing ResolvedEvidenceViewer will show, so the
+  // per-claim evidence line can honestly say when a claim's evidence exists
+  // but can't actually be resolved to a drawing (P0-5) instead of looking
+  // identical to a working link.
+  const resolved = useMemo(
+    () => resolveItemDrawing(ai.source, drawings, resolvedDocumentId),
+    [ai.source, drawings, resolvedDocumentId],
+  );
+  const resolvedOk = !!resolved?.filePath;
+  const documentName = useMemo(() => {
+    const stored = resolved ? drawings.find((d) => d.documentId === resolved.documentId) : undefined;
+    return stored?.name || ai.source?.document || null;
+  }, [resolved, drawings, ai.source?.document]);
+
+  const claimEvidence = useMemo(() => {
+    const evidence = ai.source?.evidence ?? [];
+    return {
+      quantity: summarizeClaimEvidence(evidence, "quantity", ai.source?.page, documentName, resolvedOk),
+      dimension: summarizeClaimEvidence(evidence, "dimension", ai.source?.page, documentName, resolvedOk),
+      specification: summarizeClaimEvidence(evidence, "specification", ai.source?.page, documentName, resolvedOk),
+      location: summarizeClaimEvidence(evidence, "location", ai.source?.page, documentName, resolvedOk),
+    };
+  }, [ai.source, documentName, resolvedOk]);
+
   return (
     <Card><CardContent className="p-4 space-y-3">
       <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -433,15 +460,32 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
         {item.duplicateOf && <div className="text-xs text-rose-700 mt-0.5">Possible duplicate of {item.duplicateOf}</div>}
       </div>
 
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-        <Field label="Quantity" value={ai.quantity == null ? "—" : `${ai.quantity} ${ai.unit ?? ""}`.trim()} onEvidenceClick={hasEvidenceForClaim(ai.source?.evidence ?? [], "quantity") ? () => onSelectClaim("quantity") : undefined} />
-        <Field label="Dimension" value={ai.dimension ?? "—"} onEvidenceClick={hasEvidenceForClaim(ai.source?.evidence ?? [], "dimension") ? () => onSelectClaim("dimension") : undefined} />
-        <Field label="Location" value={ai.location ?? "—"} onEvidenceClick={hasEvidenceForClaim(ai.source?.evidence ?? [], "location") ? () => onSelectClaim("location") : undefined} />
-        <Field label="Specification" value={ai.specification ?? "—"} onEvidenceClick={hasEvidenceForClaim(ai.source?.evidence ?? [], "specification") ? () => onSelectClaim("specification") : undefined} />
-        <Field label="AI status" value={ai.aiStatus} />
-        <Field label="Confidence" value={ai.confidence == null ? "—" : `${Math.round(ai.confidence * 100)}%`} />
-        <Field label="Source" value={ai.source?.document ? `${ai.source.document}${ai.source.page != null ? ` — Page ${ai.source.page}` : ""}` : "—"} />
-        <Field label="Reviewer qty" value={item.reviewer && "quantity" in item.reviewer ? `${eff ?? "—"} ${delta ? `(${delta})` : ""}` : "—"} />
+      {/* AI result — what the AI extracted, and why (evidence). Never implies
+          the reviewer should accept it without checking. */}
+      <div className="rounded border p-2 space-y-2">
+        <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">AI result</div>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+          <ClaimField claim="quantity" value={formatClaimValue(ai, "quantity")} evidence={claimEvidence.quantity} onSelectClaim={onSelectClaim} />
+          <ClaimField claim="dimension" value={formatClaimValue(ai, "dimension")} evidence={claimEvidence.dimension} onSelectClaim={onSelectClaim} />
+          <ClaimField claim="specification" value={formatClaimValue(ai, "specification")} evidence={claimEvidence.specification} onSelectClaim={onSelectClaim} />
+          <ClaimField claim="location" value={formatClaimValue(ai, "location")} evidence={claimEvidence.location} onSelectClaim={onSelectClaim} />
+        </div>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm pt-1 border-t">
+          <Field label="AI status" value={ai.aiStatus} />
+          <Field label="Confidence" value={ai.confidence == null ? "—" : `${Math.round(ai.confidence * 100)}%`} />
+          <Field label="Source" value={ai.source?.document ? `${ai.source.document}${ai.source.page != null ? ` — Page ${ai.source.page}` : ""}` : "—"} />
+        </div>
+        <p className="text-[10px] text-muted-foreground">A high AI confidence is not a substitute for checking the evidence — verify before accepting.</p>
+      </div>
+
+      {/* Reviewer result — separate from the AI's own (immutable) values above.
+          Status badge is already shown in the header above; this section adds
+          the reviewer's own value once one exists. */}
+      <div className="rounded border p-2 space-y-2">
+        <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Reviewer result</div>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+          <Field label="Reviewer qty" value={item.reviewer && "quantity" in item.reviewer ? `${eff ?? "—"} ${delta ? `(${delta})` : ""}` : "—"} />
+        </div>
       </div>
 
       {/* Why this quantity? */}
@@ -523,15 +567,18 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
 
 // ── Right panel: resolve the real drawing, else fall back to the coord plot ────
 export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, selectedClaim }: { item: StoredReviewItem; drawings: StoredDrawing[]; resolvedDocumentId?: string | null; selectedClaim?: ClaimType | null }) {
-  const resolved = useMemo(() => {
-    // If a document was explicitly resolved during import (user selected it), use it
-    if (resolvedDocumentId) {
-      const doc = drawings.find((d) => d.documentId === resolvedDocumentId);
-      if (doc) return { documentId: doc.documentId, filePath: doc.filePath ?? null, pageCount: doc.pageCount ?? null, matchedBy: "explicit_override" as const };
-    }
-    // Otherwise attempt normal resolution
-    return resolveDrawing(item.ai.source, drawings);
-  }, [item.ai.source, drawings, resolvedDocumentId]);
+  const resolved = useMemo(
+    () => resolveItemDrawing(item.ai.source, drawings, resolvedDocumentId),
+    [item.ai.source, drawings, resolvedDocumentId],
+  );
+  // Prefer the stored drawing's own (human-entered) name over the raw
+  // filename when it resolves — real, existing metadata, never a guessed
+  // sheet name (P0-2).
+  const documentName = useMemo(() => {
+    const stored = resolved ? drawings.find((d) => d.documentId === resolved.documentId) : undefined;
+    return stored?.name || item.ai.source?.document || "Drawing";
+  }, [resolved, drawings, item.ai.source?.document]);
+  const selectedClaimValue = selectedClaim ? formatClaimValue(item.ai, selectedClaim) : null;
   const [signed, setSigned] = useState<string | null>(null);
   const [signState, setSignState] = useState<"idle" | "signing" | "unavailable">("idle");
 
@@ -564,9 +611,10 @@ export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, sel
         <PdfEvidenceViewer
           fileUrl={signed}
           source={item.ai.source}
-          documentName={item.ai.source?.document ?? "Drawing"}
+          documentName={documentName}
           unavailableReason={signState === "unavailable" ? "Source drawing unavailable." : null}
           selectedClaim={selectedClaim}
+          selectedClaimValue={selectedClaimValue}
         />
       </CardContent></Card>
     );
@@ -646,14 +694,31 @@ function EvidenceViewer({ item }: { item: StoredReviewItem }) {
 function Stat({ label, value, cls = "" }: { label: string; value: number; cls?: string }) {
   return <div className="rounded border p-2"><div className={`text-lg font-bold ${cls}`}>{value}</div><div className="text-[11px] text-muted-foreground">{label}</div></div>;
 }
-function Field({ label, value, onEvidenceClick }: { label: string; value: string; onEvidenceClick?: () => void }) {
+function Field({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-[11px] text-muted-foreground flex items-center gap-1">
-        {label}
-        {onEvidenceClick && <button onClick={onEvidenceClick} className="text-[10px] text-amber-600 hover:text-amber-700 font-medium">[Evidence]</button>}
-      </div>
+      <div className="text-[11px] text-muted-foreground">{label}</div>
       <div className="truncate" title={value}>{value}</div>
+    </div>
+  );
+}
+// A claim's AI value plus its evidence state (P0-3/P0-5): clickable when
+// evidence exists (navigates the viewer to it), plain muted text otherwise —
+// never implying a link that isn't actually backed by evidence data.
+function ClaimField({ claim, value, evidence, onSelectClaim }: {
+  claim: ClaimType; value: string; evidence: EvidenceSummary; onSelectClaim: (claim: ClaimType) => void;
+}) {
+  return (
+    <div>
+      <div className="text-[11px] text-muted-foreground">{claimLabel(claim)}</div>
+      <div className="truncate" title={value}>{value}</div>
+      {evidence.hasEvidence ? (
+        <button onClick={() => onSelectClaim(claim)} className="text-[10px] text-amber-600 hover:text-amber-700 font-medium text-left truncate block max-w-full" title={evidence.text}>
+          {evidence.text}
+        </button>
+      ) : (
+        <div className="text-[10px] text-muted-foreground">{evidence.text}</div>
+      )}
     </div>
   );
 }

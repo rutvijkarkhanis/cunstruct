@@ -66,6 +66,24 @@ export function resolveDrawing(source: AnalysisSource | undefined, drawings: Sto
 }
 
 /**
+ * Resolve a source to a stored drawing, honoring an explicit override chosen
+ * during import (e.g. via DocumentSelector) ahead of the normal id/filename/
+ * name matching in `resolveDrawing`. Both the item panel and the evidence
+ * viewer use this so they agree on what will actually resolve.
+ */
+export function resolveItemDrawing(
+  source: AnalysisSource | undefined,
+  drawings: StoredDrawing[],
+  resolvedDocumentId?: string | null,
+): ResolvedDrawing | null {
+  if (resolvedDocumentId) {
+    const doc = drawings.find((d) => d.documentId === resolvedDocumentId);
+    if (doc) return { documentId: doc.documentId, filePath: doc.filePath ?? null, pageCount: doc.pageCount ?? null, matchedBy: "explicit_override" };
+  }
+  return resolveDrawing(source, drawings);
+}
+
+/**
  * Attempt document resolution and return diagnostics if it fails.
  * Helps users understand why a document reference couldn't be matched
  * and what alternatives are available.

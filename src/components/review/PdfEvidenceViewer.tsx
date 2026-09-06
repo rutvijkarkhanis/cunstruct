@@ -13,6 +13,7 @@ import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min?url";
 import { Button } from "@/components/ui/button";
 import { ZoomIn, ZoomOut, Maximize, Crosshair, ChevronLeft, ChevronRight, FileWarning, Loader2 } from "lucide-react";
 import { resolvePageSpace, transformBoxes, fitToEvidence, getEvidenceForClaim, detectPageSizeMismatch } from "@/lib/review/evidenceCoords";
+import { claimLabel } from "@/lib/review/evidenceDisplay";
 import type { AnalysisSource, EvidenceBox, ClaimType } from "@/lib/review/analysisSchemaV1";
 
 // Bundle the worker with Vite (kept off the main thread; no CDN dependency).
@@ -27,11 +28,15 @@ interface Props {
   unavailableReason?: string | null;
   /** Filter evidence to show only this claim. Shows all evidence if undefined. */
   selectedClaim?: ClaimType | null;
+  /** The AI-supplied display value for `selectedClaim` (e.g. "7 nos"), for the
+   *  evidence-context banner. Formatted by the caller, which owns the item's
+   *  AI fields — this component only knows about evidence/coordinates. */
+  selectedClaimValue?: string | null;
 }
 
 type Size = { width: number; height: number };
 
-export default function PdfEvidenceViewer({ fileUrl, source, documentName, unavailableReason, selectedClaim }: Props) {
+export default function PdfEvidenceViewer({ fileUrl, source, documentName, unavailableReason, selectedClaim, selectedClaimValue }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -189,13 +194,37 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
     [source?.pageSize, pageBase],
   );
 
+  // The selected claim's evidence identity for the context banner below —
+  // resolved from the FULL evidence array (not the page-filtered `boxes`) so
+  // it's stable regardless of page-navigation timing. Never fabricates a
+  // label or page: both are null when the analysis didn't supply them.
+  const selectedClaimEvidence = useMemo(() => {
+    if (!selectedClaim) return null;
+    const regions = getEvidenceForClaim(source?.evidence ?? [], selectedClaim);
+    if (!regions.length) return null;
+    return {
+      label: regions.find((r) => r.label)?.label ?? null,
+      page: regions[0].page ?? source?.page ?? null,
+    };
+  }, [source, selectedClaim]);
+
+  const contextBanner = (
+    <EvidenceContextBanner
+      selectedClaim={selectedClaim}
+      selectedClaimValue={selectedClaimValue}
+      evidence={selectedClaimEvidence}
+      documentName={documentName}
+    />
+  );
+
   // ── Non-render states ───────────────────────────────────────────────────────
   if (unavailableReason) {
-    return <Shell name={documentName}><Fallback icon={FileWarning} text={unavailableReason} /></Shell>;
+    return <Shell name={documentName}>{contextBanner}<Fallback icon={FileWarning} text={unavailableReason} /></Shell>;
   }
   if (!fileUrl) {
     return (
       <Shell name={documentName}>
+        {contextBanner}
         <Fallback icon={FileWarning} text={
           source?.document
             ? `Source: ${source.document}${source.page != null ? ` — Page ${source.page}` : ""}. No drawing file is stored for this document yet — upload the PDF in Documents to see it here.`
@@ -222,6 +251,7 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
         </div>
       }
     >
+      {contextBanner}
       <div ref={containerRef} className="relative overflow-auto border rounded bg-neutral-100" style={{ height: 460 }}>
         {status === "loading" && <div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>}
         {status === "error" && (
@@ -232,7 +262,7 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
             </div>
           </div>
         )}
-        <div className="relative inline-block">
+        <div className="relative inline-block" data-testid="evidence-overlays">
           <canvas ref={canvasRef} className="block" />
           {overlayRects.map((r, i) => {
             const box = boxes[i];
@@ -256,6 +286,34 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
       )}
       {pageSizeWarning && <p className="text-[11px] text-amber-600">{pageSizeWarning}</p>}
     </Shell>
+  );
+}
+
+// Evidence context — always tells the reviewer why they're looking at this
+// page: which claim, the AI's value for it, and where the evidence came from.
+// Neutral, non-alarming copy when nothing is selected yet; never fabricates a
+// source name or page — shows "unavailable" rather than guessing.
+function EvidenceContextBanner({ selectedClaim, selectedClaimValue, evidence, documentName }: {
+  selectedClaim?: ClaimType | null;
+  selectedClaimValue?: string | null;
+  evidence: { label: string | null; page: number | null } | null;
+  documentName?: string | null;
+}) {
+  if (!selectedClaim) {
+    return (
+      <div className="rounded border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+        Select an Evidence link to inspect the drawing source.
+      </div>
+    );
+  }
+  const sourceLabel = evidence?.label ?? documentName ?? null;
+  return (
+    <div className="rounded border bg-muted/40 px-3 py-2 text-xs space-y-0.5">
+      <div><span className="font-medium">Claim:</span> {claimLabel(selectedClaim)}</div>
+      {selectedClaimValue != null && <div><span className="font-medium">Value:</span> {selectedClaimValue}</div>}
+      <div><span className="font-medium">Evidence source:</span> {sourceLabel ?? "unavailable"}</div>
+      {evidence?.page != null && <div><span className="font-medium">Page:</span> {evidence.page}</div>}
+    </div>
   );
 }
 

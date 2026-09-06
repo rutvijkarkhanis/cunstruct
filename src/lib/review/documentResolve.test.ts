@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveDrawing, resolveDrawingWithDiagnostics, type StoredDrawing } from "./documentResolve";
+import { resolveDrawing, resolveDrawingWithDiagnostics, resolveItemDrawing, type StoredDrawing } from "./documentResolve";
 import type { AnalysisSource } from "./analysisSchemaV1";
 
 const drawings: StoredDrawing[] = [
@@ -160,5 +160,34 @@ describe("resolveDrawingWithDiagnostics", () => {
     const result = resolveDrawingWithDiagnostics(source, []);
     expect(result.resolved).toBeNull();
     expect(result.diagnostics?.availableDrawings).toHaveLength(0);
+  });
+});
+
+describe("resolveItemDrawing", () => {
+  it("honors an explicit resolvedDocumentId override ahead of normal matching", () => {
+    const source: AnalysisSource = { document: "floor-plan.pdf", evidence: [] };
+    // Without an override, this would match doc-001 by filename.
+    const result = resolveItemDrawing(source, drawings, "doc-003");
+    expect(result?.documentId).toBe("doc-003");
+    expect(result?.matchedBy).toBe("explicit_override");
+  });
+
+  it("falls back to normal resolution when no override is given", () => {
+    const source: AnalysisSource = { document: "floor-plan.pdf", evidence: [] };
+    const result = resolveItemDrawing(source, drawings, null);
+    expect(result?.documentId).toBe("doc-001");
+    expect(result?.matchedBy).toBe("filename");
+  });
+
+  it("falls back to normal resolution when the override id isn't among the loaded drawings", () => {
+    const source: AnalysisSource = { document: "floor-plan.pdf", evidence: [] };
+    const result = resolveItemDrawing(source, drawings, "doc-does-not-exist");
+    expect(result?.documentId).toBe("doc-001");
+    expect(result?.matchedBy).toBe("filename");
+  });
+
+  it("returns null when neither the override nor normal resolution match", () => {
+    const source: AnalysisSource = { document: "unknown.pdf", evidence: [] };
+    expect(resolveItemDrawing(source, drawings, undefined)).toBeNull();
   });
 });
