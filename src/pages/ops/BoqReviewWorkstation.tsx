@@ -20,7 +20,8 @@ import { toast } from "sonner";
 import {
   ArrowLeft, Check, Pencil, Flag, Clock, ChevronLeft, ChevronRight, Upload, Cpu, FileText, ChevronDown, ChevronUp,
 } from "lucide-react";
-import { parseAnalysisV1 } from "@/lib/review/analysisSchemaV1";
+import { parseAnalysisV1, type ClaimType } from "@/lib/review/analysisSchemaV1";
+import { hasEvidenceForClaim } from "@/lib/review/evidenceCoords";
 import {
   orderQueue, matchesFilter, reviewSummary, isCritical, effectiveQuantity, diffItem, quantityDelta,
   type ReviewFilter, type ReviewStatus, type FlagReason, type ReviewerValues,
@@ -94,6 +95,7 @@ export default function BoqReviewWorkstation() {
   const [filter, setFilter] = useState<ReviewFilter>("NEEDS_REVIEW");
   const [cursor, setCursor] = useState(0);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [selectedClaim, setSelectedClaim] = useState<ClaimType | null>(null);
 
   // Load the latest run for this BOQ, if any.
   useEffect(() => {
@@ -119,6 +121,9 @@ export default function BoqReviewWorkstation() {
   const visible = useMemo(() => ordered.filter((it) => matchesFilter(it, filter)), [ordered, filter]);
   const summary = useMemo(() => reviewSummary(items), [items]);
   const current = visible[Math.min(cursor, Math.max(0, visible.length - 1))];
+
+  // Clear selectedClaim when item changes
+  useEffect(() => { setSelectedClaim(null); }, [current?.id]);
 
   const go = useCallback((delta: number) => {
     setCursor((c) => Math.max(0, Math.min(visible.length - 1, c + delta)));
@@ -421,10 +426,10 @@ function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPending, on
       </div>
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-        <Field label="Quantity" value={ai.quantity == null ? "—" : `${ai.quantity} ${ai.unit ?? ""}`.trim()} />
-        <Field label="Dimension" value={ai.dimension ?? "—"} />
-        <Field label="Location" value={ai.location ?? "—"} />
-        <Field label="Specification" value={ai.specification ?? "—"} />
+        <Field label="Quantity" value={ai.quantity == null ? "—" : `${ai.quantity} ${ai.unit ?? ""}`.trim()} onEvidenceClick={hasEvidenceForClaim(ai.source?.evidence ?? [], "quantity") ? () => setSelectedClaim("quantity") : undefined} />
+        <Field label="Dimension" value={ai.dimension ?? "—"} onEvidenceClick={hasEvidenceForClaim(ai.source?.evidence ?? [], "dimension") ? () => setSelectedClaim("dimension") : undefined} />
+        <Field label="Location" value={ai.location ?? "—"} onEvidenceClick={hasEvidenceForClaim(ai.source?.evidence ?? [], "location") ? () => setSelectedClaim("location") : undefined} />
+        <Field label="Specification" value={ai.specification ?? "—"} onEvidenceClick={hasEvidenceForClaim(ai.source?.evidence ?? [], "specification") ? () => setSelectedClaim("specification") : undefined} />
         <Field label="AI status" value={ai.aiStatus} />
         <Field label="Confidence" value={ai.confidence == null ? "—" : `${Math.round(ai.confidence * 100)}%`} />
         <Field label="Source" value={ai.source?.document ? `${ai.source.document}${ai.source.page != null ? ` — Page ${ai.source.page}` : ""}` : "—"} />
@@ -553,6 +558,7 @@ function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId }: { item: 
           source={item.ai.source}
           documentName={item.ai.source?.document ?? "Drawing"}
           unavailableReason={signState === "unavailable" ? "Source drawing unavailable." : null}
+          selectedClaim={selectedClaim}
         />
       </CardContent></Card>
     );
@@ -632,8 +638,16 @@ function EvidenceViewer({ item }: { item: StoredReviewItem }) {
 function Stat({ label, value, cls = "" }: { label: string; value: number; cls?: string }) {
   return <div className="rounded border p-2"><div className={`text-lg font-bold ${cls}`}>{value}</div><div className="text-[11px] text-muted-foreground">{label}</div></div>;
 }
-function Field({ label, value }: { label: string; value: string }) {
-  return <div><div className="text-[11px] text-muted-foreground">{label}</div><div className="truncate" title={value}>{value}</div></div>;
+function Field({ label, value, onEvidenceClick }: { label: string; value: string; onEvidenceClick?: () => void }) {
+  return (
+    <div>
+      <div className="text-[11px] text-muted-foreground flex items-center gap-1">
+        {label}
+        {onEvidenceClick && <button onClick={onEvidenceClick} className="text-[10px] text-amber-600 hover:text-amber-700 font-medium">[Evidence]</button>}
+      </div>
+      <div className="truncate" title={value}>{value}</div>
+    </div>
+  );
 }
 function StatusBadge({ status }: { status: ReviewStatus }) {
   const map: Record<ReviewStatus, string> = {
