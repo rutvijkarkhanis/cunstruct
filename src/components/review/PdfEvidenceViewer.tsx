@@ -47,14 +47,34 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
 
   // Evidence boxes on the CURRENT page (per-box page overrides the item page).
+  // A box with no resolvable page (neither its own `page` nor `source.page`) is
+  // excluded here rather than assumed to be on whatever page is showing.
   const boxes: EvidenceBox[] = useMemo(() => {
-    let filtered = (source?.evidence ?? []).filter((b) => (b.page ?? source?.page ?? page) === page);
+    let filtered = (source?.evidence ?? []).filter((b) => {
+      const resolvedPage = b.page ?? source?.page;
+      return resolvedPage != null && resolvedPage === page;
+    });
     if (selectedClaim) filtered = getEvidenceForClaim(filtered, selectedClaim);
     return filtered;
   }, [source, page, selectedClaim]);
 
   // When the item changes, jump to its source page.
   useEffect(() => { setPage(source?.page ?? 1); }, [source]);
+
+  // When the selected claim changes, jump to the page its evidence lives on —
+  // a claim's evidence can be on a different page than the item's default
+  // page. Resolved from the FULL evidence array, not the current page's boxes,
+  // so this works even when the viewer isn't already on the right page.
+  // Deliberately keyed only on `selectedClaim`, not `source`: BoqReviewWorkstation
+  // clears selectedClaim one render after switching items, so keying on `source`
+  // too would race that reset and strand the page on the previous item's claim page.
+  useEffect(() => {
+    if (!selectedClaim) return;
+    const claimBoxes = getEvidenceForClaim(source?.evidence ?? [], selectedClaim);
+    const targetPage = claimBoxes[0]?.page ?? source?.page;
+    if (targetPage != null) setPage(targetPage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedClaim]);
 
   // Load the document when the signed URL changes.
   useEffect(() => {
