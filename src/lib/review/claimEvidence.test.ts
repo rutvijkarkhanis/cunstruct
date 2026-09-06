@@ -4,7 +4,9 @@ import { getEvidenceForClaim, hasEvidenceForClaim } from "./evidenceCoords";
 import type { ClaimType } from "./analysisSchemaV1";
 
 describe("Claim-level evidence support", () => {
-  // Test data: W1 with evidence on multiple pages supporting different claims
+  // Test data: W1 with evidence supporting different claims.
+  // Page 5 W1 coordinate [354, 133, 360, 173] is verified from actual Srikakulam PDF (PR #102).
+  // Page 999 and 998 coordinates are synthetic test fixtures (not real PDF pages).
   const w1WithClaimedEvidence = {
     schema_version: "cunstruct.analysis.v1",
     items: [
@@ -17,42 +19,42 @@ describe("Claim-level evidence support", () => {
         specification: "UPVC",
         location: "Ground Floor",
         source: {
-          document: "Srikakulam.pdf",
+          document: "test-drawing.pdf",
           page: 5,
           pageSize: { width: 595, height: 842 },
           evidence: [
-            // Page 5: W1 plan showing existence/general location
+            // Verified: Page 5 W1 plan opening from actual Srikakulam PDF (PR #102 regression test)
             {
               page: 5,
               bbox: [354, 133, 360, 173],
               claim: "general",
               label: "W1 plan view",
             },
-            // Page 8: W1 schedule row supporting quantity, dimension, specification
+            // Synthetic: Page 999 schedule row (test fixture, not real PDF geometry)
             {
-              page: 8,
-              bbox: [100, 420, 500, 450],
+              page: 999,
+              bbox: [50, 100, 450, 130],
               claim: "quantity",
-              label: "W1 schedule row",
+              label: "Synthetic schedule row",
             },
             {
-              page: 8,
-              bbox: [100, 420, 500, 450],
+              page: 999,
+              bbox: [50, 100, 450, 130],
               claim: "dimension",
-              label: "W1 schedule row",
+              label: "Synthetic schedule row",
             },
             {
-              page: 8,
-              bbox: [100, 420, 500, 450],
+              page: 999,
+              bbox: [50, 100, 450, 130],
               claim: "specification",
-              label: "W1 schedule row",
+              label: "Synthetic schedule row",
             },
-            // Page 5: Location call-out
+            // Synthetic: Page 998 location note (test fixture, not real PDF geometry)
             {
-              page: 5,
-              bbox: [200, 300, 250, 320],
+              page: 998,
+              bbox: [100, 200, 300, 220],
               claim: "location",
-              label: "Ground Floor note",
+              label: "Synthetic location note",
             },
           ],
         },
@@ -147,7 +149,7 @@ describe("Claim-level evidence support", () => {
 
       const qtyEv = getEvidenceForClaim(evidence, "quantity");
       expect(qtyEv).toHaveLength(1);
-      expect(qtyEv[0].bbox).toEqual([100, 420, 500, 450]);
+      expect(qtyEv[0].bbox).toEqual([50, 100, 450, 130]);
 
       const dimEv = getEvidenceForClaim(evidence, "dimension");
       expect(dimEv).toHaveLength(1);
@@ -157,7 +159,7 @@ describe("Claim-level evidence support", () => {
 
       const locEv = getEvidenceForClaim(evidence, "location");
       expect(locEv).toHaveLength(1);
-      expect(locEv[0].bbox).toEqual([200, 300, 250, 320]);
+      expect(locEv[0].bbox).toEqual([100, 200, 300, 220]);
     });
 
     it("hasEvidenceForClaim returns true when claim exists", () => {
