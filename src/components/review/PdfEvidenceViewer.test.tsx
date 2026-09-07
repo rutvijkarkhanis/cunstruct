@@ -10,7 +10,7 @@
 // pdf.js itself.
 
 import { vi, describe, it, expect, beforeAll } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import PdfEvidenceViewer from "./PdfEvidenceViewer";
 import type { AnalysisSource, ClaimType } from "@/lib/review/analysisSchemaV1";
 
@@ -77,8 +77,27 @@ const sourceWithUnresolvablePage: AnalysisSource = {
   ],
 };
 
-function Viewer({ src, selectedClaim }: { src: AnalysisSource; selectedClaim: ClaimType | null }) {
-  return <PdfEvidenceViewer fileUrl="https://signed.example/drawing.pdf" source={src} selectedClaim={selectedClaim} />;
+function Viewer({ src, selectedClaim, selectedClaimValue, documentName }: {
+  src: AnalysisSource; selectedClaim: ClaimType | null; selectedClaimValue?: string | null; documentName?: string | null;
+}) {
+  return (
+    <PdfEvidenceViewer
+      fileUrl="https://signed.example/drawing.pdf"
+      source={src}
+      selectedClaim={selectedClaim}
+      selectedClaimValue={selectedClaimValue}
+      documentName={documentName}
+    />
+  );
+}
+
+// Scopes a text lookup to the evidence-overlay layer specifically, since the
+// context banner (P0-1) can legitimately show the same evidence label text
+// separately — these two are not the same claim ("is this box rendered on
+// the page" vs. "does the banner describe this evidence"), so a global
+// screen.findByText would be ambiguous once both are present.
+async function overlays() {
+  return within(await screen.findByTestId("evidence-overlays"));
 }
 
 describe("PdfEvidenceViewer — claim navigation (Fix 1)", () => {
@@ -100,24 +119,24 @@ describe("PdfEvidenceViewer — claim navigation (Fix 1)", () => {
     render(<Viewer src={source} selectedClaim="quantity" />);
 
     expect(await screen.findByText(`8 / ${NUM_PAGES}`)).toBeInTheDocument();
-    expect(await screen.findByText("Synthetic schedule row (qty)")).toBeInTheDocument();
-    expect(screen.queryByText("W1 plan view")).toBeNull();
+    expect(await (await overlays()).findByText("Synthetic schedule row (qty)")).toBeInTheDocument();
+    expect((await overlays()).queryByText("W1 plan view")).toBeNull();
   });
 
   it("existing page-5 general evidence still works", async () => {
     render(<Viewer src={source} selectedClaim={null} />);
 
     expect(await screen.findByText(`5 / ${NUM_PAGES}`)).toBeInTheDocument();
-    expect(await screen.findByText("W1 plan view")).toBeInTheDocument();
+    expect(await (await overlays()).findByText("W1 plan view")).toBeInTheDocument();
   });
 
   it("claim filtering still works (only the selected claim's box renders, not all three)", async () => {
     render(<Viewer src={source} selectedClaim="dimension" />);
 
     expect(await screen.findByText(`8 / ${NUM_PAGES}`)).toBeInTheDocument();
-    expect(await screen.findByText("Synthetic schedule row (dim)")).toBeInTheDocument();
-    expect(screen.queryByText("Synthetic schedule row (qty)")).toBeNull();
-    expect(screen.queryByText("Synthetic schedule row (spec)")).toBeNull();
+    expect(await (await overlays()).findByText("Synthetic schedule row (dim)")).toBeInTheDocument();
+    expect((await overlays()).queryByText("Synthetic schedule row (qty)")).toBeNull();
+    expect((await overlays()).queryByText("Synthetic schedule row (spec)")).toBeNull();
   });
 });
 
@@ -147,11 +166,15 @@ describe("PdfEvidenceViewer — page-filter fallback (Fix 2)", () => {
     expect(screen.queryByText("Synthetic no-page evidence")).toBeNull();
   });
 
-  it("selecting a claim whose only evidence has no resolvable page does not navigate and never shows the box", async () => {
+  it("selecting a claim whose only evidence has no resolvable page does not navigate and never places the box on the page", async () => {
     render(<Viewer src={sourceWithUnresolvablePage} selectedClaim="location" />);
     // Nothing to navigate to (no box.page, no source.page) — stays on the default page 1.
     expect(await screen.findByText(`1 / ${NUM_PAGES}`)).toBeInTheDocument();
-    expect(screen.queryByText("Synthetic no-page evidence")).toBeNull();
+    // The overlay layer never renders it, even though it "exists" for this claim.
+    expect((await overlays()).queryByText("Synthetic no-page evidence")).toBeNull();
+    // P0-5: explicit, not silent — the context banner still names the evidence
+    // it knows about, distinguishing "we have data but no page" from "nothing at all".
+    expect(await screen.findByText("Synthetic no-page evidence")).toBeInTheDocument();
   });
 });
 
@@ -219,5 +242,45 @@ describe("PdfEvidenceViewer — rotation robustness", () => {
     expect(await screen.findByText(`${ROTATED_PAGE} / ${NUM_PAGES}`)).toBeInTheDocument();
     await screen.findByText("Rotated-page region");
     expect(screen.queryByText(/looks rotated/i)).toBeNull();
+  });
+});
+
+describe("PdfEvidenceViewer — evidence context banner (P0-1)", () => {
+  it("shows a neutral prompt when no claim is selected", async () => {
+    render(<Viewer src={source} selectedClaim={null} />);
+    expect(await screen.findByText("Select an Evidence link to inspect the drawing source.")).toBeInTheDocument();
+    expect(screen.queryByText(/^Claim:/)).toBeNull();
+  });
+
+  it("shows claim, value, evidence source, and page once a claim is selected", async () => {
+    render(<Viewer src={source} selectedClaim="quantity" selectedClaimValue="7 nos" />);
+
+    expect(await screen.findByText(`8 / ${NUM_PAGES}`)).toBeInTheDocument();
+    expect(screen.getByText("Claim:").parentElement).toHaveTextContent("Claim: Quantity");
+    expect(screen.getByText("Value:").parentElement).toHaveTextContent("Value: 7 nos");
+    expect(screen.getByText("Evidence source:").parentElement).toHaveTextContent("Evidence source: Synthetic schedule row (qty)");
+    expect(screen.getByText("Page:").parentElement).toHaveTextContent("Page: 8");
+  });
+
+  it("falls back to the resolved document name when the evidence region has no label of its own", async () => {
+    const sourceNoLabel: AnalysisSource = {
+      document: "generic-drawing.pdf",
+      page: 5,
+      evidence: [{ page: 5, bbox: [0, 0, 10, 10], claim: "location" }],
+    };
+    render(<Viewer src={sourceNoLabel} selectedClaim="location" selectedClaimValue="Ground Floor" documentName="Ground Floor Plan" />);
+
+    expect(screen.getByText("Evidence source:").parentElement).toHaveTextContent("Evidence source: Ground Floor Plan");
+  });
+
+  it("shows 'unavailable' rather than a guessed name when no label or document name exists", async () => {
+    const sourceNoLabel: AnalysisSource = {
+      document: "generic-drawing.pdf",
+      page: 5,
+      evidence: [{ page: 5, bbox: [0, 0, 10, 10], claim: "location" }],
+    };
+    render(<Viewer src={sourceNoLabel} selectedClaim="location" documentName={null} />);
+
+    expect(screen.getByText("Evidence source:").parentElement).toHaveTextContent("Evidence source: unavailable");
   });
 });
