@@ -13,7 +13,8 @@ import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min?url";
 import { Button } from "@/components/ui/button";
 import { ZoomIn, ZoomOut, Maximize, Crosshair, ChevronLeft, ChevronRight, FileWarning, Loader2 } from "lucide-react";
 import { resolvePageSpace, transformBoxes, fitToEvidence, getEvidenceForClaim, detectPageSizeMismatch } from "@/lib/review/evidenceCoords";
-import { claimLabel } from "@/lib/review/evidenceDisplay";
+import { claimLabel, sheetPositionLabel } from "@/lib/review/evidenceDisplay";
+import { resolvePageTitle } from "@/lib/review/documentResolve";
 import type { AnalysisSource, EvidenceBox, ClaimType } from "@/lib/review/analysisSchemaV1";
 
 // Bundle the worker with Vite (kept off the main thread; no CDN dependency).
@@ -32,11 +33,15 @@ interface Props {
    *  evidence-context banner. Formatted by the caller, which owns the item's
    *  AI fields — this component only knows about evidence/coordinates. */
   selectedClaimValue?: string | null;
+  /** Printed sheet title per page number, from the resolved drawing's
+   *  document_revision.page_titles. Optional; a page with no entry falls back
+   *  to a bare "Sheet N of M" — never an invented title. */
+  pageTitles?: Record<string, string> | null;
 }
 
 type Size = { width: number; height: number };
 
-export default function PdfEvidenceViewer({ fileUrl, source, documentName, unavailableReason, selectedClaim, selectedClaimValue }: Props) {
+export default function PdfEvidenceViewer({ fileUrl, source, documentName, unavailableReason, selectedClaim, selectedClaimValue, pageTitles }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -217,6 +222,14 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
     />
   );
 
+  // WHAT/WHERE — the current page's own printed identity, independent of any
+  // claim selection. Kept separate from `contextBanner` (WHY), which is about
+  // the selected claim's evidence, not the sheet itself. Only meaningful once
+  // a document has loaded (page/numPages), so it's rendered in the ready-state
+  // branch only, below.
+  const currentPageTitle = useMemo(() => resolvePageTitle(pageTitles, page), [pageTitles, page]);
+  const sheetIdentity = <SheetIdentity title={currentPageTitle} page={page} numPages={numPages} />;
+
   // ── Non-render states ───────────────────────────────────────────────────────
   if (unavailableReason) {
     return <Shell name={documentName}>{contextBanner}<Fallback icon={FileWarning} text={unavailableReason} /></Shell>;
@@ -251,6 +264,7 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
         </div>
       }
     >
+      {sheetIdentity}
       {contextBanner}
       <div ref={containerRef} className="relative overflow-auto border rounded bg-neutral-100" style={{ height: 460 }}>
         {status === "loading" && <div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>}
@@ -286,6 +300,19 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
       )}
       {pageSizeWarning && <p className="text-[11px] text-amber-600">{pageSizeWarning}</p>}
     </Shell>
+  );
+}
+
+// Sheet identity — WHAT this page is (its own printed title, when known) and
+// WHERE it sits in the set. Separate from EvidenceContextBanner (WHY): a page
+// has one identity regardless of which claim, if any, is selected. Never
+// invents a title — falls back to the bare position when none is known.
+function SheetIdentity({ title, page, numPages }: { title: string | null; page: number; numPages: number }) {
+  return (
+    <div className="text-xs">
+      {title && <div className="font-medium">{title}</div>}
+      <div className="text-muted-foreground">{sheetPositionLabel(page, numPages)}</div>
+    </div>
   );
 }
 

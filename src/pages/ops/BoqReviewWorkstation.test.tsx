@@ -26,11 +26,20 @@ import { getEvidenceForClaim } from "@/lib/review/evidenceCoords";
 // Real filtering (getEvidenceForClaim) drives the fake viewer, so these tests
 // exercise the actual production filtering logic end-to-end, not a stub.
 vi.mock("@/components/review/PdfEvidenceViewer", () => ({
-  default: (props: { source?: { evidence: { bbox: number[]; page?: number; claim?: string }[] }; selectedClaim?: ClaimType | null }) => {
+  default: (props: {
+    source?: { evidence: { bbox: number[]; page?: number; claim?: string }[] };
+    selectedClaim?: ClaimType | null;
+    pageTitles?: Record<string, string> | null;
+  }) => {
     const evidence = props.source?.evidence ?? [];
     const boxes = props.selectedClaim ? getEvidenceForClaim(evidence, props.selectedClaim) : evidence;
     return (
-      <div data-testid="pdf-viewer" data-selected-claim={props.selectedClaim ?? ""} data-box-count={boxes.length}>
+      <div
+        data-testid="pdf-viewer"
+        data-selected-claim={props.selectedClaim ?? ""}
+        data-box-count={boxes.length}
+        data-page-titles={props.pageTitles ? JSON.stringify(props.pageTitles) : ""}
+      >
         {boxes.map((b, i) => (
           <span key={i} data-testid="evidence-box">{JSON.stringify(b.bbox)}</span>
         ))}
@@ -75,7 +84,11 @@ const w1Item: StoredReviewItem = {
 };
 
 const drawings: StoredDrawing[] = [
-  { documentId: "doc-1", name: "test-drawing.pdf", filePath: "proj/doc-1/rev-1.pdf", pageCount: 12 },
+  {
+    documentId: "doc-1", name: "test-drawing.pdf", filePath: "proj/doc-1/rev-1.pdf", pageCount: 12,
+    // Verified against the real Srikakulam PDF — see documentResolve.test.ts.
+    pageTitles: { "5": "BRICKWORK DRAWING / GROUND FLOOR PLAN", "8": "DOOR/WINDOW SCHEDULE / GROUND FLOOR PLAN" },
+  },
 ];
 
 function itemPanelProps(onSelectClaim: (c: ClaimType) => void) {
@@ -175,6 +188,15 @@ describe("ResolvedEvidenceViewer — selectedClaim wiring", () => {
     const boxes = await screen.findAllByTestId("evidence-box");
     expect(boxes).toHaveLength(1);
     expect(boxes[0].textContent).toBe(JSON.stringify([100, 200, 300, 220]));
+  });
+
+  it("passes the resolved drawing's pageTitles through to PdfEvidenceViewer", async () => {
+    render(<ResolvedEvidenceViewer item={w1Item} drawings={drawings} resolvedDocumentId={null} selectedClaim={null} />);
+    const viewer = await screen.findByTestId("pdf-viewer");
+    expect(JSON.parse(viewer.getAttribute("data-page-titles") || "{}")).toEqual({
+      "5": "BRICKWORK DRAWING / GROUND FLOOR PLAN",
+      "8": "DOOR/WINDOW SCHEDULE / GROUND FLOOR PLAN",
+    });
   });
 });
 

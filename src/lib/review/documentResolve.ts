@@ -15,6 +15,10 @@ export interface StoredDrawing {
   /** Storage path of the current revision's uploaded file, or null if none. */
   filePath?: string | null;
   pageCount?: number | null;
+  /** Printed sheet title per page number, e.g. { "8": "DOOR/WINDOW SCHEDULE / GROUND FLOOR PLAN" }.
+   *  Keys are page numbers as strings (JSON object keys). Optional — most
+   *  revisions won't have this populated yet. Never invented by the client. */
+  pageTitles?: Record<string, string> | null;
 }
 
 export type MatchBasis = "document_id" | "filename" | "name" | "explicit_override" | "none";
@@ -81,6 +85,14 @@ export function resolveItemDrawing(
     if (doc) return { documentId: doc.documentId, filePath: doc.filePath ?? null, pageCount: doc.pageCount ?? null, matchedBy: "explicit_override" };
   }
   return resolveDrawing(source, drawings);
+}
+
+/**
+ * The printed title of one page, if known. Null — never fabricated — when
+ * the revision has no page_titles entry for this page.
+ */
+export function resolvePageTitle(pageTitles: Record<string, string> | null | undefined, page: number): string | null {
+  return pageTitles?.[String(page)] ?? null;
 }
 
 /**

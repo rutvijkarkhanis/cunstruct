@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveDrawing, resolveDrawingWithDiagnostics, resolveItemDrawing, type StoredDrawing } from "./documentResolve";
+import { resolveDrawing, resolveDrawingWithDiagnostics, resolveItemDrawing, resolvePageTitle, type StoredDrawing } from "./documentResolve";
 import type { AnalysisSource } from "./analysisSchemaV1";
 
 const drawings: StoredDrawing[] = [
@@ -189,5 +189,32 @@ describe("resolveItemDrawing", () => {
   it("returns null when neither the override nor normal resolution match", () => {
     const source: AnalysisSource = { document: "unknown.pdf", evidence: [] };
     expect(resolveItemDrawing(source, drawings, undefined)).toBeNull();
+  });
+});
+
+describe("resolvePageTitle", () => {
+  // Verified directly against the real Srikakulam PDF (9 pages) — see
+  // evidenceDisplay.test.ts for the full set. Only a subset is populated here
+  // on purpose: a real drawing set won't have every page titled.
+  const pageTitles: Record<string, string> = {
+    "1": "STILT FLOOR PLAN",
+    "5": "BRICKWORK DRAWING / GROUND FLOOR PLAN",
+    "8": "DOOR/WINDOW SCHEDULE / GROUND FLOOR PLAN",
+  };
+
+  it("returns the title for a page that has one", () => {
+    expect(resolvePageTitle(pageTitles, 8)).toBe("DOOR/WINDOW SCHEDULE / GROUND FLOOR PLAN");
+  });
+
+  it("returns null for a page with no title entry (never fabricated)", () => {
+    expect(resolvePageTitle(pageTitles, 2)).toBeNull();
+  });
+
+  it("returns null when pageTitles is null", () => {
+    expect(resolvePageTitle(null, 1)).toBeNull();
+  });
+
+  it("returns null when pageTitles is undefined", () => {
+    expect(resolvePageTitle(undefined, 1)).toBeNull();
   });
 });

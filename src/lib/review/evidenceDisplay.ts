@@ -10,6 +10,12 @@
 import type { AnalysisItemV1, ClaimType, EvidenceBox } from "./analysisSchemaV1";
 import { getEvidenceForClaim } from "./evidenceCoords";
 
+/** "Sheet 8 of 9" — the reviewer's position in the drawing set, independent
+ *  of whether a title is known for the current page. */
+export function sheetPositionLabel(page: number, numPages: number): string {
+  return `Sheet ${page} of ${numPages}`;
+}
+
 /** Human label for a claim type, for section/field headings. */
 export function claimLabel(claim: ClaimType): string {
   switch (claim) {
