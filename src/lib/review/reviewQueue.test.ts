@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildReviewItems, orderQueue, matchesFilter, reviewSummary,
-  diffItem, quantityDelta, isCritical, effectiveQuantity,
+  diffItem, quantityDelta, isCritical, criticalReasons, effectiveQuantity,
   type ReviewItem,
 } from "./reviewQueue";
 import type { AnalysisItemV1 } from "./analysisSchemaV1";
@@ -43,6 +43,38 @@ describe("isCritical", () => {
     expect(isCritical({ ai: ai({ quantity: null, aiStatus: "PENDING" }), reviewStatus: "PENDING_REVIEW" })).toBe(true);
     expect(isCritical({ ai: ai({ confidence: 0.4 }), reviewStatus: "PENDING_REVIEW" })).toBe(true);
     expect(isCritical({ ai: ai({ confidence: 0.95, quantity: 3, aiStatus: "MEASURED", source: { document: "d", evidence: [{ bbox: [0, 0, 1, 1] }] } }), reviewStatus: "PENDING_REVIEW" })).toBe(false);
+  });
+});
+
+describe("criticalReasons — factual, named reasons behind isCritical", () => {
+  const measured = (o: Partial<AnalysisItemV1> = {}): ReviewItem => ({ ai: ai({ confidence: 0.95, quantity: 3, aiStatus: "MEASURED", source: { document: "d", evidence: [{ bbox: [0, 0, 1, 1] }] }, ...o }), reviewStatus: "PENDING_REVIEW" });
+
+  it("returns no reasons for a routine, high-confidence, measured item with evidence", () => {
+    expect(criticalReasons(measured())).toEqual([]);
+  });
+  it("names a duplicate", () => {
+    expect(criticalReasons({ ...measured(), duplicateOf: "W1" })).toEqual(["Possible duplicate"]);
+  });
+  it("names a pending/no-quantity item", () => {
+    expect(criticalReasons(measured({ quantity: null, aiStatus: "PENDING" }))).toEqual(["Pending — no quantity"]);
+  });
+  it("names an inferred item", () => {
+    expect(criticalReasons(measured({ aiStatus: "INFERRED" }))).toEqual(["Inferred"]);
+  });
+  it("names low confidence", () => {
+    expect(criticalReasons(measured({ confidence: 0.4 }))).toEqual(["Low confidence"]);
+  });
+  it("names missing evidence", () => {
+    expect(criticalReasons(measured({ source: { document: "d", evidence: [] } }))).toEqual(["No evidence"]);
+  });
+  it("combines every applicable reason, in a stable order", () => {
+    const it_: ReviewItem = { ...measured({ aiStatus: "INFERRED", confidence: 0.3, source: { document: "d", evidence: [] } }), duplicateOf: "W1" };
+    expect(criticalReasons(it_)).toEqual(["Possible duplicate", "Inferred", "Low confidence", "No evidence"]);
+  });
+  it("isCritical(it) is exactly criticalReasons(it).length > 0", () => {
+    for (const it_ of [measured(), { ...measured(), duplicateOf: "W1" }, measured({ confidence: 0.4 })]) {
+      expect(isCritical(it_)).toBe(criticalReasons(it_).length > 0);
+    }
   });
 });
 

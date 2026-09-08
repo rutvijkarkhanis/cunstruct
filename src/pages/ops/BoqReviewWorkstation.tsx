@@ -18,11 +18,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Check, Pencil, Flag, Clock, ChevronLeft, ChevronRight, Upload, Cpu, FileText, ChevronDown, ChevronUp,
+  ArrowLeft, Check, Pencil, Flag, Clock, ChevronLeft, ChevronRight, Upload, Cpu, FileText, ChevronDown, ChevronUp, AlertTriangle,
 } from "lucide-react";
 import { parseAnalysisV1, type ClaimType } from "@/lib/review/analysisSchemaV1";
 import {
-  orderQueue, matchesFilter, reviewSummary, isCritical, effectiveQuantity, diffItem, quantityDelta,
+  orderQueue, matchesFilter, reviewSummary, isCritical, criticalReasons, effectiveQuantity, diffItem, quantityDelta, LOW_CONFIDENCE,
   type ReviewFilter, type ReviewStatus, type FlagReason, type ReviewerValues,
 } from "@/lib/review/reviewQueue";
 import { transformBoxes, unionBox, hasPlaceableEvidence } from "@/lib/review/evidenceCoords";
@@ -577,16 +577,42 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
   const [draft, setDraft] = useState<ReviewerValues>({});
   const [flagReason, setFlagReason] = useState<FlagReason>("DRAWING_UNCLEAR");
   const [flagNote, setFlagNote] = useState("");
+  // Whether the reviewer has opened at least one evidence link for THIS item —
+  // reset per item, feeds the critical-item verification gate below.
+  const [evidenceViewed, setEvidenceViewed] = useState(false);
 
-  useEffect(() => { setEditing(false); setFlagging(false); setWhy(false); setDraft({}); }, [item.id]);
+  useEffect(() => { setEditing(false); setFlagging(false); setWhy(false); setDraft({}); setEvidenceViewed(false); }, [item.id]);
+
+  // A PENDING/quantity-less item has nothing to verify; a critical item the
+  // reviewer hasn't actually looked at shouldn't be one-click-verifiable
+  // either — unless it has no evidence to look at in the first place, which
+  // is already its own critical reason and must not become a dead end.
+  const pendingNoQuantity = ai.aiStatus === "PENDING" || ai.quantity == null;
+  const hasEvidence = (ai.source?.evidence.length ?? 0) > 0;
+  const needsEvidenceCheck = isCritical(item) && hasEvidence && !evidenceViewed;
+  const verifyDisabled = pendingNoQuantity || needsEvidenceCheck;
+  const verifyDisabledReason = pendingNoQuantity
+    ? "No quantity to verify — Edit to supply one, or Mark Pending."
+    : needsEvidenceCheck
+      ? "Check the evidence before verifying a critical item."
+      : undefined;
 
   useEffect(() => {
     if (!keyboardEnabled) return;
     const onKey = (e: KeyboardEvent) => {
+      // Escape must close an open form even while focus is inside its inputs.
+      if (e.key === "Escape" && (editing || flagging)) {
+        setEditing(false);
+        setFlagging(false);
+        return;
+      }
+      // Never let a shortcut fire while a form is open — a focused Save/Cancel
+      // button (not an INPUT/TEXTAREA) would otherwise still trigger one.
+      if (editing || flagging) return;
       const t = e.target as HTMLElement;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
       const k = e.key.toLowerCase();
-      if (k === "v") onVerify();
+      if (k === "v") { if (!verifyDisabled) onVerify(); }
       else if (k === "e") setEditing(true);
       else if (k === "f") setFlagging(true);
       else if (k === "p") onPending();
@@ -595,11 +621,12 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [keyboardEnabled, onVerify, onPending, onPrev, onNext]);
+  }, [keyboardEnabled, editing, flagging, verifyDisabled, onVerify, onPending, onPrev, onNext]);
 
   const eff = effectiveQuantity(item);
   const diffs = diffItem(item);
   const delta = quantityDelta(item);
+  const reasons = criticalReasons(item);
 
   // Resolve the same drawing ResolvedEvidenceViewer will show, so the
   // per-claim evidence line can honestly say when a claim's evidence exists
@@ -625,6 +652,22 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
     };
   }, [ai.source, documentName, resolvedOk]);
 
+  // Opening any claim's evidence counts as "checked" for THIS item, whichever
+  // claim it was — the gate is about looking at the drawing, not one field.
+  const handleSelectClaim = (claim: ClaimType) => {
+    setEvidenceViewed(true);
+    onSelectClaim(claim);
+  };
+
+  // Effective current value per editable field — reviewer override if
+  // present, else the AI value — so the Edit form pre-fills with what's
+  // actually true today instead of forcing a full retype.
+  const reviewer = item.reviewer;
+  const effUnit = reviewer && "unit" in reviewer ? reviewer.unit : ai.unit;
+  const effDimension = reviewer && "dimension" in reviewer ? reviewer.dimension : ai.dimension;
+  const effSpecification = reviewer && "specification" in reviewer ? reviewer.specification : ai.specification;
+  const effLocation = reviewer && "location" in reviewer ? reviewer.location : ai.location;
+
   return (
     <Card><CardContent className="p-4 space-y-3">
       <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -638,19 +681,28 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
         {item.duplicateOf && <div className="text-xs text-rose-700 mt-0.5">Possible duplicate of {item.duplicateOf}</div>}
       </div>
 
+      {/* Review-required banner — concise and factual: what's true about this
+          item, never a bare warning icon with no explanation. */}
+      {reasons.length > 0 && (
+        <div className="flex items-start gap-1.5 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+          <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+          <span><span className="font-medium">Review required</span> — {reasons.join(" · ")}</span>
+        </div>
+      )}
+
       {/* AI result — what the AI extracted, and why (evidence). Never implies
           the reviewer should accept it without checking. */}
       <div className="rounded border p-2 space-y-2">
         <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">AI result</div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-          <ClaimField claim="quantity" value={formatClaimValue(ai, "quantity")} evidence={claimEvidence.quantity} onSelectClaim={onSelectClaim} />
-          <ClaimField claim="dimension" value={formatClaimValue(ai, "dimension")} evidence={claimEvidence.dimension} onSelectClaim={onSelectClaim} />
-          <ClaimField claim="specification" value={formatClaimValue(ai, "specification")} evidence={claimEvidence.specification} onSelectClaim={onSelectClaim} />
-          <ClaimField claim="location" value={formatClaimValue(ai, "location")} evidence={claimEvidence.location} onSelectClaim={onSelectClaim} />
+          <ClaimField claim="quantity" value={formatClaimValue(ai, "quantity")} evidence={claimEvidence.quantity} onSelectClaim={handleSelectClaim} />
+          <ClaimField claim="dimension" value={formatClaimValue(ai, "dimension")} evidence={claimEvidence.dimension} onSelectClaim={handleSelectClaim} />
+          <ClaimField claim="specification" value={formatClaimValue(ai, "specification")} evidence={claimEvidence.specification} onSelectClaim={handleSelectClaim} />
+          <ClaimField claim="location" value={formatClaimValue(ai, "location")} evidence={claimEvidence.location} onSelectClaim={handleSelectClaim} />
         </div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm pt-1 border-t">
-          <Field label="AI status" value={ai.aiStatus} />
-          <Field label="Confidence" value={ai.confidence == null ? "—" : `${Math.round(ai.confidence * 100)}%`} />
+          <Field label="AI status" value={ai.aiStatus} tone={ai.aiStatus === "PENDING" ? "danger" : ai.aiStatus === "INFERRED" ? "warning" : undefined} />
+          <Field label="Confidence" value={ai.confidence == null ? "—" : `${Math.round(ai.confidence * 100)}%`} tone={ai.confidence != null && ai.confidence <= LOW_CONFIDENCE ? "danger" : undefined} />
           <Field label="Source" value={ai.source?.document ? `${ai.source.document}${ai.source.page != null ? ` — Page ${ai.source.page}` : ""}` : "—"} />
         </div>
         <p className="text-[10px] text-muted-foreground">A high AI confidence is not a substitute for checking the evidence — verify before accepting.</p>
@@ -692,43 +744,52 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
         </div>
       )}
 
-      {/* Edit form */}
+      {/* Edit form. The Save/Cancel row is a SIBLING of the bordered field
+          box (both direct children of CardContent), not nested inside it —
+          `position: sticky` only has room to operate within its own
+          immediate parent's box, and that box needs to span the full height
+          the reviewer scrolls through, not just the small form it sits in. */}
       {editing && (
-        <div className="border rounded p-3 space-y-2">
-          <div className="text-xs font-medium">Edit — AI values shown as placeholders; both are retained</div>
-          <div className="grid grid-cols-2 gap-2">
-            <LabeledInput label={`Quantity (AI: ${ai.quantity ?? "—"})`} type="number" onChange={(v) => setDraft((d) => ({ ...d, quantity: v === "" ? null : Number(v) }))} />
-            <LabeledInput label={`Unit (AI: ${ai.unit ?? "—"})`} onChange={(v) => setDraft((d) => ({ ...d, unit: v }))} />
-            <LabeledInput label={`Dimension (AI: ${ai.dimension ?? "—"})`} onChange={(v) => setDraft((d) => ({ ...d, dimension: v }))} />
-            <LabeledInput label={`Location (AI: ${ai.location ?? "—"})`} onChange={(v) => setDraft((d) => ({ ...d, location: v }))} />
+        <>
+          <div className="border rounded p-3 space-y-2">
+            <div className="text-xs font-medium">Edit — AI values shown as placeholders; both are retained</div>
+            <div className="grid grid-cols-2 gap-2">
+              <LabeledInput label={`Quantity (AI: ${ai.quantity ?? "—"})`} type="number" defaultValue={eff ?? ""} onChange={(v) => setDraft((d) => ({ ...d, quantity: v === "" ? null : Number(v) }))} />
+              <LabeledInput label={`Unit (AI: ${ai.unit ?? "—"})`} defaultValue={effUnit ?? ""} onChange={(v) => setDraft((d) => ({ ...d, unit: v }))} />
+              <LabeledInput label={`Dimension (AI: ${ai.dimension ?? "—"})`} defaultValue={effDimension ?? ""} onChange={(v) => setDraft((d) => ({ ...d, dimension: v }))} />
+              <LabeledInput label={`Specification (AI: ${ai.specification ?? "—"})`} defaultValue={effSpecification ?? ""} onChange={(v) => setDraft((d) => ({ ...d, specification: v }))} />
+              <LabeledInput label={`Location (AI: ${ai.location ?? "—"})`} defaultValue={effLocation ?? ""} onChange={(v) => setDraft((d) => ({ ...d, location: v }))} />
+            </div>
+            <LabeledInput label="Notes" defaultValue={reviewer?.notes ?? ""} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
           </div>
-          <LabeledInput label="Notes" onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
-          <div className="flex gap-2">
+          <div className="sticky bottom-0 bg-background border-t pt-2 flex gap-2">
             <Button size="sm" onClick={() => onEdit(pruneDraft(draft))} disabled={Object.keys(pruneDraft(draft)).length === 0}>Save correction</Button>
             <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
           </div>
-        </div>
+        </>
       )}
 
-      {/* Flag form */}
+      {/* Flag form — same sibling structure, same reason. */}
       {flagging && (
-        <div className="border rounded p-3 space-y-2">
-          <Select value={flagReason} onValueChange={(v) => setFlagReason(v as FlagReason)}>
-            <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-            <SelectContent>{FLAG_REASONS.map((r) => <SelectItem key={r.key} value={r.key}>{r.label}</SelectItem>)}</SelectContent>
-          </Select>
-          <Textarea rows={2} placeholder="Optional note" value={flagNote} onChange={(e) => setFlagNote(e.target.value)} />
-          <div className="flex gap-2">
+        <>
+          <div className="border rounded p-3 space-y-2">
+            <Select value={flagReason} onValueChange={(v) => setFlagReason(v as FlagReason)}>
+              <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+              <SelectContent>{FLAG_REASONS.map((r) => <SelectItem key={r.key} value={r.key}>{r.label}</SelectItem>)}</SelectContent>
+            </Select>
+            <Textarea rows={2} placeholder="Optional note" value={flagNote} onChange={(e) => setFlagNote(e.target.value)} />
+          </div>
+          <div className="sticky bottom-0 bg-background border-t pt-2 flex gap-2">
             <Button size="sm" onClick={() => onFlag(flagReason, flagNote)}>Save flag</Button>
             <Button size="sm" variant="ghost" onClick={() => setFlagging(false)}>Cancel</Button>
           </div>
-        </div>
+        </>
       )}
 
       {/* Actions */}
       {!editing && !flagging && (
-        <div className="flex flex-wrap gap-2 pt-1">
-          <Button size="sm" onClick={onVerify}><Check className="w-4 h-4 mr-1" /> Verify</Button>
+        <div className="sticky bottom-0 bg-background border-t flex flex-wrap gap-2 pt-2">
+          <Button size="sm" onClick={onVerify} disabled={verifyDisabled} title={verifyDisabledReason}><Check className="w-4 h-4 mr-1" /> Verify</Button>
           <Button size="sm" variant="outline" onClick={() => setEditing(true)}><Pencil className="w-4 h-4 mr-1" /> Edit</Button>
           <Button size="sm" variant="outline" onClick={() => setFlagging(true)}><Flag className="w-4 h-4 mr-1" /> Flag</Button>
           <Button size="sm" variant="outline" onClick={onPending}><Clock className="w-4 h-4 mr-1" /> Mark Pending</Button>
@@ -877,11 +938,12 @@ function EvidenceViewer({ item }: { item: StoredReviewItem }) {
 function Stat({ label, value, cls = "" }: { label: string; value: number; cls?: string }) {
   return <div className="rounded border p-2"><div className={`text-lg font-bold ${cls}`}>{value}</div><div className="text-[11px] text-muted-foreground">{label}</div></div>;
 }
-function Field({ label, value }: { label: string; value: string }) {
+function Field({ label, value, tone }: { label: string; value: string; tone?: "warning" | "danger" }) {
+  const toneCls = tone === "danger" ? "text-rose-700 font-medium" : tone === "warning" ? "text-amber-700 font-medium" : "";
   return (
     <div>
       <div className="text-[11px] text-muted-foreground">{label}</div>
-      <div className="truncate" title={value}>{value}</div>
+      <div className={`truncate ${toneCls}`} title={value}>{value}</div>
     </div>
   );
 }
@@ -915,8 +977,8 @@ function StatusBadge({ status }: { status: ReviewStatus }) {
 function ModeBtn({ active, onClick, icon: Icon, label }: { active: boolean; onClick: () => void; icon: React.ComponentType<{ className?: string }>; label: string }) {
   return <button onClick={onClick} className={`inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded border ${active ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}><Icon className="w-4 h-4" />{label}</button>;
 }
-function LabeledInput({ label, type = "text", onChange }: { label: string; type?: string; onChange: (v: string) => void }) {
-  return <label className="text-xs block"><span className="text-muted-foreground">{label}</span><Input className="h-8 mt-0.5" type={type} onChange={(e) => onChange(e.target.value)} /></label>;
+function LabeledInput({ label, type = "text", defaultValue, onChange }: { label: string; type?: string; defaultValue?: string | number; onChange: (v: string) => void }) {
+  return <label className="text-xs block"><span className="text-muted-foreground">{label}</span><Input className="h-8 mt-0.5" type={type} defaultValue={defaultValue} onChange={(e) => onChange(e.target.value)} /></label>;
 }
 function pruneDraft(d: ReviewerValues): ReviewerValues {
   const out: ReviewerValues = {};

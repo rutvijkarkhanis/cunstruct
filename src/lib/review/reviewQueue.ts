@@ -76,17 +76,23 @@ export function needsReview(it: ReviewItem): boolean {
   return it.reviewStatus === "PENDING_REVIEW";
 }
 
+/** Human-readable reasons this item needs review-time attention — the exact
+ *  same conditions isCritical() checks, but named, so the UI can show a
+ *  factual "Review required — <reasons>" banner instead of a bare flag. */
+export function criticalReasons(it: ReviewItem): string[] {
+  const { ai } = it;
+  const reasons: string[] = [];
+  if (it.duplicateOf != null) reasons.push("Possible duplicate");
+  if (ai.aiStatus === "PENDING" || ai.quantity == null) reasons.push("Pending — no quantity");
+  if (ai.aiStatus === "INFERRED") reasons.push("Inferred");
+  if (ai.confidence != null && ai.confidence <= LOW_CONFIDENCE) reasons.push("Low confidence");
+  if ((ai.source?.evidence.length ?? 0) === 0) reasons.push("No evidence");
+  return reasons;
+}
+
 /** True when an item warrants priority attention (before normal measured items). */
 export function isCritical(it: ReviewItem): boolean {
-  const { ai } = it;
-  return (
-    it.duplicateOf != null ||
-    ai.aiStatus === "PENDING" ||
-    ai.aiStatus === "INFERRED" ||
-    ai.quantity == null ||
-    (ai.confidence != null && ai.confidence <= LOW_CONFIDENCE) ||
-    (ai.source?.evidence.length ?? 0) === 0
-  );
+  return criticalReasons(it).length > 0;
 }
 
 // Ordering weight: lower sorts first. Unreviewed-critical first, then unreviewed,

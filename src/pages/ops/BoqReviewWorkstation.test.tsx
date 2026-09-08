@@ -329,3 +329,188 @@ describe("ApplyToBoqDialog — confirmation screen", () => {
     expect(row.querySelector("input")).toBeNull();
   });
 });
+
+// ── PR 2 — item-level review trustworthiness ────────────────────────────────────
+
+describe("ItemPanel — Edit form: Specification field, pre-filled values (items 1 & 2)", () => {
+  it("has 5 editable AI-value fields, including Specification (not 4)", () => {
+    render(<ItemPanel {...itemPanelProps(vi.fn())} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Edit$/ }));
+    expect(screen.getByLabelText(/Specification \(AI: UPVC\)/)).toBeInTheDocument();
+  });
+
+  it("pre-fills every field with the current AI value instead of starting blank", () => {
+    render(<ItemPanel {...itemPanelProps(vi.fn())} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Edit$/ }));
+    expect(screen.getByLabelText(/Quantity \(AI: 7\)/)).toHaveValue(7);
+    expect(screen.getByLabelText(/Unit \(AI: nos\)/)).toHaveValue("nos");
+    expect(screen.getByLabelText(/^Dimension/)).toHaveValue("6' × 6'9\"");
+    expect(screen.getByLabelText(/Specification \(AI: UPVC\)/)).toHaveValue("UPVC");
+    expect(screen.getByLabelText(/^Location/)).toHaveValue("Ground Floor");
+  });
+
+  it("pre-fills with the reviewer's own override, not the AI value, once the item is EDITED", () => {
+    const edited: StoredReviewItem = { ...w1Item, reviewStatus: "EDITED", reviewer: { specification: "Aluminium" } };
+    render(<ItemPanel {...itemPanelProps(vi.fn())} item={edited} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Edit$/ }));
+    expect(screen.getByLabelText(/Specification \(AI: UPVC\)/)).toHaveValue("Aluminium");
+  });
+
+  it("saving a Specification-only correction calls onEdit with just that field", () => {
+    const onEdit = vi.fn();
+    render(<ItemPanel {...itemPanelProps(vi.fn())} onEdit={onEdit} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Edit$/ }));
+    fireEvent.change(screen.getByLabelText(/Specification \(AI: UPVC\)/), { target: { value: "Aluminium" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save correction/ }));
+    expect(onEdit).toHaveBeenCalledWith({ specification: "Aluminium" });
+  });
+});
+
+describe("ItemPanel — sticky action controls (items 3 & 4)", () => {
+  it("the idle Verify/Edit/Flag/Mark Pending row is sticky to the bottom", () => {
+    render(<ItemPanel {...itemPanelProps(vi.fn())} />);
+    const row = screen.getByRole("button", { name: /Verify/ }).closest("div");
+    expect(row?.className).toMatch(/sticky/);
+    expect(row?.className).toMatch(/bottom-0/);
+  });
+
+  it("Save/Cancel inside an open Edit form are sticky", () => {
+    render(<ItemPanel {...itemPanelProps(vi.fn())} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Edit$/ }));
+    const row = screen.getByRole("button", { name: /Save correction/ }).closest("div");
+    expect(row?.className).toMatch(/sticky/);
+  });
+
+  it("Save/Cancel inside an open Flag form are sticky", () => {
+    render(<ItemPanel {...itemPanelProps(vi.fn())} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Flag$/ }));
+    const row = screen.getByRole("button", { name: /Save flag/ }).closest("div");
+    expect(row?.className).toMatch(/sticky/);
+  });
+});
+
+describe("ItemPanel — keyboard shortcuts never fire while a form is open (item 5)", () => {
+  it("pressing 'v' while Edit is open does not call onVerify", () => {
+    const onVerify = vi.fn();
+    render(<ItemPanel {...itemPanelProps(vi.fn())} onVerify={onVerify} keyboardEnabled />);
+    fireEvent.click(screen.getByRole("button", { name: /^Edit$/ }));
+    fireEvent.keyDown(window, { key: "v" });
+    expect(onVerify).not.toHaveBeenCalled();
+  });
+
+  it("pressing 'p' while Flag is open does not call onPending", () => {
+    const onPending = vi.fn();
+    render(<ItemPanel {...itemPanelProps(vi.fn())} onPending={onPending} keyboardEnabled />);
+    fireEvent.click(screen.getByRole("button", { name: /^Flag$/ }));
+    fireEvent.keyDown(window, { key: "p" });
+    expect(onPending).not.toHaveBeenCalled();
+  });
+});
+
+describe("ItemPanel — Escape cancels an open form (item 6)", () => {
+  it("Escape closes the Edit form", () => {
+    render(<ItemPanel {...itemPanelProps(vi.fn())} keyboardEnabled />);
+    fireEvent.click(screen.getByRole("button", { name: /^Edit$/ }));
+    expect(screen.getByRole("button", { name: /Save correction/ })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("button", { name: /Save correction/ })).toBeNull();
+  });
+
+  it("Escape closes the Flag form", () => {
+    render(<ItemPanel {...itemPanelProps(vi.fn())} keyboardEnabled />);
+    fireEvent.click(screen.getByRole("button", { name: /^Flag$/ }));
+    expect(screen.getByRole("button", { name: /Save flag/ })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("button", { name: /Save flag/ })).toBeNull();
+  });
+
+  it("Escape is a no-op when no form is open", () => {
+    render(<ItemPanel {...itemPanelProps(vi.fn())} keyboardEnabled />);
+    expect(() => fireEvent.keyDown(window, { key: "Escape" })).not.toThrow();
+    expect(screen.getByRole("button", { name: /^Edit$/ })).toBeInTheDocument();
+  });
+});
+
+describe("ItemPanel — Verify disabled for PENDING/quantity-less items (item 7)", () => {
+  const pendingItem: StoredReviewItem = { ...w1Item, ai: { ...w1Item.ai, quantity: null, aiStatus: "PENDING" } };
+
+  it("disables the Verify button", () => {
+    render(<ItemPanel {...itemPanelProps(vi.fn())} item={pendingItem} />);
+    expect(screen.getByRole("button", { name: /Verify/ })).toBeDisabled();
+  });
+
+  it("the 'v' shortcut does not verify a PENDING item", () => {
+    const onVerify = vi.fn();
+    render(<ItemPanel {...itemPanelProps(vi.fn())} item={pendingItem} onVerify={onVerify} keyboardEnabled />);
+    fireEvent.keyDown(window, { key: "v" });
+    expect(onVerify).not.toHaveBeenCalled();
+  });
+
+  it("Edit, Flag, and Mark Pending remain fully available", () => {
+    render(<ItemPanel {...itemPanelProps(vi.fn())} item={pendingItem} />);
+    expect(screen.getByRole("button", { name: /^Edit$/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^Flag$/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Mark Pending/ })).toBeEnabled();
+  });
+});
+
+describe("ItemPanel — 'Review required' risk banner (item 8)", () => {
+  it("shows no banner for a routine, high-confidence, measured item with evidence", () => {
+    render(<ItemPanel {...itemPanelProps(vi.fn())} />);
+    expect(screen.queryByText(/Review required/)).toBeNull();
+  });
+
+  it("shows 'Review required — Low confidence' for a low-confidence item", () => {
+    const lowConf: StoredReviewItem = { ...w1Item, ai: { ...w1Item.ai, confidence: 0.3 } };
+    render(<ItemPanel {...itemPanelProps(vi.fn())} item={lowConf} />);
+    expect(screen.getByText(/Review required/)).toBeInTheDocument();
+    expect(screen.getByText(/Low confidence/)).toBeInTheDocument();
+  });
+
+  it("names multiple applicable reasons together", () => {
+    const item: StoredReviewItem = { ...w1Item, ai: { ...w1Item.ai, aiStatus: "INFERRED" }, duplicateOf: "W0" };
+    render(<ItemPanel {...itemPanelProps(vi.fn())} item={item} />);
+    // "Possible duplicate" also appears in the separate "of W0" line — the
+    // banner itself is the one combining both reasons in one place.
+    expect(screen.getByText(/Review required/).closest("div")?.textContent).toContain("Possible duplicate · Inferred");
+  });
+
+  it("color-codes the AI status and Confidence fields for risky values", () => {
+    const item: StoredReviewItem = { ...w1Item, ai: { ...w1Item.ai, aiStatus: "INFERRED", confidence: 0.3 } };
+    render(<ItemPanel {...itemPanelProps(vi.fn())} item={item} />);
+    expect(screen.getByText("INFERRED").className).toMatch(/amber/);
+    expect(screen.getByText("30%").className).toMatch(/rose/);
+  });
+});
+
+describe("ItemPanel — verification gate for critical items with evidence (item 9)", () => {
+  it("a routine, non-critical item has Verify enabled immediately — no slowdown", () => {
+    render(<ItemPanel {...itemPanelProps(vi.fn())} />);
+    expect(screen.getByRole("button", { name: /Verify/ })).toBeEnabled();
+  });
+
+  it("a critical item WITH evidence starts with Verify disabled, until an evidence link is opened", () => {
+    const lowConf: StoredReviewItem = { ...w1Item, ai: { ...w1Item.ai, confidence: 0.3 } };
+    const onSelectClaim = vi.fn();
+    render(<ItemPanel {...itemPanelProps(onSelectClaim)} item={lowConf} />);
+    expect(screen.getByRole("button", { name: /Verify/ })).toBeDisabled();
+
+    fireEvent.click(screen.getAllByText(/^Evidence ·/)[0]);
+    expect(onSelectClaim).toHaveBeenCalled(); // the underlying selection still works
+    expect(screen.getByRole("button", { name: /Verify/ })).toBeEnabled();
+  });
+
+  it("a critical item with NO evidence at all is never dead-ended", () => {
+    const noEvidence: StoredReviewItem = { ...w1Item, ai: { ...w1Item.ai, confidence: 0.3, source: { document: "d", evidence: [] } } };
+    render(<ItemPanel {...itemPanelProps(vi.fn())} item={noEvidence} />);
+    expect(screen.getByRole("button", { name: /Verify/ })).toBeEnabled();
+  });
+
+  it("the 'v' shortcut respects the evidence gate", () => {
+    const onVerify = vi.fn();
+    const lowConf: StoredReviewItem = { ...w1Item, ai: { ...w1Item.ai, confidence: 0.3 } };
+    render(<ItemPanel {...itemPanelProps(vi.fn())} item={lowConf} onVerify={onVerify} keyboardEnabled />);
+    fireEvent.keyDown(window, { key: "v" });
+    expect(onVerify).not.toHaveBeenCalled();
+  });
+});
