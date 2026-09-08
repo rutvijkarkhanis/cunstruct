@@ -130,3 +130,83 @@ describe("buildApplyPlan", () => {
     expect(plan.map((c) => c.classification)).toEqual(["NO_CHANGE", "NOT_ELIGIBLE", "NOT_ELIGIBLE", "APPLY"]);
   });
 });
+
+// ── Blocker 1 fix: never silently discard a reviewer correction to a field
+// boq_line has no column for (dimension/specification/location). ──────────────
+describe("classifyReviewItem — dimension/specification/location corrections are never silently discarded", () => {
+  it("a specification-only correction is NOT classified NO_CHANGE", () => {
+    const it_ = reviewItem({
+      ai: ai({ key: "W1", quantity: 9, unit: "nos", specification: "UPVC" }),
+      reviewStatus: "EDITED",
+      reviewer: { specification: "Aluminium" },
+    });
+    const c = classifyReviewItem(it_, [line({ external_key: "W1", qty: 9, unit: "nos" })]);
+    expect(c.classification).not.toBe("NO_CHANGE");
+    expect(c.classification).toBe("REVIEWED_NOT_APPLICABLE");
+    expect(c.changes).toEqual([]);
+    expect(c.unsupportedChanges).toEqual([{ field: "specification", from: "UPVC", to: "Aluminium" }]);
+  });
+
+  it("a dimension-only correction is surfaced as REVIEWED_NOT_APPLICABLE, not dropped", () => {
+    const it_ = reviewItem({
+      ai: ai({ key: "W1", quantity: 9, unit: "nos", dimension: "6' x 6'9\"" }),
+      reviewStatus: "EDITED",
+      reviewer: { dimension: "6' x 7'0\"" },
+    });
+    const c = classifyReviewItem(it_, [line({ external_key: "W1", qty: 9, unit: "nos" })]);
+    expect(c.classification).toBe("REVIEWED_NOT_APPLICABLE");
+    expect(c.unsupportedChanges).toEqual([{ field: "dimension", from: "6' x 6'9\"", to: "6' x 7'0\"" }]);
+  });
+
+  it("a location-only correction is surfaced as REVIEWED_NOT_APPLICABLE, not dropped", () => {
+    const it_ = reviewItem({
+      ai: ai({ key: "W1", quantity: 9, unit: "nos", location: "Ground Floor" }),
+      reviewStatus: "EDITED",
+      reviewer: { location: "First Floor" },
+    });
+    const c = classifyReviewItem(it_, [line({ external_key: "W1", qty: 9, unit: "nos" })]);
+    expect(c.classification).toBe("REVIEWED_NOT_APPLICABLE");
+    expect(c.unsupportedChanges).toEqual([{ field: "location", from: "Ground Floor", to: "First Floor" }]);
+  });
+
+  it("a qty change AND a specification change: qty still applies, specification is explicitly disclosed as not applied", () => {
+    const it_ = reviewItem({
+      ai: ai({ key: "W1", quantity: 7, unit: "nos", specification: "UPVC" }),
+      reviewStatus: "EDITED",
+      reviewer: { quantity: 8, specification: "Aluminium" },
+    });
+    const c = classifyReviewItem(it_, [line({ external_key: "W1", qty: 9, unit: "nos" })]);
+    expect(c.classification).toBe("APPLY");
+    expect(c.changes).toEqual([{ field: "qty", from: "9", to: "8" }]);
+    expect(c.unsupportedChanges).toEqual([{ field: "specification", from: "UPVC", to: "Aluminium" }]);
+  });
+
+  it("no reviewer change at all (VERIFIED, no overrides) is still plain NO_CHANGE with nothing to disclose", () => {
+    const it_ = reviewItem({ ai: ai({ key: "W1", quantity: 9, unit: "nos", specification: "UPVC" }), reviewStatus: "VERIFIED" });
+    const c = classifyReviewItem(it_, [line({ external_key: "W1", qty: 9, unit: "nos" })]);
+    expect(c.classification).toBe("NO_CHANGE");
+    expect(c.unsupportedChanges).toEqual([]);
+  });
+
+  it("re-saving the same specification text is not a correction and does not block NO_CHANGE", () => {
+    const it_ = reviewItem({
+      ai: ai({ key: "W1", quantity: 9, unit: "nos", specification: "UPVC" }),
+      reviewStatus: "EDITED",
+      reviewer: { specification: "UPVC" },
+    });
+    const c = classifyReviewItem(it_, [line({ external_key: "W1", qty: 9, unit: "nos" })]);
+    expect(c.classification).toBe("NO_CHANGE");
+    expect(c.unsupportedChanges).toEqual([]);
+  });
+
+  it("REVIEWED_NOT_APPLICABLE items are never selectable as apply candidates in a mixed batch", () => {
+    const items: StoredReviewItem[] = [
+      reviewItem({ id: "1", ai: ai({ key: "A", quantity: 9, unit: "nos", specification: "UPVC" }), reviewStatus: "EDITED", reviewer: { specification: "Aluminium" } }),
+    ];
+    const lines: BoqLineForApply[] = [line({ external_key: "A", qty: 9, unit: "nos" })];
+    const plan = buildApplyPlan(items, lines);
+    expect(plan[0].classification).toBe("REVIEWED_NOT_APPLICABLE");
+    // Neither APPLY nor NEW_LINE — the UI's "applyable" filter excludes it.
+    expect(["APPLY", "NEW_LINE"]).not.toContain(plan[0].classification);
+  });
+});

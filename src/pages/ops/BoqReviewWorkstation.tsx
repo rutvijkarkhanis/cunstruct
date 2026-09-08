@@ -29,7 +29,7 @@ import { transformBoxes, unionBox, hasPlaceableEvidence } from "@/lib/review/evi
 import { claimLabel, formatClaimValue, summarizeClaimEvidence, type EvidenceSummary } from "@/lib/review/evidenceDisplay";
 import { defaultInputMode, isProviderConfigured, PROVIDERS, type InputMode } from "@/lib/review/analysisProviders";
 import { createAnalysisRun, loadReviewItems, latestRunForBoq, saveReviewDecision, type StoredReviewItem } from "@/lib/review/reviewStore";
-import { buildApplyPlan, applyReviewPlan, type ApplyCandidate, type BoqLineForApply } from "@/lib/review/applyReview";
+import { buildApplyPlan, applyReviewPlan, type ApplyCandidate, type BoqLineForApply, type UnsupportedChange } from "@/lib/review/applyReview";
 import { resolveItemDrawing, type StoredDrawing } from "@/lib/review/documentResolve";
 import { signedDrawingUrl } from "@/lib/review/drawingStorage";
 import PdfEvidenceViewer from "@/components/review/PdfEvidenceViewer";
@@ -313,6 +313,10 @@ export default function BoqReviewWorkstation() {
 }
 
 // ── Apply to BOQ — confirmation screen ──────────────────────────────────────────
+const UNSUPPORTED_FIELD_LABEL: Record<UnsupportedChange["field"], string> = {
+  dimension: "Dimension", specification: "Specification", location: "Location",
+};
+
 export function ApplyToBoqDialog({ candidates, selectedIds, onToggle, onSelectAll, onApply, applying }: {
   candidates: ApplyCandidate[];
   selectedIds: Set<string>;
@@ -323,6 +327,7 @@ export function ApplyToBoqDialog({ candidates, selectedIds, onToggle, onSelectAl
 }) {
   const applyable = candidates.filter((c) => c.classification === "APPLY" || c.classification === "NEW_LINE");
   const noChange = candidates.filter((c) => c.classification === "NO_CHANGE");
+  const notApplicable = candidates.filter((c) => c.classification === "REVIEWED_NOT_APPLICABLE");
   const unresolved = candidates.filter((c) => c.classification === "NOT_ELIGIBLE" || c.classification === "CANNOT_APPLY");
   const selectedCount = applyable.filter((c) => selectedIds.has(c.reviewItemId)).length;
 
@@ -355,12 +360,38 @@ export function ApplyToBoqDialog({ candidates, selectedIds, onToggle, onSelectAl
                       {ch.field}: <span className="line-through">{ch.from}</span> → <span className="text-foreground font-medium">{ch.to}</span>
                     </div>
                   ))}
+                  {c.unsupportedChanges.length > 0 && (
+                    <div className="mt-1 text-xs text-amber-700">
+                      Not applied to BOQ:
+                      {c.unsupportedChanges.map((uc) => (
+                        <div key={uc.field}>{UNSUPPORTED_FIELD_LABEL[uc.field]}: {uc.from} → {uc.to}</div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </label>
             ))}
           </div>
         )}
       </div>
+
+      {notApplicable.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold mb-1 text-amber-700">Reviewed changes not applied to BOQ ({notApplicable.length})</h3>
+          <div className="divide-y border rounded">
+            {notApplicable.map((c) => (
+              <div key={c.reviewItemId} className="p-2 text-sm">
+                <div className="font-medium">{c.itemName}</div>
+                {c.unsupportedChanges.map((uc) => (
+                  <div key={uc.field} className="text-xs text-muted-foreground">
+                    {UNSUPPORTED_FIELD_LABEL[uc.field]}: <span className="line-through">{uc.from}</span> → <span className="text-foreground font-medium">{uc.to}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {noChange.length > 0 && (
         <details className="text-xs text-muted-foreground">
