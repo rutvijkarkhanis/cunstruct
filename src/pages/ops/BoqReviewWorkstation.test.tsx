@@ -17,7 +17,8 @@
 import { useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { ItemPanel, ResolvedEvidenceViewer } from "./BoqReviewWorkstation";
+import { ItemPanel, ResolvedEvidenceViewer, ApplyToBoqDialog } from "./BoqReviewWorkstation";
+import type { ApplyCandidate } from "@/lib/review/applyReview";
 import type { StoredReviewItem } from "@/lib/review/reviewStore";
 import type { StoredDrawing } from "@/lib/review/documentResolve";
 import type { ClaimType } from "@/lib/review/analysisSchemaV1";
@@ -202,5 +203,107 @@ describe("ItemPanel + ResolvedEvidenceViewer — end-to-end claim selection", ()
     const boxes = await screen.findAllByTestId("evidence-box");
     expect(boxes).toHaveLength(1);
     expect(boxes[0].textContent).toBe(JSON.stringify([50, 100, 450, 130]));
+  });
+});
+
+describe("ApplyToBoqDialog — confirmation screen", () => {
+  const candidates: ApplyCandidate[] = [
+    {
+      reviewItemId: "1", itemKey: "W1", itemName: "Window W1", classification: "APPLY", matchedLineId: "line-1",
+      changes: [{ field: "qty", from: "9", to: "8" }], unsupportedChanges: [],
+    },
+    {
+      reviewItemId: "2", itemKey: "W9", itemName: "Window W9", classification: "NEW_LINE", matchedLineId: null,
+      changes: [{ field: "qty", from: "—", to: "4" }, { field: "unit", from: "—", to: "nos" }], unsupportedChanges: [],
+      newLine: { description: "Window W9", unit: "nos", qty: 4, pending: false },
+    },
+    { reviewItemId: "3", itemKey: "W2", itemName: "Window W2", classification: "NO_CHANGE", matchedLineId: "line-2", changes: [], unsupportedChanges: [] },
+    { reviewItemId: "4", itemKey: "W3", itemName: "Window W3", classification: "NOT_ELIGIBLE", matchedLineId: null, changes: [], unsupportedChanges: [], reason: "Flagged — resolve before applying" },
+    { reviewItemId: "5", itemKey: "W4", itemName: "Window W4", classification: "CANNOT_APPLY", matchedLineId: null, changes: [], unsupportedChanges: [], reason: "Cannot apply automatically — BOQ line not found" },
+  ];
+
+  // A second fixture, isolated from `candidates` above so its extra rows don't
+  // perturb the exact-count assertions those tests make.
+  const candidatesWithUnsupported: ApplyCandidate[] = [
+    {
+      reviewItemId: "6", itemKey: "W5", itemName: "Window W5", classification: "APPLY", matchedLineId: "line-5",
+      changes: [{ field: "qty", from: "3", to: "5" }], unsupportedChanges: [{ field: "specification", from: "UPVC", to: "Aluminium" }],
+    },
+    {
+      reviewItemId: "7", itemKey: "W6", itemName: "Window W6", classification: "REVIEWED_NOT_APPLICABLE", matchedLineId: "line-6",
+      changes: [], unsupportedChanges: [{ field: "dimension", from: "6x6", to: "7x7" }],
+    },
+  ];
+
+  it("shows exact before → after values only for genuine apply candidates", () => {
+    render(<ApplyToBoqDialog candidates={candidates} selectedIds={new Set(["1", "2"])} onToggle={() => {}} onSelectAll={() => {}} onApply={() => {}} applying={false} />);
+    expect(screen.getByText("Ready to apply (2)")).toBeInTheDocument();
+    expect(screen.getAllByText(/qty:/).length).toBeGreaterThan(0);
+    expect(screen.getByText("9")).toBeInTheDocument();
+    expect(screen.getByText("8")).toBeInTheDocument();
+  });
+
+  it("lists NO_CHANGE items separately, inside a collapsed <details>, never as an apply candidate", () => {
+    render(<ApplyToBoqDialog candidates={candidates} selectedIds={new Set()} onToggle={() => {}} onSelectAll={() => {}} onApply={() => {}} applying={false} />);
+    expect(screen.getByText("No change (1)")).toBeInTheDocument();
+    // Present (native <details> keeps content in the DOM) but under the
+    // collapsed summary, not among the selectable "Ready to apply" rows.
+    expect(screen.getByText("Window W2").closest("details")).not.toBeNull();
+    expect(screen.queryByRole("checkbox", { name: /Window W2/ })).toBeNull();
+  });
+
+  it("lists flagged/cannot-apply items as not applied, with their reason, and never selectable", () => {
+    render(<ApplyToBoqDialog candidates={candidates} selectedIds={new Set()} onToggle={() => {}} onSelectAll={() => {}} onApply={() => {}} applying={false} />);
+    expect(screen.getByText("Not applied (2)")).toBeInTheDocument();
+    expect(screen.getByText(/Window W3 — Flagged/)).toBeInTheDocument();
+    expect(screen.getByText(/Window W4 — Cannot apply automatically/)).toBeInTheDocument();
+  });
+
+  it("Apply button is disabled with nothing selected, and reflects the selected count", () => {
+    render(<ApplyToBoqDialog candidates={candidates} selectedIds={new Set()} onToggle={() => {}} onSelectAll={() => {}} onApply={() => {}} applying={false} />);
+    expect(screen.getByRole("button", { name: /Apply 0 to BOQ/ })).toBeDisabled();
+  });
+
+  it("calls onToggle when a candidate checkbox is clicked", () => {
+    const onToggle = vi.fn();
+    render(<ApplyToBoqDialog candidates={candidates} selectedIds={new Set(["1"])} onToggle={onToggle} onSelectAll={() => {}} onApply={() => {}} applying={false} />);
+    fireEvent.click(screen.getByText("Window W9").closest("label")!.querySelector("input")!);
+    expect(onToggle).toHaveBeenCalledWith("2");
+  });
+
+  it("calls onApply only when clicked, never automatically", () => {
+    const onApply = vi.fn();
+    render(<ApplyToBoqDialog candidates={candidates} selectedIds={new Set(["1"])} onToggle={() => {}} onSelectAll={() => {}} onApply={onApply} applying={false} />);
+    expect(onApply).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /Apply 1 to BOQ/ }));
+    expect(onApply).toHaveBeenCalledTimes(1);
+  });
+
+  // Blocker 1 fix: a reviewer correction to dimension/specification/location
+  // must never be silently dropped — it's disclosed, never marked "applied".
+  it("discloses an unsupported field change inline on an APPLY row, alongside its qty/unit change", () => {
+    render(<ApplyToBoqDialog candidates={candidatesWithUnsupported} selectedIds={new Set(["6"])} onToggle={() => {}} onSelectAll={() => {}} onApply={() => {}} applying={false} />);
+    expect(screen.getByText("Window W5")).toBeInTheDocument();
+    expect(screen.getByText("Not applied to BOQ:")).toBeInTheDocument();
+    expect(screen.getByText("Specification: UPVC → Aluminium")).toBeInTheDocument();
+  });
+
+  it("lists a specification/dimension/location-only correction under 'Reviewed changes not applied to BOQ', never under 'No change'", () => {
+    render(<ApplyToBoqDialog candidates={candidatesWithUnsupported} selectedIds={new Set()} onToggle={() => {}} onSelectAll={() => {}} onApply={() => {}} applying={false} />);
+    expect(screen.getByText("Reviewed changes not applied to BOQ (1)")).toBeInTheDocument();
+    expect(screen.getByText("Window W6")).toBeInTheDocument();
+    expect(screen.getByText(/Dimension/)).toBeInTheDocument();
+    expect(screen.getByText("6x6")).toBeInTheDocument();
+    expect(screen.getByText("7x7")).toBeInTheDocument();
+    // Never shown as an apply candidate, and never inside "No change" either.
+    expect(screen.queryByRole("checkbox", { name: /Window W6/ })).toBeNull();
+  });
+
+  it("a REVIEWED_NOT_APPLICABLE row renders as plain text, not a selectable label/checkbox", () => {
+    render(<ApplyToBoqDialog candidates={candidatesWithUnsupported} selectedIds={new Set()} onToggle={() => {}} onSelectAll={() => {}} onApply={() => {}} applying={false} />);
+    const nameEl = screen.getByText("Window W6");
+    const row = nameEl.parentElement!; // the row container the name and its unsupported-change lines share
+    expect(row.closest("label")).toBeNull();
+    expect(row.querySelector("input")).toBeNull();
   });
 });

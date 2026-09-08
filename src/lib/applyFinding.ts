@@ -92,3 +92,55 @@ export async function setLineQty(lineId: string, qty: number, method?: string | 
 export async function markLinePending(lineId: string): Promise<void> {
   await updateLineResilient(lineId, { qty: 0, basis: PENDING_BASIS, quantity_status: "PENDING" });
 }
+
+// ── Drawing-analysis review → BOQ (BOQ Review Workstation "Apply to BOQ") ─────
+// Same insertion/update mechanics as the audit-finding functions above, reused
+// as-is rather than duplicated. The only difference is provenance labeling
+// (section/basis_note), since a review item carries no "section" of its own.
+
+export interface AddReviewLineArgs {
+  boqId: string;
+  description: string;
+  unit?: string | null;
+  /** 0 when pending; the caller decides via `pending`, never guessed here. */
+  qty: number;
+  pending: boolean;
+  externalKey: string;
+  sort?: number;
+}
+
+/**
+ * Insert a new BOQ line for a drawing-analysis review item whose external_key
+ * matched no existing line. Only called when the item carries the one field the
+ * existing insertion pattern actually requires (a non-empty description) — see
+ * applyReview.ts's classifyReviewItem, which never calls this otherwise.
+ */
+export async function addReviewItemAsLine(args: AddReviewLineArgs): Promise<string> {
+  return insertLineResilient({
+    boq_id: args.boqId,
+    section: "Drawing review — added",
+    description: args.description,
+    unit: args.unit ?? null,
+    qty: args.qty,
+    basis: args.pending ? PENDING_BASIS : null,
+    basis_note: "Added from drawing analysis review",
+    external_key: args.externalKey,
+    measurement_method: null,
+    quantity_status: args.pending ? "PENDING" : "MEASURED",
+    included: true,
+    source: "manual",
+    sort: args.sort ?? 9999,
+  });
+}
+
+/**
+ * Apply a reviewed qty and/or unit to an existing, matched BOQ line. Only the
+ * fields present in `patch` are written — never touches description, section,
+ * rates, or any other unrelated column.
+ */
+export async function applyReviewQtyUnit(
+  lineId: string,
+  patch: { qty?: number; unit?: string | null; basis?: string | null; quantity_status?: string | null },
+): Promise<void> {
+  await updateLineResilient(lineId, patch);
+}
