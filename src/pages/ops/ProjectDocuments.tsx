@@ -8,9 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Plus, FileText, ChevronDown, ChevronRight, CheckCircle2, Link2, Upload, Trash2 } from "lucide-react";
+import { Plus, FileText, ChevronDown, ChevronRight, CheckCircle2, Link2, Upload, Trash2, Stethoscope } from "lucide-react";
 import { DOC_TYPES, DISCIPLINES, type ProjectDocument, type DocumentRevision } from "@/lib/projectDocs";
-import { validateDrawingFile, buildDrawingPath, uploadDrawing, deleteDrawing } from "@/lib/review/drawingStorage";
+import { validateDrawingFile, buildDrawingPath, uploadDrawing, deleteDrawing, signedDrawingUrl } from "@/lib/review/drawingStorage";
 
 export default function ProjectDocuments() {
   const { id: projectId } = useParams<{ id: string }>();
@@ -182,6 +182,28 @@ export default function ProjectDocuments() {
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
+  // ---- TEMPORARY DIAGNOSTIC — Srikakulam file_path/retrieval investigation ---
+  // Read-only. Reuses data already fetched above; the only network call this
+  // adds is signedDrawingUrl() (Storage createSignedUrl — reads, never writes,
+  // uploads, or modifies a document/revision). Remove this block once the
+  // investigation is done: search "TEMPORARY DIAGNOSTIC" in this file.
+  const [diagOpen, setDiagOpen] = useState<Record<string, boolean>>({});
+  const [diagCheck, setDiagCheck] = useState<Record<string, { checking: boolean; ok: boolean | null; detail: string }>>({});
+  const checkRetrieval = async (revId: string, filePath: string | null) => {
+    if (!filePath) {
+      setDiagCheck((c) => ({ ...c, [revId]: { checking: false, ok: false, detail: "No file_path on this revision — nothing to retrieve." } }));
+      return;
+    }
+    setDiagCheck((c) => ({ ...c, [revId]: { checking: true, ok: null, detail: "" } }));
+    const url = await signedDrawingUrl(filePath);
+    setDiagCheck((c) => ({
+      ...c,
+      [revId]: url
+        ? { checking: false, ok: true, detail: "Signed URL generated — the storage object exists and is readable." }
+        : { checking: false, ok: false, detail: "createSignedUrl failed — the storage object is missing, or access was denied." },
+    }));
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2">
@@ -260,10 +282,65 @@ export default function ProjectDocuments() {
                   <Button size="sm" variant="outline" onClick={() => { setRevFor(revFor === d.id ? null : d.id); setRevLabel(""); setRevUrl(""); }}>
                     <Plus className="h-3.5 w-3.5 mr-1" />Revision
                   </Button>
+                  <Button size="sm" variant="ghost" title="Temporary read-only diagnostic — file_path / storage retrieval" onClick={() => setDiagOpen((s) => ({ ...s, [d.id]: !s[d.id] }))}>
+                    <Stethoscope className="h-3.5 w-3.5 mr-1" />Diagnostics
+                  </Button>
                   <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" title="Delete document" onClick={() => deleteDocument(d)}>
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </div>
+
+                {diagOpen[d.id] && (() => {
+                  const cur = current;
+                  const check = cur ? diagCheck[cur.id] : undefined;
+                  return (
+                    <div className="mt-3 pl-7">
+                      <div className="rounded border border-dashed border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-3 space-y-2 text-xs">
+                        <div className="font-medium text-amber-900 dark:text-amber-200">
+                          Temporary diagnostic — read-only, no data changed
+                        </div>
+                        {!cur ? (
+                          <div className="text-muted-foreground">No current revision set on this document.</div>
+                        ) : (
+                          <>
+                            <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1">
+                              <dt className="text-muted-foreground">Current revision ID</dt>
+                              <dd className="font-mono break-all">{cur.id}</dd>
+                              <dt className="text-muted-foreground">Revision status</dt>
+                              <dd>{cur.status ?? "—"}</dd>
+                              <dt className="text-muted-foreground">Source</dt>
+                              <dd>{cur.source ?? "—"}</dd>
+                              <dt className="text-muted-foreground">file_path</dt>
+                              <dd>
+                                {cur.file_path ? (
+                                  <span className="text-emerald-700 dark:text-emerald-400">present — <span className="font-mono break-all">{cur.file_path}</span></span>
+                                ) : (
+                                  <span className="text-red-700 dark:text-red-400 font-medium">MISSING (null)</span>
+                                )}
+                              </dd>
+                              <dt className="text-muted-foreground">file_size</dt>
+                              <dd>{cur.file_size != null ? `${cur.file_size.toLocaleString()} bytes` : "—"}</dd>
+                              <dt className="text-muted-foreground">mime_type</dt>
+                              <dd>{cur.mime_type ?? "—"}</dd>
+                              <dt className="text-muted-foreground">original_filename</dt>
+                              <dd>{cur.original_filename ?? "—"}</dd>
+                            </dl>
+                            <div className="flex items-center gap-2 pt-1">
+                              <Button size="sm" variant="outline" className="h-7 text-xs" disabled={check?.checking} onClick={() => checkRetrieval(cur.id, cur.file_path)}>
+                                {check?.checking ? "Checking…" : "Test PDF retrieval"}
+                              </Button>
+                              {check && !check.checking && (
+                                <span className={check.ok ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400"}>
+                                  {check.ok ? "✅" : "❌"} {check.detail}
+                                </span>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {revFor === d.id && (
                   <div className="mt-3 pl-7 flex flex-wrap items-end gap-2">
