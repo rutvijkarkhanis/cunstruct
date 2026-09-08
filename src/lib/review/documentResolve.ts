@@ -96,6 +96,45 @@ export function resolvePageTitle(pageTitles: Record<string, string> | null | und
 }
 
 /**
+ * True when a source carries anything resolution should be attempted
+ * against — an explicit document id, a filename, or evidence boxes with no
+ * document reference. Deliberately broader than "has a document string":
+ * an item that only carries `documentId` (no `document` filename) still
+ * needs resolving, and skipping it would silently leave it unresolved.
+ */
+export function hasDocumentReference(source: AnalysisSource | undefined): boolean {
+  if (!source) return false;
+  return !!(source.documentId || source.document);
+}
+
+/** True when any item in the set carries a document reference to resolve. */
+export function needsDocumentResolution(sources: (AnalysisSource | undefined)[]): boolean {
+  return sources.some(hasDocumentReference);
+}
+
+export type DrawingLinkStatus = "linked" | "needs_attention" | "none";
+
+/**
+ * The analysis-run-level drawing link state, from actual per-item resolution —
+ * never inferred from `resolved_document_id` alone, since a null override can
+ * still mean every item resolves fine on its own (id/filename match).
+ *   - "none": no item's source references a document at all.
+ *   - "linked": every item that references a document resolves to a stored file.
+ *   - "needs_attention": at least one item references a document but doesn't
+ *     resolve to a stored file (missing mapping, stale id, or no file uploaded).
+ */
+export function computeDrawingLinkStatus(
+  sources: (AnalysisSource | undefined)[],
+  drawings: StoredDrawing[],
+  resolvedDocumentId?: string | null,
+): DrawingLinkStatus {
+  const relevant = sources.filter(hasDocumentReference);
+  if (relevant.length === 0) return "none";
+  const allResolve = relevant.every((s) => !!resolveItemDrawing(s, drawings, resolvedDocumentId)?.filePath);
+  return allResolve ? "linked" : "needs_attention";
+}
+
+/**
  * Attempt document resolution and return diagnostics if it fails.
  * Helps users understand why a document reference couldn't be matched
  * and what alternatives are available.

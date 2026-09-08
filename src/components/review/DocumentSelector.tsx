@@ -13,9 +13,22 @@ export interface DocumentSelectorProps {
   availableDrawings: { documentId: string; name: string; originalFilename?: string | null }[];
   onSelect: (documentId: string) => void;
   onCancel: () => void;
+  /** Proceed without linking a drawing (resolved_document_id stays null),
+   *  instead of aborting the action entirely — for when the drawing simply
+   *  hasn't been uploaded yet and can be linked later. Optional: omit to
+   *  keep Cancel as the only way out (e.g. a context with no "later"). */
+  onSkip?: () => void;
 }
 
-export default function DocumentSelector({ searchedFor, availableDrawings, onSelect, onCancel }: DocumentSelectorProps) {
+function SkipButton({ onSkip }: { onSkip: () => void }) {
+  return (
+    <Button variant="ghost" size="sm" onClick={onSkip}>
+      Import without linking — I'll link it later
+    </Button>
+  );
+}
+
+export default function DocumentSelector({ searchedFor, availableDrawings, onSelect, onCancel, onSkip }: DocumentSelectorProps) {
   if (availableDrawings.length === 0) {
     return (
       <Card className="border-amber-200 bg-amber-50">
@@ -28,9 +41,14 @@ export default function DocumentSelector({ searchedFor, availableDrawings, onSel
                 Analysis references: <span className="font-mono">{searchedFor ?? "(no document reference)"}</span>
               </div>
               <div className="text-amber-700">
-                No drawings have been uploaded to this project yet. Upload a PDF in the Documents section first.
+                No drawings have been uploaded to this project yet. Upload a PDF in the Documents section first,
+                or import now and link the drawing later from the review workstation.
               </div>
             </div>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" size="sm" onClick={onCancel}>Cancel</Button>
+            {onSkip && <SkipButton onSkip={onSkip} />}
           </div>
         </CardContent>
       </Card>
@@ -59,6 +77,7 @@ export default function DocumentSelector({ searchedFor, availableDrawings, onSel
           </div>
           <div className="flex gap-2 justify-end">
             <Button variant="outline" size="sm" onClick={onCancel}>Cancel</Button>
+            {onSkip && <SkipButton onSkip={onSkip} />}
             <Button size="sm" onClick={() => onSelect(doc.documentId)}>Use this drawing</Button>
           </div>
         </CardContent>
@@ -95,6 +114,10 @@ export default function DocumentSelector({ searchedFor, availableDrawings, onSel
               </div>
             </Button>
           ))}
+        </div>
+        <div className="flex gap-2 justify-end">
+          <Button variant="outline" size="sm" onClick={onCancel}>Cancel</Button>
+          {onSkip && <SkipButton onSkip={onSkip} />}
         </div>
       </CardContent>
     </Card>

@@ -97,6 +97,21 @@ export async function loadReviewItems(runId: string): Promise<StoredReviewItem[]
   }));
 }
 
+/**
+ * Correct or set which stored document an existing analysis run's evidence
+ * resolves against — the only way to fix a run whose mapping was never set
+ * (or was set wrong) after it was already imported. Applies to every item in
+ * the run (resolved_document_id is a run-level override, not per-item); never
+ * touches ai_json, reviewer_json, or boq_line.
+ */
+export async function updateResolvedDocument(runId: string, documentId: string | null): Promise<void> {
+  const { error } = await supabase
+    .from("analysis_run")
+    .update({ resolved_document_id: documentId })
+    .eq("id", runId);
+  if (error) throw error;
+}
+
 /** The most recent analysis run for a BOQ, or null. */
 export async function latestRunForBoq(boqId: string): Promise<{ id: string; source: string; item_count: number; created_at: string; resolved_document_id?: string | null } | null> {
   const { data, error } = await supabase

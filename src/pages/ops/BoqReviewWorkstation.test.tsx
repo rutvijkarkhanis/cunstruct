@@ -24,6 +24,17 @@ import type { StoredDrawing } from "@/lib/review/documentResolve";
 import type { ClaimType } from "@/lib/review/analysisSchemaV1";
 import { getEvidenceForClaim } from "@/lib/review/evidenceCoords";
 
+// jsdom has no ResizeObserver; the coordinate-plot fallback (EvidenceViewer)
+// uses one to size itself. Only exercised by the re-link-reactivity tests
+// below, which render the unresolved (fallback) state on purpose.
+if (typeof globalThis.ResizeObserver === "undefined") {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+}
+
 // Real filtering (getEvidenceForClaim) drives the fake viewer, so these tests
 // exercise the actual production filtering logic end-to-end, not a stub.
 vi.mock("@/components/review/PdfEvidenceViewer", () => ({
@@ -198,6 +209,41 @@ describe("ResolvedEvidenceViewer — selectedClaim wiring", () => {
       "5": "BRICKWORK DRAWING / GROUND FLOOR PLAN",
       "8": "DOOR/WINDOW SCHEDULE / GROUND FLOOR PLAN",
     });
+  });
+});
+
+describe("ResolvedEvidenceViewer — re-link reactivity (Srikakulam evidence-resolution fix)", () => {
+  // Reproduces the reported bug: an item whose source.documentId doesn't match
+  // any stored drawing (a stale id / pre-mapping-infra run) falls back to the
+  // coordinate-plot viewer. Re-linking sets resolvedDocumentId on the run —
+  // this proves the viewer picks that up immediately on the next render, with
+  // no re-import and no leaving the workstation, since `resolved` is a
+  // useMemo keyed on resolvedDocumentId.
+  const unlinkedItem: StoredReviewItem = {
+    ...w1Item,
+    ai: { ...w1Item.ai, source: { ...w1Item.ai.source!, documentId: "doc-does-not-exist", document: undefined } },
+  };
+
+  it("shows the coordinate-plot fallback (not the PDF viewer) while unresolved", async () => {
+    render(<ResolvedEvidenceViewer item={unlinkedItem} drawings={drawings} resolvedDocumentId={null} selectedClaim={null} />);
+    expect(screen.queryByTestId("pdf-viewer")).toBeNull();
+    expect(await screen.findByText(/stored in Cunstruct yet/)).toBeInTheDocument();
+  });
+
+  it("switches to the real PDF viewer as soon as resolvedDocumentId is set to the correct drawing, without remounting the item", async () => {
+    const { rerender } = render(
+      <ResolvedEvidenceViewer item={unlinkedItem} drawings={drawings} resolvedDocumentId={null} selectedClaim={null} />,
+    );
+    expect(screen.queryByTestId("pdf-viewer")).toBeNull();
+
+    // Simulates handleRelink's setResolvedDocumentId(docId) after a successful
+    // updateResolvedDocument write — same item, same drawings, only the
+    // run-level override changes.
+    rerender(<ResolvedEvidenceViewer item={unlinkedItem} drawings={drawings} resolvedDocumentId="doc-1" selectedClaim={null} />);
+
+    const viewer = await screen.findByTestId("pdf-viewer");
+    expect(viewer).toBeInTheDocument();
+    expect(screen.queryByText(/stored in Cunstruct yet/)).toBeNull();
   });
 });
 
