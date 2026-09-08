@@ -583,19 +583,39 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
 
   useEffect(() => { setEditing(false); setFlagging(false); setWhy(false); setDraft({}); setEvidenceViewed(false); }, [item.id]);
 
-  // A PENDING/quantity-less item has nothing to verify; a critical item the
-  // reviewer hasn't actually looked at shouldn't be one-click-verifiable
-  // either — unless it has no evidence to look at in the first place, which
-  // is already its own critical reason and must not become a dead end.
+  // Resolve the same drawing ResolvedEvidenceViewer will show. Computed here
+  // (not just further below with the display-only claimEvidence/documentName
+  // values) because the verification gate needs it too: evidence that exists
+  // but doesn't resolve to an actual drawing is not "usable" evidence, and
+  // must be treated as its own risk — reusing resolveItemDrawing/resolvedOk,
+  // the existing resolution signal, rather than inventing a parallel one.
+  const resolved = useMemo(
+    () => resolveItemDrawing(ai.source, drawings, resolvedDocumentId),
+    [ai.source, drawings, resolvedDocumentId],
+  );
+  const resolvedOk = !!resolved?.filePath;
+
+  // A PENDING/quantity-less item has nothing to verify. Evidence that exists
+  // but can't be resolved to a drawing is never usable, so it blocks Verify
+  // outright — clicking a broken link doesn't make the evidence real, so
+  // (unlike the resolvable case below) there is no "mark it viewed" unlock
+  // here; it clears only once the drawing itself actually resolves. A
+  // critical item with resolvable evidence the reviewer hasn't looked at yet
+  // shouldn't be one-click-verifiable either — unless it has no evidence to
+  // look at in the first place, which is already its own critical reason and
+  // must not become a dead end.
   const pendingNoQuantity = ai.aiStatus === "PENDING" || ai.quantity == null;
   const hasEvidence = (ai.source?.evidence.length ?? 0) > 0;
-  const needsEvidenceCheck = isCritical(item) && hasEvidence && !evidenceViewed;
-  const verifyDisabled = pendingNoQuantity || needsEvidenceCheck;
+  const evidenceUnresolvable = hasEvidence && !resolvedOk;
+  const needsEvidenceCheck = isCritical(item) && hasEvidence && resolvedOk && !evidenceViewed;
+  const verifyDisabled = pendingNoQuantity || evidenceUnresolvable || needsEvidenceCheck;
   const verifyDisabledReason = pendingNoQuantity
     ? "No quantity to verify — Edit to supply one, or Mark Pending."
-    : needsEvidenceCheck
-      ? "Check the evidence before verifying a critical item."
-      : undefined;
+    : evidenceUnresolvable
+      ? "Evidence exists but its source drawing isn't available — link the drawing before verifying."
+      : needsEvidenceCheck
+        ? "Check the evidence before verifying a critical item."
+        : undefined;
 
   useEffect(() => {
     if (!keyboardEnabled) return;
@@ -626,17 +646,14 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
   const eff = effectiveQuantity(item);
   const diffs = diffItem(item);
   const delta = quantityDelta(item);
-  const reasons = criticalReasons(item);
+  // "Evidence unavailable" is layered on top of criticalReasons() here, at the
+  // UI layer where drawing-resolution state actually lives, rather than
+  // inside reviewQueue.ts's pure, drawings-agnostic criticalReasons() — the
+  // resolution signal itself is still exactly resolveItemDrawing/resolvedOk,
+  // nothing new invented. criticalReasons() only ever says "No evidence" when
+  // the item has none at all, so the two reasons never overlap.
+  const reasons = evidenceUnresolvable ? [...criticalReasons(item), "Evidence unavailable"] : criticalReasons(item);
 
-  // Resolve the same drawing ResolvedEvidenceViewer will show, so the
-  // per-claim evidence line can honestly say when a claim's evidence exists
-  // but can't actually be resolved to a drawing (P0-5) instead of looking
-  // identical to a working link.
-  const resolved = useMemo(
-    () => resolveItemDrawing(ai.source, drawings, resolvedDocumentId),
-    [ai.source, drawings, resolvedDocumentId],
-  );
-  const resolvedOk = !!resolved?.filePath;
   const documentName = useMemo(() => {
     const stored = resolved ? drawings.find((d) => d.documentId === resolved.documentId) : undefined;
     return stored?.name || ai.source?.document || null;

@@ -387,6 +387,34 @@ describe("ItemPanel — sticky action controls (items 3 & 4)", () => {
     const row = screen.getByRole("button", { name: /Save flag/ }).closest("div");
     expect(row?.className).toMatch(/sticky/);
   });
+
+  // Regression guard: `position: sticky` only has room to operate within its
+  // OWN immediate parent's box. An earlier version of this fix nested the
+  // sticky Save/Cancel row inside the small bordered form box, which has the
+  // right className but silently does nothing — caught only by measuring
+  // real layout in a browser, not by the className assertions above. These
+  // tests fail if that nesting mistake is ever reintroduced.
+  it("the Edit form's Save/Cancel row is a DOM sibling of the bordered field box, never nested inside it", () => {
+    render(<ItemPanel {...itemPanelProps(vi.fn())} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Edit$/ }));
+    const formBox = screen.getByText(/Edit — AI values/).closest(".border.rounded.p-3");
+    const stickyRow = screen.getByRole("button", { name: /Save correction/ }).closest(".sticky");
+    expect(formBox).not.toBeNull();
+    expect(stickyRow).not.toBeNull();
+    expect(formBox!.contains(stickyRow!)).toBe(false);
+    expect(stickyRow!.parentElement).toBe(formBox!.parentElement);
+  });
+
+  it("the Flag form's Save/Cancel row is a DOM sibling of the bordered field box, never nested inside it", () => {
+    render(<ItemPanel {...itemPanelProps(vi.fn())} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Flag$/ }));
+    const formBox = screen.getByPlaceholderText("Optional note").closest(".border.rounded.p-3");
+    const stickyRow = screen.getByRole("button", { name: /Save flag/ }).closest(".sticky");
+    expect(formBox).not.toBeNull();
+    expect(stickyRow).not.toBeNull();
+    expect(formBox!.contains(stickyRow!)).toBe(false);
+    expect(stickyRow!.parentElement).toBe(formBox!.parentElement);
+  });
 });
 
 describe("ItemPanel — keyboard shortcuts never fire while a form is open (item 5)", () => {
@@ -512,5 +540,51 @@ describe("ItemPanel — verification gate for critical items with evidence (item
     render(<ItemPanel {...itemPanelProps(vi.fn())} item={lowConf} onVerify={onVerify} keyboardEnabled />);
     fireEvent.keyDown(window, { key: "v" });
     expect(onVerify).not.toHaveBeenCalled();
+  });
+});
+
+describe("ItemPanel — unresolvable evidence is a risk, and blocks Verify (fix for the DO NOT MERGE #112 finding)", () => {
+  // w1Item itself is otherwise routine (high confidence, MEASURED, no
+  // duplicate) — rendering it with NO stored drawings is the only change,
+  // so any risk/gating here is attributable solely to evidence resolution,
+  // not to any of the other four criticalReasons() conditions.
+  it("shows 'Evidence unavailable' and treats the item as critical when its evidence can't be resolved to a drawing", () => {
+    render(<ItemPanel {...itemPanelProps(vi.fn())} drawings={[]} />);
+    expect(screen.getByText(/Review required/).closest("div")?.textContent).toContain("Evidence unavailable");
+  });
+
+  it("disables Verify with a distinct reason, not the generic 'check the evidence' message", () => {
+    render(<ItemPanel {...itemPanelProps(vi.fn())} drawings={[]} />);
+    const verifyBtn = screen.getByRole("button", { name: /Verify/ });
+    expect(verifyBtn).toBeDisabled();
+    expect(verifyBtn).toHaveAttribute("title", expect.stringMatching(/source drawing isn't available/));
+  });
+
+  it("clicking the unresolvable evidence link does NOT unlock Verify — a broken link isn't usable evidence", () => {
+    const onSelectClaim = vi.fn();
+    render(<ItemPanel {...itemPanelProps(onSelectClaim)} drawings={[]} />);
+    fireEvent.click(screen.getAllByText(/^Evidence ·/)[0]);
+    expect(onSelectClaim).toHaveBeenCalled(); // selection itself still fires
+    expect(screen.getByRole("button", { name: /Verify/ })).toBeDisabled(); // but Verify stays blocked
+  });
+
+  it("the 'v' shortcut respects the unresolvable-evidence gate", () => {
+    const onVerify = vi.fn();
+    render(<ItemPanel {...itemPanelProps(vi.fn())} drawings={[]} onVerify={onVerify} keyboardEnabled />);
+    fireEvent.keyDown(window, { key: "v" });
+    expect(onVerify).not.toHaveBeenCalled();
+  });
+
+  it("a genuinely evidence-less item is still never dead-ended (unchanged from before this fix)", () => {
+    const noEvidence: StoredReviewItem = { ...w1Item, ai: { ...w1Item.ai, source: { document: "d", evidence: [] } } };
+    render(<ItemPanel {...itemPanelProps(vi.fn())} item={noEvidence} drawings={[]} />);
+    expect(screen.getByRole("button", { name: /Verify/ })).toBeEnabled();
+    expect(screen.queryByText(/Evidence unavailable/)).toBeNull();
+  });
+
+  it("a routine item with RESOLVABLE evidence remains unaffected and one-click", () => {
+    render(<ItemPanel {...itemPanelProps(vi.fn())} />); // default props already resolve via `drawings`
+    expect(screen.getByRole("button", { name: /Verify/ })).toBeEnabled();
+    expect(screen.queryByText(/Evidence unavailable/)).toBeNull();
   });
 });
