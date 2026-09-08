@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { resolveDrawing, resolveDrawingWithDiagnostics, resolveItemDrawing, resolvePageTitle, type StoredDrawing } from "./documentResolve";
+import {
+  resolveDrawing, resolveDrawingWithDiagnostics, resolveItemDrawing, resolvePageTitle,
+  hasDocumentReference, needsDocumentResolution, computeDrawingLinkStatus,
+  type StoredDrawing,
+} from "./documentResolve";
 import type { AnalysisSource } from "./analysisSchemaV1";
 
 const drawings: StoredDrawing[] = [
@@ -189,6 +193,58 @@ describe("resolveItemDrawing", () => {
   it("returns null when neither the override nor normal resolution match", () => {
     const source: AnalysisSource = { document: "unknown.pdf", evidence: [] };
     expect(resolveItemDrawing(source, drawings, undefined)).toBeNull();
+  });
+});
+
+describe("hasDocumentReference / needsDocumentResolution", () => {
+  it("is true for a documentId-only source (no filename) — the previously-missed case", () => {
+    const source: AnalysisSource = { documentId: "doc-999", evidence: [] };
+    expect(hasDocumentReference(source)).toBe(true);
+    expect(needsDocumentResolution([source])).toBe(true);
+  });
+  it("is true for a filename-only source", () => {
+    expect(hasDocumentReference({ document: "floor-plan.pdf", evidence: [] })).toBe(true);
+  });
+  it("is false for a source with only evidence boxes and no document reference", () => {
+    expect(hasDocumentReference({ evidence: [{ bbox: [0, 0, 1, 1] }] })).toBe(false);
+  });
+  it("is false for undefined source", () => {
+    expect(hasDocumentReference(undefined)).toBe(false);
+  });
+  it("needsDocumentResolution is false when no item references a document", () => {
+    expect(needsDocumentResolution([undefined, { evidence: [] }])).toBe(false);
+  });
+});
+
+describe("computeDrawingLinkStatus", () => {
+  it("returns 'none' when no item's source references a document", () => {
+    expect(computeDrawingLinkStatus([undefined, { evidence: [] }], drawings, null)).toBe("none");
+  });
+
+  it("returns 'linked' when every referencing item resolves to a stored file", () => {
+    const sources: AnalysisSource[] = [
+      { document: "floor-plan.pdf", evidence: [] },   // resolves to doc-001, filePath set
+      { documentId: "doc-002", evidence: [] },          // resolves to doc-002, filePath set
+    ];
+    expect(computeDrawingLinkStatus(sources, drawings, null)).toBe("linked");
+  });
+
+  it("returns 'needs_attention' when a referencing item doesn't resolve to a file", () => {
+    const sources: AnalysisSource[] = [
+      { document: "floor-plan.pdf", evidence: [] },        // resolves, has a file
+      { documentId: "doc-999", evidence: [] },              // stale id, doesn't match anything
+    ];
+    expect(computeDrawingLinkStatus(sources, drawings, null)).toBe("needs_attention");
+  });
+
+  it("returns 'needs_attention' when the match exists but has no uploaded file yet", () => {
+    const sources: AnalysisSource[] = [{ document: "Specifications", evidence: [] }]; // doc-003, filePath null
+    expect(computeDrawingLinkStatus(sources, drawings, null)).toBe("needs_attention");
+  });
+
+  it("honors a run-level resolvedDocumentId override when computing the status", () => {
+    const sources: AnalysisSource[] = [{ documentId: "doc-999", evidence: [] }]; // otherwise unresolvable
+    expect(computeDrawingLinkStatus(sources, drawings, "doc-001")).toBe("linked");
   });
 });
 

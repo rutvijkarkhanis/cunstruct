@@ -18,7 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Check, Pencil, Flag, Clock, ChevronLeft, ChevronRight, Upload, Cpu, FileText, ChevronDown, ChevronUp, AlertTriangle,
+  ArrowLeft, Check, Pencil, Flag, Clock, ChevronLeft, ChevronRight, Upload, Cpu, FileText, ChevronDown, ChevronUp, AlertTriangle, Link2,
 } from "lucide-react";
 import { parseAnalysisV1, type ClaimType } from "@/lib/review/analysisSchemaV1";
 import {
@@ -28,9 +28,12 @@ import {
 import { transformBoxes, unionBox, hasPlaceableEvidence } from "@/lib/review/evidenceCoords";
 import { claimLabel, formatClaimValue, summarizeClaimEvidence, type EvidenceSummary } from "@/lib/review/evidenceDisplay";
 import { defaultInputMode, isProviderConfigured, PROVIDERS, type InputMode } from "@/lib/review/analysisProviders";
-import { createAnalysisRun, loadReviewItems, latestRunForBoq, saveReviewDecision, type StoredReviewItem } from "@/lib/review/reviewStore";
+import { createAnalysisRun, loadReviewItems, latestRunForBoq, saveReviewDecision, updateResolvedDocument, type StoredReviewItem } from "@/lib/review/reviewStore";
 import { buildApplyPlan, applyReviewPlan, type ApplyCandidate, type BoqLineForApply, type UnsupportedChange } from "@/lib/review/applyReview";
-import { resolveItemDrawing, type StoredDrawing } from "@/lib/review/documentResolve";
+import {
+  resolveItemDrawing, resolveDrawingWithDiagnostics, needsDocumentResolution, computeDrawingLinkStatus,
+  type StoredDrawing, type DrawingLinkStatus,
+} from "@/lib/review/documentResolve";
 import { signedDrawingUrl } from "@/lib/review/drawingStorage";
 import PdfEvidenceViewer from "@/components/review/PdfEvidenceViewer";
 import DocumentSelector from "@/components/review/DocumentSelector";
@@ -114,6 +117,8 @@ export default function BoqReviewWorkstation() {
   const [cursor, setCursor] = useState(0);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
+  const [showRelinkModal, setShowRelinkModal] = useState(false);
+  const [relinking, setRelinking] = useState(false);
   const [selectedApplyIds, setSelectedApplyIds] = useState<Set<string>>(new Set());
   const [selectedClaim, setSelectedClaim] = useState<ClaimType | null>(null);
 
@@ -154,6 +159,32 @@ export default function BoqReviewWorkstation() {
     setSelectedApplyIds(new Set(applyableCandidates.map((c) => c.reviewItemId)));
     setShowApplyModal(true);
   }, [applyableCandidates]);
+
+  // Actual per-item resolution state for this run — never inferred from
+  // resolved_document_id alone, since a null override can still mean every
+  // item resolves fine on its own (id/filename match against `drawings`).
+  const linkStatus: DrawingLinkStatus = useMemo(
+    () => computeDrawingLinkStatus(items.map((it) => it.ai.source), drawings, resolvedDocumentId),
+    [items, drawings, resolvedDocumentId],
+  );
+
+  const handleRelink = useCallback(async (documentId: string) => {
+    if (!runId) return;
+    setRelinking(true);
+    try {
+      await updateResolvedDocument(runId, documentId);
+      // Updates resolvedDocumentId, which ItemPanel/ResolvedEvidenceViewer
+      // already re-resolve against on every render — no extra plumbing needed
+      // to show the real PDF/evidence for the current item immediately.
+      setResolvedDocumentId(documentId);
+      setShowRelinkModal(false);
+      toast.success("Drawing re-linked for this analysis — evidence re-resolved.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to re-link the drawing");
+    } finally {
+      setRelinking(false);
+    }
+  }, [runId]);
 
   const applyMut = useMutation({
     mutationFn: () => applyReviewPlan({ boqId, candidates: applyPlan, selectedIds: selectedApplyIds }),
@@ -221,7 +252,8 @@ export default function BoqReviewWorkstation() {
         <h2 className="font-semibold">BOQ Review</h2>
         <span className="text-sm text-muted-foreground">{boq?.name}</span>
         {runCreatedAt && <span className="text-xs text-muted-foreground">run {new Date(runCreatedAt).toLocaleString()}</span>}
-        <Button variant="outline" size="sm" onClick={openApplyModal} className="ml-auto">
+        <DrawingLinkButton status={linkStatus} onClick={() => setShowRelinkModal(true)} className="ml-auto" />
+        <Button variant="outline" size="sm" onClick={openApplyModal}>
           Apply to BOQ{applyableCandidates.length > 0 ? ` (${applyableCandidates.length})` : ""}
         </Button>
         <Button variant="outline" size="sm" onClick={() => setShowImportModal(true)}>Import New Analysis</Button>
@@ -312,7 +344,50 @@ export default function BoqReviewWorkstation() {
           />
         </DialogContent>
       </Dialog>
+
+      {/* Re-link drawing — corrects/sets which stored document this analysis's
+          evidence resolves against. Applies to the whole analysis run, not
+          just the current item. Never guesses: closing without picking one
+          leaves the mapping exactly as it was. */}
+      <Dialog open={showRelinkModal} onOpenChange={setShowRelinkModal}>
+        <DialogContent className="max-w-lg">
+          <h2 className="font-semibold">Re-link drawing</h2>
+          <p className="text-xs text-muted-foreground -mt-2">
+            Choose the project document this analysis's evidence should resolve against. This applies to every item
+            in this analysis, not just the one you're currently reviewing.
+          </p>
+          <DocumentSelector
+            searchedFor={current?.ai.source?.document ?? null}
+            availableDrawings={drawings.map((d) => ({ documentId: d.documentId, name: d.name, originalFilename: d.originalFilename }))}
+            onSelect={handleRelink}
+            onCancel={() => setShowRelinkModal(false)}
+          />
+          {relinking && <p className="text-xs text-muted-foreground">Linking…</p>}
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+// ── Drawing link state — header affordance ──────────────────────────────────────
+// Never inferred from resolved_document_id alone (see computeDrawingLinkStatus):
+// reflects whether this run's evidence actually resolves today.
+function DrawingLinkButton({ status, onClick, className }: { status: DrawingLinkStatus; onClick: () => void; className?: string }) {
+  const styles: Record<DrawingLinkStatus, string> = {
+    linked: "border-green-200 bg-green-50 text-green-800 hover:bg-green-100",
+    needs_attention: "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100",
+    none: "text-muted-foreground",
+  };
+  const label: Record<DrawingLinkStatus, string> = {
+    linked: "Drawing linked",
+    needs_attention: "Drawing link needs attention",
+    none: "No drawing linked",
+  };
+  return (
+    <Button variant="outline" size="sm" onClick={onClick} className={`${styles[status]} ${className ?? ""}`}>
+      {status === "needs_attention" ? <AlertTriangle className="w-3.5 h-3.5 mr-1" /> : <Link2 className="w-3.5 h-3.5 mr-1" />}
+      {label[status]} · Re-link
+    </Button>
   );
 }
 
@@ -426,7 +501,7 @@ export function ApplyToBoqDialog({ candidates, selectedIds, onToggle, onSelectAl
 }
 
 // ── Import gate ────────────────────────────────────────────────────────────────
-function ImportGate({ boqId, projectId, projectType, boqName, onImported, drawings, onBack }: {
+export function ImportGate({ boqId, projectId, projectType, boqName, onImported, drawings, onBack }: {
   boqId: string; projectId: string | null; projectType: string | null; boqName?: string;
   onImported: (runId: string, items: StoredReviewItem[]) => void; drawings: StoredDrawing[];
   onBack: () => void;
@@ -457,22 +532,19 @@ function ImportGate({ boqId, projectId, projectType, boqName, onImported, drawin
     const parsed = parseAnalysisV1(text);
     if (!parsed.ok || !parsed.analysis) return toast.error(parsed.error ?? "Invalid analysis JSON");
 
-    // Check if any analysis item has a source document reference
-    const needsDocResolution = parsed.analysis.items.some((it) => it.source?.document);
-    if (!needsDocResolution || drawings.length === 0) {
-      // No document references in analysis or no drawings → import directly
+    // Any item referencing a document (by id or filename) needs resolution
+    // attempted — including when the project has no drawings uploaded yet:
+    // that case still surfaces the selector, offering "import unresolved,
+    // link later" instead of silently skipping resolution altogether.
+    if (!needsDocumentResolution(parsed.analysis.items.map((it) => it.source))) {
       parsed.warnings.slice(0, 3).forEach((w) => toast.warning(w));
       await doImport(parsed.analysis);
       return;
     }
 
-    // Check if all items can be resolved
-    const { resolveDrawingWithDiagnostics } = await import("@/lib/review/documentResolve");
-    const allItems = parsed.analysis.items;
-    const unresolvedItems = allItems.filter((it) => {
-      const result = resolveDrawingWithDiagnostics(it.source, drawings);
-      return result.resolved === null;
-    });
+    const unresolvedItems = parsed.analysis.items.filter(
+      (it) => resolveDrawingWithDiagnostics(it.source, drawings).resolved === null,
+    );
 
     if (unresolvedItems.length === 0) {
       // All items resolved → proceed
@@ -481,7 +553,7 @@ function ImportGate({ boqId, projectId, projectType, boqName, onImported, drawin
       return;
     }
 
-    // At least one item unresolved → show selector
+    // At least one item unresolved → show selector (never silently guessed).
     const firstUnresolved = unresolvedItems[0];
     const diagnostics = resolveDrawingWithDiagnostics(firstUnresolved.source, drawings).diagnostics!;
     parsed.warnings.slice(0, 3).forEach((w) => toast.warning(w));
@@ -554,6 +626,7 @@ function ImportGate({ boqId, projectId, projectType, boqName, onImported, drawin
               setPendingAnalysis(null);
               setDocumentSelectorState(null);
             }}
+            onSkip={() => pendingAnalysis && doImport(pendingAnalysis)}
           />
         </div>
       )}
