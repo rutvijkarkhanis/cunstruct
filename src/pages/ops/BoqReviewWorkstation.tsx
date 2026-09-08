@@ -79,12 +79,16 @@ export default function BoqReviewWorkstation() {
         .select("id, name, current_revision_id").eq("project_id", boq!.project_id!);
       const revIds = (docs ?? []).map((d) => d.current_revision_id).filter(Boolean) as string[];
       const revs = revIds.length
-        ? (await supabase.from("document_revision").select("id, file_path, original_filename, page_count").in("id", revIds)).data ?? []
+        ? (await supabase.from("document_revision").select("id, file_path, original_filename, page_count, page_titles").in("id", revIds)).data ?? []
         : [];
       const revById = new Map(revs.map((r) => [r.id, r]));
       return (docs ?? []).map((d) => {
         const r = d.current_revision_id ? revById.get(d.current_revision_id) : undefined;
-        return { documentId: d.id, name: d.name, originalFilename: r?.original_filename ?? null, filePath: r?.file_path ?? null, pageCount: r?.page_count ?? null };
+        return {
+          documentId: d.id, name: d.name, originalFilename: r?.original_filename ?? null,
+          filePath: r?.file_path ?? null, pageCount: r?.page_count ?? null,
+          pageTitles: (r?.page_titles as Record<string, string> | null | undefined) ?? null,
+        };
       });
     },
   });
@@ -752,6 +756,10 @@ export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, sel
     const stored = resolved ? drawings.find((d) => d.documentId === resolved.documentId) : undefined;
     return stored?.name || item.ai.source?.document || "Drawing";
   }, [resolved, drawings, item.ai.source?.document]);
+  const pageTitles = useMemo(() => {
+    const stored = resolved ? drawings.find((d) => d.documentId === resolved.documentId) : undefined;
+    return stored?.pageTitles ?? null;
+  }, [resolved, drawings]);
   const selectedClaimValue = selectedClaim ? formatClaimValue(item.ai, selectedClaim) : null;
   const [signed, setSigned] = useState<string | null>(null);
   const [signState, setSignState] = useState<"idle" | "signing" | "unavailable">("idle");
@@ -789,6 +797,7 @@ export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, sel
           unavailableReason={signState === "unavailable" ? "Source drawing unavailable." : null}
           selectedClaim={selectedClaim}
           selectedClaimValue={selectedClaimValue}
+          pageTitles={pageTitles}
         />
       </CardContent></Card>
     );

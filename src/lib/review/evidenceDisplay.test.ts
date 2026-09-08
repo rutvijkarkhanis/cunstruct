@@ -2,8 +2,21 @@
 // Fixtures are entirely synthetic (generic item keys, no specific drawing).
 
 import { describe, it, expect } from "vitest";
-import { claimLabel, formatClaimValue, resolveEvidenceLabel, summarizeClaimEvidence } from "./evidenceDisplay";
+import { claimLabel, formatClaimValue, resolveEvidenceLabel, sheetPositionLabel, summarizeClaimEvidence } from "./evidenceDisplay";
 import type { EvidenceBox } from "./analysisSchemaV1";
+
+describe("sheetPositionLabel", () => {
+  it("formats the reviewer's position in the drawing set", () => {
+    expect(sheetPositionLabel(8, 9)).toBe("Sheet 8 of 9");
+  });
+  it("works for the first and last page", () => {
+    expect(sheetPositionLabel(1, 9)).toBe("Sheet 1 of 9");
+    expect(sheetPositionLabel(9, 9)).toBe("Sheet 9 of 9");
+  });
+  it("works for a single-page document", () => {
+    expect(sheetPositionLabel(1, 1)).toBe("Sheet 1 of 1");
+  });
+});
 
 describe("claimLabel", () => {
   it("maps every claim type to its display label", () => {

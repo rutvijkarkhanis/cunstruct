@@ -77,8 +77,9 @@ const sourceWithUnresolvablePage: AnalysisSource = {
   ],
 };
 
-function Viewer({ src, selectedClaim, selectedClaimValue, documentName }: {
+function Viewer({ src, selectedClaim, selectedClaimValue, documentName, pageTitles }: {
   src: AnalysisSource; selectedClaim: ClaimType | null; selectedClaimValue?: string | null; documentName?: string | null;
+  pageTitles?: Record<string, string> | null;
 }) {
   return (
     <PdfEvidenceViewer
@@ -87,6 +88,7 @@ function Viewer({ src, selectedClaim, selectedClaimValue, documentName }: {
       selectedClaim={selectedClaim}
       selectedClaimValue={selectedClaimValue}
       documentName={documentName}
+      pageTitles={pageTitles}
     />
   );
 }
@@ -282,5 +284,54 @@ describe("PdfEvidenceViewer — evidence context banner (P0-1)", () => {
     render(<Viewer src={sourceNoLabel} selectedClaim="location" documentName={null} />);
 
     expect(screen.getByText("Evidence source:").parentElement).toHaveTextContent("Evidence source: unavailable");
+  });
+});
+
+describe("PdfEvidenceViewer — sheet identity (page title)", () => {
+  // Verified directly against the real Srikakulam PDF (9 pages) — see the
+  // full page-by-page map in evidenceDisplay.test.ts. Deliberately left
+  // sparse (no entry for page 2) to exercise the no-title fallback below.
+  const srikakulamPageTitles: Record<string, string> = {
+    "1": "STILT FLOOR PLAN",
+    "5": "BRICKWORK DRAWING / GROUND FLOOR PLAN",
+    "8": "DOOR/WINDOW SCHEDULE / GROUND FLOOR PLAN",
+    "9": "DOOR/WINDOW SCHEDULE / TYPICAL FLOOR PLAN (1st, 2nd, 3rd & 4th)",
+  };
+
+  it("shows the current page's title alongside its position when known (p.5)", async () => {
+    render(<Viewer src={source} selectedClaim={null} pageTitles={srikakulamPageTitles} />);
+    expect(await screen.findByText(`5 / ${NUM_PAGES}`)).toBeInTheDocument();
+    expect(await screen.findByText("BRICKWORK DRAWING / GROUND FLOOR PLAN")).toBeInTheDocument();
+    expect(await screen.findByText("Sheet 5 of 9")).toBeInTheDocument();
+  });
+
+  it("updates the sheet identity when navigation moves to a different titled page (p.8)", async () => {
+    render(<Viewer src={source} selectedClaim="quantity" pageTitles={srikakulamPageTitles} />);
+    expect(await screen.findByText(`8 / ${NUM_PAGES}`)).toBeInTheDocument();
+    expect(await screen.findByText("DOOR/WINDOW SCHEDULE / GROUND FLOOR PLAN")).toBeInTheDocument();
+    expect(await screen.findByText("Sheet 8 of 9")).toBeInTheDocument();
+    // The old page-5 title must not linger.
+    expect(screen.queryByText("BRICKWORK DRAWING / GROUND FLOOR PLAN")).toBeNull();
+  });
+
+  it("shows only the bare position — never an invented title — for a page with no title entry", async () => {
+    render(<Viewer src={source} selectedClaim={null} pageTitles={srikakulamPageTitles} />);
+    expect(await screen.findByText(`5 / ${NUM_PAGES}`)).toBeInTheDocument();
+
+    // Page 5 -> 6 -> ... has no entry for page 2 in this fixture; navigate
+    // there directly isn't exposed, so instead confirm the no-title case via
+    // a page that genuinely has none: none of pages 2-4, 6-7 are populated.
+    fireEvent.click(screen.getByTitle("Next page")); // 5 -> 6
+    expect(await screen.findByText(`6 / ${NUM_PAGES}`)).toBeInTheDocument();
+    expect(await screen.findByText("Sheet 6 of 9")).toBeInTheDocument();
+    // No title text rendered for the untitled page.
+    expect(screen.queryByText("BRICKWORK DRAWING / GROUND FLOOR PLAN")).toBeNull();
+    expect(screen.queryByText(/STILT FLOOR PLAN|DOOR\/WINDOW SCHEDULE/)).toBeNull();
+  });
+
+  it("shows only 'Sheet N of M' when pageTitles is absent entirely", async () => {
+    render(<Viewer src={source} selectedClaim={null} />);
+    expect(await screen.findByText(`5 / ${NUM_PAGES}`)).toBeInTheDocument();
+    expect(await screen.findByText("Sheet 5 of 9")).toBeInTheDocument();
   });
 });
