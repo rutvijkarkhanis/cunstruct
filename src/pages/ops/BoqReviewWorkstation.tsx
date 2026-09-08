@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,7 @@ import { transformBoxes, unionBox, hasPlaceableEvidence } from "@/lib/review/evi
 import { claimLabel, formatClaimValue, summarizeClaimEvidence, type EvidenceSummary } from "@/lib/review/evidenceDisplay";
 import { defaultInputMode, isProviderConfigured, PROVIDERS, type InputMode } from "@/lib/review/analysisProviders";
 import { createAnalysisRun, loadReviewItems, latestRunForBoq, saveReviewDecision, type StoredReviewItem } from "@/lib/review/reviewStore";
+import { buildApplyPlan, applyReviewPlan, type ApplyCandidate, type BoqLineForApply } from "@/lib/review/applyReview";
 import { resolveItemDrawing, type StoredDrawing } from "@/lib/review/documentResolve";
 import { signedDrawingUrl } from "@/lib/review/drawingStorage";
 import PdfEvidenceViewer from "@/components/review/PdfEvidenceViewer";
@@ -51,6 +52,7 @@ export default function BoqReviewWorkstation() {
   const { id: routeId, boqId: routeBoqId } = useParams<{ id?: string; boqId?: string }>();
   const boqId = routeBoqId ?? routeId!;
   const navigate = useNavigate();
+  const qc = useQueryClient();
 
   const { data: boq } = useQuery({
     queryKey: ["rw-boq", boqId],
@@ -87,6 +89,18 @@ export default function BoqReviewWorkstation() {
     },
   });
 
+  // The BOQ's current lines, for diffing reviewed values against the CURRENT
+  // BOQ (not the original AI value) when building the apply-to-BOQ plan.
+  const { data: boqLines = [] } = useQuery({
+    queryKey: ["rw-lines", boqId],
+    enabled: !!boqId,
+    queryFn: async (): Promise<BoqLineForApply[]> => {
+      const { data } = await supabase.from("boq_line")
+        .select("id, external_key, qty, unit, quantity_status").eq("boq_id", boqId);
+      return (data ?? []) as unknown as BoqLineForApply[];
+    },
+  });
+
   const [items, setItems] = useState<StoredReviewItem[]>([]);
   const [runId, setRunId] = useState<string | null>(null);
   const [resolvedDocumentId, setResolvedDocumentId] = useState<string | null>(null);
@@ -95,6 +109,8 @@ export default function BoqReviewWorkstation() {
   const [filter, setFilter] = useState<ReviewFilter>("NEEDS_REVIEW");
   const [cursor, setCursor] = useState(0);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showApplyModal, setShowApplyModal] = useState(false);
+  const [selectedApplyIds, setSelectedApplyIds] = useState<Set<string>>(new Set());
   const [selectedClaim, setSelectedClaim] = useState<ClaimType | null>(null);
 
   // Load the latest run for this BOQ, if any.
@@ -121,6 +137,30 @@ export default function BoqReviewWorkstation() {
   const visible = useMemo(() => ordered.filter((it) => matchesFilter(it, filter)), [ordered, filter]);
   const summary = useMemo(() => reviewSummary(items), [items]);
   const current = visible[Math.min(cursor, Math.max(0, visible.length - 1))];
+
+  // Apply-to-BOQ: pure classification, recomputed against the CURRENT BOQ lines
+  // every render — never automatic, only acted on when the reviewer confirms.
+  const applyPlan = useMemo(() => buildApplyPlan(items, boqLines), [items, boqLines]);
+  const applyableCandidates = useMemo(
+    () => applyPlan.filter((c) => c.classification === "APPLY" || c.classification === "NEW_LINE"),
+    [applyPlan],
+  );
+
+  const openApplyModal = useCallback(() => {
+    setSelectedApplyIds(new Set(applyableCandidates.map((c) => c.reviewItemId)));
+    setShowApplyModal(true);
+  }, [applyableCandidates]);
+
+  const applyMut = useMutation({
+    mutationFn: () => applyReviewPlan({ boqId, candidates: applyPlan, selectedIds: selectedApplyIds }),
+    onSuccess: (res) => {
+      toast.success(`Applied ${res.appliedCount} to the BOQ` + (res.unresolvedCount ? ` · ${res.unresolvedCount} unresolved` : ""));
+      qc.invalidateQueries({ queryKey: ["rw-lines", boqId] });
+      qc.invalidateQueries({ queryKey: ["boq-lines", boqId] });
+      setShowApplyModal(false);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to apply to the BOQ"),
+  });
 
   // Clear selectedClaim when item changes
   useEffect(() => { setSelectedClaim(null); }, [current?.id]);
@@ -177,7 +217,10 @@ export default function BoqReviewWorkstation() {
         <h2 className="font-semibold">BOQ Review</h2>
         <span className="text-sm text-muted-foreground">{boq?.name}</span>
         {runCreatedAt && <span className="text-xs text-muted-foreground">run {new Date(runCreatedAt).toLocaleString()}</span>}
-        <Button variant="outline" size="sm" onClick={() => setShowImportModal(true)} className="ml-auto">Import New Analysis</Button>
+        <Button variant="outline" size="sm" onClick={openApplyModal} className="ml-auto">
+          Apply to BOQ{applyableCandidates.length > 0 ? ` (${applyableCandidates.length})` : ""}
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => setShowImportModal(true)}>Import New Analysis</Button>
         <span className="ml-auto text-sm text-muted-foreground">{summary.total - summary.remaining} / {summary.total} reviewed · {summary.completionPct}%</span>
       </div>
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
@@ -243,6 +286,106 @@ export default function BoqReviewWorkstation() {
           />
         </DialogContent>
       </Dialog>
+
+      {/* Apply reviewed changes to the BOQ — explicit confirmation, exact diff */}
+      <Dialog open={showApplyModal} onOpenChange={setShowApplyModal}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <h2 className="font-semibold">Apply reviewed changes to BOQ</h2>
+          <p className="text-xs text-muted-foreground -mt-2">
+            Only verified/edited items that differ from the current BOQ are applied. Flagged and unreviewed items are never touched.
+          </p>
+          <ApplyToBoqDialog
+            candidates={applyPlan}
+            selectedIds={selectedApplyIds}
+            onToggle={(id) => setSelectedApplyIds((prev) => {
+              const next = new Set(prev);
+              if (next.has(id)) next.delete(id); else next.add(id);
+              return next;
+            })}
+            onSelectAll={(checked) => setSelectedApplyIds(checked ? new Set(applyableCandidates.map((c) => c.reviewItemId)) : new Set())}
+            onApply={() => applyMut.mutate()}
+            applying={applyMut.isPending}
+          />
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ── Apply to BOQ — confirmation screen ──────────────────────────────────────────
+export function ApplyToBoqDialog({ candidates, selectedIds, onToggle, onSelectAll, onApply, applying }: {
+  candidates: ApplyCandidate[];
+  selectedIds: Set<string>;
+  onToggle: (id: string) => void;
+  onSelectAll: (checked: boolean) => void;
+  onApply: () => void;
+  applying: boolean;
+}) {
+  const applyable = candidates.filter((c) => c.classification === "APPLY" || c.classification === "NEW_LINE");
+  const noChange = candidates.filter((c) => c.classification === "NO_CHANGE");
+  const unresolved = candidates.filter((c) => c.classification === "NOT_ELIGIBLE" || c.classification === "CANNOT_APPLY");
+  const selectedCount = applyable.filter((c) => selectedIds.has(c.reviewItemId)).length;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <div className="flex items-center justify-between mb-1.5">
+          <h3 className="text-sm font-semibold">Ready to apply ({applyable.length})</h3>
+          {applyable.length > 0 && (
+            <label className="text-xs flex items-center gap-1.5 cursor-pointer">
+              <input type="checkbox" checked={selectedCount === applyable.length} onChange={(e) => onSelectAll(e.target.checked)} />
+              Select all
+            </label>
+          )}
+        </div>
+        {applyable.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No verified or edited items differ from the current BOQ.</p>
+        ) : (
+          <div className="divide-y border rounded">
+            {applyable.map((c) => (
+              <label key={c.reviewItemId} className="flex items-start gap-2 p-2 text-sm cursor-pointer">
+                <input type="checkbox" className="mt-1" checked={selectedIds.has(c.reviewItemId)} onChange={() => onToggle(c.reviewItemId)} />
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium">
+                    {c.itemName}
+                    {c.classification === "NEW_LINE" && <span className="text-[10px] uppercase text-muted-foreground ml-1.5">new line</span>}
+                  </div>
+                  {c.changes.map((ch) => (
+                    <div key={ch.field} className="text-xs text-muted-foreground">
+                      {ch.field}: <span className="line-through">{ch.from}</span> → <span className="text-foreground font-medium">{ch.to}</span>
+                    </div>
+                  ))}
+                </div>
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {noChange.length > 0 && (
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer">No change ({noChange.length})</summary>
+          <ul className="mt-1 space-y-0.5 pl-4 list-disc">
+            {noChange.map((c) => <li key={c.reviewItemId}>{c.itemName}</li>)}
+          </ul>
+        </details>
+      )}
+
+      {unresolved.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold mb-1">Not applied ({unresolved.length})</h3>
+          <ul className="text-xs text-muted-foreground space-y-0.5">
+            {unresolved.map((c) => <li key={c.reviewItemId}>{c.itemName} — {c.reason}</li>)}
+          </ul>
+        </div>
+      )}
+
+      <div className="flex items-center justify-end gap-2 pt-2 border-t">
+        <span className="text-xs text-muted-foreground mr-auto">{selectedCount} selected</span>
+        <Button size="sm" disabled={selectedCount === 0 || applying} onClick={onApply}>
+          {applying ? "Applying…" : `Apply ${selectedCount} to BOQ`}
+        </Button>
+      </div>
     </div>
   );
 }

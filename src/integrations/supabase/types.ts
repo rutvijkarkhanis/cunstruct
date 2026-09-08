@@ -720,6 +720,42 @@ export type Database = {
         }
         Relationships: []
       }
+      boq_line_change_log: {
+        Row: {
+          boq_id: string
+          boq_line_id: string | null
+          changed_at: string
+          changed_by: string | null
+          field: string
+          id: string
+          new_value: string | null
+          old_value: string | null
+          review_item_id: string | null
+        }
+        Insert: {
+          boq_id: string
+          boq_line_id?: string | null
+          changed_at?: string
+          changed_by?: string | null
+          field: string
+          id?: string
+          new_value?: string | null
+          old_value?: string | null
+          review_item_id?: string | null
+        }
+        Update: {
+          boq_id?: string
+          boq_line_id?: string | null
+          changed_at?: string
+          changed_by?: string | null
+          field?: string
+          id?: string
+          new_value?: string | null
+          old_value?: string | null
+          review_item_id?: string | null
+        }
+        Relationships: []
+      }
       boq_template: {
         Row: {
           created_at: string
