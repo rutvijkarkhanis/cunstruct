@@ -6,6 +6,7 @@
 // drawing under a project they own or staff. No credentials reach the browser.
 
 import { supabase } from "@/integrations/supabase/client";
+import type { StoredDrawing } from "./documentResolve";
 
 export const DRAWINGS_BUCKET = "project-drawings";
 /** 50 MB — matches the bucket's file_size_limit. */
@@ -71,4 +72,48 @@ export async function signedDrawingUrl(path: string): Promise<string | null> {
 export async function deleteDrawing(path: string): Promise<void> {
   const { error } = await supabase.storage.from(DRAWINGS_BUCKET).remove([path]);
   if (error) throw error;
+}
+
+/**
+ * Load a project's stored drawings for evidence resolution — one entry per
+ * project_document, carrying its CURRENT revision's file metadata.
+ *
+ * Fetches document_revision by the FK-enforced `document_id` column and picks
+ * each document's current revision client-side, rather than by
+ * `current_revision_id` directly: that column is an intentional soft
+ * reference with no foreign key (see the project_workspace migration's
+ * "avoids circular FK" comment), so nothing guarantees it's well-formed or
+ * still points at a real revision. Filtering document_revision by `id IN
+ * (current_revision_id, ...)` batches every document's soft reference into
+ * one request — one bad value fails the whole batch, silently blanking
+ * every document's filePath, not just the bad one. Filtering by `document_id`
+ * (a real FK) can't fail that way: a stale/missing current_revision_id then
+ * only fails to resolve its own document.
+ *
+ * Throws on either query's error rather than degrading to an empty result —
+ * a real fetch failure should surface as a fetch failure, not silently read
+ * as "no file uploaded".
+ */
+export async function loadProjectDrawings(projectId: string): Promise<StoredDrawing[]> {
+  const { data: docs, error: docsError } = await supabase.from("project_document")
+    .select("id, name, current_revision_id").eq("project_id", projectId);
+  if (docsError) throw docsError;
+
+  const docIds = (docs ?? []).map((d) => d.id);
+  const { data: revs, error: revsError } = docIds.length
+    ? await supabase.from("document_revision")
+        .select("id, document_id, file_path, original_filename, page_count, page_titles")
+        .in("document_id", docIds)
+    : { data: [], error: null };
+  if (revsError) throw revsError;
+
+  const revById = new Map((revs ?? []).map((r) => [r.id, r]));
+  return (docs ?? []).map((d) => {
+    const r = d.current_revision_id ? revById.get(d.current_revision_id) : undefined;
+    return {
+      documentId: d.id, name: d.name, originalFilename: r?.original_filename ?? null,
+      filePath: r?.file_path ?? null, pageCount: r?.page_count ?? null,
+      pageTitles: (r?.page_titles as Record<string, string> | null | undefined) ?? null,
+    };
+  });
 }

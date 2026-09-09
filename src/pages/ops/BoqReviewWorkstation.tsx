@@ -34,7 +34,7 @@ import {
   resolveItemDrawing, resolveDrawingWithDiagnostics, needsDocumentResolution, computeDrawingLinkStatus,
   type StoredDrawing, type DrawingLinkStatus,
 } from "@/lib/review/documentResolve";
-import { signedDrawingUrl } from "@/lib/review/drawingStorage";
+import { signedDrawingUrl, loadProjectDrawings } from "@/lib/review/drawingStorage";
 import PdfEvidenceViewer from "@/components/review/PdfEvidenceViewer";
 import DocumentSelector from "@/components/review/DocumentSelector";
 
@@ -77,23 +77,7 @@ export default function BoqReviewWorkstation() {
   const { data: drawings = [] } = useQuery({
     queryKey: ["rw-drawings", boq?.project_id],
     enabled: !!boq?.project_id,
-    queryFn: async (): Promise<StoredDrawing[]> => {
-      const { data: docs } = await supabase.from("project_document")
-        .select("id, name, current_revision_id").eq("project_id", boq!.project_id!);
-      const revIds = (docs ?? []).map((d) => d.current_revision_id).filter(Boolean) as string[];
-      const revs = revIds.length
-        ? (await supabase.from("document_revision").select("id, file_path, original_filename, page_count, page_titles").in("id", revIds)).data ?? []
-        : [];
-      const revById = new Map(revs.map((r) => [r.id, r]));
-      return (docs ?? []).map((d) => {
-        const r = d.current_revision_id ? revById.get(d.current_revision_id) : undefined;
-        return {
-          documentId: d.id, name: d.name, originalFilename: r?.original_filename ?? null,
-          filePath: r?.file_path ?? null, pageCount: r?.page_count ?? null,
-          pageTitles: (r?.page_titles as Record<string, string> | null | undefined) ?? null,
-        };
-      });
-    },
+    queryFn: (): Promise<StoredDrawing[]> => loadProjectDrawings(boq!.project_id!),
   });
 
   // TEMPORARY DIAGNOSTIC ONLY — a separate, independent read of
