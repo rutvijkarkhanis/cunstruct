@@ -74,7 +74,10 @@ export default function BoqReviewWorkstation() {
   });
 
   // The project's stored drawings, for resolving an analysis item's source doc.
-  const { data: drawings = [] } = useQuery({
+  // `error` is captured (not just `data`) so the TEMPORARY DIAGNOSTIC panel can
+  // surface a real fetch failure instead of it being indistinguishable from a
+  // genuinely empty result behind the `= []` default — see TempDiagnosticPanel.
+  const { data: drawings = [], error: drawingsError } = useQuery({
     queryKey: ["rw-drawings", boq?.project_id],
     enabled: !!boq?.project_id,
     queryFn: (): Promise<StoredDrawing[]> => loadProjectDrawings(boq!.project_id!),
@@ -94,6 +97,40 @@ export default function BoqReviewWorkstation() {
       const map: Record<string, string | null> = {};
       for (const d of docs ?? []) map[d.id] = d.current_revision_id ?? null;
       return map;
+    },
+  });
+
+  // TEMPORARY DIAGNOSTIC ONLY — runs the exact two queries loadProjectDrawings()
+  // runs, but separately and without throwing, so a failure in either one is
+  // visible on its own (which query failed, its exact error, how many rows the
+  // OTHER query got) instead of collapsing into one opaque rejection. Not read
+  // by any resolution logic. Remove alongside TempDiagnosticPanel.
+  const { data: diagRawFetch } = useQuery({
+    queryKey: ["rw-diag-raw-fetch", boq?.project_id],
+    enabled: !!boq?.project_id,
+    queryFn: async () => {
+      const { data: docs, error: docsError } = await supabase.from("project_document")
+        .select("id, name, current_revision_id").eq("project_id", boq!.project_id!);
+
+      const docIds = (docs ?? []).map((d) => d.id);
+      const { data: revs, error: revsError } = docIds.length
+        ? await supabase.from("document_revision")
+            .select("id, document_id, file_path, original_filename, page_count, page_titles")
+            .in("document_id", docIds)
+        : { data: [] as { id: string; document_id: string; file_path: string | null }[], error: null };
+
+      const TARGET_REV_ID = "7868100c-2f37-4dc5-9f3e-e54d47f3b54f"; // Srikakulam, from the earlier diagnostic reading
+      const targetRev = (revs ?? []).find((r) => r.id === TARGET_REV_ID);
+
+      return {
+        docsError: docsError ? (docsError as { message?: string }).message ?? String(docsError) : null,
+        docsCount: docs?.length ?? null,
+        docs: (docs ?? []).map((d) => ({ id: d.id, name: d.name, current_revision_id: d.current_revision_id })),
+        revsError: revsError ? (revsError as { message?: string }).message ?? String(revsError) : null,
+        revsCount: revs?.length ?? null,
+        targetRevisionFound: !!targetRev,
+        targetRevisionFilePath: targetRev?.file_path ?? null,
+      };
     },
   });
 
@@ -307,8 +344,10 @@ export default function BoqReviewWorkstation() {
           boq={boq}
           resolvedDocumentId={resolvedDocumentId}
           drawings={drawings}
+          drawingsError={drawingsError}
           current={current}
           diagRevisionIds={diagRevisionIds}
+          diagRawFetch={diagRawFetch}
         />
       )}
 
@@ -388,18 +427,33 @@ export default function BoqReviewWorkstation() {
 // directly against the Documents diagnostic. Purely additive display — reads
 // only, no writes, and does not alter resolveItemDrawing or any review logic.
 // REMOVE this component and its call site once the investigation concludes.
+interface DiagRawFetch {
+  docsError: string | null;
+  docsCount: number | null;
+  docs: { id: string; name: string; current_revision_id: string | null }[];
+  revsError: string | null;
+  revsCount: number | null;
+  targetRevisionFound: boolean;
+  targetRevisionFilePath: string | null;
+}
+
 function TempDiagnosticPanel({
-  boq, resolvedDocumentId, drawings, current, diagRevisionIds,
+  boq, resolvedDocumentId, drawings, drawingsError, current, diagRevisionIds, diagRawFetch,
 }: {
   boq: { project_id: string | null } | null | undefined;
   resolvedDocumentId: string | null;
   drawings: StoredDrawing[];
+  drawingsError: unknown;
   current: StoredReviewItem;
   diagRevisionIds: Record<string, string | null>;
+  diagRawFetch: DiagRawFetch | undefined;
 }) {
   const resolved = resolveItemDrawing(current.ai.source, drawings, resolvedDocumentId);
   const matchedDoc = resolved ? drawings.find((d) => d.documentId === resolved.documentId) : undefined;
   const revisionId = resolved ? diagRevisionIds[resolved.documentId] ?? null : null;
+  const drawingsErrorMessage = drawingsError
+    ? (drawingsError as { message?: string }).message ?? String(drawingsError)
+    : null;
 
   const row = (label: string, value: string | null | undefined) => (
     <div className="flex gap-2 flex-wrap">
@@ -416,11 +470,23 @@ function TempDiagnosticPanel({
         {row("analysis_run.resolved_document_id", resolvedDocumentId)}
         {row("item.ai.source.documentId", current.ai.source?.documentId)}
         {row("drawings loaded", String(drawings.length))}
+        {row("rw-drawings query error (real production query)", drawingsErrorMessage ?? "none — query resolved without throwing")}
         {row("current item matches a loaded drawing", resolved ? "yes" : "no")}
         {row("matched drawing documentId", resolved?.documentId ?? null)}
         {row("matched drawing name", matchedDoc?.name ?? null)}
         {row("document_revision.id (current revision of matched doc)", revisionId)}
         {row("resolved filePath", resolved?.filePath ?? "MISSING")}
+
+        <p className="font-semibold text-amber-700 pt-2">Raw query trace (independent, non-throwing)</p>
+        {row("1) project_document query error", diagRawFetch?.docsError ?? "none")}
+        {row("1) project_document rows returned", diagRawFetch ? String(diagRawFetch.docsCount) : "loading…")}
+        {row("1) documents (id · current_revision_id)", diagRawFetch
+          ? diagRawFetch.docs.map((d) => `${d.id}→${d.current_revision_id ?? "null"}`).join(" | ") || "(none)"
+          : "loading…")}
+        {row("2) document_revision query error", diagRawFetch?.revsError ?? "none")}
+        {row("2) document_revision rows returned", diagRawFetch ? String(diagRawFetch.revsCount) : "loading…")}
+        {row("2) target revision 7868100c-...b54f found?", diagRawFetch ? (diagRawFetch.targetRevisionFound ? "yes" : "no") : "loading…")}
+        {row("2) target revision file_path", diagRawFetch?.targetRevisionFilePath ?? "MISSING")}
       </CardContent>
     </Card>
   );
