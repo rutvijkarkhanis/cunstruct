@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Plus, FileText, ChevronDown, ChevronRight, CheckCircle2, Link2, Upload, Trash2 } from "lucide-react";
 import { DOC_TYPES, DISCIPLINES, type ProjectDocument, type DocumentRevision } from "@/lib/projectDocs";
-import { validateDrawingFile, buildDrawingPath, uploadDrawing, deleteDrawing } from "@/lib/review/drawingStorage";
+import { validateDrawingFile, buildDrawingPath, uploadDrawing, deleteDrawing, signedDrawingUrl } from "@/lib/review/drawingStorage";
 
 export default function ProjectDocuments() {
   const { id: projectId } = useParams<{ id: string }>();
@@ -182,6 +182,24 @@ export default function ProjectDocuments() {
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
+  // TEMPORARY DIAGNOSTIC — read-only file_path/storage check. No writes; the
+  // only call this adds is signedDrawingUrl() (Storage createSignedUrl, which
+  // reads, never uploads/modifies/deletes). Remove by deleting this block and
+  // the matching JSX below (search "TEMPORARY DIAGNOSTIC").
+  const [retrievalCheck, setRetrievalCheck] = useState<Record<string, { checking: boolean; ok: boolean | null; detail: string }>>({});
+  const testRetrieval = async (revId: string, filePath: string | null) => {
+    if (!filePath) {
+      setRetrievalCheck((c) => ({ ...c, [revId]: { checking: false, ok: false, detail: "No file_path — nothing to retrieve." } }));
+      return;
+    }
+    setRetrievalCheck((c) => ({ ...c, [revId]: { checking: true, ok: null, detail: "" } }));
+    const url = await signedDrawingUrl(filePath);
+    setRetrievalCheck((c) => ({
+      ...c,
+      [revId]: url ? { checking: false, ok: true, detail: "Retrieved OK" } : { checking: false, ok: false, detail: "Failed — object missing or access denied" },
+    }));
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2">
@@ -264,6 +282,24 @@ export default function ProjectDocuments() {
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </div>
+
+                {/* TEMPORARY DIAGNOSTIC — read-only file_path/storage check */}
+                {current && (
+                  <div className="mt-2 pl-7 text-xs text-muted-foreground flex flex-wrap items-center gap-2">
+                    <span>file_path: {current.file_path ? "present" : "MISSING"}</span>
+                    <span>· size: {current.file_size != null ? `${current.file_size} bytes` : "—"}</span>
+                    <span>· mime: {current.mime_type ?? "—"}</span>
+                    <Button size="sm" variant="outline" className="h-6 text-xs" disabled={retrievalCheck[current.id]?.checking}
+                      onClick={() => testRetrieval(current.id, current.file_path)}>
+                      {retrievalCheck[current.id]?.checking ? "Checking…" : "Test PDF retrieval"}
+                    </Button>
+                    {retrievalCheck[current.id] && !retrievalCheck[current.id].checking && (
+                      <span className={retrievalCheck[current.id].ok ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}>
+                        {retrievalCheck[current.id].ok ? "✅" : "❌"} {retrievalCheck[current.id].detail}
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 {revFor === d.id && (
                   <div className="mt-3 pl-7 flex flex-wrap items-end gap-2">
