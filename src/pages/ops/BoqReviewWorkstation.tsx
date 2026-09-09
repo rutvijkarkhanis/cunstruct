@@ -96,6 +96,23 @@ export default function BoqReviewWorkstation() {
     },
   });
 
+  // TEMPORARY DIAGNOSTIC ONLY — a separate, independent read of
+  // project_document.current_revision_id per document, so the diagnostic panel
+  // below can display it without touching the `drawings` query or StoredDrawing
+  // shape that actual resolution depends on. Not read by any resolution logic.
+  // Remove this query and TempDiagnosticPanel together after the investigation.
+  const { data: diagRevisionIds = {} } = useQuery({
+    queryKey: ["rw-diag-revision-ids", boq?.project_id],
+    enabled: !!boq?.project_id,
+    queryFn: async (): Promise<Record<string, string | null>> => {
+      const { data: docs } = await supabase.from("project_document")
+        .select("id, current_revision_id").eq("project_id", boq!.project_id!);
+      const map: Record<string, string | null> = {};
+      for (const d of docs ?? []) map[d.id] = d.current_revision_id ?? null;
+      return map;
+    },
+  });
+
   // The BOQ's current lines, for diffing reviewed values against the CURRENT
   // BOQ (not the original AI value) when building the apply-to-BOQ plan.
   const { data: boqLines = [] } = useQuery({
@@ -301,6 +318,16 @@ export default function BoqReviewWorkstation() {
         </div>
       )}
 
+      {current && (
+        <TempDiagnosticPanel
+          boq={boq}
+          resolvedDocumentId={resolvedDocumentId}
+          drawings={drawings}
+          current={current}
+          diagRevisionIds={diagRevisionIds}
+        />
+      )}
+
       {/* Import new analysis modal */}
       <Dialog open={showImportModal} onOpenChange={setShowImportModal}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -366,6 +393,52 @@ export default function BoqReviewWorkstation() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// ── TEMPORARY DIAGNOSTIC — read-only resolution-chain inspector ────────────────
+// Added to investigate why Review Analysis shows unresolved evidence for some
+// projects despite the Documents page confirming the underlying file is
+// retrievable. Displays the exact values Review Workstation's own resolution
+// (resolveItemDrawing) is using for the current item, so they can be compared
+// directly against the Documents diagnostic. Purely additive display — reads
+// only, no writes, and does not alter resolveItemDrawing or any review logic.
+// REMOVE this component and its call site once the investigation concludes.
+function TempDiagnosticPanel({
+  boq, resolvedDocumentId, drawings, current, diagRevisionIds,
+}: {
+  boq: { project_id: string | null } | null | undefined;
+  resolvedDocumentId: string | null;
+  drawings: StoredDrawing[];
+  current: StoredReviewItem;
+  diagRevisionIds: Record<string, string | null>;
+}) {
+  const resolved = resolveItemDrawing(current.ai.source, drawings, resolvedDocumentId);
+  const matchedDoc = resolved ? drawings.find((d) => d.documentId === resolved.documentId) : undefined;
+  const revisionId = resolved ? diagRevisionIds[resolved.documentId] ?? null : null;
+
+  const row = (label: string, value: string | null | undefined) => (
+    <div className="flex gap-2 flex-wrap">
+      <span className="text-muted-foreground min-w-[260px]">{label}</span>
+      <code className="break-all">{value ?? "null"}</code>
+    </div>
+  );
+
+  return (
+    <Card className="border-dashed border-2 border-amber-400">
+      <CardContent className="p-3 space-y-1 text-xs">
+        <p className="font-semibold text-amber-700">⚠ TEMPORARY DIAGNOSTIC — remove after investigation</p>
+        {row("boq.project_id", boq?.project_id)}
+        {row("analysis_run.resolved_document_id", resolvedDocumentId)}
+        {row("item.ai.source.documentId", current.ai.source?.documentId)}
+        {row("drawings loaded", String(drawings.length))}
+        {row("current item matches a loaded drawing", resolved ? "yes" : "no")}
+        {row("matched drawing documentId", resolved?.documentId ?? null)}
+        {row("matched drawing name", matchedDoc?.name ?? null)}
+        {row("document_revision.id (current revision of matched doc)", revisionId)}
+        {row("resolved filePath", resolved?.filePath ?? "MISSING")}
+      </CardContent>
+    </Card>
   );
 }
 
