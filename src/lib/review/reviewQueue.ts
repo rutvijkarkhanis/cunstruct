@@ -56,16 +56,26 @@ export const LOW_CONFIDENCE = 0.6;
 const dupeKey = (i: AnalysisItemV1) =>
   `${(i.item ?? "").toLowerCase().trim()}¦${(i.location ?? "").toLowerCase().trim()}`;
 
+/** Scopes an explicit key by location so a mark code reused across different
+ *  locations (e.g. "W1" on the Stilt, Ground, and Typical floors) is not
+ *  treated as one identity. A blank location collapses to the bare key,
+ *  preserving today's behavior when no location is given. */
+const scopedKey = (i: AnalysisItemV1) => {
+  const loc = (i.location ?? "").toLowerCase().trim();
+  return loc ? `${i.key}¦${loc}` : i.key;
+};
+
 /** Build review items from analysis items, tagging duplicates deterministically. */
 export function buildReviewItems(items: AnalysisItemV1[]): ReviewItem[] {
   const seenKey = new Map<string, string>();   // dupeKey → first item key
-  const seenId = new Map<string, string>();     // explicit key → first item key
+  const seenId = new Map<string, string>();     // scoped key → first item key
   return items.map((ai) => {
     let duplicateOf: string | undefined;
     const k = dupeKey(ai);
-    if (ai.key && seenId.has(ai.key)) duplicateOf = seenId.get(ai.key);
+    const sk = scopedKey(ai);
+    if (ai.key && seenId.has(sk)) duplicateOf = seenId.get(sk);
     else if (seenKey.has(k)) duplicateOf = seenKey.get(k);
-    if (ai.key && !seenId.has(ai.key)) seenId.set(ai.key, ai.key);
+    if (ai.key && !seenId.has(sk)) seenId.set(sk, ai.key);
     if (!seenKey.has(k)) seenKey.set(k, ai.key);
     return { ai, reviewStatus: "PENDING_REVIEW", duplicateOf };
   });

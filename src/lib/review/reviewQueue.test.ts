@@ -20,6 +20,45 @@ describe("buildReviewItems — duplicate detection", () => {
     expect(items[0].duplicateOf).toBeUndefined();
     expect(items[1].duplicateOf).toBe("W1");
   });
+
+  it("does NOT flag the same mark code reused across different floors as a duplicate", () => {
+    // Stilt / W1, Ground / W1, Typical / W1 — same key, three distinct real
+    // items. This is the exact false-positive the unscoped key check produced.
+    const items = buildReviewItems([
+      ai({ key: "W1", item: "Window", location: "Stilt" }),
+      ai({ key: "W1", item: "Window", location: "Ground" }),
+      ai({ key: "W1", item: "Window", location: "Typical Floor 1" }),
+    ]);
+    expect(items[0].duplicateOf).toBeUndefined();
+    expect(items[1].duplicateOf).toBeUndefined();
+    expect(items[2].duplicateOf).toBeUndefined();
+  });
+
+  it("still flags the same key in the same location as a duplicate", () => {
+    const items = buildReviewItems([
+      ai({ key: "W1", item: "Window", location: "Ground" }),
+      ai({ key: "W1", item: "Window", location: "Ground" }),
+    ]);
+    expect(items[0].duplicateOf).toBeUndefined();
+    expect(items[1].duplicateOf).toBe("W1");
+  });
+
+  it("still flags the same key as a duplicate when location is blank on both", () => {
+    const items = buildReviewItems([
+      ai({ key: "W1", item: "Window" }),
+      ai({ key: "W1", item: "Window" }),
+    ]);
+    expect(items[0].duplicateOf).toBeUndefined();
+    expect(items[1].duplicateOf).toBe("W1");
+  });
+
+  it("location comparison is case/whitespace insensitive, like the existing item+location check", () => {
+    const items = buildReviewItems([
+      ai({ key: "W1", item: "Window", location: "Ground" }),
+      ai({ key: "W1", item: "Window", location: "  GROUND  " }),
+    ]);
+    expect(items[1].duplicateOf).toBe("W1");
+  });
 });
 
 describe("orderQueue — attention first, nothing discarded", () => {
