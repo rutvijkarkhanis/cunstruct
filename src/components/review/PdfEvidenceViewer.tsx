@@ -196,7 +196,11 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
     const c = containerRef.current;
     const space = resolvePageSpace(source, pageBase);
     if (!c || !space || !pageBase) return;
-    const fit = fitToEvidence(boxes, space, pageBase, c.clientWidth);
+    // maxScale: 4 (tighter than fitToEvidence's own default of 8) — a second,
+    // independent guard against an oversized canvas specifically for the
+    // AUTOMATIC fit trigger, in addition to the layout containment fix above.
+    // Manual zoom (+/- buttons) is untouched and keeps its own 8x ceiling.
+    const fit = fitToEvidence(boxes, space, pageBase, c.clientWidth, { maxScale: 4 });
     if (!fit) return;
     setScale(fit.scale);
     // Centre after the canvas resizes.
@@ -296,7 +300,12 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
     >
       {sheetIdentity}
       {contextBanner}
-      <div ref={containerRef} className="relative overflow-auto border rounded bg-neutral-100" style={{ height: 460 }}>
+      {/* w-full max-w-full min-w-0: self-constrain to the available width
+          regardless of embedding context, so overflow-auto actually scrolls
+          an oversized canvas internally instead of the canvas's intrinsic
+          size pulling this container (and its ancestors) wider than the
+          viewport — see the min-w-0 note on the caller's Card. */}
+      <div ref={containerRef} className="relative overflow-auto border rounded bg-neutral-100 w-full max-w-full min-w-0" style={{ height: 460 }}>
         {status === "loading" && <div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>}
         {status === "error" && (
           <div className="absolute inset-0 flex items-center justify-center p-4">

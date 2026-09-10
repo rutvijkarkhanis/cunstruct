@@ -60,6 +60,34 @@ describe("fitToEvidence — canonical scale calculation", () => {
     expect(huge!.scale).toBeGreaterThanOrEqual(0.2);
   });
 
+  // REGRESSION: mobile Review Workstation viewer went blank because the
+  // AUTOMATIC fit-to-evidence trigger hit the default maxScale of 8 whenever
+  // the container's measured width was corrupted (a CSS grid/flex "min-width:
+  // auto" content-blowout let the canvas's own size dictate its container's
+  // clientWidth — see PdfEvidenceViewer.tsx's fitEvidence). Fixed on two
+  // fronts: containment (CSS, not exercised by this pure-function test) and a
+  // tighter maxScale for that one automatic call site. This locks in the
+  // second front using the real production values (Srikakulam: pageBase
+  // 842×595) so a small evidence region on a narrow viewport can never
+  // reproduce the 6736px-wide canvas seen in production.
+  it("an explicit tighter maxScale caps the AUTOMATIC fit-to-evidence call below the function's own default", () => {
+    const pageBase = { width: 842, height: 595 }; // production Srikakulam value
+    const smallEvidenceBox = box([400, 250, 420, 280]); // a small region relative to the page
+    const mobileViewportWidth = 350; // a plausible narrow mobile clientWidth
+
+    const uncapped = fitToEvidence([smallEvidenceBox], pageBase, pageBase, mobileViewportWidth);
+    expect(uncapped!.scale).toBe(8); // reproduces the production symptom with the function's own default
+
+    const capped = fitToEvidence([smallEvidenceBox], pageBase, pageBase, mobileViewportWidth, { maxScale: 4 });
+    expect(capped!.scale).toBe(4); // the fix: PdfEvidenceViewer's automatic call now passes this explicitly
+
+    // Bounds the resulting canvas concretely: at maxScale 4, a page this size
+    // can never render wider than 842 * 4 = 3368px — well below the 6736px
+    // production regression, even if the width measurement is still wrong.
+    expect(pageBase.width * capped!.scale).toBeLessThan(pageBase.width * uncapped!.scale);
+    expect(pageBase.width * capped!.scale).toBeLessThanOrEqual(3368);
+  });
+
   it("returns null with no boxes (keep current view rather than guess)", () => {
     expect(fitToEvidence([], { width: 100, height: 100 }, { width: 100, height: 100 }, 500)).toBeNull();
   });

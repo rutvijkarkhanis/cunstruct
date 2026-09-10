@@ -318,7 +318,7 @@ export default function BoqReviewWorkstation() {
       {!current ? (
         <Card><CardContent className="p-8 text-center text-muted-foreground">Nothing in this filter. Switch to “all”.</CardContent></Card>
       ) : (
-        <div className="grid lg:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           <ItemPanel
             key={current.id}
             item={current}
@@ -1061,9 +1061,15 @@ export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, sel
   }, [resolved?.filePath]);
 
   // A real stored file we could sign → render the actual drawing with overlays.
+  // min-w-0: without it, this Card (a grid item on the review split view) can
+  // be forced wider than its track by the PDF canvas's own intrinsic size —
+  // grid/flex items default to min-width:auto (their content's min size), and
+  // Tailwind's grid-cols-N utilities only guard against that with an explicit
+  // minmax(0, 1fr) track. See PdfEvidenceViewer's containerRef for the other
+  // half of this fix.
   if (resolved?.filePath) {
     return (
-      <Card><CardContent className="p-4">
+      <Card className="min-w-0"><CardContent className="p-4">
         <PdfEvidenceViewer
           fileUrl={signed}
           source={item.ai.source}
