@@ -65,6 +65,19 @@ const source: AnalysisSource = {
   ],
 };
 
+// A DIFFERENT item's source, for the "source changes but the same claim stays
+// selected" regression below. Its own "quantity" evidence lives on page 3 —
+// deliberately different from `source`'s page 8 — so a test that stays stuck
+// on the previous item's page is caught.
+const sourceOtherItem: AnalysisSource = {
+  document: "other-drawing.pdf",
+  page: 2,
+  evidence: [
+    { page: 2, bbox: [100, 100, 150, 150], claim: "general", label: "Other item general view" },
+    { page: 3, bbox: [200, 200, 250, 250], claim: "quantity", label: "Other item schedule row (qty)" },
+  ],
+};
+
 // A second fixture with NO item-level `source.page` and one evidence box with
 // no `page` of its own either — the genuinely unresolvable case: nothing tells
 // the viewer where this box belongs, so it must not be shown just because it
@@ -139,6 +152,32 @@ describe("PdfEvidenceViewer — claim navigation (Fix 1)", () => {
     expect(await (await overlays()).findByText("Synthetic schedule row (dim)")).toBeInTheDocument();
     expect((await overlays()).queryByText("Synthetic schedule row (qty)")).toBeNull();
     expect((await overlays()).queryByText("Synthetic schedule row (spec)")).toBeNull();
+  });
+
+  // REGRESSION: production bug found live after the Srikakulam mobile-sizing
+  // fix. The old code split page navigation across two effects — one keyed on
+  // `source`, one keyed on `selectedClaim` — so switching to a new item while
+  // the SAME claim stayed selected (carried over, or reselected before
+  // BoqReviewWorkstation's "clear selectedClaim on item change" effect
+  // committed) fired NEITHER effect: `source` changed but `selectedClaim`'s
+  // effect only watches `selectedClaim`, and `selectedClaim` didn't change so
+  // its own effect never re-ran either. The viewer stayed on the PREVIOUS
+  // item's claim page while the context banner (computed fresh from both
+  // values every render) correctly named the new page — exactly the
+  // page-7-vs-page-8 mismatch seen in production.
+  it("REGRESSION: jumps to the new item's claim page when the item changes but the same claim stays selected", async () => {
+    // Mount on the first item with "quantity" already selected — its evidence
+    // is on page 8.
+    const { rerender } = render(<Viewer src={source} selectedClaim="quantity" />);
+    expect(await screen.findByText(`8 / ${NUM_PAGES}`)).toBeInTheDocument();
+
+    // Switch to a DIFFERENT item (source changes) while "quantity" remains
+    // selected — the exact production race. This item's own "quantity"
+    // evidence lives on a different page (3, not 8).
+    rerender(<Viewer src={sourceOtherItem} selectedClaim="quantity" />);
+    expect(await screen.findByText(`3 / ${NUM_PAGES}`)).toBeInTheDocument();
+    expect(await (await overlays()).findByText("Other item schedule row (qty)")).toBeInTheDocument();
+    expect((await overlays()).queryByText("Synthetic schedule row (qty)")).toBeNull();
   });
 });
 

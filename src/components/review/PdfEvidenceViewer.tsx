@@ -68,23 +68,29 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
     return filtered;
   }, [source, page, selectedClaim]);
 
-  // When the item changes, jump to its source page.
-  useEffect(() => { setPage(source?.page ?? 1); }, [source]);
-
-  // When the selected claim changes, jump to the page its evidence lives on —
-  // a claim's evidence can be on a different page than the item's default
-  // page. Resolved from the FULL evidence array, not the current page's boxes,
-  // so this works even when the viewer isn't already on the right page.
-  // Deliberately keyed only on `selectedClaim`, not `source`: BoqReviewWorkstation
-  // clears selectedClaim one render after switching items, so keying on `source`
-  // too would race that reset and strand the page on the previous item's claim page.
+  // Navigate to the correct page whenever the item OR the selected claim
+  // changes — computed from BOTH current values together, in one effect, so
+  // page can never go stale. Two separate effects (one keyed on `source`, one
+  // on `selectedClaim`) used to miss the case where `source` changes but
+  // `selectedClaim`'s value doesn't (e.g. the same claim stays selected across
+  // an item switch, whether carried over or reselected before
+  // BoqReviewWorkstation's "clear on item change" effect commits): neither
+  // effect's dependency changed, so neither fired, and the viewer was left
+  // showing the PREVIOUS page while the context banner (computed fresh from
+  // both values every render) correctly named the new page — production bug,
+  // reproduced by the "source changes, same claim stays selected" test below.
   useEffect(() => {
-    if (!selectedClaim) return;
-    const claimBoxes = getEvidenceForClaim(source?.evidence ?? [], selectedClaim);
-    const targetPage = claimBoxes[0]?.page ?? source?.page;
-    if (targetPage != null) setPage(targetPage);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedClaim]);
+    if (selectedClaim) {
+      // Resolved from the FULL evidence array, not the current page's boxes,
+      // so this works even when the viewer isn't already on the right page.
+      const claimBoxes = getEvidenceForClaim(source?.evidence ?? [], selectedClaim);
+      const targetPage = claimBoxes[0]?.page ?? source?.page;
+      if (targetPage != null) setPage(targetPage);
+      // No resolvable page for this claim — leave the page as it is, same as before.
+      return;
+    }
+    setPage(source?.page ?? 1);
+  }, [source, selectedClaim]);
 
   // Load the document when the signed URL changes.
   useEffect(() => {
