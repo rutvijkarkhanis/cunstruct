@@ -56,25 +56,6 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
 
-  // TEMPORARY DIAGNOSTIC ONLY — observes the load/render outcomes below without
-  // changing them. Every field here is set alongside an existing state update or
-  // an existing (previously silent) branch; none of it feeds back into what
-  // renders, what triggers the error UI, or any coordinate/scale calculation.
-  // Remove this state and the diagnostic panel together after the investigation.
-  const [diag, setDiag] = useState<{
-    getDocumentSucceeded: boolean | null;
-    getDocumentError: string | null;
-    renderCompleted: boolean | null;
-    renderException: string | null;
-    lastRenderOutcome: "success" | "cancelled" | "error" | null;
-    canvasBitmapWidth: number | null;
-    canvasBitmapHeight: number | null;
-  }>({
-    getDocumentSucceeded: null, getDocumentError: null,
-    renderCompleted: null, renderException: null, lastRenderOutcome: null,
-    canvasBitmapWidth: null, canvasBitmapHeight: null,
-  });
-
   // Evidence boxes on the CURRENT page (per-box page overrides the item page).
   // A box with no resolvable page (neither its own `page` nor `source.page`) is
   // excluded here rather than assumed to be on whatever page is showing.
@@ -111,7 +92,6 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
     let cancelled = false;
     setStatus("loading");
     setErrorDetail(null);
-    setDiag((d) => ({ ...d, getDocumentSucceeded: null, getDocumentError: null }));
     const task = pdfjsLib.getDocument(fileUrl);
     task.promise.then((doc) => {
       if (cancelled) return;
@@ -119,14 +99,12 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
       setNumPages(doc.numPages);
       setPage((p) => Math.min(Math.max(1, p), doc.numPages));
       setStatus("ready");
-      setDiag((d) => ({ ...d, getDocumentSucceeded: true, getDocumentError: null }));
     }).catch((err) => {
       if (!cancelled) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error("[PdfEvidenceViewer] Failed to load PDF:", msg);
         setErrorDetail(msg);
         setStatus("error");
-        setDiag((d) => ({ ...d, getDocumentSucceeded: false, getDocumentError: msg }));
       }
     });
     return () => { cancelled = true; try { task.destroy?.(); } catch { /* noop */ } };
@@ -159,24 +137,16 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
       renderTaskRef.current = task;
       await task.promise;
       setErrorDetail(null);
-      setDiag((d) => ({
-        ...d, renderCompleted: true, renderException: null, lastRenderOutcome: "success",
-        canvasBitmapWidth: canvas.width, canvasBitmapHeight: canvas.height,
-      }));
     } catch (err) {
       // Only treat as error if not a cancellation (TextLayerMode errors during cancel are expected)
       if (err instanceof Error && err.message?.includes("cancelled")) {
-        // Cancelled render is expected, don't treat as error — but still record it
-        // for the diagnostic panel rather than swallowing it entirely.
-        const msg = err.message;
-        setDiag((d) => ({ ...d, lastRenderOutcome: "cancelled", renderException: msg }));
+        // Cancelled render is expected, don't treat as error
         return;
       }
       const msg = err instanceof Error ? err.message : String(err);
       console.error("[PdfEvidenceViewer] Failed to render page:", msg);
       setErrorDetail(`Render failed: ${msg}`);
       setStatus("error");
-      setDiag((d) => ({ ...d, renderCompleted: false, renderException: msg, lastRenderOutcome: "error" }));
     }
   }, [page, scale]);
 
@@ -338,87 +308,7 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
         <p className="text-[11px] text-muted-foreground">Evidence coordinates unavailable — showing the source page only.</p>
       )}
       {pageSizeWarning && <p className="text-[11px] text-amber-600">{pageSizeWarning}</p>}
-
-      <TempPdfRenderDiagnostic
-        status={status}
-        errorDetail={errorDetail}
-        numPages={numPages}
-        page={page}
-        boxesLength={boxes.length}
-        pageBase={pageBase}
-        scale={scale}
-        canvasRef={canvasRef}
-        containerRef={containerRef}
-        pageSizeWarning={pageSizeWarning}
-        diag={diag}
-      />
     </Shell>
-  );
-}
-
-// ── TEMPORARY DIAGNOSTIC — read-only PDF load/render inspector ─────────────────
-// Added to investigate a case where resolution/signing succeed (drawing links,
-// evidence navigation reaches the right page) but the canvas area renders
-// blank with no visible error. Reads existing state/refs and the `diag` object
-// populated alongside (never in place of) the real load/render outcomes above.
-// Does not alter rendering, coordinate, or resolution logic in any way.
-// REMOVE this component and its call site once the investigation concludes.
-function TempPdfRenderDiagnostic({
-  status, errorDetail, numPages, page, boxesLength, pageBase, scale, canvasRef, containerRef, pageSizeWarning, diag,
-}: {
-  status: "idle" | "loading" | "ready" | "error";
-  errorDetail: string | null;
-  numPages: number;
-  page: number;
-  boxesLength: number;
-  pageBase: Size | null;
-  scale: number;
-  canvasRef: React.RefObject<HTMLCanvasElement>;
-  containerRef: React.RefObject<HTMLDivElement>;
-  pageSizeWarning: string | null;
-  diag: {
-    getDocumentSucceeded: boolean | null;
-    getDocumentError: string | null;
-    renderCompleted: boolean | null;
-    renderException: string | null;
-    lastRenderOutcome: "success" | "cancelled" | "error" | null;
-    canvasBitmapWidth: number | null;
-    canvasBitmapHeight: number | null;
-  };
-}) {
-  const canvas = canvasRef.current;
-  const container = containerRef.current;
-
-  const row = (label: string, value: string | number | boolean | null | undefined) => (
-    <div className="flex gap-2 flex-wrap">
-      <span className="text-muted-foreground min-w-[260px]">{label}</span>
-      <code className="break-all">{value === null || value === undefined ? "null" : String(value)}</code>
-    </div>
-  );
-
-  return (
-    <div className="border-dashed border-2 border-amber-400 rounded p-3 text-xs space-y-1 bg-amber-50/40">
-      <p className="font-semibold text-amber-700">⚠ TEMPORARY DIAGNOSTIC — PDF render inspector — remove after investigation</p>
-      {row("PDF load status", status)}
-      {row("errorDetail", errorDetail)}
-      {row("getDocument(fileUrl) succeeded", diag.getDocumentSucceeded)}
-      {row("getDocument error", diag.getDocumentError)}
-      {row("page.render() completed", diag.renderCompleted)}
-      {row("last render outcome", diag.lastRenderOutcome)}
-      {row("render exception (incl. cancelled, not swallowed)", diag.renderException)}
-      {row("numPages", numPages)}
-      {row("current page", page)}
-      {row("boxes.length (evidence on this page)", boxesLength)}
-      {row("pageBase — actual PDF page @ scale 1 (w × h)", pageBase ? `${pageBase.width} × ${pageBase.height}` : null)}
-      {row("current scale", scale)}
-      {row("canvas ref exists", !!canvas)}
-      {row("canvas bitmap width × height", canvas ? `${canvas.width} × ${canvas.height}` : null)}
-      {row("canvas bitmap width × height (from last successful render)", diag.canvasBitmapWidth != null ? `${diag.canvasBitmapWidth} × ${diag.canvasBitmapHeight}` : null)}
-      {row("canvas CSS width × height", canvas ? `${canvas.style.width || "(unset)"} × ${canvas.style.height || "(unset)"}` : null)}
-      {row("container client width × height", container ? `${container.clientWidth} × ${container.clientHeight}` : null)}
-      {row("container scroll position (left, top)", container ? `${container.scrollLeft}, ${container.scrollTop}` : null)}
-      {row("pageSizeWarning", pageSizeWarning ? "present — see amber warning above" : null)}
-    </div>
   );
 }
 
