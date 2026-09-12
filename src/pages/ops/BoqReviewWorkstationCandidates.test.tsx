@@ -1,19 +1,23 @@
 // UI BEHAVIOR — ItemPanel must show the AI's conflicting-source candidates
 // clearly (value + basis + source), not just a bare, unexplained PENDING.
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { ItemPanel } from "./BoqReviewWorkstation";
 import type { StoredReviewItem } from "@/lib/review/reviewStore";
 
 function panel(item: StoredReviewItem) {
-  return render(
+  const mocks = {
+    onVerify: vi.fn(), onEdit: vi.fn(), onFlag: vi.fn(), onPending: vi.fn(),
+    onPrev: vi.fn(), onNext: vi.fn(), onSelectClaim: vi.fn(),
+  };
+  const result = render(
     <ItemPanel
       item={item} index={0} count={1}
-      onVerify={vi.fn()} onEdit={vi.fn()} onFlag={vi.fn()} onPending={vi.fn()}
-      onPrev={vi.fn()} onNext={vi.fn()} onSelectClaim={vi.fn()}
+      {...mocks}
       drawings={[]} resolvedDocumentId={null}
     />,
   );
+  return { ...result, mocks };
 }
 
 const conflictedItem: StoredReviewItem = {
@@ -78,5 +82,48 @@ describe("ItemPanel — conflicting-source candidates", () => {
   it("does not show the conflict banner for a normal measured item", () => {
     panel(measuredItem);
     expect(screen.queryByText(/Conflicting sources/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("ItemPanel — 'Use this value' stages a candidate without verifying or applying", () => {
+  it("shows one 'Use this value' action per candidate", () => {
+    panel(conflictedItem);
+    expect(screen.getAllByText("Use this value")).toHaveLength(2);
+  });
+
+  it("clicking it opens the Edit form pre-filled with that candidate's value", () => {
+    panel(conflictedItem);
+    fireEvent.click(screen.getAllByText("Use this value")[0]); // the 25176 candidate
+    const qtyInput = screen.getByLabelText(/Quantity \(AI:/) as HTMLInputElement;
+    expect(qtyInput.value).toBe("25176");
+  });
+
+  it("switching to a different candidate updates the field to that value", () => {
+    panel(conflictedItem);
+    fireEvent.click(screen.getAllByText("Use this value")[0]); // 25176
+    fireEvent.click(screen.getAllByText("Use this value")[1]); // 25101
+    const qtyInput = screen.getByLabelText(/Quantity \(AI:/) as HTMLInputElement;
+    expect(qtyInput.value).toBe("25101");
+  });
+
+  it("does NOT call onVerify, onEdit, or onFlag — it only stages a draft value", () => {
+    const { mocks } = panel(conflictedItem);
+    fireEvent.click(screen.getAllByText("Use this value")[0]);
+    expect(mocks.onVerify).not.toHaveBeenCalled();
+    expect(mocks.onEdit).not.toHaveBeenCalled();
+    expect(mocks.onFlag).not.toHaveBeenCalled();
+  });
+
+  it("the reviewer must still explicitly click Save correction for it to be committed", () => {
+    const { mocks } = panel(conflictedItem);
+    fireEvent.click(screen.getAllByText("Use this value")[0]);
+    fireEvent.click(screen.getByText("Save correction"));
+    expect(mocks.onEdit).toHaveBeenCalledTimes(1);
+    expect(mocks.onEdit).toHaveBeenCalledWith({ quantity: 25176 });
+  });
+
+  it("has no 'Use this value' action when there are no candidates", () => {
+    panel(plainPendingItem);
+    expect(screen.queryByText("Use this value")).not.toBeInTheDocument();
   });
 });

@@ -271,18 +271,30 @@ export function parseAnalysisV1(text: string): AnalysisParseV1 {
       if (parsed) candidates.push(parsed);
     });
 
+    // A quantity with more than one candidate is, by definition, unresolved —
+    // never let it also carry a chosen value or a non-PENDING status. Forced
+    // here rather than trusted from input, so a payload that supplies both
+    // can't slip a "resolved" quantity past the reviewer.
+    let finalQuantity = quantity;
+    let finalAiStatus = normalizeAiStatus(o.status ?? o.ai_status, quantity);
+    if (candidates.length > 1 && (finalQuantity != null || finalAiStatus !== "PENDING")) {
+      warnings.push(`"${item}": ${candidates.length} conflicting candidates supplied — quantity forced to null and status to PENDING (a conflicted quantity is never treated as resolved).`);
+      finalQuantity = null;
+      finalAiStatus = "PENDING";
+    }
+
     items.push({
       key: key || item,
       item,
       description: str(o.description) || undefined,
-      quantity,
+      quantity: finalQuantity,
       unit: str(o.unit) || undefined,
       dimension: str(o.dimension) || undefined,
       specification: str(o.specification ?? o.spec) || undefined,
       location: str(o.location ?? o.allocation) || undefined,
       source: parseSource(o.source, warnings, item),
       confidence: conf.value,
-      aiStatus: normalizeAiStatus(o.status ?? o.ai_status, quantity),
+      aiStatus: finalAiStatus,
       calculation: str(o.calculation) || undefined,
       notes: str(o.notes ?? o.note) || undefined,
       candidates: candidates.length ? candidates : undefined,

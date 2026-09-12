@@ -110,6 +110,55 @@ describe("parseAnalysisV1 — quantity candidates (conflicting sources)", () => 
   });
 });
 
+describe("parseAnalysisV1 — a conflicted quantity can never also be 'resolved'", () => {
+  it("forces quantity to null and status to PENDING when a non-null quantity is supplied alongside 2+ candidates", () => {
+    const r = parseAnalysisV1(JSON.stringify({ items: [
+      {
+        item: "Total slab area", quantity: 25128, status: "MEASURED",
+        candidates: [{ value: 25176, basis: "sum" }, { value: 25101, basis: "printed" }],
+      },
+    ] }));
+    expect(r.ok).toBe(true);
+    const it_ = r.analysis!.items[0];
+    expect(it_.quantity).toBeNull();
+    expect(it_.aiStatus).toBe("PENDING");
+    expect(it_.candidates).toHaveLength(2); // candidates themselves are untouched
+    expect(r.warnings.some((w) => /2 conflicting candidates.*forced to null/i.test(w))).toBe(true);
+  });
+
+  it("forces status to PENDING even when quantity is already null but status was MEASURED", () => {
+    const r = parseAnalysisV1(JSON.stringify({ items: [
+      { item: "X", quantity: null, status: "MEASURED", candidates: [{ value: 1, basis: "a" }, { value: 2, basis: "b" }] },
+    ] }));
+    expect(r.analysis!.items[0].aiStatus).toBe("PENDING");
+    expect(r.warnings.some((w) => /conflicting candidates/i.test(w))).toBe(true);
+  });
+
+  it("does not warn or alter an already-correct PENDING/null item with 2+ candidates", () => {
+    const r = parseAnalysisV1(JSON.stringify({ items: [
+      { item: "X", quantity: null, status: "PENDING", candidates: [{ value: 1, basis: "a" }, { value: 2, basis: "b" }] },
+    ] }));
+    expect(r.analysis!.items[0].quantity).toBeNull();
+    expect(r.analysis!.items[0].aiStatus).toBe("PENDING");
+    expect(r.warnings.some((w) => /conflicting candidates/i.test(w))).toBe(false);
+  });
+
+  it("does NOT force PENDING for a single candidate — only 2+ counts as a real conflict", () => {
+    const r = parseAnalysisV1(JSON.stringify({ items: [
+      { item: "X", quantity: 5, status: "MEASURED", candidates: [{ value: 5, basis: "only source" }] },
+    ] }));
+    expect(r.analysis!.items[0].quantity).toBe(5);
+    expect(r.analysis!.items[0].aiStatus).toBe("MEASURED");
+    expect(r.warnings.some((w) => /conflicting candidates/i.test(w))).toBe(false);
+  });
+
+  it("leaves items with no candidates completely unaffected", () => {
+    const r = parseAnalysisV1(JSON.stringify({ items: [{ item: "Plain", quantity: 9, status: "MEASURED" }] }));
+    expect(r.analysis!.items[0].quantity).toBe(9);
+    expect(r.analysis!.items[0].aiStatus).toBe("MEASURED");
+  });
+});
+
 describe("normalizeConfidenceNumber", () => {
   it("keeps a 0..1 value", () => {
     expect(normalizeConfidenceNumber(0.8)).toEqual({ value: 0.8, wasPercent: false });
