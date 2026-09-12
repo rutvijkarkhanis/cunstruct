@@ -127,3 +127,40 @@ describe("ItemPanel — 'Use this value' stages a candidate without verifying or
     expect(screen.queryByText("Use this value")).not.toBeInTheDocument();
   });
 });
+
+describe("ItemPanel — Verify becomes reachable once a reviewer resolves a PENDING quantity", () => {
+  it("Verify is disabled with the correct reason while the item is still unresolved PENDING", () => {
+    panel(conflictedItem);
+    const verifyBtn = screen.getByText("Verify").closest("button")!;
+    expect(verifyBtn).toBeDisabled();
+    expect(verifyBtn).toHaveAttribute("title", expect.stringMatching(/No quantity to verify/i));
+  });
+
+  it("Verify is enabled once the reviewer has supplied a real quantity override", () => {
+    const resolved: StoredReviewItem = {
+      ...conflictedItem,
+      reviewStatus: "EDITED",
+      reviewer: { quantity: 25101 },
+    };
+    panel(resolved);
+    const verifyBtn = screen.getByText("Verify").closest("button")!;
+    expect(verifyBtn).not.toBeDisabled();
+  });
+
+  it("Verify stays disabled if the reviewer explicitly cleared the quantity back to null (still genuinely pending)", () => {
+    const stillPending: StoredReviewItem = {
+      ...conflictedItem,
+      reviewStatus: "EDITED",
+      reviewer: { quantity: null },
+    };
+    panel(stillPending);
+    const verifyBtn = screen.getByText("Verify").closest("button")!;
+    expect(verifyBtn).toBeDisabled();
+  });
+
+  it("a normal (never-pending) measured item is unaffected by this gate", () => {
+    panel(measuredItem);
+    const verifyBtn = screen.getByText("Verify").closest("button")!;
+    expect(verifyBtn).not.toBeDisabled();
+  });
+});

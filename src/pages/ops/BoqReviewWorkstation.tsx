@@ -192,10 +192,15 @@ export default function BoqReviewWorkstation() {
     status: ReviewStatus, opts: { reviewer?: ReviewerValues | null; flagReason?: FlagReason | null; note?: string | null } = {},
   ) => {
     if (!current) return;
+    // Preserve an already-saved reviewer correction when this transition
+    // doesn't supply a new one — only Edit ever passes `reviewer` explicitly.
+    // Without this, clicking Verify (or Flag, or Mark Pending) after an Edit
+    // would silently wipe the correction back to null.
+    const reviewer = "reviewer" in opts ? opts.reviewer ?? null : current.reviewer ?? null;
     try {
-      await saveReviewDecision({ itemId: current.id, reviewStatus: status, reviewer: opts.reviewer ?? null, flagReason: opts.flagReason ?? null, reviewNote: opts.note ?? null });
+      await saveReviewDecision({ itemId: current.id, reviewStatus: status, reviewer, flagReason: opts.flagReason ?? null, reviewNote: opts.note ?? null });
       setItems((prev) => prev.map((it) => it.id === current.id
-        ? { ...it, reviewStatus: status, reviewer: opts.reviewer ?? undefined, flagReason: opts.flagReason ?? undefined, reviewNote: opts.note ?? undefined, reviewedAt: new Date().toISOString() }
+        ? { ...it, reviewStatus: status, reviewer: reviewer ?? undefined, flagReason: opts.flagReason ?? undefined, reviewNote: opts.note ?? undefined, reviewedAt: new Date().toISOString() }
         : it));
       // Auto-advance to the next item in the current view.
       setTimeout(() => go(1), 0);
@@ -674,7 +679,11 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
   // shouldn't be one-click-verifiable either — unless it has no evidence to
   // look at in the first place, which is already its own critical reason and
   // must not become a dead end.
-  const pendingNoQuantity = ai.aiStatus === "PENDING" || ai.quantity == null;
+  // A reviewer-supplied quantity resolves a PENDING/quantity-less AI value —
+  // without this, an item that started PENDING could never be verified again,
+  // even after the reviewer explicitly supplied a real number via Edit.
+  const hasReviewerQuantity = item.reviewer != null && "quantity" in item.reviewer && item.reviewer.quantity != null;
+  const pendingNoQuantity = !hasReviewerQuantity && (ai.aiStatus === "PENDING" || ai.quantity == null);
   const hasEvidence = (ai.source?.evidence.length ?? 0) > 0;
   const evidenceUnresolvable = hasEvidence && !resolvedOk;
   const needsEvidenceCheck = isCritical(item) && hasEvidence && resolvedOk && !evidenceViewed;
