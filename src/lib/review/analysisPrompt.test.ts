@@ -4,7 +4,7 @@
 // reachable via hand-authored JSON, never from a real AI-generated analysis.
 
 import { describe, it, expect } from "vitest";
-import { buildAnalysisPrompt, ANALYSIS_SCHEMA_HINT } from "./analysisPrompt";
+import { buildAnalysisPrompt, ANALYSIS_SCHEMA_HINT, CANDIDATES_SCHEMA_HINT } from "./analysisPrompt";
 
 describe("analysis prompt — claim-level evidence guidance", () => {
   const p = buildAnalysisPrompt();
@@ -51,5 +51,30 @@ describe("analysis prompt — claim-level evidence guidance", () => {
   it("the schema hint demonstrates multiple regions for the same claim", () => {
     const locationEntries = ANALYSIS_SCHEMA_HINT.split("\n").filter((l) => l.includes('"claim": "location"'));
     expect(locationEntries.length).toBeGreaterThan(1);
+  });
+});
+
+describe("analysis prompt — conflicting-source candidates guidance", () => {
+  const p = buildAnalysisPrompt();
+
+  it("instructs never to pick or average disagreeing values", () => {
+    expect(p).toMatch(/do not pick one/i);
+    expect(p).toMatch(/do not average/i);
+  });
+
+  it("instructs using PENDING with a candidates array instead", () => {
+    expect(p).toMatch(/`candidates` array/);
+    expect(p).toMatch(/status pending/i);
+  });
+
+  it("includes the candidates example, with a value and a basis per entry", () => {
+    expect(p).toContain(CANDIDATES_SCHEMA_HINT);
+    expect(CANDIDATES_SCHEMA_HINT).toMatch(/"value":\s*\d+/);
+    expect(CANDIDATES_SCHEMA_HINT).toMatch(/"basis":\s*"/);
+  });
+
+  it("the candidates example itself uses status PENDING and a null quantity", () => {
+    expect(CANDIDATES_SCHEMA_HINT).toMatch(/"quantity":\s*null/);
+    expect(CANDIDATES_SCHEMA_HINT).toMatch(/"status":\s*"PENDING"/);
   });
 });

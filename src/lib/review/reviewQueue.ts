@@ -93,6 +93,7 @@ export function criticalReasons(it: ReviewItem): string[] {
   const { ai } = it;
   const reasons: string[] = [];
   if (it.duplicateOf != null) reasons.push("Possible duplicate");
+  if ((ai.candidates?.length ?? 0) > 1) reasons.push(`Conflicting sources (${ai.candidates!.length} candidates)`);
   if (ai.aiStatus === "PENDING" || ai.quantity == null) reasons.push("Pending — no quantity");
   if (ai.aiStatus === "INFERRED") reasons.push("Inferred");
   if (ai.confidence != null && ai.confidence <= LOW_CONFIDENCE) reasons.push("Low confidence");
@@ -110,6 +111,7 @@ export function isCritical(it: ReviewItem): boolean {
 function priority(it: ReviewItem): number {
   const unreviewed = needsReview(it);
   if (unreviewed && it.duplicateOf) return 0;
+  if (unreviewed && (it.ai.candidates?.length ?? 0) > 1) return 0.5; // conflicting sources — actionable, resolve next
   if (unreviewed && (it.ai.aiStatus === "PENDING" || it.ai.quantity == null)) return 1;
   if (unreviewed && it.ai.confidence != null && it.ai.confidence <= LOW_CONFIDENCE) return 2;
   if (unreviewed && it.ai.aiStatus === "INFERRED") return 3;

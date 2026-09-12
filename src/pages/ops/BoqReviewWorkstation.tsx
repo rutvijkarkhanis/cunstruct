@@ -779,6 +779,24 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
           <Field label="Confidence" value={ai.confidence == null ? "—" : `${Math.round(ai.confidence * 100)}%`} tone={ai.confidence != null && ai.confidence <= LOW_CONFIDENCE ? "danger" : undefined} />
           <Field label="Source" value={ai.source?.document ? `${ai.source.document}${ai.source.page != null ? ` — Page ${ai.source.page}` : ""}` : "—"} />
         </div>
+        {ai.candidates && ai.candidates.length > 1 && (
+          <div className="text-xs bg-amber-50 border border-amber-200 rounded p-2 space-y-1">
+            <div className="flex items-center gap-1.5 font-medium text-amber-800">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              Conflicting sources — {ai.candidates.length} candidate values found
+            </div>
+            {ai.candidates.map((c, i) => (
+              <div key={i} className="flex items-baseline justify-between gap-2 pl-5">
+                <span className="font-medium">{c.value}{c.unit ? ` ${c.unit}` : ""}</span>
+                <span className="text-muted-foreground text-right">
+                  {c.basis}
+                  {c.source?.document ? ` — ${c.source.document}${c.source.page != null ? ` p.${c.source.page}` : ""}` : ""}
+                </span>
+              </div>
+            ))}
+            <p className="text-[10px] text-muted-foreground pl-5">No value has been chosen — pick one via Edit before verifying.</p>
+          </div>
+        )}
         <p className="text-[10px] text-muted-foreground">A high AI confidence is not a substitute for checking the evidence — verify before accepting.</p>
       </div>
 

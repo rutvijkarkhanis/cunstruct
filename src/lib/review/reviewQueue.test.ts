@@ -117,6 +117,47 @@ describe("criticalReasons — factual, named reasons behind isCritical", () => {
   });
 });
 
+describe("criticalReasons / priority — conflicting sources (candidates)", () => {
+  const withCandidates = (n: number) => ai({
+    quantity: null, aiStatus: "PENDING",
+    candidates: Array.from({ length: n }, (_, i) => ({ value: i + 1, basis: `source ${i + 1}` })),
+  });
+
+  it("names a conflict with its candidate count", () => {
+    expect(criticalReasons({ ai: withCandidates(3), reviewStatus: "PENDING_REVIEW" }))
+      .toContain("Conflicting sources (3 candidates)");
+  });
+
+  it("does not flag a single candidate as a conflict", () => {
+    expect(criticalReasons({ ai: withCandidates(1), reviewStatus: "PENDING_REVIEW" }))
+      .not.toContain(expect.stringContaining("Conflicting sources"));
+  });
+
+  it("does not flag an item with no candidates at all", () => {
+    expect(criticalReasons({ ai: ai({ quantity: 5 }), reviewStatus: "PENDING_REVIEW" }))
+      .not.toEqual(expect.arrayContaining([expect.stringContaining("Conflicting sources")]));
+  });
+
+  it("sorts a conflicting item ahead of a plain pending item, but behind a duplicate", () => {
+    const items = buildReviewItems([
+      ai({ key: "A", item: "Plain", quantity: null, aiStatus: "PENDING" }),
+      ai({ key: "B", item: "Conflict", quantity: null, aiStatus: "PENDING", candidates: [{ value: 1, basis: "x" }, { value: 2, basis: "y" }] }),
+      ai({ key: "C", item: "Dup1", location: "Loc" }),
+      ai({ key: "D", item: "Dup1", location: "Loc" }), // flagged duplicateOf "Dup1"@"Loc"
+    ]);
+    const order = orderQueue(items).map((i) => i.ai.key);
+    expect(order.indexOf("D")).toBeLessThan(order.indexOf("B")); // duplicate before conflict
+    expect(order.indexOf("B")).toBeLessThan(order.indexOf("A")); // conflict before plain pending
+  });
+
+  it("combines with other reasons rather than replacing them", () => {
+    const it_ = { ai: withCandidates(2), reviewStatus: "PENDING_REVIEW" as const };
+    const reasons = criticalReasons(it_);
+    expect(reasons).toContain("Conflicting sources (2 candidates)");
+    expect(reasons).toContain("Pending — no quantity"); // candidates always leave quantity null
+  });
+});
+
 describe("filters", () => {
   const base = buildReviewItems([ai({ key: "A" }), ai({ key: "B" })]);
   it("NEEDS_REVIEW excludes reviewed items but keeps them under ALL", () => {
