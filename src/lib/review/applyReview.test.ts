@@ -114,6 +114,45 @@ describe("classifyReviewItem — new-line creation never fabricates data", () =>
   });
 });
 
+// ── Candidates (conflicting sources) must flow through the EXISTING PENDING
+// gate unchanged — applyReview.ts has no candidates-aware code at all; these
+// tests prove that's correct, not an oversight. ─────────────────────────────
+describe("classifyReviewItem — a conflicting-sources item is gated exactly like any other PENDING item", () => {
+  const conflicted = ai({
+    key: "SLAB-TOTAL", quantity: null, aiStatus: "PENDING", unit: "sq ft",
+    candidates: [
+      { value: 25176, unit: "sq ft", basis: "Arithmetic sum" },
+      { value: 25101, unit: "sq ft", basis: "Printed total" },
+    ],
+  });
+
+  it("PENDING_REVIEW with candidates is still NOT_ELIGIBLE — candidates don't bypass the review gate", () => {
+    const it_ = reviewItem({ ai: conflicted, reviewStatus: "PENDING_REVIEW" });
+    const c = classifyReviewItem(it_, [line({ external_key: "SLAB-TOTAL", qty: 0, quantity_status: "PENDING" })]);
+    expect(c.classification).toBe("NOT_ELIGIBLE");
+  });
+
+  it("VERIFIED with no reviewer override is still treated as pending (no candidate is auto-applied)", () => {
+    const it_ = reviewItem({ ai: conflicted, reviewStatus: "VERIFIED" });
+    const c = classifyReviewItem(it_, [line({ external_key: "SLAB-TOTAL", qty: 0, unit: "sq ft", quantity_status: "PENDING" })]);
+    expect(c.classification).toBe("NO_CHANGE"); // still pending == pending; nothing was chosen
+  });
+
+  it("once a reviewer picks one candidate as their override, it applies exactly like any other resolved PENDING item", () => {
+    const it_ = reviewItem({ ai: conflicted, reviewStatus: "EDITED", reviewer: { quantity: 25101, unit: "sq ft" } });
+    const c = classifyReviewItem(it_, [line({ external_key: "SLAB-TOTAL", qty: 0, unit: "sq ft", quantity_status: "PENDING" })]);
+    expect(c.classification).toBe("APPLY");
+    expect(c.changes.find((f) => f.field === "qty")).toEqual({ field: "qty", from: "pending", to: "25101" });
+  });
+
+  it("a candidate-bearing item with no matching BOQ line still proposes NEW_LINE with pending semantics, never a fabricated quantity", () => {
+    const it_ = reviewItem({ ai: { ...conflicted, item: "Total slab area" }, reviewStatus: "VERIFIED" });
+    const c = classifyReviewItem(it_, []);
+    expect(c.classification).toBe("NEW_LINE");
+    expect(c.newLine).toMatchObject({ pending: true, qty: 0 });
+  });
+});
+
 describe("buildApplyPlan", () => {
   it("classifies a mixed batch independently, item by item", () => {
     const items: StoredReviewItem[] = [

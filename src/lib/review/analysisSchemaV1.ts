@@ -41,6 +41,20 @@ export interface AnalysisSource {
   pageSize?: { width: number; height: number };
 }
 
+/**
+ * One value found for a quantity that has more than one — i.e. the drawings
+ * themselves disagree and no single number can be honestly chosen. `source`
+ * reuses the same AnalysisSource/evidence-region shape as the item's primary
+ * source; no separate evidence mechanism exists for a candidate.
+ */
+export interface QuantityCandidate {
+  value: number;
+  unit?: string;
+  /** Which source this value came from, e.g. "Printed total on 2025 area statement". */
+  basis: string;
+  source?: AnalysisSource;
+}
+
 export interface AnalysisItemV1 {
   /** Stable per-item key (e.g. "W1") — identifies, never authorizes. */
   key: string;
@@ -59,6 +73,12 @@ export interface AnalysisItemV1 {
   /** A derivation the analysis supplied — shown verbatim, never fabricated. */
   calculation?: string;
   notes?: string;
+  /**
+   * Present only when sources genuinely disagree on this quantity. When
+   * present, `quantity` stays null and `aiStatus` stays PENDING — candidates
+   * never substitute for a chosen value; a human reviewer picks one.
+   */
+  candidates?: QuantityCandidate[];
 }
 
 export interface AnalysisProjectV1 {
@@ -172,6 +192,25 @@ function parseSource(raw: unknown, warnings: string[], itemLabel: string): Analy
   return { documentId, document, page, evidence, pageSize };
 }
 
+/** Validate one candidate; returns null (not a fabricated candidate) if the
+ *  numeric value or basis is missing — the caller drops it with a warning
+ *  rather than silently keeping a half-formed entry. */
+function parseCandidate(raw: unknown, warnings: string[], itemLabel: string, idx: number): QuantityCandidate | null {
+  const o = asObj(raw);
+  const value = num(o.value);
+  const basis = str(o.basis);
+  if (value == null || !basis) {
+    warnings.push(`"${itemLabel}": candidates[${idx}] missing a numeric value or a basis — skipped (no candidate fabricated).`);
+    return null;
+  }
+  return {
+    value,
+    unit: str(o.unit) || undefined,
+    basis,
+    source: parseSource(o.source, warnings, itemLabel),
+  };
+}
+
 /**
  * Parse and validate a `cunstruct.analysis.v1` payload into an AnalysisV1.
  * Malformed JSON or a missing items array → ok:false. Per-item problems (unknown
@@ -225,20 +264,40 @@ export function parseAnalysisV1(text: string): AnalysisParseV1 {
     const conf = normalizeConfidenceNumber(o.confidence);
     if (conf.wasPercent) warnings.push(`"${item}": confidence looked like a percentage — normalized to 0–1.`);
 
+    const candRaw = Array.isArray(o.candidates) ? o.candidates : [];
+    const candidates: QuantityCandidate[] = [];
+    candRaw.forEach((c, ci) => {
+      const parsed = parseCandidate(c, warnings, item, ci);
+      if (parsed) candidates.push(parsed);
+    });
+
+    // A quantity with more than one candidate is, by definition, unresolved —
+    // never let it also carry a chosen value or a non-PENDING status. Forced
+    // here rather than trusted from input, so a payload that supplies both
+    // can't slip a "resolved" quantity past the reviewer.
+    let finalQuantity = quantity;
+    let finalAiStatus = normalizeAiStatus(o.status ?? o.ai_status, quantity);
+    if (candidates.length > 1 && (finalQuantity != null || finalAiStatus !== "PENDING")) {
+      warnings.push(`"${item}": ${candidates.length} conflicting candidates supplied — quantity forced to null and status to PENDING (a conflicted quantity is never treated as resolved).`);
+      finalQuantity = null;
+      finalAiStatus = "PENDING";
+    }
+
     items.push({
       key: key || item,
       item,
       description: str(o.description) || undefined,
-      quantity,
+      quantity: finalQuantity,
       unit: str(o.unit) || undefined,
       dimension: str(o.dimension) || undefined,
       specification: str(o.specification ?? o.spec) || undefined,
       location: str(o.location ?? o.allocation) || undefined,
       source: parseSource(o.source, warnings, item),
       confidence: conf.value,
-      aiStatus: normalizeAiStatus(o.status ?? o.ai_status, quantity),
+      aiStatus: finalAiStatus,
       calculation: str(o.calculation) || undefined,
       notes: str(o.notes ?? o.note) || undefined,
+      candidates: candidates.length ? candidates : undefined,
     });
   });
 

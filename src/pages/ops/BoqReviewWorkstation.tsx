@@ -637,8 +637,21 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
   // Whether the reviewer has opened at least one evidence link for THIS item —
   // reset per item, feeds the critical-item verification gate below.
   const [evidenceViewed, setEvidenceViewed] = useState(false);
+  // Bumped whenever "Use this value" stages a candidate into the draft, so the
+  // (uncontrolled) quantity input remounts and picks up the new defaultValue —
+  // it never remounts on ordinary typing.
+  const [candidateNonce, setCandidateNonce] = useState(0);
 
   useEffect(() => { setEditing(false); setFlagging(false); setWhy(false); setDraft({}); setEvidenceViewed(false); }, [item.id]);
+
+  // Stages a candidate's value into the draft and opens the Edit form — never
+  // saves anything itself. The reviewer still must click Save correction (and
+  // separately Verify) for it to take effect; this only pre-fills the field.
+  const stageCandidateValue = (value: number) => {
+    setEditing(true);
+    setDraft((d) => ({ ...d, quantity: value }));
+    setCandidateNonce((n) => n + 1);
+  };
 
   // Resolve the same drawing ResolvedEvidenceViewer will show. Computed here
   // (not just further below with the display-only claimEvidence/documentName
@@ -779,6 +792,31 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
           <Field label="Confidence" value={ai.confidence == null ? "—" : `${Math.round(ai.confidence * 100)}%`} tone={ai.confidence != null && ai.confidence <= LOW_CONFIDENCE ? "danger" : undefined} />
           <Field label="Source" value={ai.source?.document ? `${ai.source.document}${ai.source.page != null ? ` — Page ${ai.source.page}` : ""}` : "—"} />
         </div>
+        {ai.candidates && ai.candidates.length > 1 && (
+          <div className="text-xs bg-amber-50 border border-amber-200 rounded p-2 space-y-1">
+            <div className="flex items-center gap-1.5 font-medium text-amber-800">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              Conflicting sources — {ai.candidates.length} candidate values found
+            </div>
+            {ai.candidates.map((c, i) => (
+              <div key={i} className="flex items-center justify-between gap-2 pl-5">
+                <span className="font-medium">{c.value}{c.unit ? ` ${c.unit}` : ""}</span>
+                <span className="text-muted-foreground text-right flex-1 truncate">
+                  {c.basis}
+                  {c.source?.document ? ` — ${c.source.document}${c.source.page != null ? ` p.${c.source.page}` : ""}` : ""}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => stageCandidateValue(c.value)}
+                  className="text-[10px] text-amber-700 hover:text-amber-900 underline shrink-0"
+                >
+                  Use this value
+                </button>
+              </div>
+            ))}
+            <p className="text-[10px] text-muted-foreground pl-5">No value has been chosen — pick one via Edit before verifying.</p>
+          </div>
+        )}
         <p className="text-[10px] text-muted-foreground">A high AI confidence is not a substitute for checking the evidence — verify before accepting.</p>
       </div>
 
@@ -828,7 +866,7 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
           <div className="border rounded p-3 space-y-2">
             <div className="text-xs font-medium">Edit — AI values shown as placeholders; both are retained</div>
             <div className="grid grid-cols-2 gap-2">
-              <LabeledInput label={`Quantity (AI: ${ai.quantity ?? "—"})`} type="number" defaultValue={eff ?? ""} onChange={(v) => setDraft((d) => ({ ...d, quantity: v === "" ? null : Number(v) }))} />
+              <LabeledInput key={candidateNonce} label={`Quantity (AI: ${ai.quantity ?? "—"})`} type="number" defaultValue={draft.quantity ?? eff ?? ""} onChange={(v) => setDraft((d) => ({ ...d, quantity: v === "" ? null : Number(v) }))} />
               <LabeledInput label={`Unit (AI: ${ai.unit ?? "—"})`} defaultValue={effUnit ?? ""} onChange={(v) => setDraft((d) => ({ ...d, unit: v }))} />
               <LabeledInput label={`Dimension (AI: ${ai.dimension ?? "—"})`} defaultValue={effDimension ?? ""} onChange={(v) => setDraft((d) => ({ ...d, dimension: v }))} />
               <LabeledInput label={`Specification (AI: ${ai.specification ?? "—"})`} defaultValue={effSpecification ?? ""} onChange={(v) => setDraft((d) => ({ ...d, specification: v }))} />

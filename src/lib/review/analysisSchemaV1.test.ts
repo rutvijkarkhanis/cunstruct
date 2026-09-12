@@ -59,6 +59,106 @@ describe("parseAnalysisV1 — never fabricates coordinates", () => {
   });
 });
 
+describe("parseAnalysisV1 — quantity candidates (conflicting sources)", () => {
+  it("loads valid candidates, each with its own source", () => {
+    const r = parseAnalysisV1(JSON.stringify({ items: [
+      {
+        item: "Total slab area", quantity: null, unit: "sq ft", status: "PENDING",
+        candidates: [
+          { value: 25176, unit: "sq ft", basis: "Arithmetic sum of component slab areas" },
+          { value: 25101, unit: "sq ft", basis: "Printed total on the 2025 area statement", source: { document: "area-statement.pdf", page: 1 } },
+        ],
+      },
+    ] }));
+    expect(r.ok).toBe(true);
+    const item = r.analysis!.items[0];
+    expect(item.quantity).toBeNull();
+    expect(item.aiStatus).toBe("PENDING");
+    expect(item.candidates).toHaveLength(2);
+    expect(item.candidates![0]).toEqual({ value: 25176, unit: "sq ft", basis: "Arithmetic sum of component slab areas", source: undefined });
+    expect(item.candidates![1].source?.document).toBe("area-statement.pdf");
+  });
+
+  it("drops a candidate missing a numeric value, with a warning, keeping the rest", () => {
+    const r = parseAnalysisV1(JSON.stringify({ items: [
+      { item: "X", quantity: null, candidates: [{ basis: "no value given" }, { value: 10, basis: "ok" }] },
+    ] }));
+    expect(r.ok).toBe(true);
+    expect(r.analysis!.items[0].candidates).toHaveLength(1);
+    expect(r.analysis!.items[0].candidates![0].value).toBe(10);
+    expect(r.warnings.some((w) => /candidates\[0\].*missing/i.test(w))).toBe(true);
+  });
+
+  it("drops a candidate missing a basis, with a warning (never fabricates a reason)", () => {
+    const r = parseAnalysisV1(JSON.stringify({ items: [
+      { item: "X", quantity: null, candidates: [{ value: 5 }] },
+    ] }));
+    expect(r.ok).toBe(true);
+    expect(r.analysis!.items[0].candidates).toBeUndefined();
+    expect(r.warnings.some((w) => /candidates\[0\].*missing/i.test(w))).toBe(true);
+  });
+
+  it("leaves candidates undefined (not an empty array) when none are supplied", () => {
+    const r = parseAnalysisV1(JSON.stringify({ items: [{ item: "Plain", quantity: 1 }] }));
+    expect(r.analysis!.items[0].candidates).toBeUndefined();
+  });
+
+  it("ignores a non-array candidates field rather than throwing", () => {
+    const r = parseAnalysisV1(JSON.stringify({ items: [{ item: "X", quantity: 1, candidates: "not an array" }] }));
+    expect(r.ok).toBe(true);
+    expect(r.analysis!.items[0].candidates).toBeUndefined();
+  });
+});
+
+describe("parseAnalysisV1 — a conflicted quantity can never also be 'resolved'", () => {
+  it("forces quantity to null and status to PENDING when a non-null quantity is supplied alongside 2+ candidates", () => {
+    const r = parseAnalysisV1(JSON.stringify({ items: [
+      {
+        item: "Total slab area", quantity: 25128, status: "MEASURED",
+        candidates: [{ value: 25176, basis: "sum" }, { value: 25101, basis: "printed" }],
+      },
+    ] }));
+    expect(r.ok).toBe(true);
+    const it_ = r.analysis!.items[0];
+    expect(it_.quantity).toBeNull();
+    expect(it_.aiStatus).toBe("PENDING");
+    expect(it_.candidates).toHaveLength(2); // candidates themselves are untouched
+    expect(r.warnings.some((w) => /2 conflicting candidates.*forced to null/i.test(w))).toBe(true);
+  });
+
+  it("forces status to PENDING even when quantity is already null but status was MEASURED", () => {
+    const r = parseAnalysisV1(JSON.stringify({ items: [
+      { item: "X", quantity: null, status: "MEASURED", candidates: [{ value: 1, basis: "a" }, { value: 2, basis: "b" }] },
+    ] }));
+    expect(r.analysis!.items[0].aiStatus).toBe("PENDING");
+    expect(r.warnings.some((w) => /conflicting candidates/i.test(w))).toBe(true);
+  });
+
+  it("does not warn or alter an already-correct PENDING/null item with 2+ candidates", () => {
+    const r = parseAnalysisV1(JSON.stringify({ items: [
+      { item: "X", quantity: null, status: "PENDING", candidates: [{ value: 1, basis: "a" }, { value: 2, basis: "b" }] },
+    ] }));
+    expect(r.analysis!.items[0].quantity).toBeNull();
+    expect(r.analysis!.items[0].aiStatus).toBe("PENDING");
+    expect(r.warnings.some((w) => /conflicting candidates/i.test(w))).toBe(false);
+  });
+
+  it("does NOT force PENDING for a single candidate — only 2+ counts as a real conflict", () => {
+    const r = parseAnalysisV1(JSON.stringify({ items: [
+      { item: "X", quantity: 5, status: "MEASURED", candidates: [{ value: 5, basis: "only source" }] },
+    ] }));
+    expect(r.analysis!.items[0].quantity).toBe(5);
+    expect(r.analysis!.items[0].aiStatus).toBe("MEASURED");
+    expect(r.warnings.some((w) => /conflicting candidates/i.test(w))).toBe(false);
+  });
+
+  it("leaves items with no candidates completely unaffected", () => {
+    const r = parseAnalysisV1(JSON.stringify({ items: [{ item: "Plain", quantity: 9, status: "MEASURED" }] }));
+    expect(r.analysis!.items[0].quantity).toBe(9);
+    expect(r.analysis!.items[0].aiStatus).toBe("MEASURED");
+  });
+});
+
 describe("normalizeConfidenceNumber", () => {
   it("keeps a 0..1 value", () => {
     expect(normalizeConfidenceNumber(0.8)).toEqual({ value: 0.8, wasPercent: false });
