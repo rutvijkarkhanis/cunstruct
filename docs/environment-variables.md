@@ -19,6 +19,8 @@ data, not the anon key). They belong in the committed `.env`.
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable/anon key (RLS-guarded) |
 | `VITE_SUPABASE_PROJECT_ID` | Supabase project ref |
 | `VITE_APP_URL` / `VITE_MAIN_URL` / `VITE_IS_APP_SUBDOMAIN` | App routing/config |
+| `VITE_ANALYSIS_API_ENABLED` | Reveals the "Use AI API" analysis mode in BOQ review. Presentation only — see docs/ai-analysis-pipeline.md. |
+| `VITE_SHOW_INTERNAL_AI_CONTROLS` | Reveals model/cost/contract internal controls to a caller the SERVER independently confirms is an admin. Presentation only, never the security boundary. |
 
 `.env.example` documents the required set for local development.
 
@@ -33,7 +35,7 @@ bundle.
 | `SUPABASE_SERVICE_ROLE_KEY` | Edge functions | Full DB access — server only |
 | `WHATSAPP_ACCESS_TOKEN` | `whatsapp-send/webhook` | Secret |
 | `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | webhook | Config/secret |
-| *(future)* `AI_PROVIDER_API_KEY` | future AI edge function | **Server only.** Never `VITE_`. Pick the name when a provider is chosen. |
+| `OPENAI_API_KEY` | `ai-analysis` edge function | **Server only.** Never `VITE_`, never logged, never returned in a response. See docs/ai-analysis-pipeline.md. |
 
 ## Local development
 
