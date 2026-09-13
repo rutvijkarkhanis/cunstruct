@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -8,20 +8,37 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Plus, FileText, ChevronDown, ChevronRight, CheckCircle2, Link2, Upload, Trash2 } from "lucide-react";
-import { DOC_TYPES, DISCIPLINES, type ProjectDocument, type DocumentRevision } from "@/lib/projectDocs";
+import { Plus, FileText, ChevronDown, ChevronRight, CheckCircle2, Link2, Upload, Trash2, FolderPlus, FolderOpen, Folder as FolderIcon } from "lucide-react";
+import { DOC_TYPES, DISCIPLINES, type ProjectDocument, type DocumentRevision, type DocumentFolder } from "@/lib/projectDocs";
 import { validateDrawingFile, buildDrawingPath, uploadDrawing, deleteDrawing } from "@/lib/review/drawingStorage";
+import { buildFolderTree, folderBreadcrumb, parseRelativePath, looksLikePdf, type FolderNode } from "@/lib/documentFolders";
+
+// Chrome/Edge/Safari/Firefox all support selecting a whole folder via the
+// non-standard `webkitdirectory` input attribute — no library needed. Each
+// resulting File carries `webkitRelativePath` (e.g. "Floor 2/Plan.pdf").
+type FileWithRelativePath = File & { webkitRelativePath?: string };
 
 export default function ProjectDocuments() {
   const { id: projectId } = useParams<{ id: string }>();
   const qc = useQueryClient();
+
+  const { data: folders } = useQuery({
+    queryKey: ["document-folders", projectId],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const { data } = await supabase.from("document_folder")
+        .select("id, project_id, parent_id, name, sort, created_at")
+        .eq("project_id", projectId!).order("sort").order("name");
+      return (data ?? []) as DocumentFolder[];
+    },
+  });
 
   const { data: docs } = useQuery({
     queryKey: ["project-documents", projectId],
     enabled: !!projectId,
     queryFn: async () => {
       const { data } = await supabase.from("project_document")
-        .select("id, project_id, name, doc_type, discipline, current_revision_id, status, created_at")
+        .select("id, project_id, name, doc_type, discipline, current_revision_id, status, folder_id, created_at")
         .eq("project_id", projectId!).order("created_at");
       return (data ?? []) as ProjectDocument[];
     },
@@ -52,7 +69,66 @@ export default function ProjectDocuments() {
 
   const revsFor = (docId: string) => (revs ?? []).filter((r) => r.document_id === docId);
 
-  // ---- Add document -------------------------------------------------------
+  const invalidateAll = () => {
+    qc.invalidateQueries({ queryKey: ["document-folders", projectId] });
+    qc.invalidateQueries({ queryKey: ["project-documents", projectId] });
+    qc.invalidateQueries({ queryKey: ["document-revisions", projectId] });
+  };
+
+  // ---- Folder tree + document grouping -------------------------------------
+  const folderTree = useMemo(() => buildFolderTree(folders ?? []), [folders]);
+  const docsByFolder = useMemo(() => {
+    const map = new Map<string, ProjectDocument[]>();
+    for (const d of docs ?? []) {
+      const key = d.folder_id ?? "__unfiled__";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(d);
+    }
+    return map;
+  }, [docs]);
+  const unfiledDocs = docsByFolder.get("__unfiled__") ?? [];
+
+  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
+  const toggleFolder = (id: string) => setExpandedFolders((e) => ({ ...e, [id]: !(e[id] ?? true) }));
+
+  // ---- New folder -----------------------------------------------------------
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderParent, setNewFolderParent] = useState<string>("");
+  const [creatingFolder, setCreatingFolder] = useState(false);
+
+  const createFolder = async () => {
+    if (!projectId) return;
+    if (!newFolderName.trim()) return toast.error("Enter a folder name");
+    setCreatingFolder(true);
+    try {
+      const { error } = await supabase.from("document_folder")
+        .insert({ project_id: projectId, name: newFolderName.trim(), parent_id: newFolderParent || null });
+      if (error) throw error;
+      toast.success("Folder created");
+      setNewFolderName(""); setNewFolderParent(""); setNewFolderOpen(false);
+      invalidateAll();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to create folder");
+    } finally {
+      setCreatingFolder(false);
+    }
+  };
+
+  // Flat list for the parent picker, indented to show depth.
+  const folderOptions = useMemo(() => {
+    const out: { id: string; label: string }[] = [];
+    const walk = (nodes: FolderNode[], depth: number) => {
+      for (const n of nodes) {
+        out.push({ id: n.id, label: `${"— ".repeat(depth)}${n.name}` });
+        walk(n.children, depth + 1);
+      }
+    };
+    walk(folderTree, 0);
+    return out;
+  }, [folderTree]);
+
+  // ---- Add document (metadata-only, no file) --------------------------------
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [docType, setDocType] = useState<string>("Architectural");
@@ -68,7 +144,6 @@ export default function ProjectDocuments() {
         .insert({ project_id: projectId, name: name.trim(), doc_type: docType, discipline, status: "uploaded" })
         .select("id").single();
       if (error) throw error;
-      // seed a first revision so the document is immediately usable
       const { data: rev, error: rerr } = await supabase.from("document_revision")
         .insert({ document_id: (data as { id: string }).id, label: "Rev A", source: "paste", status: "draft" })
         .select("id").single();
@@ -77,24 +152,21 @@ export default function ProjectDocuments() {
       }
       toast.success("Document added");
       setName(""); setAdding(false);
-      qc.invalidateQueries({ queryKey: ["project-documents", projectId] });
-      qc.invalidateQueries({ queryKey: ["document-revisions", projectId] });
+      invalidateAll();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to add document");
     } finally { setBusy(false); }
   };
 
-  // ---- Upload a PDF drawing (private storage) ------------------------------
-  const [uploading, setUploading] = useState(false);
-  const uploadPdf = async (file: File) => {
-    if (!projectId) return;
+  // ---- Upload a PDF drawing (private storage) — shared by single-file and
+  // folder upload, so both go through the exact same path. `folderId` is null
+  // for the existing single-file button, unchanged from today's behavior. ----
+  const uploadOnePdf = async (file: File, folderId: string | null): Promise<void> => {
     const check = validateDrawingFile(file);
-    if (!check.ok) return toast.error(check.error ?? "Invalid file");
-    setUploading(true);
+    if (!check.ok) throw new Error(check.error ?? "Invalid file");
     let docId: string | null = null;
     let revId: string | null = null;
     try {
-      // Count pages deterministically (pdf.js), best-effort.
       let pageCount: number | null = null;
       try {
         const pdfjs = await import("pdfjs-dist");
@@ -105,8 +177,11 @@ export default function ProjectDocuments() {
       } catch { /* page count is optional */ }
 
       const docName = file.name.replace(/\.pdf$/i, "");
+      // Always a NEW document — never merged into an existing one of the same
+      // name, in this folder or elsewhere. Matches today's single-upload
+      // behavior exactly; the folder + creation time disambiguate identical names.
       const { data: docRow, error: docErr } = await supabase.from("project_document")
-        .insert({ project_id: projectId, name: docName, doc_type: "Architectural", discipline: "Architectural", status: "uploaded" })
+        .insert({ project_id: projectId, name: docName, doc_type: "Architectural", discipline: "Architectural", status: "uploaded", folder_id: folderId })
         .select("id").single();
       if (docErr) throw docErr;
       docId = (docRow as { id: string }).id;
@@ -117,7 +192,7 @@ export default function ProjectDocuments() {
       if (revErr) throw revErr;
       revId = (revRow as { id: string }).id;
 
-      const path = buildDrawingPath(projectId, docId, revId);
+      const path = buildDrawingPath(projectId!, docId, revId);
       await uploadDrawing(path, file);
 
       const { error: updErr } = await supabase.from("document_revision")
@@ -125,32 +200,97 @@ export default function ProjectDocuments() {
         .eq("id", revId);
       if (updErr) throw updErr;
       await supabase.from("project_document").update({ current_revision_id: revId }).eq("id", docId);
-
-      toast.success(`Uploaded ${file.name}${pageCount ? ` · ${pageCount} page(s)` : ""}`);
-      qc.invalidateQueries({ queryKey: ["project-documents", projectId] });
-      qc.invalidateQueries({ queryKey: ["document-revisions", projectId] });
     } catch (e) {
-      // Best-effort cleanup so a failed upload leaves no orphan records.
       if (revId) await supabase.from("document_revision").delete().eq("id", revId);
       if (docId) await supabase.from("project_document").delete().eq("id", docId);
+      throw e;
+    }
+  };
+
+  const [uploading, setUploading] = useState(false);
+  const uploadPdf = async (file: File) => {
+    if (!projectId) return;
+    setUploading(true);
+    try {
+      await uploadOnePdf(file, null);
+      toast.success(`Uploaded ${file.name}`);
+      invalidateAll();
+    } catch (e) {
       toast.error(e instanceof Error ? e.message : "Upload failed");
     } finally { setUploading(false); }
+  };
+
+  // ---- Upload Folder — recursively finds PDFs, preserves hierarchy ----------
+  const [uploadingFolder, setUploadingFolder] = useState(false);
+  const folderResolutionCache = useRef<Map<string, string>>(new Map());
+
+  const resolveFolderPath = async (segments: string[]): Promise<string | null> => {
+    let parentId: string | null = null;
+    for (const seg of segments) {
+      const cacheKey = `${parentId ?? "\0root"}${seg}`;
+      let folderId = folderResolutionCache.current.get(cacheKey);
+      if (!folderId) {
+        const existing = (folders ?? []).find((f) => f.parent_id === parentId && f.name === seg);
+        if (existing) {
+          folderId = existing.id;
+        } else {
+          const { data, error } = await supabase.from("document_folder")
+            .insert({ project_id: projectId, name: seg, parent_id: parentId })
+            .select("id").single();
+          if (error) throw error;
+          folderId = (data as { id: string }).id;
+        }
+        folderResolutionCache.current.set(cacheKey, folderId);
+      }
+      parentId = folderId;
+    }
+    return parentId;
+  };
+
+  const uploadFolder = async (fileList: FileList) => {
+    if (!projectId) return;
+    const all = Array.from(fileList) as FileWithRelativePath[];
+    const pdfs = all.filter(looksLikePdf);
+    if (pdfs.length === 0) {
+      return toast.error(all.length ? "No PDF files found in the selected folder" : "No files found");
+    }
+    setUploadingFolder(true);
+    folderResolutionCache.current.clear();
+    let succeeded = 0;
+    let failed = 0;
+    try {
+      for (const file of pdfs) {
+        const relPath = file.webkitRelativePath || file.name;
+        const { folderSegments } = parseRelativePath(relPath);
+        try {
+          const folderId = await resolveFolderPath(folderSegments);
+          await uploadOnePdf(file, folderId);
+          succeeded++;
+        } catch (e) {
+          failed++;
+          console.error(`Failed to upload ${relPath}:`, e);
+        }
+      }
+      const skipped = all.length - pdfs.length;
+      toast[failed ? "warning" : "success"](
+        `Uploaded ${succeeded} file(s)${failed ? ` · ${failed} failed` : ""}${skipped ? ` · ${skipped} non-PDF skipped` : ""}`,
+      );
+      invalidateAll();
+    } finally {
+      setUploadingFolder(false);
+    }
   };
 
   // ---- Delete a document + its stored files (analysis history is untouched) --
   const deleteDocument = async (doc: ProjectDocument) => {
     if (!confirm(`Delete "${doc.name}" and its uploaded file? Existing analysis review history is kept.`)) return;
     try {
-      // Remove storage objects for any uploaded revisions first (best-effort).
       const paths = revsFor(doc.id).map((r) => r.file_path).filter(Boolean) as string[];
       for (const p of paths) { try { await deleteDrawing(p); } catch { /* keep going */ } }
-      // Deleting the document row cascades its revisions. Analysis runs reference
-      // the document only by id in ai_json (no FK), so they remain intact.
       const { error } = await supabase.from("project_document").delete().eq("id", doc.id);
       if (error) throw error;
       toast.success(`Deleted ${doc.name}`);
-      qc.invalidateQueries({ queryKey: ["project-documents", projectId] });
-      qc.invalidateQueries({ queryKey: ["document-revisions", projectId] });
+      invalidateAll();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Delete failed");
     }
@@ -166,11 +306,9 @@ export default function ProjectDocuments() {
       .insert({ document_id: docId, label: revLabel.trim(), source: revUrl.trim() ? "url" : "paste", external_url: revUrl.trim() || null, status: "draft" })
       .select("id").single();
     if (error) return toast.error(error.message);
-    // new revision becomes current
     await supabase.from("project_document").update({ current_revision_id: (data as { id: string }).id }).eq("id", docId);
     setRevFor(null); setRevLabel(""); setRevUrl("");
-    qc.invalidateQueries({ queryKey: ["document-revisions", projectId] });
-    qc.invalidateQueries({ queryKey: ["project-documents", projectId] });
+    invalidateAll();
     toast.success("Revision added and set current");
   };
 
@@ -180,16 +318,134 @@ export default function ProjectDocuments() {
     qc.invalidateQueries({ queryKey: ["project-documents", projectId] });
   };
 
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [expandedDocs, setExpandedDocs] = useState<Record<string, boolean>>({});
+
+  const documentRow = (d: ProjectDocument, breadcrumb: string[]) => {
+    const rs = revsFor(d.id);
+    const current = rs.find((r) => r.id === d.current_revision_id);
+    const open = expandedDocs[d.id];
+    return (
+      <Card key={d.id}>
+        <CardContent className="p-3">
+          <div className="flex items-center gap-3">
+            <button className="text-muted-foreground" onClick={() => setExpandedDocs((e) => ({ ...e, [d.id]: !e[d.id] }))} aria-label="Toggle revisions">
+              {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </button>
+            <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+            <div className="min-w-0 flex-1">
+              {breadcrumb.length > 0 && (
+                <div className="text-[11px] text-muted-foreground truncate" data-testid="doc-breadcrumb">
+                  {breadcrumb.join(" / ")}
+                </div>
+              )}
+              <div className="font-medium truncate">{d.name}</div>
+              <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-2">
+                {d.doc_type && <Badge variant="outline">{d.doc_type}</Badge>}
+                {d.discipline && <span>{d.discipline}</span>}
+                <span>· {current ? `Current: ${current.label}` : "No current revision"}</span>
+                <span>· added {d.created_at ? new Date(d.created_at).toLocaleString() : "—"}</span>
+                <span className="inline-flex items-center gap-1"><Link2 className="h-3 w-3" />{linkCounts?.[d.id] ?? 0} BOQ{(linkCounts?.[d.id] ?? 0) === 1 ? "" : "s"}</span>
+              </div>
+            </div>
+            <Badge variant="outline" className="shrink-0">{d.status}</Badge>
+            <Button size="sm" variant="outline" onClick={() => { setRevFor(revFor === d.id ? null : d.id); setRevLabel(""); setRevUrl(""); }}>
+              <Plus className="h-3.5 w-3.5 mr-1" />Revision
+            </Button>
+            <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" title="Delete document" onClick={() => deleteDocument(d)}>
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+
+          {revFor === d.id && (
+            <div className="mt-3 pl-7 flex flex-wrap items-end gap-2">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Label</label>
+                <Input value={revLabel} onChange={(e) => setRevLabel(e.target.value)} placeholder="Rev B" className="h-8 w-28" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Link (optional)</label>
+                <Input value={revUrl} onChange={(e) => setRevUrl(e.target.value)} placeholder="https://…" className="h-8 w-64" />
+              </div>
+              <Button size="sm" onClick={() => addRevision(d.id)}>Add</Button>
+              <Button size="sm" variant="ghost" onClick={() => setRevFor(null)}>Cancel</Button>
+            </div>
+          )}
+
+          {open && rs.length > 0 && (
+            <div className="mt-3 pl-7 space-y-1">
+              {rs.map((r) => (
+                <div key={r.id} className="flex items-center gap-2 text-sm">
+                  <Badge variant={r.id === d.current_revision_id ? "default" : "outline"}>{r.label}</Badge>
+                  {r.revision_date && <span className="text-xs text-muted-foreground">{r.revision_date}</span>}
+                  <span className="text-xs text-muted-foreground">{r.source}</span>
+                  {r.external_url && <a href={r.external_url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline truncate max-w-[16rem]">{r.external_url}</a>}
+                  {r.id === d.current_revision_id ? (
+                    <span className="text-xs text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1"><CheckCircle2 className="h-3 w-3" />current</span>
+                  ) : (
+                    <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => setCurrent(d.id, r.id)}>Set current</Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
+
+  const folderGroup = (node: FolderNode, depth: number) => {
+    const isOpen = expandedFolders[node.id] ?? true;
+    const nodeDocs = docsByFolder.get(node.id) ?? [];
+    const breadcrumb = folderBreadcrumb(node.id, folders ?? []);
+    return (
+      <div key={node.id} style={{ marginLeft: depth * 20 }} className="space-y-2">
+        <button
+          className="flex items-center gap-2 text-sm font-medium py-1 w-full text-left"
+          onClick={() => toggleFolder(node.id)}
+          data-testid={`folder-toggle-${node.id}`}
+        >
+          {isOpen ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+          {isOpen ? <FolderOpen className="h-4 w-4 text-amber-600" /> : <FolderIcon className="h-4 w-4 text-amber-600" />}
+          <span>{node.name}</span>
+          <span className="text-xs text-muted-foreground font-normal">
+            {nodeDocs.length} doc{nodeDocs.length === 1 ? "" : "s"}{node.children.length ? ` · ${node.children.length} subfolder${node.children.length === 1 ? "" : "s"}` : ""}
+          </span>
+        </button>
+        {isOpen && (
+          <div className="space-y-2">
+            {nodeDocs.map((d) => documentRow(d, breadcrumb))}
+            {node.children.map((child) => folderGroup(child, depth + 1))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const isEmpty = !docs?.length && !folders?.length && !adding && !newFolderOpen;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h2 className="text-lg font-semibold">Documents</h2>
-          <p className="text-sm text-muted-foreground">Every drawing/document exists once and can be referenced by multiple BOQs.</p>
+          <p className="text-sm text-muted-foreground">Organize documents into folders that match how you already file this project. Every drawing/document exists once and can be referenced by multiple BOQs.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="outline" onClick={() => setNewFolderOpen((v) => !v)}>
+            <FolderPlus className="h-4 w-4 mr-2" />New Folder
+          </Button>
+          <Button asChild variant="outline" disabled={uploadingFolder}>
+            <label className="cursor-pointer">
+              <Upload className="h-4 w-4 mr-2" />{uploadingFolder ? "Uploading…" : "Upload Folder"}
+              <input
+                type="file"
+                // @ts-expect-error non-standard attributes not in the DOM lib typings
+                webkitdirectory="" directory="" multiple
+                className="hidden" disabled={uploadingFolder}
+                onChange={(e) => { const fl = e.target.files; if (fl && fl.length) uploadFolder(fl); e.currentTarget.value = ""; }}
+              />
+            </label>
+          </Button>
           <Button asChild variant="outline" disabled={uploading}>
             <label className="cursor-pointer">
               <Upload className="h-4 w-4 mr-2" />{uploading ? "Uploading…" : "Upload PDF"}
@@ -200,6 +456,31 @@ export default function ProjectDocuments() {
           {!adding && <Button onClick={() => setAdding(true)}><Plus className="h-4 w-4 mr-2" />Add document</Button>}
         </div>
       </div>
+
+      {newFolderOpen && (
+        <Card><CardContent className="p-4 space-y-3">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Folder name</label>
+              <Input value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} placeholder="e.g. Floor 2" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Parent folder (optional)</label>
+              <Select value={newFolderParent || "__root__"} onValueChange={(v) => setNewFolderParent(v === "__root__" ? "" : v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__root__">— Top level —</SelectItem>
+                  {folderOptions.map((o) => <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={createFolder} disabled={creatingFolder}>{creatingFolder ? "Creating…" : "Create folder"}</Button>
+            <Button variant="ghost" onClick={() => { setNewFolderOpen(false); setNewFolderName(""); setNewFolderParent(""); }} disabled={creatingFolder}>Cancel</Button>
+          </div>
+        </CardContent></Card>
+      )}
 
       {adding && (
         <Card><CardContent className="p-4 space-y-3">
@@ -230,77 +511,25 @@ export default function ProjectDocuments() {
         </CardContent></Card>
       )}
 
-      {!docs?.length && !adding && (
-        <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No documents yet. Add the project's drawings and documents here.</CardContent></Card>
+      {isEmpty && (
+        <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No documents yet. Add a folder or upload the project's drawings and documents here.</CardContent></Card>
       )}
 
-      <div className="space-y-2">
-        {(docs ?? []).map((d) => {
-          const rs = revsFor(d.id);
-          const current = rs.find((r) => r.id === d.current_revision_id);
-          const open = expanded[d.id];
-          return (
-            <Card key={d.id}>
-              <CardContent className="p-3">
-                <div className="flex items-center gap-3">
-                  <button className="text-muted-foreground" onClick={() => setExpanded((e) => ({ ...e, [d.id]: !e[d.id] }))} aria-label="Toggle revisions">
-                    {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                  </button>
-                  <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <div className="font-medium truncate">{d.name}</div>
-                    <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-2">
-                      {d.doc_type && <Badge variant="outline">{d.doc_type}</Badge>}
-                      {d.discipline && <span>{d.discipline}</span>}
-                      <span>· {current ? `Current: ${current.label}` : "No current revision"}</span>
-                      <span className="inline-flex items-center gap-1"><Link2 className="h-3 w-3" />{linkCounts?.[d.id] ?? 0} BOQ{(linkCounts?.[d.id] ?? 0) === 1 ? "" : "s"}</span>
-                    </div>
-                  </div>
-                  <Badge variant="outline" className="shrink-0">{d.status}</Badge>
-                  <Button size="sm" variant="outline" onClick={() => { setRevFor(revFor === d.id ? null : d.id); setRevLabel(""); setRevUrl(""); }}>
-                    <Plus className="h-3.5 w-3.5 mr-1" />Revision
-                  </Button>
-                  <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" title="Delete document" onClick={() => deleteDocument(d)}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
+      <div className="space-y-3">
+        {folderTree.map((node) => folderGroup(node, 0))}
 
-                {revFor === d.id && (
-                  <div className="mt-3 pl-7 flex flex-wrap items-end gap-2">
-                    <div className="space-y-1">
-                      <label className="text-xs text-muted-foreground">Label</label>
-                      <Input value={revLabel} onChange={(e) => setRevLabel(e.target.value)} placeholder="Rev B" className="h-8 w-28" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs text-muted-foreground">Link (optional)</label>
-                      <Input value={revUrl} onChange={(e) => setRevUrl(e.target.value)} placeholder="https://…" className="h-8 w-64" />
-                    </div>
-                    <Button size="sm" onClick={() => addRevision(d.id)}>Add</Button>
-                    <Button size="sm" variant="ghost" onClick={() => setRevFor(null)}>Cancel</Button>
-                  </div>
-                )}
-
-                {open && rs.length > 0 && (
-                  <div className="mt-3 pl-7 space-y-1">
-                    {rs.map((r) => (
-                      <div key={r.id} className="flex items-center gap-2 text-sm">
-                        <Badge variant={r.id === d.current_revision_id ? "default" : "outline"}>{r.label}</Badge>
-                        {r.revision_date && <span className="text-xs text-muted-foreground">{r.revision_date}</span>}
-                        <span className="text-xs text-muted-foreground">{r.source}</span>
-                        {r.external_url && <a href={r.external_url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline truncate max-w-[16rem]">{r.external_url}</a>}
-                        {r.id === d.current_revision_id ? (
-                          <span className="text-xs text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1"><CheckCircle2 className="h-3 w-3" />current</span>
-                        ) : (
-                          <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => setCurrent(d.id, r.id)}>Set current</Button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          );
-        })}
+        {unfiledDocs.length > 0 && (
+          <div className="space-y-2">
+            {folderTree.length > 0 && (
+              <div className="flex items-center gap-2 text-sm font-medium py-1 text-muted-foreground">
+                <FolderIcon className="h-4 w-4" />
+                <span>Unfiled</span>
+                <span className="text-xs font-normal">{unfiledDocs.length} doc{unfiledDocs.length === 1 ? "" : "s"}</span>
+              </div>
+            )}
+            <div className="space-y-2">{unfiledDocs.map((d) => documentRow(d, []))}</div>
+          </div>
+        )}
       </div>
     </div>
   );
