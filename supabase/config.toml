@@ -1,1 +1,9 @@
+# Deployment-trigger comment only (no config semantics changed): the
+# Supabase GitHub integration for this project was connected after several
+# migrations and supabase/functions/ai-analysis already existed on main, and
+# a prior trigger commit that touched only docs/deployment-log.md (outside
+# supabase/) did not produce a visible deployment. This comment is the
+# smallest possible change actually inside supabase/ to test whether the
+# integration requires a change under this directory specifically. See
+# docs/deployment-log.md for the full history.
 project_id = "dkgjsobfljqoggalivzt"
