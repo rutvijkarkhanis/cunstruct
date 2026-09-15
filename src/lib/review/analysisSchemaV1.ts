@@ -12,7 +12,11 @@
 // / prose-wrapped paste still works, and is backward compatible with the flatter
 // `analysisJson` shape (string `source`, HIGH/MED/LOW confidence).
 
-import { extractJson } from "@/lib/boqEvalJson";
+// Relative + explicit extension (not the usual "@/..." alias) so this pure
+// module can be imported unmodified from the ai-analysis Supabase Edge
+// Function (Deno requires explicit extensions and has no "@/" alias) as well
+// as from the browser build — see supabase/functions/_shared/analysisValidation.ts.
+import { extractJson } from "../boqEvalJson.ts";
 
 export type AiStatus = "MEASURED" | "INFERRED" | "PENDING";
 
