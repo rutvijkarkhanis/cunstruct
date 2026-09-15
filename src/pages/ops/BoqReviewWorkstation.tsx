@@ -37,6 +37,7 @@ import {
 import { signedDrawingUrl, loadProjectDrawings } from "@/lib/review/drawingStorage";
 import PdfEvidenceViewer from "@/components/review/PdfEvidenceViewer";
 import DocumentSelector from "@/components/review/DocumentSelector";
+import AiApiPanel from "@/components/review/AiApiPanel";
 
 const FLAG_REASONS: { key: FlagReason; label: string }[] = [
   { key: "DRAWING_UNCLEAR", label: "Drawing unclear" },
@@ -567,22 +568,33 @@ export function ImportGate({ boqId, projectId, projectType, boqName, onImported,
         </div>
 
         {mode === "AI_API" ? (
-          <div className="text-sm text-muted-foreground space-y-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span>Provider</span>
-              <Select disabled>
-                <SelectTrigger className="h-8 w-40"><SelectValue placeholder="OpenAI" /></SelectTrigger>
-                <SelectContent>{PROVIDERS.map((p) => <SelectItem key={p.key} value={p.key}>{p.label}</SelectItem>)}</SelectContent>
-              </Select>
-              <span className={`text-xs px-2 py-0.5 rounded ${configured ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}`}>
-                {configured ? "configured" : "not configured"}
-              </span>
+          configured && projectId ? (
+            <AiApiPanel
+              projectId={projectId}
+              boqId={boqId}
+              onGenerated={async (runId) => {
+                const items = await loadReviewItems(runId);
+                toast.success(`Generated ${items.length} item${items.length === 1 ? "" : "s"} for review`);
+                onImported(runId, items);
+              }}
+            />
+          ) : (
+            <div className="text-sm text-muted-foreground space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span>Provider</span>
+                <Select disabled>
+                  <SelectTrigger className="h-8 w-40"><SelectValue placeholder="OpenAI" /></SelectTrigger>
+                  <SelectContent>{PROVIDERS.map((p) => <SelectItem key={p.key} value={p.key}>{p.label}</SelectItem>)}</SelectContent>
+                </Select>
+                <span className="text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-800">not configured</span>
+              </div>
+              <p className="text-xs">
+                {projectId
+                  ? "No AI provider is configured yet. The analysis call runs server-side (API keys never reach the browser). Until a provider is configured, use Import JSON — the workstation is fully functional without AI."
+                  : "AI analysis requires this BOQ to belong to a project (drawings are attached at the project level)."}
+              </p>
             </div>
-            <p className="text-xs">
-              No AI provider is wired yet. The analysis call runs server-side (API keys never reach the browser).
-              Until a provider is configured, use <b>Import JSON</b> — the workstation is fully functional without AI.
-            </p>
-          </div>
+          )
         ) : (
           <>
             <Textarea rows={10} value={text} onChange={(e) => setText(e.target.value)}

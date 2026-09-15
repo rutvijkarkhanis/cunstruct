@@ -6,7 +6,9 @@
 // and client-side — the spec requires that Verify/Edit/Flag/Pending, progress and
 // diffs never call an AI model.
 
-import type { AnalysisItemV1, AiStatus } from "./analysisSchemaV1";
+// Relative + explicit extension — see the note in analysisSchemaV1.ts; this
+// keeps buildReviewItems() importable from the Deno edge function too.
+import type { AnalysisItemV1, AiStatus } from "./analysisSchemaV1.ts";
 
 /** The reviewer's decision on an item — distinct from the AI's status. */
 export type ReviewStatus =
