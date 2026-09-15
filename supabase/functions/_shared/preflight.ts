@@ -11,6 +11,8 @@
 // unknowable from uploaded files alone — see completeness() below — and this
 // module never invents a score for it.
 
+import { isStale } from "./claiming.ts";
+
 export interface EligibleFile {
   documentId: string;
   documentRevisionId: string;
@@ -31,6 +33,10 @@ export interface LedgerRow {
   documentId: string | null;
   filenameAtTimeOfAnalysis: string | null;
   analysisRunId: string | null;
+  /** When this claim was (last) made/reclaimed, as epoch millis. Used only to
+   *  tell a genuinely in-flight PROCESSING claim apart from a stale one (the
+   *  edge function that made it crashed/timed out) — see `staleAfterMs`. */
+  claimedAtMs: number;
 }
 
 export interface PreflightFileSummary {
@@ -79,7 +85,15 @@ export function computePreflight(
   totalProjectFiles: number,
   files: EligibleFile[],
   ledger: LedgerRow[],
-  opts: { contractVersion: string; provider: string; model: string; forceReanalyse: boolean },
+  opts: {
+    contractVersion: string; provider: string; model: string; forceReanalyse: boolean;
+    /** Current time and the stale-PROCESSING threshold, as epoch millis —
+     *  passed in (not read from Date.now()/a constant) so this stays a pure,
+     *  deterministically-testable function. A PROCESSING claim older than
+     *  this is shown as retryable ("new"), not "in flight" — matching what
+     *  Generate's own reclaim logic in index.ts will actually do. */
+    nowMs: number; staleAfterMs: number;
+  },
 ): PreflightResult {
   const hashed = files.filter((f): f is EligibleFile & { contentHash: string } => f.contentHash != null);
   const filesPendingHash = files.length - hashed.length;
@@ -106,9 +120,10 @@ export function computePreflight(
 
   for (const f of hashed) {
     const row = byHash.get(f.contentHash);
+    const staleProcessing = !!row && isStale(row.status, row.claimedAtMs, opts.nowMs, opts.staleAfterMs);
     if (row?.status === "SUCCEEDED") alreadyAnalysed.push(toSummary(f));
-    else if (row?.status === "PROCESSING") inFlight.push(toSummary(f));
-    else candidateNew.push(f); // no row, or a FAILED row (retryable)
+    else if (row?.status === "PROCESSING" && !staleProcessing) inFlight.push(toSummary(f));
+    else candidateNew.push(f); // no row, a FAILED row, or a stale PROCESSING row — all retryable
   }
 
   // Duplicate groups among files that would otherwise be sent — dedupe by

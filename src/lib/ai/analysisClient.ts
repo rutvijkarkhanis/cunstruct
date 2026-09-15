@@ -22,11 +22,19 @@ export interface PreflightSummary {
   existingRunCount: number;
   latestRunId: string | null;
   documentCompleteness: "UNKNOWN";
-  /** "Review files" — which files will/won't be sent, by name. Not sensitive
-   *  (no model/pricing/provider), so every user sees this, not just admins. */
-  willSendFiles: { documentId: string; filename: string }[];
-  alreadyAnalysedFiles: { documentId: string; filename: string }[];
-  duplicateGroups: { documentId: string; filename: string }[][];
+  /** "Review files" — which files will/won't be sent, by name, grouped by
+   *  their folder path (e.g. ["Floor 2"], or [] for Unfiled) for display.
+   *  Not sensitive (no model/pricing/provider), so every user sees this, not
+   *  just admins. The folder is presentation only — see docs/ai-analysis-pipeline.md. */
+  willSendFiles: PreflightFile[];
+  alreadyAnalysedFiles: PreflightFile[];
+  duplicateGroups: PreflightFile[][];
+}
+
+export interface PreflightFile {
+  documentId: string;
+  filename: string;
+  folderPath: string[];
 }
 
 /** Only ever present when the server has independently verified the caller
@@ -37,7 +45,8 @@ export interface PreflightInternal {
   model: string;
   contractVersion: string;
   forceReanalyse: boolean;
-  estimatedCostUsd: number;
+  /** A range, never a single "exact" number — see modelConfig.ts. */
+  estimatedCost: { lowUsd: number; highUsd: number; basis: "page_count" | "mixed" };
 }
 
 export interface PreflightResponse {

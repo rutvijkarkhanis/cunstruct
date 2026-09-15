@@ -14,7 +14,29 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
-import { fetchPreflight, generateAnalysis, showInternalAiControls } from "@/lib/ai/analysisClient";
+import { fetchPreflight, generateAnalysis, showInternalAiControls, type PreflightFile } from "@/lib/ai/analysisClient";
+
+const UNFILED = "Unfiled";
+
+/** Group new + already-analysed files by folder for "Review files" — purely
+ *  a display grouping (folder is never part of AI identity/cost protection).
+ *  Sorted so Unfiled sorts last, folders alphabetically, files alphabetically
+ *  within a folder — stable regardless of the order the server returned them in. */
+function groupByFolder(willSend: PreflightFile[], alreadyAnalysed: PreflightFile[]) {
+  type Row = { documentId: string; filename: string; status: "NEW" | "ANALYSED" };
+  const byFolder = new Map<string, Row[]>();
+  const add = (f: PreflightFile, status: Row["status"]) => {
+    const key = f.folderPath.length ? f.folderPath.join(" / ") : UNFILED;
+    const rows = byFolder.get(key) ?? [];
+    rows.push({ documentId: f.documentId, filename: f.filename, status });
+    byFolder.set(key, rows);
+  };
+  willSend.forEach((f) => add(f, "NEW"));
+  alreadyAnalysed.forEach((f) => add(f, "ANALYSED"));
+  return [...byFolder.entries()]
+    .sort(([a], [b]) => (a === UNFILED ? 1 : b === UNFILED ? -1 : a.localeCompare(b)))
+    .map(([folder, rows]) => [folder, rows.sort((a, b) => a.filename.localeCompare(b.filename))] as const);
+}
 
 export default function AiApiPanel({
   projectId, boqId, onGenerated,
@@ -77,19 +99,19 @@ export default function AiApiPanel({
         {reviewOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />} Review files
       </button>
       {reviewOpen && (
-        <div className="text-xs border rounded p-2 space-y-2 max-h-48 overflow-auto">
-          {p.newFilesCount > 0 && (
-            <div>
-              <div className="font-medium mb-1">New — will be sent for analysis</div>
-              {p.willSendFiles.map((f) => <div key={f.documentId}>{f.filename}</div>)}
+        <div className="text-xs border rounded p-2 space-y-3 max-h-64 overflow-auto">
+          {groupByFolder(p.willSendFiles, p.alreadyAnalysedFiles).map(([folder, rows]) => (
+            <div key={folder}>
+              <div className="font-medium mb-1">{folder}</div>
+              {rows.map((r) => (
+                <div key={r.documentId} className={r.status === "ANALYSED" ? "text-muted-foreground" : ""}>
+                  {r.status === "ANALYSED" ? "✓" : "•"} {r.filename}
+                  {r.status === "NEW" && <span className="text-primary font-medium"> — NEW</span>}
+                  {r.status === "ANALYSED" && " — already analysed"}
+                </div>
+              ))}
             </div>
-          )}
-          {p.alreadyAnalysedCount > 0 && (
-            <div>
-              <div className="font-medium mb-1 mt-2">Already analysed — will not be re-sent</div>
-              {p.alreadyAnalysedFiles.map((f) => <div key={f.documentId} className="text-muted-foreground">{f.filename}</div>)}
-            </div>
-          )}
+          ))}
           {p.totalEligibleDrawingFiles === 0 && <div className="text-muted-foreground">No PDF drawings uploaded to this project yet.</div>}
         </div>
       )}
@@ -99,7 +121,13 @@ export default function AiApiPanel({
           <div className="font-medium">Internal (admin)</div>
           <div>Provider: {data.internal.provider} · Model: {data.internal.model}</div>
           <div>Contract version: {data.internal.contractVersion}</div>
-          <div>Estimated cost: ${data.internal.estimatedCostUsd.toFixed(4)} <span className="text-muted-foreground">(estimated — output tokens are not known until generation)</span></div>
+          <div>
+            Estimated cost: ${data.internal.estimatedCost.lowUsd.toFixed(4)}–${data.internal.estimatedCost.highUsd.toFixed(4)}{" "}
+            <span className="text-muted-foreground">
+              (a range, not exact — output tokens and OpenAI's page-image rendering are not known until generation
+              {data.internal.estimatedCost.basis === "mixed" ? "; one or more files used a fallback estimate" : ""})
+            </span>
+          </div>
           <label className="flex items-center gap-2">
             <Switch checked={forceReanalyse} onCheckedChange={setForceReanalyse} />
             Force re-analyse (resend files already analysed under this contract)

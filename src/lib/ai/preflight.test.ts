@@ -5,10 +5,17 @@
 import { describe, it, expect } from "vitest";
 import { computePreflight, type EligibleFile, type LedgerRow } from "../../../supabase/functions/_shared/preflight.ts";
 
-const opts = { contractVersion: "v1", provider: "openai", model: "gpt-4o-mini", forceReanalyse: false };
+const NOW = 1_000_000_000_000; // fixed "now" so staleness math is deterministic
+const STALE_AFTER_MS = 10 * 60 * 1000; // matches STALE_PROCESSING_MS in index.ts
+
+const opts = { contractVersion: "v1", provider: "openai", model: "gpt-4o-mini", forceReanalyse: false, nowMs: NOW, staleAfterMs: STALE_AFTER_MS };
 
 const file = (o: Partial<EligibleFile> & { documentId: string; contentHash: string | null }): EligibleFile => ({
   documentRevisionId: `${o.documentId}-rev`, filename: `${o.documentId}.pdf`, byteSize: 1000, ...o,
+});
+
+const ledgerRow = (o: Partial<LedgerRow> & { contentHash: string; status: LedgerRow["status"] }): LedgerRow => ({
+  documentId: null, filenameAtTimeOfAnalysis: null, analysisRunId: null, claimedAtMs: NOW, ...o,
 });
 
 describe("computePreflight", () => {
@@ -22,7 +29,7 @@ describe("computePreflight", () => {
 
   it("excludes a file whose hash has a SUCCEEDED ledger row from willSend", () => {
     const files = [file({ documentId: "a", contentHash: "h1" }), file({ documentId: "b", contentHash: "h2" })];
-    const ledger: LedgerRow[] = [{ contentHash: "h1", status: "SUCCEEDED", documentId: "a", filenameAtTimeOfAnalysis: "a.pdf", analysisRunId: "run1" }];
+    const ledger = [ledgerRow({ contentHash: "h1", status: "SUCCEEDED", documentId: "a", filenameAtTimeOfAnalysis: "a.pdf", analysisRunId: "run1" })];
     const r = computePreflight(2, files, ledger, opts);
     expect(r.alreadyAnalysed.map((f) => f.documentId)).toEqual(["a"]);
     expect(r.willSend.map((f) => f.documentId)).toEqual(["b"]);
@@ -30,15 +37,15 @@ describe("computePreflight", () => {
 
   it("a renamed duplicate (same content hash, different document/filename) counts as already analysed, not new", () => {
     const files = [file({ documentId: "renamed-doc", contentHash: "h1", filename: "Renamed Plan.pdf" })];
-    const ledger: LedgerRow[] = [{ contentHash: "h1", status: "SUCCEEDED", documentId: "original-doc", filenameAtTimeOfAnalysis: "Plan.pdf", analysisRunId: "run1" }];
+    const ledger = [ledgerRow({ contentHash: "h1", status: "SUCCEEDED", documentId: "original-doc", filenameAtTimeOfAnalysis: "Plan.pdf", analysisRunId: "run1" })];
     const r = computePreflight(1, files, ledger, opts);
     expect(r.alreadyAnalysed).toHaveLength(1);
     expect(r.willSend).toHaveLength(0);
   });
 
-  it("excludes an in-flight (PROCESSING) file from willSend and reports it separately", () => {
+  it("excludes a genuinely LIVE in-flight (PROCESSING, recently claimed) file from willSend and reports it separately", () => {
     const files = [file({ documentId: "a", contentHash: "h1" })];
-    const ledger: LedgerRow[] = [{ contentHash: "h1", status: "PROCESSING", documentId: "a", filenameAtTimeOfAnalysis: "a.pdf", analysisRunId: null }];
+    const ledger = [ledgerRow({ contentHash: "h1", status: "PROCESSING", documentId: "a", filenameAtTimeOfAnalysis: "a.pdf", claimedAtMs: NOW - 1000 })];
     const r = computePreflight(1, files, ledger, opts);
     expect(r.inFlight.map((f) => f.documentId)).toEqual(["a"]);
     expect(r.willSend).toEqual([]);
@@ -46,7 +53,7 @@ describe("computePreflight", () => {
 
   it("treats a FAILED ledger row as retryable — still counted as new / willSend", () => {
     const files = [file({ documentId: "a", contentHash: "h1" })];
-    const ledger: LedgerRow[] = [{ contentHash: "h1", status: "FAILED", documentId: "a", filenameAtTimeOfAnalysis: "a.pdf", analysisRunId: null }];
+    const ledger = [ledgerRow({ contentHash: "h1", status: "FAILED", documentId: "a", filenameAtTimeOfAnalysis: "a.pdf" })];
     const r = computePreflight(1, files, ledger, opts);
     expect(r.willSend.map((f) => f.documentId)).toEqual(["a"]);
   });
@@ -72,17 +79,17 @@ describe("computePreflight", () => {
 
   it("reports zero willSend and a non-empty alreadyAnalysed when everything is already analysed (the 'nothing to do' case)", () => {
     const files = [file({ documentId: "a", contentHash: "h1" })];
-    const ledger: LedgerRow[] = [{ contentHash: "h1", status: "SUCCEEDED", documentId: "a", filenameAtTimeOfAnalysis: "a.pdf", analysisRunId: "run1" }];
+    const ledger = [ledgerRow({ contentHash: "h1", status: "SUCCEEDED", documentId: "a", filenameAtTimeOfAnalysis: "a.pdf", analysisRunId: "run1" })];
     const r = computePreflight(1, files, ledger, opts);
     expect(r.willSend).toEqual([]);
     expect(r.alreadyAnalysed).toHaveLength(1);
   });
 
-  it("forceReanalyse resends an already-SUCCEEDED file but still skips an in-flight one", () => {
+  it("forceReanalyse resends an already-SUCCEEDED file but still skips a live in-flight one", () => {
     const files = [file({ documentId: "a", contentHash: "h1" }), file({ documentId: "b", contentHash: "h2" })];
-    const ledger: LedgerRow[] = [
-      { contentHash: "h1", status: "SUCCEEDED", documentId: "a", filenameAtTimeOfAnalysis: "a.pdf", analysisRunId: "run1" },
-      { contentHash: "h2", status: "PROCESSING", documentId: "b", filenameAtTimeOfAnalysis: "b.pdf", analysisRunId: null },
+    const ledger = [
+      ledgerRow({ contentHash: "h1", status: "SUCCEEDED", documentId: "a", filenameAtTimeOfAnalysis: "a.pdf", analysisRunId: "run1" }),
+      ledgerRow({ contentHash: "h2", status: "PROCESSING", documentId: "b", filenameAtTimeOfAnalysis: "b.pdf", claimedAtMs: NOW - 1000 }),
     ];
     const r = computePreflight(2, files, ledger, { ...opts, forceReanalyse: true });
     expect(r.willSend.map((f) => f.contentHash).sort()).toEqual(["h1"]);
@@ -90,7 +97,7 @@ describe("computePreflight", () => {
 
   it("a different content_hash under the SAME document id is treated as a new file (a revision changed)", () => {
     const files = [file({ documentId: "doc-1", contentHash: "new-bytes" })];
-    const ledger: LedgerRow[] = [{ contentHash: "old-bytes", status: "SUCCEEDED", documentId: "doc-1", filenameAtTimeOfAnalysis: "doc-1.pdf", analysisRunId: "run1" }];
+    const ledger = [ledgerRow({ contentHash: "old-bytes", status: "SUCCEEDED", documentId: "doc-1", filenameAtTimeOfAnalysis: "doc-1.pdf", analysisRunId: "run1" })];
     const r = computePreflight(1, files, ledger, opts);
     expect(r.willSend.map((f) => f.documentId)).toEqual(["doc-1"]);
   });
@@ -102,8 +109,42 @@ describe("computePreflight", () => {
     // hash match alone is sufficient once passed in, so the edge function's
     // WHERE clause is the thing actually enforcing contract isolation.
     const files = [file({ documentId: "a", contentHash: "h1" })];
-    const ledger: LedgerRow[] = [{ contentHash: "h1", status: "SUCCEEDED", documentId: "a", filenameAtTimeOfAnalysis: "a.pdf", analysisRunId: "run1" }];
+    const ledger = [ledgerRow({ contentHash: "h1", status: "SUCCEEDED", documentId: "a", filenameAtTimeOfAnalysis: "a.pdf", analysisRunId: "run1" })];
     const r = computePreflight(1, files, ledger, opts);
     expect(r.alreadyAnalysed).toHaveLength(1);
+  });
+});
+
+describe("computePreflight — stale PROCESSING recovery", () => {
+  it("a PROCESSING claim younger than the stale threshold stays 'in flight' (protected)", () => {
+    const files = [file({ documentId: "a", contentHash: "h1" })];
+    const ledger = [ledgerRow({ contentHash: "h1", status: "PROCESSING", documentId: "a", claimedAtMs: NOW - (STALE_AFTER_MS - 1) })];
+    const r = computePreflight(1, files, ledger, opts);
+    expect(r.inFlight).toHaveLength(1);
+    expect(r.willSend).toEqual([]);
+  });
+
+  it("a PROCESSING claim exactly at the stale threshold is treated as stale (>=), not protected", () => {
+    const files = [file({ documentId: "a", contentHash: "h1" })];
+    const ledger = [ledgerRow({ contentHash: "h1", status: "PROCESSING", documentId: "a", claimedAtMs: NOW - STALE_AFTER_MS })];
+    const r = computePreflight(1, files, ledger, opts);
+    expect(r.inFlight).toEqual([]);
+    expect(r.willSend.map((f) => f.documentId)).toEqual(["a"]);
+  });
+
+  it("a PROCESSING claim older than the stale threshold is shown as sendable ('new'), not stuck forever", () => {
+    const files = [file({ documentId: "a", contentHash: "h1" })];
+    const ledger = [ledgerRow({ contentHash: "h1", status: "PROCESSING", documentId: "a", claimedAtMs: NOW - STALE_AFTER_MS - 60_000 })];
+    const r = computePreflight(1, files, ledger, opts);
+    expect(r.inFlight).toEqual([]);
+    expect(r.willSend.map((f) => f.documentId)).toEqual(["a"]);
+  });
+
+  it("a SUCCEEDED row is never treated as stale/retryable regardless of how old claimedAtMs is", () => {
+    const files = [file({ documentId: "a", contentHash: "h1" })];
+    const ledger = [ledgerRow({ contentHash: "h1", status: "SUCCEEDED", documentId: "a", claimedAtMs: 0 })];
+    const r = computePreflight(1, files, ledger, opts);
+    expect(r.alreadyAnalysed).toHaveLength(1);
+    expect(r.willSend).toEqual([]);
   });
 });

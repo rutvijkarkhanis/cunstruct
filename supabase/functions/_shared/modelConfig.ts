@@ -16,9 +16,9 @@
 // Pricing verified against OpenAI's published per-token pricing as of
 // 2026-09-13 (USD per 1,000,000 tokens; https://openai.com/api/pricing/ and
 // cross-referenced third-party trackers). OpenAI pricing changes over time —
-// an admin relying on estimatedCostUsd() for real budgeting should reverify
+// an admin relying on estimateCostRange() for real budgeting should reverify
 // this table against OpenAI's current pricing page rather than trusting it
-// indefinitely; `pricingVerifiedAt` below records when it was last checked.
+// indefinitely; `PRICING_VERIFIED_AT` below records when it was last checked.
 
 export interface ModelPricing {
   /** USD per 1,000,000 input tokens. */
@@ -74,24 +74,71 @@ export function resolveModel(requestedId: string | null | undefined, isAdmin: bo
   return findModel(DEFAULT_MODEL)!;
 }
 
+// ── Pre-generation cost estimate ──────────────────────────────────────────
+//
+// OpenAI's Responses API renders each PDF page as BOTH extracted text AND a
+// page image (the `input_file` content type's `detail` field, default
+// "auto"); image tokens are billed by tiling — 170 tokens/tile + an 85-token
+// base charge per image (e.g. a 1024x1024 image = 4 tiles = 765 tokens) — per
+// OpenAI's published vision-pricing documentation. Neither the exact render
+// resolution/tile count OpenAI will choose for a given page, nor the volume
+// of extracted text (a mostly-blank elevation vs. a dense door/window
+// schedule), is knowable before the call. A single number here would be
+// false precision the API itself doesn't support pre-call — so this returns
+// a LOW/HIGH range instead, and callers must present it as a range, not a
+// point estimate. (The previous version of this estimator used a flat
+// bytes/4 proxy, which for an image-heavy architectural PDF can be off by an
+// order of magnitude in either direction; page_count — already stored on
+// document_revision — is a materially better proxy for what OpenAI actually
+// bills.) Verified against OpenAI's published pricing/docs as of 2026-09-15.
+const LOW_TOKENS_PER_PAGE = 300;   // ~1 image tile (255) + a light amount of extracted text
+const HIGH_TOKENS_PER_PAGE = 1500; // ~4+ tiles (a detailed, high-resolution page) + more extracted text
+const ASSUMED_OUTPUT_TOKENS_PER_FILE = 1500;
+/** Only used when a file's page_count isn't known yet (rare — it's normally
+ *  captured at upload time); falls back to the old byte-based proxy for that
+ *  file alone, so one unknown page count doesn't block an estimate entirely. */
+const FALLBACK_BYTES_PER_TOKEN = 4;
+
+export interface CostEstimate {
+  lowUsd: number;
+  highUsd: number;
+  /** "page_count" when every file had a known page count; "mixed" when at
+   *  least one file fell back to the byte-size proxy. Surfaced so the UI/
+   *  admin can tell when the range is less reliable than usual. */
+  basis: "page_count" | "mixed";
+}
+
+export interface CostEstimateFileInput {
+  pageCount: number | null;
+  byteSize: number;
+}
+
 /**
- * A rough, pre-generation cost estimate for a set of eligible files. Output
- * tokens are inherently unknown before generation (that's why callers must
- * label this "Estimated cost", never "Exact cost") — this uses a fixed
- * per-file output-token assumption plus the file's own byte size as a rough
- * input-token proxy (~4 bytes/token is the standard rule-of-thumb OpenAI
- * documents for English text/PDF-derived content).
+ * A pre-generation cost RANGE for a set of eligible files — never a single
+ * "exact" figure. Output tokens are inherently unknown before generation
+ * (hence a range on the output side too, via the low/high input tokens
+ * driving both ends); callers must label this "Estimated cost", never
+ * "Exact cost".
  */
-export function estimateCostUsd(model: ModelDescriptor, fileByteSizes: number[]): number {
-  const ASSUMED_OUTPUT_TOKENS_PER_FILE = 1500;
-  const BYTES_PER_TOKEN_ESTIMATE = 4;
-  let inputTokens = 0;
-  for (const size of fileByteSizes) inputTokens += Math.ceil(size / BYTES_PER_TOKEN_ESTIMATE);
-  const outputTokens = fileByteSizes.length * ASSUMED_OUTPUT_TOKENS_PER_FILE;
-  const cost =
-    (inputTokens / 1_000_000) * model.pricing.inputPerMillion +
-    (outputTokens / 1_000_000) * model.pricing.outputPerMillion;
-  return Math.round(cost * 10_000) / 10_000;
+export function estimateCostRange(model: ModelDescriptor, files: CostEstimateFileInput[]): CostEstimate {
+  let lowInputTokens = 0;
+  let highInputTokens = 0;
+  let basis: CostEstimate["basis"] = "page_count";
+  for (const f of files) {
+    if (f.pageCount != null && f.pageCount > 0) {
+      lowInputTokens += f.pageCount * LOW_TOKENS_PER_PAGE;
+      highInputTokens += f.pageCount * HIGH_TOKENS_PER_PAGE;
+    } else {
+      basis = "mixed";
+      const approx = Math.ceil(f.byteSize / FALLBACK_BYTES_PER_TOKEN);
+      lowInputTokens += approx;
+      highInputTokens += approx;
+    }
+  }
+  const outputTokens = files.length * ASSUMED_OUTPUT_TOKENS_PER_FILE;
+  const cost = (inputTokens: number) =>
+    Math.round(((inputTokens / 1_000_000) * model.pricing.inputPerMillion + (outputTokens / 1_000_000) * model.pricing.outputPerMillion) * 10_000) / 10_000;
+  return { lowUsd: cost(lowInputTokens), highUsd: cost(highInputTokens), basis };
 }
 
 /** Actual cost from real usage figures returned by the OpenAI response. */

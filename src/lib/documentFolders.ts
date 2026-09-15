@@ -5,7 +5,11 @@
 // APIs) so the tree-building, breadcrumb, cycle-prevention, and
 // folder-path-parsing logic can be tested directly.
 
-import type { DocumentFolder } from "./projectDocs";
+// Relative + explicit extension (not the usual "@/..." alias) so this pure
+// module can be imported unmodified from the ai-analysis Supabase Edge
+// Function (Deno requires explicit extensions and has no "@/" alias) as well
+// as from the browser build — see supabase/functions/_shared/folderContext.ts.
+import type { DocumentFolder } from "./projectDocs.ts";
 
 export interface FolderNode extends DocumentFolder {
   children: FolderNode[];

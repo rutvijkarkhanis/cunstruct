@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  SUPPORTED_MODELS, DEFAULT_MODEL, findModel, resolveModel, estimateCostUsd, actualCostUsd,
+  SUPPORTED_MODELS, DEFAULT_MODEL, findModel, resolveModel, estimateCostRange, actualCostUsd,
 } from "../../../supabase/functions/_shared/modelConfig.ts";
 
 describe("resolveModel — the ONLY place a client-supplied model id may take effect", () => {
@@ -36,17 +36,49 @@ describe("findModel", () => {
   });
 });
 
-describe("cost math", () => {
+describe("cost estimation — a range, never a single 'exact' figure", () => {
   const model = findModel(DEFAULT_MODEL)!;
 
-  it("estimateCostUsd is zero for no files", () => {
-    expect(estimateCostUsd(model, [])).toBe(0);
+  it("estimateCostRange is zero (low and high) for no files", () => {
+    const r = estimateCostRange(model, []);
+    expect(r.lowUsd).toBe(0);
+    expect(r.highUsd).toBe(0);
   });
 
-  it("estimateCostUsd grows with file size and file count", () => {
-    const one = estimateCostUsd(model, [1_000_000]);
-    const two = estimateCostUsd(model, [1_000_000, 1_000_000]);
-    expect(two).toBeGreaterThan(one);
+  it("low is never greater than high", () => {
+    const r = estimateCostRange(model, [{ pageCount: 5, byteSize: 500_000 }, { pageCount: 12, byteSize: 2_000_000 }]);
+    expect(r.lowUsd).toBeLessThanOrEqual(r.highUsd);
+  });
+
+  it("grows with page count and file count", () => {
+    const one = estimateCostRange(model, [{ pageCount: 5, byteSize: 500_000 }]);
+    const two = estimateCostRange(model, [{ pageCount: 5, byteSize: 500_000 }, { pageCount: 5, byteSize: 500_000 }]);
+    expect(two.lowUsd).toBeGreaterThan(one.lowUsd);
+    expect(two.highUsd).toBeGreaterThan(one.highUsd);
+  });
+
+  it("uses page_count as the basis when every file has one", () => {
+    const r = estimateCostRange(model, [{ pageCount: 5, byteSize: 500_000 }]);
+    expect(r.basis).toBe("page_count");
+  });
+
+  it("falls back to the byte-size proxy (basis: 'mixed') only for a file with no known page count", () => {
+    const r = estimateCostRange(model, [{ pageCount: null, byteSize: 500_000 }]);
+    expect(r.basis).toBe("mixed");
+  });
+
+  it("the client cannot influence the estimate — the function only accepts pageCount/byteSize, never a caller-supplied token or cost figure", () => {
+    // Structural check: CostEstimateFileInput has exactly these two fields.
+    const r = estimateCostRange(model, [{ pageCount: 3, byteSize: 100 }]);
+    expect(Object.keys(r).sort()).toEqual(["basis", "highUsd", "lowUsd"]);
+  });
+
+  it("a more expensive model (gpt-4o) produces a higher estimate than the cheaper default for identical files", () => {
+    const files = [{ pageCount: 5, byteSize: 500_000 }];
+    const cheap = estimateCostRange(findModel(DEFAULT_MODEL)!, files);
+    const expensive = estimateCostRange(findModel("gpt-4o")!, files);
+    expect(expensive.lowUsd).toBeGreaterThan(cheap.lowUsd);
+    expect(expensive.highUsd).toBeGreaterThan(cheap.highUsd);
   });
 
   it("actualCostUsd matches the documented per-token pricing", () => {

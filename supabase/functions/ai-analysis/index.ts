@@ -28,12 +28,22 @@
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { z } from "npm:zod@3.22.4";
 import { ANALYSIS_CONTRACT_VERSION, DEFAULT_PROVIDER } from "../_shared/contract.ts";
-import { DEFAULT_MODEL, SUPPORTED_MODELS, actualCostUsd, estimateCostUsd, resolveModel } from "../_shared/modelConfig.ts";
+import { DEFAULT_MODEL, SUPPORTED_MODELS, actualCostUsd, estimateCostRange, resolveModel } from "../_shared/modelConfig.ts";
 import { computePreflight, type EligibleFile, type LedgerRow } from "../_shared/preflight.ts";
 import { parseAnalysisV1, buildReviewItems } from "../_shared/analysisValidation.ts";
 import { generateAnalysisViaOpenAI } from "../_shared/openaiClient.ts";
 import { canSendToProvider } from "../../../src/lib/security/dataClassification.ts";
 import { buildAnalysisPrompt } from "../../../src/lib/review/analysisPrompt.ts";
+import { folderBreadcrumb } from "../_shared/folderContext.ts";
+import { buildStaleReclaimFilter } from "../_shared/claiming.ts";
+
+// A PROCESSING claim with no completed_at older than this is presumed dead
+// (the edge function that made it crashed/timed out) and becomes reclaimable,
+// same as a FAILED one — see reclaimIfEligible() and docs/ai-analysis-pipeline.md
+// "Stale PROCESSING recovery". Supabase Edge Functions are killed at a hard
+// wall-clock limit (a few minutes); comfortably above that and above the time
+// an OpenAI Responses call over a handful of PDFs realistically takes.
+const STALE_PROCESSING_MS = 10 * 60 * 1000; // 10 minutes
 
 const DRAWINGS_BUCKET = "project-drawings";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -72,6 +82,13 @@ interface EligibleRow {
   filePath: string;
   contentHash: string | null;
   byteSize: number;
+  pageCount: number | null;
+  /** Folder names from root to this document's folder, e.g. ["Floor 2"] — or
+   *  [] for Unfiled. DISPLAY ONLY: never read by computePreflight, the
+   *  content hash, or the analysis_run_source claim key below. A document
+   *  moved between folders keeps the same documentId/contentHash and is
+   *  therefore never re-eligible because of this field. */
+  folderPath: string[];
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
@@ -88,7 +105,7 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 async function loadEligibleFiles(supabase: SupabaseClient, projectId: string): Promise<{ totalProjectFiles: number; eligible: EligibleRow[] }> {
   const { data: docs, error: docsErr } = await supabase
     .from("project_document")
-    .select("id, name, current_revision_id")
+    .select("id, name, current_revision_id, folder_id")
     .eq("project_id", projectId);
   if (docsErr) throw docsErr;
 
@@ -96,10 +113,18 @@ async function loadEligibleFiles(supabase: SupabaseClient, projectId: string): P
   const { data: revs, error: revsErr } = docIds.length
     ? await supabase
         .from("document_revision")
-        .select("id, document_id, file_path, mime_type, file_size, original_filename, content_hash")
+        .select("id, document_id, file_path, mime_type, file_size, original_filename, content_hash, page_count")
         .in("document_id", docIds)
     : { data: [], error: null };
   if (revsErr) throw revsErr;
+
+  // Folder rows are fetched purely to build a display breadcrumb (see
+  // EligibleRow.folderPath) — never consulted for identity/eligibility.
+  const { data: folders, error: foldersErr } = await supabase
+    .from("document_folder")
+    .select("id, project_id, parent_id, name, sort")
+    .eq("project_id", projectId);
+  if (foldersErr) throw foldersErr;
 
   const revById = new Map((revs ?? []).map((r) => [r.id, r]));
   const eligible: EligibleRow[] = [];
@@ -126,6 +151,8 @@ async function loadEligibleFiles(supabase: SupabaseClient, projectId: string): P
       filePath: r.file_path,
       contentHash,
       byteSize: r.file_size ?? 0,
+      pageCount: r.page_count ?? null,
+      folderPath: folderBreadcrumb(d.folder_id ?? null, folders ?? []),
     });
   }
   return { totalProjectFiles: (docs ?? []).length, eligible };
@@ -140,7 +167,7 @@ async function loadLedger(
 ): Promise<LedgerRow[]> {
   const { data, error } = await supabase
     .from("analysis_run_source")
-    .select("content_hash, status, document_id, filename_at_time_of_analysis, analysis_run_id")
+    .select("content_hash, status, document_id, filename_at_time_of_analysis, analysis_run_id, claimed_at")
     .eq("project_id", projectId)
     .eq("contract_version", contractVersion)
     .eq("provider", provider)
@@ -152,6 +179,7 @@ async function loadLedger(
     documentId: r.document_id,
     filenameAtTimeOfAnalysis: r.filename_at_time_of_analysis,
     analysisRunId: r.analysis_run_id,
+    claimedAtMs: new Date(r.claimed_at).getTime(),
   }));
 }
 
@@ -231,7 +259,10 @@ Deno.serve(async (req) => {
       contentHash: e.contentHash, byteSize: e.byteSize,
     })),
     ledger,
-    { contractVersion: ANALYSIS_CONTRACT_VERSION, provider: DEFAULT_PROVIDER, model: model.id, forceReanalyse },
+    {
+      contractVersion: ANALYSIS_CONTRACT_VERSION, provider: DEFAULT_PROVIDER, model: model.id, forceReanalyse,
+      nowMs: Date.now(), staleAfterMs: STALE_PROCESSING_MS,
+    },
   );
 
   const runsFilter = input.boqId ? { column: "boq_id", value: input.boqId } : { column: "project_id", value: input.projectId };
@@ -241,6 +272,13 @@ Deno.serve(async (req) => {
     .eq(runsFilter.column, runsFilter.value)
     .order("created_at", { ascending: false })
     .limit(5);
+
+  // documentId -> folder breadcrumb, purely for display below. Never fed
+  // back into computePreflight or the claim key — see EligibleRow.folderPath.
+  const folderPathByDocId = new Map(eligible.map((e) => [e.documentId, e.folderPath]));
+  const withFolder = (f: { documentId: string; filename: string }) => ({
+    documentId: f.documentId, filename: f.filename, folderPath: folderPathByDocId.get(f.documentId) ?? [],
+  });
 
   // Which files are new/already-analysed, by name, is NOT sensitive AI
   // internals (no model id, no pricing, no provider) — it's the exact "which
@@ -264,9 +302,9 @@ Deno.serve(async (req) => {
     // alone — only SOURCE coverage (which uploaded files fed this run) is
     // ever reported as known. See docs/ai-analysis-pipeline.md.
     documentCompleteness: "UNKNOWN" as const,
-    willSendFiles: preflight.willSend.map((f) => ({ documentId: f.documentId, filename: f.filename })),
-    alreadyAnalysedFiles: preflight.alreadyAnalysed.map((f) => ({ documentId: f.documentId, filename: f.filename })),
-    duplicateGroups: preflight.duplicateGroups.map((g) => g.map((f) => ({ documentId: f.documentId, filename: f.filename }))),
+    willSendFiles: preflight.willSend.map(withFolder),
+    alreadyAnalysedFiles: preflight.alreadyAnalysed.map(withFolder),
+    duplicateGroups: preflight.duplicateGroups.map((g) => g.map(withFolder)),
   };
   const internal = isAdmin
     ? {
@@ -274,7 +312,15 @@ Deno.serve(async (req) => {
         model: model.id,
         contractVersion: ANALYSIS_CONTRACT_VERSION,
         forceReanalyse,
-        estimatedCostUsd: estimateCostUsd(model, preflight.willSend.map((f) => eligible.find((e) => e.documentRevisionId === f.documentRevisionId)?.byteSize ?? 0)),
+        // A range, not a point estimate — see modelConfig.ts's comment on why
+        // a single "exact" figure would be false precision here.
+        estimatedCost: estimateCostRange(
+          model,
+          preflight.willSend.map((f) => {
+            const e = eligible.find((e) => e.documentRevisionId === f.documentRevisionId);
+            return { pageCount: e?.pageCount ?? null, byteSize: e?.byteSize ?? 0 };
+          }),
+        ),
       }
     : undefined;
 
@@ -330,13 +376,23 @@ Deno.serve(async (req) => {
       continue;
     }
     // Unique-constraint collision — someone already holds/held this exact
-    // (project, content, contract, model) claim. Only a FAILED claim may be
-    // retried, and only by winning this conditional update.
+    // (project, content, contract, model) claim. Reclaimable in two cases,
+    // both via ONE conditional UPDATE so a concurrent reclaim attempt is
+    // still arbitrated by ordinary Postgres row-level locking (whoever's
+    // UPDATE commits first "wins"; the loser's WHERE clause re-evaluates
+    // against the now-committed row and correctly matches nothing):
+    //   1) status = 'FAILED' — always retryable.
+    //   2) status = 'PROCESSING' but claimed_at is older than
+    //      STALE_PROCESSING_MS — presumed dead (the edge function that made
+    //      the claim crashed/timed out before resolving it). A genuinely
+    //      live PROCESSING claim (claimed_at recent) never matches this and
+    //      stays protected.
     const { data: reclaimed } = await supabase
       .from("analysis_run_source")
       .update({ status: "PROCESSING", claimed_by: user.id, claimed_at: new Date().toISOString(), error: null, completed_at: null })
       .eq("project_id", input.projectId).eq("content_hash", file.contentHash).eq("contract_version", ANALYSIS_CONTRACT_VERSION)
-      .eq("provider", DEFAULT_PROVIDER).eq("model", model.id).eq("status", "FAILED")
+      .eq("provider", DEFAULT_PROVIDER).eq("model", model.id)
+      .or(buildStaleReclaimFilter(Date.now(), STALE_PROCESSING_MS))
       .select("id")
       .maybeSingle();
     if (reclaimed) claimed.push({ file, claimId: reclaimed.id });
@@ -375,7 +431,20 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: "OpenAI response failed validation: " + (parsedAnalysis.error ?? "unknown error"), skipped }, 502);
   }
 
-  const estimatedCostUsd = estimateCostUsd(model, filesForOpenAi.map((f) => f.bytes.byteLength));
+  // The persisted analysis_run.estimated_cost_usd column holds a single
+  // number (no schema change needed for this) — the midpoint of the honest
+  // low/high range computed the same way the preflight response shows it.
+  // The range itself isn't discarded information the reviewer needed: it
+  // mattered for the pre-generation decision, not for this after-the-fact
+  // audit record, which also carries the REAL actual_cost_usd right next to it.
+  const claimedCostRange = estimateCostRange(
+    model,
+    claimed.map(({ file }) => {
+      const e = eligible.find((e) => e.documentRevisionId === file.documentRevisionId);
+      return { pageCount: e?.pageCount ?? null, byteSize: e?.byteSize ?? 0 };
+    }),
+  );
+  const estimatedCostUsd = Math.round(((claimedCostRange.lowUsd + claimedCostRange.highUsd) / 2) * 10_000) / 10_000;
   const { data: run, error: runErr } = await supabase
     .from("analysis_run")
     .insert({
