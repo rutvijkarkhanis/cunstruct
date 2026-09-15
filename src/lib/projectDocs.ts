@@ -13,6 +13,15 @@ export interface ProjectScope {
   created_at?: string;
 }
 
+export interface DocumentFolder {
+  id: string;
+  project_id: string;
+  parent_id: string | null;
+  name: string;
+  sort: number;
+  created_at?: string;
+}
+
 export interface ProjectDocument {
   id: string;
   project_id: string;
@@ -21,6 +30,7 @@ export interface ProjectDocument {
   discipline: string | null;
   current_revision_id: string | null;
   status: string;
+  folder_id: string | null;
   created_at?: string;
 }
 
