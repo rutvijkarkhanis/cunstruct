@@ -6,4 +6,11 @@
 # smallest possible change actually inside supabase/ to test whether the
 # integration requires a change under this directory specifically. See
 # docs/deployment-log.md for the full history.
+#
+# Update: direct pushes to main did not trigger a deploy either (see
+# docs/deployment-log.md). The Supabase GitHub App's own documentation
+# states production migrations run automatically on PULL REQUEST MERGE, not
+# on a direct push — so this comment-only change is carried on a dedicated
+# branch (deploy-supabase-production) and opened as a PR into main, to test
+# the PR-merge trigger specifically rather than a direct push.
 project_id = "dkgjsobfljqoggalivzt"
