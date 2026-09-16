@@ -14,3 +14,5 @@
 # branch (deploy-supabase-production) and opened as a PR into main, to test
 # the PR-merge trigger specifically rather than a direct push.
 project_id = "dkgjsobfljqoggalivzt"
+
+[functions.ai-analysis]
