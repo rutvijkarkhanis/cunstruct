@@ -33,16 +33,27 @@ import { addReviewItemAsLine, applyReviewQtyUnit } from "@/lib/applyFinding";
 import { supabase } from "@/integrations/supabase/client";
 import type { StoredReviewItem } from "./reviewStore";
 
-/** The subset of a boq_line row needed to classify a review item against it. */
+/** The subset of a boq_line row needed to classify a review item against it.
+ *  `scope_name` is the line's resolved scope (its own boq_line.scope_id, if
+ *  set, joined to project_scope.name) — null when unset. It is ONLY consulted
+ *  when external_key collides across more than one line in the same batch;
+ *  it plays no role at all in the single-candidate (today's normal) path. */
 export interface BoqLineForApply {
   id: string;
   external_key: string | null;
   qty: number;
   unit: string | null;
   quantity_status: string | null;
+  scope_name: string | null;
 }
 
-export type ApplyClassification = "APPLY" | "NO_CHANGE" | "NEW_LINE" | "CANNOT_APPLY" | "NOT_ELIGIBLE" | "REVIEWED_NOT_APPLICABLE";
+export type ApplyClassification =
+  | "APPLY" | "NO_CHANGE" | "NEW_LINE" | "CANNOT_APPLY" | "NOT_ELIGIBLE" | "REVIEWED_NOT_APPLICABLE"
+  // Two or more BOQ lines share the item's external_key and could not be
+  // told apart by an exact, normalized location<->scope_name match. Never
+  // resolved automatically — surfaced for a human to pick, exactly like
+  // CANNOT_APPLY/REVIEWED_NOT_APPLICABLE are never auto-applied either.
+  | "AMBIGUOUS";
 
 export interface FieldChange {
   field: "qty" | "unit";
@@ -71,6 +82,10 @@ export interface ApplyCandidate {
   unsupportedChanges: UnsupportedChange[];
   reason?: string;
   newLine?: { description: string; unit: string | null; qty: number; pending: boolean };
+  /** Populated ONLY for classification AMBIGUOUS — every boq_line id whose
+   *  external_key matched, so the UI can list them for manual resolution.
+   *  Never populated for any other classification. */
+  candidateLineIds?: string[];
 }
 
 function effectiveUnit(item: StoredReviewItem): string | null {
@@ -121,7 +136,36 @@ export function classifyReviewItem(item: StoredReviewItem, lines: BoqLineForAppl
   const qty = effectiveQty(item);
   const unit = effectiveUnit(item);
   const unsupportedChanges = unsupportedChangesFor(item);
-  const match = item.ai.key ? lines.find((l) => l.external_key && l.external_key === item.ai.key) : undefined;
+
+  // Every line whose external_key matches this item's key — almost always 0
+  // or 1 (today's exact legacy behavior, untouched below). More than one
+  // means the same mark exists more than once in this batch (e.g. the same
+  // code reused across floors in a consolidated BOQ) and must be
+  // disambiguated by scope, never by which one happens to come first.
+  const candidates = item.ai.key ? lines.filter((l) => l.external_key && l.external_key === item.ai.key) : [];
+
+  let match: BoqLineForApply | undefined;
+  if (candidates.length === 1) {
+    match = candidates[0];
+  } else if (candidates.length > 1) {
+    const itemLocation = norm(item.ai.location);
+    // Disambiguate ONLY on an exact, normalized location <-> scope_name
+    // match — never on array order/position. Requires the item to actually
+    // state a location AND exactly one candidate's scope_name to agree with
+    // it; anything else (no location, no agreeing candidate, more than one
+    // agreeing candidate, or candidates with no/identical scope_name to
+    // distinguish them) is AMBIGUOUS, not a guess.
+    const scopeMatches = itemLocation ? candidates.filter((c) => norm(c.scope_name) === itemLocation) : [];
+    if (itemLocation && scopeMatches.length === 1) {
+      match = scopeMatches[0];
+    } else {
+      return {
+        ...base, classification: "AMBIGUOUS", matchedLineId: null, changes: [], unsupportedChanges,
+        candidateLineIds: candidates.map((c) => c.id),
+        reason: `${candidates.length} BOQ lines share this key with no unambiguous scope match`,
+      };
+    }
+  }
 
   if (match) {
     const changes: FieldChange[] = [];
@@ -242,7 +286,8 @@ export async function applyReviewPlan(args: {
 
   const skippedNoChange = args.candidates.filter((c) => c.classification === "NO_CHANGE").length;
   const unresolvedCount = args.candidates.filter((c) =>
-    c.classification === "NOT_ELIGIBLE" || c.classification === "CANNOT_APPLY" || c.classification === "REVIEWED_NOT_APPLICABLE",
+    c.classification === "NOT_ELIGIBLE" || c.classification === "CANNOT_APPLY"
+    || c.classification === "REVIEWED_NOT_APPLICABLE" || c.classification === "AMBIGUOUS",
   ).length;
   return { appliedCount, skippedNoChange, unresolvedCount };
 }
