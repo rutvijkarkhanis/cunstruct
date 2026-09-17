@@ -8,7 +8,7 @@ import { computePreflight, type EligibleFile, type LedgerRow } from "../../../su
 const NOW = 1_000_000_000_000; // fixed "now" so staleness math is deterministic
 const STALE_AFTER_MS = 10 * 60 * 1000; // matches STALE_PROCESSING_MS in index.ts
 
-const opts = { contractVersion: "v1", provider: "openai", model: "gpt-4o-mini", forceReanalyse: false, nowMs: NOW, staleAfterMs: STALE_AFTER_MS };
+const opts = { contractVersion: "v1", provider: "openai", model: "gpt-4o-mini", mode: "BOQ" as const, forceReanalyse: false, nowMs: NOW, staleAfterMs: STALE_AFTER_MS };
 
 const file = (o: Partial<EligibleFile> & { documentId: string; contentHash: string | null }): EligibleFile => ({
   documentRevisionId: `${o.documentId}-rev`, filename: `${o.documentId}.pdf`, byteSize: 1000, ...o,
@@ -146,5 +146,39 @@ describe("computePreflight — stale PROCESSING recovery", () => {
     const r = computePreflight(1, files, ledger, opts);
     expect(r.alreadyAnalysed).toHaveLength(1);
     expect(r.willSend).toEqual([]);
+  });
+});
+
+// ── Phase 3: mode is echoed into the result, exactly like contractVersion/
+// provider/model already are — computePreflight does not filter by it
+// internally (the same trust-the-caller's-pre-filtered-ledger convention the
+// "different contract_version/model" test above documents); the edge
+// function's loadLedger() query is what actually isolates one mode's ledger
+// rows from another's before they ever reach this function. ─────────────────
+describe("computePreflight — mode", () => {
+  it("echoes opts.mode into the result, defaulting BOQ through unchanged", () => {
+    const files = [file({ documentId: "a", contentHash: "h1" })];
+    const r = computePreflight(1, files, [], opts);
+    expect(r.mode).toBe("BOQ");
+  });
+
+  it("echoes a non-default mode (LOCATION) through unchanged", () => {
+    const files = [file({ documentId: "a", contentHash: "h1" })];
+    const r = computePreflight(1, files, [], { ...opts, mode: "LOCATION" });
+    expect(r.mode).toBe("LOCATION");
+  });
+
+  it("echoes BOQ_AND_LOCATION through unchanged", () => {
+    const files = [file({ documentId: "a", contentHash: "h1" })];
+    const r = computePreflight(1, files, [], { ...opts, mode: "BOQ_AND_LOCATION" });
+    expect(r.mode).toBe("BOQ_AND_LOCATION");
+  });
+
+  it("mode has no effect on eligibility computation — explicit BOQ produces identical output to the (also BOQ) default fixture", () => {
+    const files = [file({ documentId: "a", contentHash: "h1" }), file({ documentId: "b", contentHash: "h2" })];
+    const ledger = [ledgerRow({ contentHash: "h1", status: "SUCCEEDED", documentId: "a", filenameAtTimeOfAnalysis: "a.pdf", analysisRunId: "run1" })];
+    const withDefault = computePreflight(2, files, ledger, opts);
+    const withExplicitBoq = computePreflight(2, files, ledger, { ...opts, mode: "BOQ" });
+    expect(withExplicitBoq).toEqual(withDefault);
   });
 });

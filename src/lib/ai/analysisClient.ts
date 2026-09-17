@@ -10,7 +10,17 @@
 
 import { supabase } from "@/integrations/supabase/client";
 
+/** Phase 3 plumbing only — LOCATION and BOQ_AND_LOCATION are accepted and
+ *  persisted end-to-end but do not yet run any different extraction than
+ *  BOQ. Do NOT expose either as a user-facing control until that extraction
+ *  exists (see AiApiPanel.tsx, which never sets this field). */
+export type AnalysisMode = "BOQ" | "LOCATION" | "BOQ_AND_LOCATION";
+
 export interface PreflightSummary {
+  /** Echoes what the request resolved to — the caller's own mode if given
+   *  and valid, or "BOQ" if omitted. Never affects file counts below in this
+   *  phase (identical eligibility computation for every mode). */
+  mode: AnalysisMode;
   totalProjectFiles: number;
   totalEligibleDrawingFiles: number;
   filesPendingHash: number;
@@ -61,6 +71,9 @@ export interface GenerateResponse {
   error?: string;
   generated: number;
   runId?: string;
+  /** Present on every generate response — echoes the resolved mode, same as
+   *  PreflightSummary.mode. */
+  mode?: AnalysisMode;
   itemCount?: number;
   allAlreadyAnalysed?: boolean;
   message?: string;
@@ -84,12 +97,18 @@ async function invoke<T>(body: Record<string, unknown>): Promise<T> {
 
 export function fetchPreflight(args: {
   projectId: string; boqId?: string | null; model?: string; forceReanalyse?: boolean;
+  /** Omit for today's exact existing behavior (resolves to "BOQ" server-side).
+   *  Not yet wired into any UI control — see AnalysisMode's doc. */
+  mode?: AnalysisMode;
 }): Promise<PreflightResponse> {
   return invoke<PreflightResponse>({ action: "preflight", ...args });
 }
 
 export function generateAnalysis(args: {
   projectId: string; boqId?: string | null; documentIds?: string[]; model?: string; forceReanalyse?: boolean;
+  /** Omit for today's exact existing behavior (resolves to "BOQ" server-side).
+   *  Not yet wired into any UI control — see AnalysisMode's doc. */
+  mode?: AnalysisMode;
 }): Promise<GenerateResponse> {
   return invoke<GenerateResponse>({ action: "generate", ...args });
 }

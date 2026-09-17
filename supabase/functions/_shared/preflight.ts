@@ -12,6 +12,7 @@
 // module never invents a score for it.
 
 import { isStale } from "./claiming.ts";
+import type { AnalysisMode } from "./contract.ts";
 
 export interface EligibleFile {
   documentId: string;
@@ -72,6 +73,10 @@ export interface PreflightResult {
   contractVersion: string;
   provider: string;
   model: string;
+  /** Echoed straight from opts.mode — see the "mode" section of the opts
+   *  param doc below. Never used to filter eligibility here; identical
+   *  treatment to contractVersion/provider/model. */
+  mode: AnalysisMode;
 }
 
 /**
@@ -87,6 +92,16 @@ export function computePreflight(
   ledger: LedgerRow[],
   opts: {
     contractVersion: string; provider: string; model: string; forceReanalyse: boolean;
+    /** Already resolved by the caller (resolveAnalysisMode in contract.ts) —
+     *  an omitted request mode becomes DEFAULT_ANALYSIS_MODE ("BOQ") before
+     *  this function is ever called, exactly like `model` is already resolved
+     *  by resolveModel() before reaching here. Consulted ONLY to echo into
+     *  PreflightResult.mode; eligibility/dedup logic below never branches on
+     *  it — mode isolation is enforced by the caller's ledger query (see
+     *  index.ts's loadLedger) and the analysis_run_source uniqueness
+     *  constraint, the same division of responsibility contractVersion/
+     *  provider/model already have. */
+    mode: AnalysisMode;
     /** Current time and the stale-PROCESSING threshold, as epoch millis —
      *  passed in (not read from Date.now()/a constant) so this stays a pure,
      *  deterministically-testable function. A PROCESSING claim older than
@@ -160,5 +175,6 @@ export function computePreflight(
     contractVersion: opts.contractVersion,
     provider: opts.provider,
     model: opts.model,
+    mode: opts.mode,
   };
 }

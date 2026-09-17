@@ -27,7 +27,7 @@
 
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { z } from "npm:zod@3.22.4";
-import { ANALYSIS_CONTRACT_VERSION, DEFAULT_PROVIDER } from "../_shared/contract.ts";
+import { ANALYSIS_CONTRACT_VERSION, DEFAULT_PROVIDER, resolveAnalysisMode, type AnalysisMode } from "../_shared/contract.ts";
 import { DEFAULT_MODEL, SUPPORTED_MODELS, actualCostUsd, estimateCostRange, resolveModel } from "../_shared/modelConfig.ts";
 import { computePreflight, type EligibleFile, type LedgerRow } from "../_shared/preflight.ts";
 import { parseAnalysisV1, buildReviewItems } from "../_shared/analysisValidation.ts";
@@ -67,6 +67,11 @@ const BodySchema = z.object({
   // Admin-only inputs — silently ignored for a non-admin caller (see resolveModel()).
   model: z.string().optional(),
   forceReanalyse: z.boolean().optional(),
+  // Loosely typed here (any string passes shape validation) — the actual
+  // BOQ/LOCATION/BOQ_AND_LOCATION enum check happens via resolveAnalysisMode()
+  // below, which is also the single source of truth ANALYSIS_MODES itself
+  // lives in (contract.ts), so this schema never drifts from it.
+  mode: z.string().optional(),
 });
 
 interface ProjectRow {
@@ -164,6 +169,7 @@ async function loadLedger(
   contractVersion: string,
   provider: string,
   model: string,
+  mode: AnalysisMode,
 ): Promise<LedgerRow[]> {
   const { data, error } = await supabase
     .from("analysis_run_source")
@@ -171,7 +177,14 @@ async function loadLedger(
     .eq("project_id", projectId)
     .eq("contract_version", contractVersion)
     .eq("provider", provider)
-    .eq("model", model);
+    .eq("model", model)
+    // Scopes the ledger to this exact mode — the same pre-filter-before-
+    // computePreflight convention contract_version/provider/model already
+    // use (see computePreflight's opts.mode doc in preflight.ts). Without
+    // this, a LOCATION-mode claim over a file would be seen as "already
+    // analysed" by a BOQ-mode preflight for the same file, which is wrong:
+    // they are separate analysis_run_source identities by design.
+    .eq("mode", mode);
   if (error) throw error;
   return (data ?? []).map((r) => ({
     contentHash: r.content_hash,
@@ -243,6 +256,15 @@ Deno.serve(async (req) => {
   const model = resolveModel(input.model, isAdmin);
   const forceReanalyse = isAdmin && !!input.forceReanalyse;
 
+  // Omitted mode -> DEFAULT_ANALYSIS_MODE ("BOQ"), the exact backward-
+  // compatibility rule: every existing caller that never sends `mode` behaves
+  // identically to before this phase. An explicit, unrecognized mode string
+  // is rejected outright rather than silently coerced to BOQ.
+  const mode: AnalysisMode | null = resolveAnalysisMode(input.mode);
+  if (mode === null) {
+    return json({ ok: false, error: `Invalid mode: "${input.mode}". Must be one of BOQ, LOCATION, BOQ_AND_LOCATION.` }, 400);
+  }
+
   let totalProjectFiles: number;
   let eligible: EligibleRow[];
   try {
@@ -251,7 +273,7 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: e instanceof Error ? e.message : "Failed to load project files" }, 500);
   }
 
-  const ledger = await loadLedger(supabase, input.projectId, ANALYSIS_CONTRACT_VERSION, DEFAULT_PROVIDER, model.id);
+  const ledger = await loadLedger(supabase, input.projectId, ANALYSIS_CONTRACT_VERSION, DEFAULT_PROVIDER, model.id, mode);
   const preflight = computePreflight(
     totalProjectFiles,
     eligible.map((e): EligibleFile => ({
@@ -260,7 +282,7 @@ Deno.serve(async (req) => {
     })),
     ledger,
     {
-      contractVersion: ANALYSIS_CONTRACT_VERSION, provider: DEFAULT_PROVIDER, model: model.id, forceReanalyse,
+      contractVersion: ANALYSIS_CONTRACT_VERSION, provider: DEFAULT_PROVIDER, model: model.id, mode, forceReanalyse,
       nowMs: Date.now(), staleAfterMs: STALE_PROCESSING_MS,
     },
   );
@@ -286,6 +308,10 @@ Deno.serve(async (req) => {
   // "Review files", so it lives in the normal summary, not the admin-only
   // `internal` block below.
   const normalSummary = {
+    // Not sensitive (no model/pricing/provider) — same visibility as the file
+    // counts above. Echoes what the request resolved to: the caller's own
+    // mode if valid, or "BOQ" if omitted.
+    mode: preflight.mode,
     totalProjectFiles: preflight.totalProjectFiles,
     totalEligibleDrawingFiles: preflight.totalEligibleDrawingFiles,
     filesPendingHash: preflight.filesPendingHash,
@@ -341,6 +367,7 @@ Deno.serve(async (req) => {
     return json({
       ok: true,
       generated: 0,
+      mode,
       allAlreadyAnalysed: normalSummary.allFilesAlreadyAnalysed,
       message: normalSummary.allFilesAlreadyAnalysed
         ? "All uploaded files have already been analysed."
@@ -351,8 +378,11 @@ Deno.serve(async (req) => {
 
   // ── Claim each file — DB-enforced idempotency via the unique constraint on
   // analysis_run_source(project_id, content_hash, contract_version, provider,
-  // model). A losing race (two tabs, a double-click, a retry) always loses
-  // the insert here, never the OpenAI call below. ──────────────────────────
+  // model, mode). A losing race (two tabs, a double-click, a retry) always
+  // loses the insert here, never the OpenAI call below. Including `mode` in
+  // both the insert and the constraint means a LOCATION-mode claim and a
+  // BOQ-mode claim over the identical file/contract/model never collide —
+  // each mode gets its own independent claim/run. ──────────────────────────
   const claimed: { file: (typeof toSend)[number]; claimId: string }[] = [];
   const skipped: { filename: string; reason: string }[] = [];
   for (const file of toSend) {
@@ -360,7 +390,7 @@ Deno.serve(async (req) => {
       .from("analysis_run_source")
       .insert({
         project_id: input.projectId, content_hash: file.contentHash, contract_version: ANALYSIS_CONTRACT_VERSION,
-        provider: DEFAULT_PROVIDER, model: model.id, status: "PROCESSING",
+        provider: DEFAULT_PROVIDER, model: model.id, mode, status: "PROCESSING",
         document_id: file.documentId, document_revision_id: file.documentRevisionId,
         filename_at_time_of_analysis: file.filename, claimed_by: user.id,
       })
@@ -376,9 +406,9 @@ Deno.serve(async (req) => {
       continue;
     }
     // Unique-constraint collision — someone already holds/held this exact
-    // (project, content, contract, model) claim. Reclaimable in two cases,
-    // both via ONE conditional UPDATE so a concurrent reclaim attempt is
-    // still arbitrated by ordinary Postgres row-level locking (whoever's
+    // (project, content, contract, model, mode) claim. Reclaimable in two
+    // cases, both via ONE conditional UPDATE so a concurrent reclaim attempt
+    // is still arbitrated by ordinary Postgres row-level locking (whoever's
     // UPDATE commits first "wins"; the loser's WHERE clause re-evaluates
     // against the now-committed row and correctly matches nothing):
     //   1) status = 'FAILED' — always retryable.
@@ -391,7 +421,7 @@ Deno.serve(async (req) => {
       .from("analysis_run_source")
       .update({ status: "PROCESSING", claimed_by: user.id, claimed_at: new Date().toISOString(), error: null, completed_at: null })
       .eq("project_id", input.projectId).eq("content_hash", file.contentHash).eq("contract_version", ANALYSIS_CONTRACT_VERSION)
-      .eq("provider", DEFAULT_PROVIDER).eq("model", model.id)
+      .eq("provider", DEFAULT_PROVIDER).eq("model", model.id).eq("mode", mode)
       .or(buildStaleReclaimFilter(Date.now(), STALE_PROCESSING_MS))
       .select("id")
       .maybeSingle();
@@ -400,7 +430,7 @@ Deno.serve(async (req) => {
   }
 
   if (claimed.length === 0) {
-    return json({ ok: true, generated: 0, message: "All selected files are already analysed or being analysed elsewhere.", skipped });
+    return json({ ok: true, generated: 0, mode, message: "All selected files are already analysed or being analysed elsewhere.", skipped });
   }
 
   // ── Download bytes for every claimed file, call OpenAI once for the batch ──
@@ -450,7 +480,7 @@ Deno.serve(async (req) => {
     .insert({
       boq_id: input.boqId ?? null, project_id: input.projectId,
       schema_version: parsedAnalysis.analysis.schemaVersion, source: "ai_api",
-      provider: DEFAULT_PROVIDER, model: model.id, item_count: parsedAnalysis.analysis.items.length,
+      provider: DEFAULT_PROVIDER, model: model.id, mode, item_count: parsedAnalysis.analysis.items.length,
       created_by: user.id, contract_version: ANALYSIS_CONTRACT_VERSION,
       input_tokens: openAiResult.inputTokens, output_tokens: openAiResult.outputTokens, total_tokens: openAiResult.totalTokens,
       estimated_cost_usd: estimatedCostUsd, actual_cost_usd: actualCostUsd(model, openAiResult.inputTokens, openAiResult.outputTokens),
@@ -484,6 +514,7 @@ Deno.serve(async (req) => {
     ok: true,
     generated: claimed.length,
     runId: run.id,
+    mode,
     itemCount: reviewItems.length,
     skipped,
     // Honest, non-inflated coverage statement — this run covers ONLY the
