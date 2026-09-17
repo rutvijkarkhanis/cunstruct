@@ -83,13 +83,34 @@ export default function BoqReviewWorkstation() {
 
   // The BOQ's current lines, for diffing reviewed values against the CURRENT
   // BOQ (not the original AI value) when building the apply-to-BOQ plan.
+  // scope_id is embedded and resolved to its project_scope name here — the
+  // ONLY place BoqLineForApply.scope_name comes from — so classifyReviewItem
+  // itself stays pure/I-O-free (see applyReview.ts). If the embed fails (a
+  // freshly-migrated column not yet in PostgREST's schema cache — the same
+  // lag class documented in applyFinding.ts's OPTIONAL_COL_RE fallback), this
+  // falls back to the pre-Phase-2 select with scope_name left null, which is
+  // exactly today's behavior for the (only) case that matters when it's
+  // missing: a single-candidate match is unaffected either way.
   const { data: boqLines = [] } = useQuery({
     queryKey: ["rw-lines", boqId],
     enabled: !!boqId,
     queryFn: async (): Promise<BoqLineForApply[]> => {
-      const { data } = await supabase.from("boq_line")
+      const { data, error } = await supabase.from("boq_line")
+        .select("id, external_key, qty, unit, quantity_status, scope_id, project_scope(name)")
+        .eq("boq_id", boqId);
+      if (!error) {
+        return (data ?? []).map((r) => {
+          const row = r as unknown as { id: string; external_key: string | null; qty: number; unit: string | null; quantity_status: string | null; project_scope: { name: string } | { name: string }[] | null };
+          const scope = Array.isArray(row.project_scope) ? row.project_scope[0] : row.project_scope;
+          return {
+            id: row.id, external_key: row.external_key, qty: row.qty, unit: row.unit, quantity_status: row.quantity_status,
+            scope_name: scope?.name ?? null,
+          };
+        });
+      }
+      const { data: fallback } = await supabase.from("boq_line")
         .select("id, external_key, qty, unit, quantity_status").eq("boq_id", boqId);
-      return (data ?? []) as unknown as BoqLineForApply[];
+      return (fallback ?? []).map((r) => ({ ...(r as object), scope_name: null }) as BoqLineForApply);
     },
   });
 
@@ -397,7 +418,13 @@ export function ApplyToBoqDialog({ candidates, selectedIds, onToggle, onSelectAl
   const applyable = candidates.filter((c) => c.classification === "APPLY" || c.classification === "NEW_LINE");
   const noChange = candidates.filter((c) => c.classification === "NO_CHANGE");
   const notApplicable = candidates.filter((c) => c.classification === "REVIEWED_NOT_APPLICABLE");
-  const unresolved = candidates.filter((c) => c.classification === "NOT_ELIGIBLE" || c.classification === "CANNOT_APPLY");
+  // AMBIGUOUS reuses this same bucket (with its own `reason` text, same as
+  // NOT_ELIGIBLE/CANNOT_APPLY) rather than a new UI section — it must never
+  // silently vanish from every bucket, but Phase 2 is a matching-safety fix,
+  // not new UI (see Phase 6).
+  const unresolved = candidates.filter((c) =>
+    c.classification === "NOT_ELIGIBLE" || c.classification === "CANNOT_APPLY" || c.classification === "AMBIGUOUS",
+  );
   const selectedCount = applyable.filter((c) => selectedIds.has(c.reviewItemId)).length;
 
   return (

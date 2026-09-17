@@ -26,6 +26,7 @@ const reviewItem = (o: Partial<StoredReviewItem> & { ai: AnalysisItemV1 }): Stor
 const line = (o: Partial<BoqLineForApply>): BoqLineForApply => ({
   id: o.id ?? "line-1", external_key: o.external_key ?? "W1", qty: o.qty ?? 9,
   unit: o.unit ?? "nos", quantity_status: o.quantity_status ?? "MEASURED",
+  scope_name: o.scope_name ?? null,
 });
 
 describe("classifyReviewItem — eligibility", () => {
@@ -247,5 +248,97 @@ describe("classifyReviewItem — dimension/specification/location corrections ar
     expect(plan[0].classification).toBe("REVIEWED_NOT_APPLICABLE");
     // Neither APPLY nor NEW_LINE — the UI's "applyable" filter excludes it.
     expect(["APPLY", "NEW_LINE"]).not.toContain(plan[0].classification);
+  });
+});
+
+// ── Phase 2: scoped identity — same external_key on more than one BOQ line
+// must never resolve by array order. A single candidate is untouched (the
+// dominant, legacy case); multiple candidates are disambiguated ONLY by an
+// exact, normalized item-location <-> line-scope_name match, and anything
+// that doesn't resolve to exactly one candidate is AMBIGUOUS, never a guess. ──
+describe("classifyReviewItem — scoped identity when external_key collides across lines", () => {
+  it("one candidate only: today's exact behavior, unaffected by scope_name at all", () => {
+    const it_ = reviewItem({ ai: ai({ key: "W1", quantity: 5, unit: "nos" }), reviewStatus: "VERIFIED" });
+    const c = classifyReviewItem(it_, [line({ id: "line-ground", external_key: "W1", qty: 5, unit: "nos", scope_name: null })]);
+    expect(c.classification).toBe("NO_CHANGE");
+    expect(c.matchedLineId).toBe("line-ground");
+  });
+
+  it("two candidates, distinct scopes, item location matches exactly one -> applies to that line only", () => {
+    const it_ = reviewItem({ ai: ai({ key: "W1", item: "Window W1", quantity: 7, unit: "nos", location: "Ground Floor" }), reviewStatus: "VERIFIED" });
+    const lines = [
+      line({ id: "line-stilt", external_key: "W1", qty: 1, unit: "nos", scope_name: "Stilt" }),
+      line({ id: "line-ground", external_key: "W1", qty: 1, unit: "nos", scope_name: "Ground Floor" }),
+    ];
+    const c = classifyReviewItem(it_, lines);
+    expect(c.classification).toBe("APPLY");
+    expect(c.matchedLineId).toBe("line-ground");
+    expect(c.candidateLineIds).toBeUndefined();
+  });
+
+  it("two candidates, distinct scopes, item location matches neither -> AMBIGUOUS, never first-match", () => {
+    const it_ = reviewItem({ ai: ai({ key: "W1", quantity: 7, unit: "nos", location: "Typical Floor 3" }), reviewStatus: "VERIFIED" });
+    const lines = [
+      line({ id: "line-stilt", external_key: "W1", scope_name: "Stilt" }),
+      line({ id: "line-ground", external_key: "W1", scope_name: "Ground Floor" }),
+    ];
+    const c = classifyReviewItem(it_, lines);
+    expect(c.classification).toBe("AMBIGUOUS");
+    expect(c.matchedLineId).toBeNull();
+    expect(c.candidateLineIds).toEqual(["line-stilt", "line-ground"]);
+  });
+
+  it("two candidates, item has no location at all -> AMBIGUOUS", () => {
+    const it_ = reviewItem({ ai: ai({ key: "W1", quantity: 7, unit: "nos" }), reviewStatus: "VERIFIED" });
+    const lines = [
+      line({ id: "line-stilt", external_key: "W1", scope_name: "Stilt" }),
+      line({ id: "line-ground", external_key: "W1", scope_name: "Ground Floor" }),
+    ];
+    const c = classifyReviewItem(it_, lines);
+    expect(c.classification).toBe("AMBIGUOUS");
+    expect(c.candidateLineIds).toEqual(["line-stilt", "line-ground"]);
+  });
+
+  it("two candidates, identical scope_name on both -> AMBIGUOUS (no discriminator, never guess)", () => {
+    const it_ = reviewItem({ ai: ai({ key: "W1", quantity: 7, unit: "nos", location: "Ground Floor" }), reviewStatus: "VERIFIED" });
+    const lines = [
+      line({ id: "line-a", external_key: "W1", scope_name: "Ground Floor" }),
+      line({ id: "line-b", external_key: "W1", scope_name: "Ground Floor" }),
+    ];
+    const c = classifyReviewItem(it_, lines);
+    expect(c.classification).toBe("AMBIGUOUS");
+    expect(c.candidateLineIds).toEqual(["line-a", "line-b"]);
+  });
+
+  it("two candidates, both scope_name null -> AMBIGUOUS (no discriminator, never guess)", () => {
+    const it_ = reviewItem({ ai: ai({ key: "W1", quantity: 7, unit: "nos", location: "Ground Floor" }), reviewStatus: "VERIFIED" });
+    const lines = [
+      line({ id: "line-a", external_key: "W1", scope_name: null }),
+      line({ id: "line-b", external_key: "W1", scope_name: null }),
+    ];
+    const c = classifyReviewItem(it_, lines);
+    expect(c.classification).toBe("AMBIGUOUS");
+  });
+
+  it("zero candidates: existing NEW_LINE/CANNOT_APPLY behavior is unaffected by Phase 2", () => {
+    const it_ = reviewItem({ ai: ai({ key: "W9", item: "Window W9", quantity: 4, unit: "nos" }), reviewStatus: "VERIFIED" });
+    const c = classifyReviewItem(it_, [line({ external_key: "W1", scope_name: "Ground Floor" })]);
+    expect(c.classification).toBe("NEW_LINE");
+  });
+
+  it("AMBIGUOUS is excluded from applyReviewPlan's write path even if (incorrectly) selected", async () => {
+    const it_ = reviewItem({ id: "ri-amb", ai: ai({ key: "W1", quantity: 7, unit: "nos" }), reviewStatus: "VERIFIED" });
+    const lines = [
+      line({ id: "line-a", external_key: "W1", scope_name: "Ground Floor" }),
+      line({ id: "line-b", external_key: "W1", scope_name: "Ground Floor" }),
+    ];
+    const plan = buildApplyPlan([it_], lines);
+    expect(plan[0].classification).toBe("AMBIGUOUS");
+    // applyReviewPlan's write loop only ever acts on APPLY/NEW_LINE — an
+    // AMBIGUOUS candidate has no matchedLineId/newLine for it to act on even
+    // if selectedIds included it, so this asserts the data shape that makes
+    // that structurally true rather than re-testing the DB-touching function.
+    expect(plan[0].matchedLineId).toBeNull();
+    expect(plan[0].newLine).toBeUndefined();
   });
 });

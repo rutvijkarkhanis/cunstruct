@@ -103,7 +103,7 @@ describe("applyReviewPlan — NEW_LINE audit logging", () => {
 describe("applyReviewPlan — existing behavior remains intact", () => {
   it("APPLY (matched line) still logs a from/to row per changed field, unchanged from before", async () => {
     const it_ = reviewItem({ id: "ri-1", ai: ai({ key: "W1", quantity: 7, unit: "nos" }), reviewStatus: "EDITED", reviewer: { quantity: 8 } });
-    const plan = buildApplyPlan([it_], [{ id: "line-1", external_key: "W1", qty: 9, unit: "nos", quantity_status: "MEASURED" }]);
+    const plan = buildApplyPlan([it_], [{ id: "line-1", external_key: "W1", qty: 9, unit: "nos", quantity_status: "MEASURED", scope_name: null }]);
     expect(plan[0].classification).toBe("APPLY");
 
     const result = await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-1"]) });
@@ -121,7 +121,7 @@ describe("applyReviewPlan — existing behavior remains intact", () => {
       reviewItem({ id: "1", ai: ai({ key: "A", quantity: 7, unit: "nos" }), reviewStatus: "EDITED", reviewer: { quantity: 8 } }), // eligible, NOT selected
       reviewItem({ id: "2", ai: ai({ key: "B", quantity: 7, unit: "nos" }), reviewStatus: "FLAGGED" }), // never eligible
     ];
-    const lines = [{ id: "line-1", external_key: "A", qty: 9, unit: "nos", quantity_status: "MEASURED" }];
+    const lines = [{ id: "line-1", external_key: "A", qty: 9, unit: "nos", quantity_status: "MEASURED", scope_name: null }];
     const plan = buildApplyPlan(items, lines);
 
     const result = await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["2"]) }); // select the ineligible one
