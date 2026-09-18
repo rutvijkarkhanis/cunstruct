@@ -24,6 +24,7 @@ function renderPanel(onGenerated = vi.fn()) {
 }
 
 const basePreflight: analysisClient.PreflightSummary = {
+  mode: "BOQ",
   totalProjectFiles: 5, totalEligibleDrawingFiles: 4, filesPendingHash: 0,
   alreadyAnalysedCount: 1, newFilesCount: 3, duplicateFilesSkipped: 0, inFlightCount: 0,
   allFilesAlreadyAnalysed: false, existingRunCount: 1, latestRunId: "run-old",
