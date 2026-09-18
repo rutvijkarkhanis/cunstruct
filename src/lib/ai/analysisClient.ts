@@ -74,6 +74,11 @@ export interface GenerateResponse {
   /** Present on every generate response — echoes the resolved mode, same as
    *  PreflightSummary.mode. */
   mode?: AnalysisMode;
+  /** Present only for a LOCATION-mode generate — the number of observations
+   *  persisted. Deliberately separate from itemCount (which means "BOQ
+   *  review items produced" and is always 0 for a LOCATION run) rather than
+   *  overloading it — see the Phase 4 design review. */
+  observationCount?: number;
   itemCount?: number;
   allAlreadyAnalysed?: boolean;
   message?: string;
