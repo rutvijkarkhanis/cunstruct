@@ -16,8 +16,6 @@
 // thinnest possible wrapper so there is as little untested surface as
 // possible.
 
-import { CUNSTRUCT_ANALYSIS_JSON_SCHEMA } from "./openaiSchema.ts";
-
 const OPENAI_API_BASE = "https://api.openai.com/v1";
 
 export interface OpenAiFileInput {
@@ -73,8 +71,13 @@ async function deleteFile(apiKey: string, fileId: string): Promise<void> {
 }
 
 /**
- * Generate a Cunstruct analysis for one or more drawing files via OpenAI's
- * Responses API. Files are uploaded, referenced by id in the request, then
+ * Generate a Cunstruct analysis (BOQ items, or — Phase 4 — LOCATION
+ * observations) for one or more drawing files via OpenAI's Responses API.
+ * `jsonSchema` is caller-supplied (CUNSTRUCT_ANALYSIS_JSON_SCHEMA for BOQ
+ * mode, CUNSTRUCT_OBSERVATION_JSON_SCHEMA for LOCATION mode — see
+ * openaiSchema.ts) rather than hardcoded, so this one transport (file
+ * upload, Responses API call, cleanup) is shared by both instead of
+ * duplicated. Files are uploaded, referenced by id in the request, then
  * deleted afterward (success or failure) — nothing is left resident in the
  * OpenAI account beyond the single request's lifetime.
  */
@@ -83,6 +86,7 @@ export async function generateAnalysisViaOpenAI(
   model: string,
   promptText: string,
   files: OpenAiFileInput[],
+  jsonSchema: { name: string; strict: boolean; schema: unknown },
 ): Promise<OpenAiAnalysisResult> {
   const fileIds: string[] = [];
   try {
@@ -97,7 +101,7 @@ export async function generateAnalysisViaOpenAI(
       body: JSON.stringify({
         model,
         input: [{ role: "user", content }],
-        text: { format: { type: "json_schema", ...CUNSTRUCT_ANALYSIS_JSON_SCHEMA } },
+        text: { format: { type: "json_schema", ...jsonSchema } },
       }),
     });
     if (!res.ok) {

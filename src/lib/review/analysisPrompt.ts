@@ -4,6 +4,8 @@
 // Kept as data (not buried in a component) so it can be edited/versioned without
 // touching UI. No provider is targeted and nothing here calls a model.
 
+import { OBSERVATION_TYPES } from "./observationSchemaV1.ts";
+
 export interface AnalysisPromptOptions {
   projectType?: string;
   /** Extra project-specific guidance appended verbatim. */
@@ -75,6 +77,63 @@ export function buildAnalysisPrompt(opts: AnalysisPromptOptions = {}): string {
     "",
     "When sources conflict, use this pattern instead of guessing a value:",
     CANDIDATES_SCHEMA_HINT,
+    opts.extra ? `\nAdditional guidance:\n${opts.extra}` : "",
+  ];
+  return lines.filter((l) => l !== "").join("\n");
+}
+
+// ── LOCATION mode (Phase 4) — observation extraction, independent of any BOQ ─
+//
+// Deliberately a SEPARATE prompt, not a variant of BASE_RULES: LOCATION asks
+// the model to analyse the drawing itself and report what it sees, never to
+// look for where BOQ items occur (that would make the BOQ a filter on what
+// gets extracted, hiding missing scope — the exact thing this mode exists to
+// surface). Shares the same evidence-honesty discipline as the BOQ prompt
+// (never invent coordinates, prefer an honest LIMITED over a fabricated
+// region) because that discipline is about evidence, not about BOQs.
+
+export const OBSERVATION_SCHEMA_HINT = `{
+  "schema_version": "cunstruct.observation.v1",
+  "observations": [
+    {
+      "observation_type": "schedule_entry", "mark": "W1",
+      "scope_hint": "Ground Floor", "location_text": "Door/Window schedule, Ground floor sheet",
+      "attributes": { "dimension": "6' x 6'9\\"", "specification": "UPVC" },
+      "evidence_completeness": "FULL",
+      "source": {
+        "document_id": "doc-uuid", "page": 8,
+        "evidence": [ { "bbox": [x1,y1,x2,y2], "page": 8 } ]
+      }
+    }
+  ]
+}`;
+
+const OBSERVATION_BASE_RULES = [
+  "Analyse ALL supplied drawings directly. Report every construction-relevant fact you can see, with its exact location.",
+  "Do NOT look for where items on an existing Bill of Quantities occur. This is not a BOQ lookup — analyse the drawing independently of any BOQ. Do not filter or limit what you report by a BOQ. A fact with no BOQ counterpart must still be reported.",
+  `Every observation's "observation_type" MUST be exactly one of: ${OBSERVATION_TYPES.join(", ")}. Never invent a category outside this list.`,
+  "Do not transcribe running text, paragraph notes, title-block metadata, revision history, or general text/OCR. Only report a discrete fact that fits one of the categories above and is construction-relevant.",
+  "Do NOT report a quantity, a count, or any numeric measure of how many of something exists. LOCATION mode never asserts a quantity — that is a separate, human-reviewed BOQ concern.",
+  "attributes may include only: dimension, specification, material — each optional, each a plain string. Omit any you cannot support from the drawing; never invent one.",
+  "Include the source document and page for each observation.",
+  "Include evidence coordinates (bbox) whenever the drawing supports them; omit them rather than fabricating.",
+  "Evidence coordinates must be given in the page's own RENDERED coordinate space (top-left origin, as the page looks when opened normally) — never the page's raw/unrotated content-stream coordinates. This matters most for a rotated page (e.g. a landscape schedule or detail sheet inside an otherwise-portrait set).",
+  "Never invent evidence coordinates. If you cannot pin a reliable region for an observation you are still confident exists, set evidence_completeness to LIMITED and provide an empty evidence array rather than fabricating a box.",
+  "Set evidence_completeness to FULL when the evidence clearly and fully supports the observation, PARTIAL when it partially supports it, and LIMITED when you have little or no reliable region but are still reporting the observation.",
+  "Return VALID Cunstruct observation JSON only — no prose, no markdown, no code fences.",
+];
+
+/** Build the LOCATION extraction prompt. Deterministic; a pure string builder. */
+export function buildObservationPrompt(opts: AnalysisPromptOptions = {}): string {
+  const lines = [
+    "You are a construction surveyor extracting construction-relevant observations directly from drawings.",
+    opts.projectType ? `Project type: ${opts.projectType}.` : "",
+    "",
+    "Rules:",
+    ...OBSERVATION_BASE_RULES.map((r) => `- ${r}`),
+    "",
+    "Return exactly this shape (values illustrative):",
+    OBSERVATION_SCHEMA_HINT,
     opts.extra ? `\nAdditional guidance:\n${opts.extra}` : "",
   ];
   return lines.filter((l) => l !== "").join("\n");

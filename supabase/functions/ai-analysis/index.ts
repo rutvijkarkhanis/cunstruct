@@ -32,10 +32,13 @@ import { DEFAULT_MODEL, SUPPORTED_MODELS, actualCostUsd, estimateCostRange, reso
 import { computePreflight, type EligibleFile, type LedgerRow } from "../_shared/preflight.ts";
 import { parseAnalysisV1, buildReviewItems } from "../_shared/analysisValidation.ts";
 import { generateAnalysisViaOpenAI } from "../_shared/openaiClient.ts";
+import { CUNSTRUCT_ANALYSIS_JSON_SCHEMA, CUNSTRUCT_OBSERVATION_JSON_SCHEMA } from "../_shared/openaiSchema.ts";
 import { canSendToProvider } from "../../../src/lib/security/dataClassification.ts";
-import { buildAnalysisPrompt } from "../../../src/lib/review/analysisPrompt.ts";
+import { buildAnalysisPrompt, buildObservationPrompt } from "../../../src/lib/review/analysisPrompt.ts";
 import { folderBreadcrumb } from "../_shared/folderContext.ts";
 import { buildStaleReclaimFilter } from "../_shared/claiming.ts";
+import { parseObservationsV1 } from "../_shared/observationValidation.ts";
+import { resolveObservationSource, type ClaimedFile } from "../_shared/observationSource.ts";
 
 // A PROCESSING claim with no completed_at older than this is presumed dead
 // (the edge function that made it crashed/timed out) and becomes reclaimable,
@@ -445,10 +448,127 @@ Deno.serve(async (req) => {
     filesForOpenAi.push({ filename: file.filename, bytes: new Uint8Array(await blob.arrayBuffer()) });
   }
 
+  // The persisted analysis_run.estimated_cost_usd column holds a single
+  // number (no schema change needed for this) — the midpoint of the honest
+  // low/high range computed the same way the preflight response shows it.
+  // The range itself isn't discarded information the reviewer needed: it
+  // mattered for the pre-generation decision, not for this after-the-fact
+  // audit record, which also carries the REAL actual_cost_usd right next to it.
+  // Computed once here (mode-independent) rather than duplicated in the BOQ
+  // and LOCATION branches below.
+  const claimedCostRange = estimateCostRange(
+    model,
+    claimed.map(({ file }) => {
+      const e = eligible.find((e) => e.documentRevisionId === file.documentRevisionId);
+      return { pageCount: e?.pageCount ?? null, byteSize: e?.byteSize ?? 0 };
+    }),
+  );
+  const estimatedCostUsd = Math.round(((claimedCostRange.lowUsd + claimedCostRange.highUsd) / 2) * 10_000) / 10_000;
+
+  // ── mode === "LOCATION": observation extraction, entirely separate from the
+  // BOQ path below — different prompt, different schema, different parser,
+  // persists to analysis_observation instead of analysis_review_item. Never
+  // reached for "BOQ" or "BOQ_AND_LOCATION" (the latter still runs the
+  // unchanged BOQ path below, per Phase 3's documented limitation — actually
+  // combining both extractions is Phase 5's job). ──────────────────────────
+  if (mode === "LOCATION") {
+    const observationPromptText = buildObservationPrompt({ projectType: project.project_type ?? undefined });
+    let locationResult;
+    try {
+      locationResult = await generateAnalysisViaOpenAI(OPENAI_API_KEY, model.id, observationPromptText, filesForOpenAi, CUNSTRUCT_OBSERVATION_JSON_SCHEMA);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "OpenAI request failed";
+      await failClaims(supabase, claimed.map((c) => c.claimId), message);
+      return json({ ok: false, error: message, skipped }, 502);
+    }
+
+    const parsedObservations = parseObservationsV1(locationResult.rawJson);
+    if (!parsedObservations.ok || !parsedObservations.observations) {
+      await failClaims(supabase, claimed.map((c) => c.claimId), parsedObservations.error ?? "OpenAI response failed schema validation.");
+      return json({ ok: false, error: "OpenAI response failed validation: " + (parsedObservations.error ?? "unknown error"), skipped }, 502);
+    }
+
+    // Layer B: pin each observation to an exact claimed document/revision.
+    // Never trusts the model's own documentId/document without checking it
+    // against what was actually sent this batch — an observation that can't
+    // be pinned is dropped entirely, never persisted with a guessed source.
+    const claimedFiles: ClaimedFile[] = claimed.map(({ file }) => ({
+      documentId: file.documentId, documentRevisionId: file.documentRevisionId, filename: file.filename,
+    }));
+    const pinned: { documentId: string; revisionId: string; obs: (typeof parsedObservations.observations)[number] }[] = [];
+    for (const obs of parsedObservations.observations) {
+      const resolved = resolveObservationSource({ documentId: obs.source.documentId, document: obs.source.document }, claimedFiles);
+      if (resolved) pinned.push({ documentId: resolved.documentId, revisionId: resolved.revisionId, obs });
+    }
+
+    if (pinned.length === 0) {
+      await failClaims(supabase, claimed.map((c) => c.claimId), "No observation could be pinned to an exact source document/revision.");
+      return json({ ok: false, error: "No observation could be pinned to an exact source document/revision.", skipped }, 502);
+    }
+
+    const { data: locationRun, error: locationRunErr } = await supabase
+      .from("analysis_run")
+      .insert({
+        boq_id: input.boqId ?? null, project_id: input.projectId,
+        schema_version: "cunstruct.observation.v1", source: "ai_api",
+        provider: DEFAULT_PROVIDER, model: model.id, mode,
+        // item_count is left at its column default (0) — it means "number of
+        // analysis_review_item rows" today (see reviewStore.latestRunForBoq),
+        // and a LOCATION run genuinely has zero of those. The observation
+        // count is reported separately below as observationCount, never
+        // folded into this column.
+        created_by: user.id, contract_version: ANALYSIS_CONTRACT_VERSION,
+        input_tokens: locationResult.inputTokens, output_tokens: locationResult.outputTokens, total_tokens: locationResult.totalTokens,
+        estimated_cost_usd: estimatedCostUsd, actual_cost_usd: actualCostUsd(model, locationResult.inputTokens, locationResult.outputTokens),
+        cost_currency: "USD",
+      })
+      .select("id")
+      .single();
+    if (locationRunErr || !locationRun) {
+      await failClaims(supabase, claimed.map((c) => c.claimId), "Failed to persist the analysis run.");
+      return json({ ok: false, error: locationRunErr?.message ?? "Failed to persist the analysis run." }, 500);
+    }
+
+    const observationRows = pinned.map(({ documentId, revisionId, obs }) => ({
+      run_id: locationRun.id, project_id: input.projectId,
+      document_id: documentId, revision_id: revisionId,
+      observation_type: obs.observationType, mark: obs.mark ?? null, scope_hint: obs.scopeHint ?? null,
+      location_text: obs.locationText ?? null, attributes: obs.attributes, evidence: obs.source,
+      evidence_completeness: obs.evidenceCompleteness,
+    }));
+    const { error: obsErr } = await supabase.from("analysis_observation").insert(observationRows);
+    if (obsErr) {
+      // Compensating cleanup — the same shape as ProjectDocuments.tsx's
+      // uploadOnePdf() catch block (insert parent, insert child, delete the
+      // parent back out on child-insert failure) — never leave an orphaned
+      // run behind for this new path.
+      await supabase.from("analysis_run").delete().eq("id", locationRun.id);
+      await failClaims(supabase, claimed.map((c) => c.claimId), "Failed to persist observations.");
+      return json({ ok: false, error: obsErr.message }, 500);
+    }
+
+    await supabase
+      .from("analysis_run_source")
+      .update({ status: "SUCCEEDED", analysis_run_id: locationRun.id, completed_at: new Date().toISOString() })
+      .in("id", claimed.map((c) => c.claimId));
+
+    return json({
+      ok: true,
+      generated: claimed.length,
+      runId: locationRun.id,
+      mode,
+      observationCount: observationRows.length,
+      skipped,
+      sourceCoverage: claimed.map((c) => c.file.filename),
+    });
+  }
+
+  // ── mode === "BOQ" or "BOQ_AND_LOCATION": today's exact, unchanged BOQ
+  // extraction path. ─────────────────────────────────────────────────────
   const promptText = buildAnalysisPrompt({ projectType: project.project_type ?? undefined });
   let openAiResult;
   try {
-    openAiResult = await generateAnalysisViaOpenAI(OPENAI_API_KEY, model.id, promptText, filesForOpenAi);
+    openAiResult = await generateAnalysisViaOpenAI(OPENAI_API_KEY, model.id, promptText, filesForOpenAi, CUNSTRUCT_ANALYSIS_JSON_SCHEMA);
   } catch (e) {
     const message = e instanceof Error ? e.message : "OpenAI request failed";
     await failClaims(supabase, claimed.map((c) => c.claimId), message);
@@ -461,20 +581,6 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: "OpenAI response failed validation: " + (parsedAnalysis.error ?? "unknown error"), skipped }, 502);
   }
 
-  // The persisted analysis_run.estimated_cost_usd column holds a single
-  // number (no schema change needed for this) — the midpoint of the honest
-  // low/high range computed the same way the preflight response shows it.
-  // The range itself isn't discarded information the reviewer needed: it
-  // mattered for the pre-generation decision, not for this after-the-fact
-  // audit record, which also carries the REAL actual_cost_usd right next to it.
-  const claimedCostRange = estimateCostRange(
-    model,
-    claimed.map(({ file }) => {
-      const e = eligible.find((e) => e.documentRevisionId === file.documentRevisionId);
-      return { pageCount: e?.pageCount ?? null, byteSize: e?.byteSize ?? 0 };
-    }),
-  );
-  const estimatedCostUsd = Math.round(((claimedCostRange.lowUsd + claimedCostRange.highUsd) / 2) * 10_000) / 10_000;
   const { data: run, error: runErr } = await supabase
     .from("analysis_run")
     .insert({

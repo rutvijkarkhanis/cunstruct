@@ -164,7 +164,10 @@ function normalizeAiStatus(v: unknown, quantity: number | null): AiStatus {
   return quantity == null ? "PENDING" : "MEASURED";
 }
 
-function parseSource(raw: unknown, warnings: string[], itemLabel: string): AnalysisSource | undefined {
+/** Exported for reuse by observationSchemaV1.ts (Phase 4 LOCATION mode) — the
+ *  exact same source/evidence parsing an analysis item already goes through,
+ *  never a second implementation. See docs on AnalysisSource/EvidenceBox above. */
+export function parseSource(raw: unknown, warnings: string[], itemLabel: string): AnalysisSource | undefined {
   if (raw == null) return undefined;
   // Backward compat: a plain string source ("Floor Plan — Page 4").
   if (typeof raw === "string") {
