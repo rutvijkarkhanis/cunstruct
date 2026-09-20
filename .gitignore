@@ -24,6 +24,9 @@ dist-ssr
 *.pem
 *.key
 
+# Supabase CLI local cache (per-machine, not part of the project)
+supabase/.temp/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
