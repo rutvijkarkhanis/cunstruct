@@ -48,6 +48,7 @@ export default function AiApiPanel({
   const qc = useQueryClient();
   const [reviewOpen, setReviewOpen] = useState(false);
   const [forceReanalyse, setForceReanalyse] = useState(false);
+  const [locationDocId, setLocationDocId] = useState("");
   const showInternal = showInternalAiControls();
 
   const preflightKey = ["ai-preflight", projectId, boqId, forceReanalyse] as const;
@@ -74,6 +75,22 @@ export default function AiApiPanel({
     onError: (e) => toast.error(e instanceof Error ? e.message : "Analysis failed"),
   });
 
+  // Internal-only: fires a single LOCATION-mode extraction against exactly one
+  // chosen document, via the SAME generateAnalysis()/ai-analysis endpoint the
+  // normal BOQ flow uses (no second client, no separate contract). Never sets
+  // `mode` for the normal Generate button above, and never touches BOQ lines —
+  // LOCATION runs persist analysis_observation rows only. Gated identically to
+  // the rest of this Card (see `showInternal && data.internal` below): a
+  // caller the server hasn't independently confirmed as admin never sees it.
+  const locationTestMutation = useMutation({
+    mutationFn: (documentId: string) => generateAnalysis({ projectId, boqId, documentIds: [documentId], mode: "LOCATION" }),
+    onSuccess: (res) => {
+      if (!res.ok) { toast.error(res.error ?? "LOCATION test failed"); return; }
+      toast.success(`LOCATION test: run ${res.runId ?? "?"}, ${res.observationCount ?? 0} observation(s) persisted`);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "LOCATION test failed"),
+  });
+
   if (isLoading) {
     return <div className="text-sm text-muted-foreground flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Checking project files…</div>;
   }
@@ -81,6 +98,16 @@ export default function AiApiPanel({
     return <div className="text-sm text-red-600">{data?.error ?? (error instanceof Error ? error.message : "Could not load AI analysis status.")}</div>;
   }
   const p = data.preflight;
+
+  // Every document this panel already knows about (new + already-analysed),
+  // deduped by id — the pool the internal LOCATION test picks a single target
+  // from. Purely a UI convenience list; targeting is enforced server-side via
+  // the single documentId sent in the request.
+  const locationTestDocuments = (() => {
+    const byId = new Map<string, PreflightFile>();
+    [...p.willSendFiles, ...p.alreadyAnalysedFiles].forEach((f) => { if (!byId.has(f.documentId)) byId.set(f.documentId, f); });
+    return [...byId.values()].sort((a, b) => a.filename.localeCompare(b.filename));
+  })();
 
   return (
     <div className="space-y-3">
@@ -132,6 +159,34 @@ export default function AiApiPanel({
             <Switch checked={forceReanalyse} onCheckedChange={setForceReanalyse} />
             Force re-analyse (resend files already analysed under this contract)
           </label>
+
+          <div className="border-t pt-2 space-y-2">
+            <div className="font-medium text-amber-700">Internal: LOCATION extraction test</div>
+            <div className="text-muted-foreground">
+              Not a normal analysis feature. Runs the Phase 4 LOCATION contract against exactly
+              one selected document; persists analysis_observation rows only and never creates
+              or edits BOQ lines.
+            </div>
+            <select
+              aria-label="LOCATION test target document"
+              className="w-full border rounded px-2 py-1 bg-background text-xs"
+              value={locationDocId}
+              onChange={(e) => setLocationDocId(e.target.value)}
+            >
+              <option value="">Select a document…</option>
+              {locationTestDocuments.map((f) => (
+                <option key={f.documentId} value={f.documentId}>{f.filename}</option>
+              ))}
+            </select>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!locationDocId || locationTestMutation.isPending}
+              onClick={() => locationTestMutation.mutate(locationDocId)}
+            >
+              {locationTestMutation.isPending ? "Running LOCATION test…" : "Run LOCATION test"}
+            </Button>
+          </div>
         </CardContent></Card>
       )}
 
