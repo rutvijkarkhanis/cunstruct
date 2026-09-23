@@ -357,7 +357,12 @@ export default function ProjectDocuments() {
             </Button>
           </div>
 
-          {projectId && <DocumentLocationExtraction projectId={projectId} documentId={d.id} />}
+          {open && projectId && (
+            <DocumentLocationExtraction
+              projectId={projectId}
+              documentId={d.id}
+            />
+          )}
 
           {revFor === d.id && (
             <div className="mt-3 pl-7 flex flex-wrap items-end gap-2">
