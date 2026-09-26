@@ -179,85 +179,18 @@ describe("AiApiPanel — internal admin controls", () => {
     await screen.findByText(/5 files in this project/);
     expect(screen.queryByText(/Internal \(admin\)/)).not.toBeInTheDocument();
   });
-});
 
-const internalBlock: analysisClient.PreflightInternal = {
-  provider: "openai", model: "gpt-4o-mini", contractVersion: "cunstruct-openai-v1.0.0",
-  forceReanalyse: false, estimatedCost: { lowUsd: 0.01, highUsd: 0.05, basis: "page_count" },
-};
-
-describe("AiApiPanel — internal LOCATION extraction test", () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it("is not rendered for a normal user (flag off), even though the flow exists in the panel", async () => {
-    vi.mocked(analysisClient.showInternalAiControls).mockReturnValue(false);
-    vi.mocked(analysisClient.fetchPreflight).mockResolvedValue({ ok: true, preflight: basePreflight, internal: internalBlock });
-    renderPanel();
-    await screen.findByText(/5 files in this project/);
-    expect(screen.queryByText("Run LOCATION test")).not.toBeInTheDocument();
-  });
-
-  it("is not rendered when the flag is on but the server withheld the internal block (non-admin)", async () => {
-    vi.mocked(analysisClient.showInternalAiControls).mockReturnValue(true);
-    vi.mocked(analysisClient.fetchPreflight).mockResolvedValue({ ok: true, preflight: basePreflight });
-    renderPanel();
-    await screen.findByText(/5 files in this project/);
-    expect(screen.queryByText("Run LOCATION test")).not.toBeInTheDocument();
-  });
-
-  it("is rendered only for a server-confirmed admin (flag on AND internal block present)", async () => {
-    vi.mocked(analysisClient.showInternalAiControls).mockReturnValue(true);
-    vi.mocked(analysisClient.fetchPreflight).mockResolvedValue({ ok: true, preflight: basePreflight, internal: internalBlock });
-    renderPanel();
-    await screen.findByText("Run LOCATION test");
-  });
-
-  it("the Run LOCATION test button is disabled until a document is selected", async () => {
-    vi.mocked(analysisClient.showInternalAiControls).mockReturnValue(true);
-    vi.mocked(analysisClient.fetchPreflight).mockResolvedValue({ ok: true, preflight: basePreflight, internal: internalBlock });
-    renderPanel();
-    const btn = await screen.findByText("Run LOCATION test");
-    expect(btn.closest("button")).toBeDisabled();
-  });
-
-  it("sends mode: LOCATION and exactly the one selected documentId — never the full eligible set", async () => {
-    vi.mocked(analysisClient.showInternalAiControls).mockReturnValue(true);
-    vi.mocked(analysisClient.fetchPreflight).mockResolvedValue({ ok: true, preflight: basePreflight, internal: internalBlock });
-    vi.mocked(analysisClient.generateAnalysis).mockResolvedValue({ ok: true, generated: 1, runId: "run-location-1", observationCount: 4, itemCount: 0 });
-    renderPanel();
-    await screen.findByText("Run LOCATION test");
-
-    fireEvent.change(screen.getByLabelText("LOCATION test target document"), { target: { value: "d2" } });
-    fireEvent.click(screen.getByText("Run LOCATION test"));
-
-    await waitFor(() => expect(analysisClient.generateAnalysis).toHaveBeenCalledWith({
-      projectId: "proj-1", boqId: "boq-1", documentIds: ["d2"], mode: "LOCATION",
-    }));
-    // Never widened to every eligible/new file — a single-element array only.
-    const call = vi.mocked(analysisClient.generateAnalysis).mock.calls[0][0];
-    expect(call.documentIds).toHaveLength(1);
-  });
-
-  it("the LOCATION test never invokes onGenerated / opens the BOQ review workstation", async () => {
-    vi.mocked(analysisClient.showInternalAiControls).mockReturnValue(true);
-    vi.mocked(analysisClient.fetchPreflight).mockResolvedValue({ ok: true, preflight: basePreflight, internal: internalBlock });
-    vi.mocked(analysisClient.generateAnalysis).mockResolvedValue({ ok: true, generated: 1, runId: "run-location-1", observationCount: 4, itemCount: 0 });
-    const { onGenerated } = renderPanel();
-    await screen.findByText("Run LOCATION test");
-
-    fireEvent.change(screen.getByLabelText("LOCATION test target document"), { target: { value: "d1" } });
-    fireEvent.click(screen.getByText("Run LOCATION test"));
-
-    await waitFor(() => expect(analysisClient.generateAnalysis).toHaveBeenCalled());
-    expect(onGenerated).not.toHaveBeenCalled();
-  });
-
-  it("does not affect the normal BOQ Generate analysis call — no mode, no documentIds, unchanged args", async () => {
-    vi.mocked(analysisClient.showInternalAiControls).mockReturnValue(true);
-    vi.mocked(analysisClient.fetchPreflight).mockResolvedValue({ ok: true, preflight: basePreflight, internal: internalBlock });
+  it("does not affect the normal BOQ Generate analysis call, even with the internal panel shown — no mode, no documentIds, unchanged args", async () => {
+    // Regression guard for the LOCATION-extraction UI move (now on the
+    // Documents page, see DocumentLocationExtraction.test.tsx): the internal
+    // admin panel showing must never change what the normal Generate button sends.
+    vi.mocked(analysisClient.fetchPreflight).mockResolvedValue({
+      ok: true, preflight: basePreflight,
+      internal: { provider: "openai", model: "gpt-4o-mini", contractVersion: "v1", forceReanalyse: false, estimatedCost: { lowUsd: 0.01, highUsd: 0.05, basis: "page_count" } },
+    });
     vi.mocked(analysisClient.generateAnalysis).mockResolvedValue({ ok: true, generated: 3, runId: "run-boq-1", itemCount: 12 });
     renderPanel();
-    await screen.findByText("Run LOCATION test"); // internal panel (incl. LOCATION section) is present
+    await screen.findByText(/Internal \(admin\)/);
 
     fireEvent.click(screen.getByText("Generate analysis"));
 

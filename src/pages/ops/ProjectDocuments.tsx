@@ -12,6 +12,7 @@ import { Plus, FileText, ChevronDown, ChevronRight, CheckCircle2, Link2, Upload,
 import { DOC_TYPES, DISCIPLINES, type ProjectDocument, type DocumentRevision, type DocumentFolder } from "@/lib/projectDocs";
 import { validateDrawingFile, buildDrawingPath, uploadDrawing, deleteDrawing } from "@/lib/review/drawingStorage";
 import { buildFolderTree, folderBreadcrumb, parseRelativePath, looksLikePdf, type FolderNode } from "@/lib/documentFolders";
+import DocumentLocationExtraction from "@/components/review/DocumentLocationExtraction";
 
 // Chrome/Edge/Safari/Firefox all support selecting a whole folder via the
 // non-standard `webkitdirectory` input attribute — no library needed. Each
@@ -355,6 +356,13 @@ export default function ProjectDocuments() {
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
           </div>
+
+          {open && projectId && (
+            <DocumentLocationExtraction
+              projectId={projectId}
+              documentId={d.id}
+            />
+          )}
 
           {revFor === d.id && (
             <div className="mt-3 pl-7 flex flex-wrap items-end gap-2">
