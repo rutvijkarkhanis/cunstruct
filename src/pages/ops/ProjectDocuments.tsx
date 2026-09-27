@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Plus, FileText, ChevronDown, ChevronRight, CheckCircle2, Link2, Upload, Trash2, FolderPlus, FolderOpen, Folder as FolderIcon } from "lucide-react";
 import { DOC_TYPES, DISCIPLINES, type ProjectDocument, type DocumentRevision, type DocumentFolder } from "@/lib/projectDocs";
-import { validateDrawingFile, buildDrawingPath, uploadDrawing, deleteDrawing } from "@/lib/review/drawingStorage";
+import { validateDrawingFile, buildDrawingPath, uploadDrawing, deleteDrawing, signedDrawingUrl } from "@/lib/review/drawingStorage";
 import { buildFolderTree, folderBreadcrumb, parseRelativePath, looksLikePdf, type FolderNode } from "@/lib/documentFolders";
 import DocumentLocationExtraction from "@/components/review/DocumentLocationExtraction";
 
@@ -313,6 +313,26 @@ export default function ProjectDocuments() {
     toast.success("Revision added and set current");
   };
 
+  // ---- Open a stored PDF revision -----------------------------------------
+  // The bucket is private; a fresh short-lived signed URL is requested on
+  // every click (never cached/stored) and handed to the browser's own PDF
+  // viewer via window.open — no pdf.js involved here at all, since nothing
+  // is rendered inline on this page (unlike the review workstation's
+  // evidence viewer). signedDrawingUrl() never throws; it resolves null on
+  // a missing object or a denied RLS check, which is surfaced as a toast
+  // rather than opening a blank/broken tab.
+  const [openingRevId, setOpeningRevId] = useState<string | null>(null);
+  const openDrawing = async (revId: string, path: string) => {
+    setOpeningRevId(revId);
+    try {
+      const url = await signedDrawingUrl(path);
+      if (!url) { toast.error("Could not open this drawing. It may be missing or you may not have access."); return; }
+      window.open(url, "_blank", "noopener,noreferrer");
+    } finally {
+      setOpeningRevId(null);
+    }
+  };
+
   const setCurrent = async (docId: string, revId: string) => {
     const { error } = await supabase.from("project_document").update({ current_revision_id: revId }).eq("id", docId);
     if (error) return toast.error(error.message);
@@ -387,6 +407,15 @@ export default function ProjectDocuments() {
                   {r.revision_date && <span className="text-xs text-muted-foreground">{r.revision_date}</span>}
                   <span className="text-xs text-muted-foreground">{r.source}</span>
                   {r.external_url && <a href={r.external_url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline truncate max-w-[16rem]">{r.external_url}</a>}
+                  {r.file_path && (
+                    <Button
+                      size="sm" variant="ghost" className="h-6 text-xs"
+                      disabled={openingRevId === r.id}
+                      onClick={() => openDrawing(r.id, r.file_path!)}
+                    >
+                      {openingRevId === r.id ? "Opening…" : "Open"}
+                    </Button>
+                  )}
                   {r.id === d.current_revision_id ? (
                     <span className="text-xs text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1"><CheckCircle2 className="h-3 w-3" />current</span>
                   ) : (
