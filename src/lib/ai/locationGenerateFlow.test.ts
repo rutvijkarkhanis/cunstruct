@@ -20,6 +20,8 @@
 // expressions in index.ts) — via a mocked `fetch`, never a mocked Supabase
 // client claiming to be index.ts itself.
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { generateAnalysisViaOpenAI } from "../../../supabase/functions/_shared/openaiClient.ts";
 import { CUNSTRUCT_ANALYSIS_JSON_SCHEMA, CUNSTRUCT_OBSERVATION_JSON_SCHEMA } from "../../../supabase/functions/_shared/openaiSchema.ts";
 import { parseObservationsV1 } from "../../../supabase/functions/_shared/observationValidation.ts";
@@ -146,9 +148,48 @@ describe("LOCATION generate flow — end-to-end composition (OpenAI wire -> pars
     const pinned = parsed.observations!
       .map((obs) => resolveObservationSource({ documentId: obs.source.documentId, document: obs.source.document }, claimedFiles))
       .filter((r): r is NonNullable<typeof r> => r !== null);
-    // ...but unpinnable, which is exactly index.ts's `if (pinned.length === 0)`
-    // guard (line 504) — the case that must fail the request, never report
-    // ok:true with zero persisted rows.
+    // ...but unpinnable, which is exactly index.ts's `if (parsedObservations.observations.length > 0
+    // && pinned.length === 0)` guard — the case that must still fail the request (a NON-empty
+    // response that couldn't be attributed to a real document/revision is a genuine
+    // attribution problem), never reported as ok:true with zero persisted rows.
     expect(pinned).toHaveLength(0);
+    expect(parsed.observations!.length > 0 && pinned.length === 0).toBe(true); // the guard's condition fires
+  });
+
+  it("a genuinely EMPTY observations array (the model honestly found nothing) parses as ok:true, not the same failure as an unpinnable non-empty response", () => {
+    const wireJson = JSON.stringify({ schema_version: "cunstruct.observation.v1", observations: [] });
+    const parsed = parseObservationsV1(wireJson);
+    // ok:true with observations: [] -- never the malformed-response branch
+    // index.ts's `if (!parsedObservations.ok || !parsedObservations.observations)` guards against.
+    expect(parsed.ok).toBe(true);
+    expect(parsed.observations).toEqual([]);
+
+    const pinned = parsed.observations!
+      .map((obs) => resolveObservationSource({ documentId: obs.source.documentId, document: obs.source.document }, claimedFiles))
+      .filter((r): r is NonNullable<typeof r> => r !== null);
+    expect(pinned).toHaveLength(0);
+    // The pinning-failure guard's condition must NOT fire here (observations.length is 0,
+    // not >0) -- this is index.ts's real fall-through: create the analysis_run, skip the
+    // analysis_observation insert (literally the same row-construction expression as the
+    // successful case, mapped over an empty array), and report a genuine ok:true zero --
+    // never index.ts's 502 "could not be pinned" error.
+    expect(parsed.observations!.length > 0 && pinned.length === 0).toBe(false);
+    const observationRows = pinned.map(({ documentId, revisionId }) => ({ run_id: "run-fake-id", project_id: "proj-1", document_id: documentId, revision_id: revisionId }));
+    expect(observationRows).toEqual([]);
+  });
+});
+
+describe("LOCATION generate flow — never touches BOQ lines, even on a genuine zero-result", () => {
+  // Static source-text proof, same pattern as src/lib/security/secrets.test.ts's
+  // "no source file references X" guard -- index.ts itself can't be imported
+  // into Vitest (Deno-only `npm:` specifiers; see this file's header), so this
+  // reads its REAL source text directly rather than mocking anything. The
+  // LOCATION branch persists only to analysis_run/analysis_observation; this
+  // proves `boq_line` is not merely unreached at runtime but literally absent
+  // from the whole edge function's source, on every path including the new
+  // zero-result one just added.
+  it("supabase/functions/ai-analysis/index.ts never references boq_line, anywhere", () => {
+    const indexSrc = readFileSync(join(__dirname, "../../../supabase/functions/ai-analysis/index.ts"), "utf8");
+    expect(indexSrc).not.toMatch(/boq_line/);
   });
 });

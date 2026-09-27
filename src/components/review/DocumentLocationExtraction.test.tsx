@@ -93,7 +93,39 @@ describe("DocumentLocationExtraction — request shape and result display", () =
     vi.mocked(analysisClient.generateAnalysis).mockResolvedValue({ ok: false, error: "AI generation is not configured on the server.", generated: 0 });
     renderControl();
     fireEvent.click(await screen.findByText("Run LOCATION extraction"));
-    await screen.findByText("AI generation is not configured on the server.");
+    await screen.findByText("LOCATION extraction failed — AI generation is not configured on the server.");
+  });
+
+  // REGRESSION — this is the exact case that produced the misleading green
+  // "0 observation(s) persisted" in production: nothing new was sent to the
+  // extractor at all (already analysed under this contract, or in-flight
+  // elsewhere), so the server's `ok:true` response has NO observationCount
+  // field. The old `observationCount ?? 0` fallback rendered this identically
+  // to a real zero-result extraction. It must never claim extraction ran.
+  it("shows the server's own message, never a fabricated observation count, when nothing new was sent (generated: 0, no observationCount)", async () => {
+    vi.mocked(analysisClient.generateAnalysis).mockResolvedValue({
+      ok: true, generated: 0, message: "All uploaded files have already been analysed.",
+    });
+    renderControl();
+    fireEvent.click(await screen.findByText("Run LOCATION extraction"));
+    await screen.findByText("All uploaded files have already been analysed.");
+    expect(screen.queryByText(/observation\(s\) persisted/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/no observations found/)).not.toBeInTheDocument();
+  });
+
+  // The extraction genuinely ran (generated: 1, a real run + claim were
+  // created) and genuinely found zero location-worthy facts. This must read
+  // as a distinct, honest "no observations found" — never "0 persisted"
+  // (which reads as if extraction ran and populated something) and never an
+  // error (a real, valid extraction that found nothing is not a failure).
+  it("shows 'no observations found' when extraction genuinely ran and found zero — not '0 observation(s) persisted', not an error", async () => {
+    vi.mocked(analysisClient.generateAnalysis).mockResolvedValue({
+      ok: true, generated: 1, runId: "run-loc-zero", observationCount: 0, itemCount: 0,
+    });
+    renderControl();
+    fireEvent.click(await screen.findByText("Run LOCATION extraction"));
+    await screen.findByText("LOCATION extraction complete — no observations found");
+    expect(screen.queryByText(/0 observation\(s\) persisted/)).not.toBeInTheDocument();
   });
 
   it("uses the preflight/generate admin-check query only once per project across multiple mounted rows", async () => {

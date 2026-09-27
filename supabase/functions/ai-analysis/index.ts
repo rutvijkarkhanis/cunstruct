@@ -501,7 +501,16 @@ Deno.serve(async (req) => {
       if (resolved) pinned.push({ documentId: resolved.documentId, revisionId: resolved.revisionId, obs });
     }
 
-    if (pinned.length === 0) {
+    // A NON-empty model response where NOTHING could be pinned to a real
+    // document/revision is a genuine attribution failure (the model
+    // referenced sources that don't match what was actually sent) — still a
+    // hard error. A genuinely EMPTY response (parsedObservations.observations
+    // was [] from parseObservationsV1 — the model honestly found nothing on
+    // this drawing) is NOT the same failure: there's nothing to pin because
+    // there was nothing to begin with, and that falls through to persist a
+    // real analysis_run with zero analysis_observation rows below, reported
+    // to the caller as a genuine (not fabricated) zero — never this error.
+    if (parsedObservations.observations.length > 0 && pinned.length === 0) {
       await failClaims(supabase, claimed.map((c) => c.claimId), "No observation could be pinned to an exact source document/revision.");
       return json({ ok: false, error: "No observation could be pinned to an exact source document/revision.", skipped }, 502);
     }
@@ -536,7 +545,12 @@ Deno.serve(async (req) => {
       location_text: obs.locationText ?? null, attributes: obs.attributes, evidence: obs.source,
       evidence_completeness: obs.evidenceCompleteness,
     }));
-    const { error: obsErr } = await supabase.from("analysis_observation").insert(observationRows);
+    // Nothing to insert for a genuine zero-result — skip the call entirely
+    // rather than sending an empty insert (and never treat "no rows to
+    // write" as a write failure).
+    const { error: obsErr } = observationRows.length > 0
+      ? await supabase.from("analysis_observation").insert(observationRows)
+      : { error: null };
     if (obsErr) {
       // Compensating cleanup — the same shape as ProjectDocuments.tsx's
       // uploadOnePdf() catch block (insert parent, insert child, delete the
