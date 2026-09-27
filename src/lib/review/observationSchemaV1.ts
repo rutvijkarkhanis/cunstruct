@@ -108,9 +108,16 @@ function parseAttributes(raw: unknown): ObservationAttributes {
 
 /**
  * Parse and validate a `cunstruct.observation.v1` payload. Malformed JSON or
- * a missing/empty observations array -> ok:false. Per-observation problems
- * (unrecognized type, no surviving evidence without LIMITED) drop that one
- * observation with a warning; they never fail the whole batch.
+ * a missing/non-array observations field -> ok:false (the response isn't the
+ * right shape at all). A genuinely EMPTY observations array (the model
+ * explicitly reported no construction-relevant facts) -> ok:true with
+ * observations: [] — an honest "nothing here" result, not a validation
+ * failure. Per-observation problems (unrecognized type, no surviving
+ * evidence without LIMITED) drop that one observation with a warning; if
+ * that leaves a NON-empty input array with zero survivors, the whole batch
+ * still fails (same precedent as parseAnalysisV1) — that is "the model tried
+ * to report things but none were usable", a different situation from the
+ * array being empty from the start.
  */
 export function parseObservationsV1(text: string): ObservationParseV1 {
   const warnings: string[] = [];
@@ -135,8 +142,10 @@ export function parseObservationsV1(text: string): ObservationParseV1 {
   if (!Array.isArray(arr)) {
     return { ok: false, error: 'JSON schema error — expected an "observations" array.', warnings };
   }
+  // A genuinely empty array is a valid, honest zero-result — never fabricate
+  // something to fill it, and never treat it as a validation failure either.
   if (arr.length === 0) {
-    return { ok: false, error: 'The "observations" array is empty — nothing to persist.', warnings };
+    return { ok: true, observations: [], warnings };
   }
 
   const observations: ObservationV1[] = [];

@@ -60,11 +60,23 @@ export default function DocumentLocationExtraction({
         <Button size="sm" variant="outline" disabled={mutation.isPending} onClick={() => mutation.mutate()}>
           {mutation.isPending ? "Running…" : "Run LOCATION extraction"}
         </Button>
-        {mutation.isSuccess && (
-          mutation.data.ok
-            ? <span className="text-emerald-700">LOCATION extraction complete — {mutation.data.observationCount ?? 0} observation(s) persisted</span>
-            : <span className="text-red-600">{mutation.data.error ?? "LOCATION extraction failed"}</span>
-        )}
+        {mutation.isSuccess && (() => {
+          const res = mutation.data;
+          if (!res.ok) {
+            return <span className="text-red-600">LOCATION extraction failed — {res.error ?? "unknown error"}</span>;
+          }
+          // generated === 0 means nothing was actually sent to the extractor
+          // this click (already analysed under this exact contract, or
+          // currently being processed elsewhere) — never the same thing as
+          // "ran and genuinely found nothing" (observationCount === 0 below).
+          if (res.generated === 0) {
+            return <span className="text-muted-foreground">{res.message ?? "Nothing new to analyse."}</span>;
+          }
+          if ((res.observationCount ?? 0) === 0) {
+            return <span className="text-emerald-700">LOCATION extraction complete — no observations found</span>;
+          }
+          return <span className="text-emerald-700">LOCATION extraction complete — {res.observationCount} observation(s) persisted</span>;
+        })()}
       </div>
     </div>
   );

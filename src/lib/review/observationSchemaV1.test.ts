@@ -24,9 +24,10 @@ describe("parseObservationsV1 — basic shape", () => {
     expect(r.ok).toBe(false);
   });
 
-  it("rejects an empty observations array", () => {
+  it("accepts a genuinely empty observations array as an honest zero-result, not a validation failure", () => {
     const r = parseObservationsV1(WRAP([]));
-    expect(r.ok).toBe(false);
+    expect(r.ok).toBe(true);
+    expect(r.observations).toEqual([]);
   });
 
   it("parses a single well-formed observation", () => {
