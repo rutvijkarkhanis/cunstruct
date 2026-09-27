@@ -10,6 +10,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import DocumentLocationExtraction from "./DocumentLocationExtraction";
 import * as analysisClient from "@/lib/ai/analysisClient";
+import * as locationObservations from "@/lib/review/locationObservations";
 
 vi.mock("@/lib/ai/analysisClient", async () => {
   const actual = await vi.importActual<typeof analysisClient>("@/lib/ai/analysisClient");
@@ -134,6 +135,40 @@ describe("DocumentLocationExtraction — request shape and result display", () =
     fireEvent.click(await screen.findByText("Run LOCATION extraction"));
     await screen.findByText("LOCATION extraction complete — no observations found");
     expect(screen.queryByText(/0 observation\(s\) persisted/)).not.toBeInTheDocument();
+  });
+
+  // REGRESSION — proves the cache-invalidation wiring actually does something
+  // observable, not just that the code calling invalidateQueries exists. The
+  // inspector (DocumentLocationExtraction's child) must reflect the NEW run
+  // state after a successful extraction, not keep showing the stale state it
+  // loaded on mount.
+  it("a successful extraction invalidates the inspector's run-state query, which refetches and shows the updated state", async () => {
+    vi.mocked(locationObservations.latestLocationRunForDocument)
+      .mockResolvedValueOnce({ status: "NOT_RUN", runId: null, claimedAt: null, completedAt: null, error: null })
+      .mockResolvedValueOnce({ status: "SUCCEEDED", runId: "run-loc-1", claimedAt: "2026-01-01T00:00:00Z", completedAt: "2026-01-01T00:05:00Z", error: null });
+    vi.mocked(locationObservations.loadLocationObservations).mockResolvedValue([]);
+    vi.mocked(analysisClient.generateAnalysis).mockResolvedValue({ ok: true, generated: 1, runId: "run-loc-1", observationCount: 0, itemCount: 0 });
+
+    renderControl();
+
+    // 1 & 2: the inspector is mounted and has already loaded the initial
+    // (never-run) state — one call, before anything is clicked.
+    await screen.findByText("LOCATION extraction has not been run for this document.");
+    expect(locationObservations.latestLocationRunForDocument).toHaveBeenCalledTimes(1);
+
+    // 3: the extraction mutation succeeds.
+    fireEvent.click(screen.getByText("Run LOCATION extraction"));
+    await screen.findByText("LOCATION extraction complete — no observations found");
+
+    // 4: the success handler's invalidateQueries caused a second call —
+    // the inspector actually re-requested the run state, it didn't just sit
+    // on its first result.
+    await waitFor(() => expect(locationObservations.latestLocationRunForDocument).toHaveBeenCalledTimes(2));
+
+    // 5: and it rendered that updated state — the stale "never run" text is
+    // gone, replaced by what the second call resolved to.
+    await screen.findByText("No LOCATION observations were found in this document.");
+    expect(screen.queryByText("LOCATION extraction has not been run for this document.")).not.toBeInTheDocument();
   });
 
   it("uses the preflight/generate admin-check query only once per project across multiple mounted rows", async () => {
