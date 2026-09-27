@@ -89,3 +89,40 @@ describe("DocumentLocationObservations — the four states", () => {
     expect(container.innerHTML).not.toMatch(/boq/i);
   });
 });
+
+describe("DocumentLocationObservations — content-hash fallback states (the identity-mismatch fix)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("E. content matched under a different document — never worded as this document's own run, never as an error", async () => {
+    vi.mocked(locationObservations.latestLocationRunForDocument).mockResolvedValue({
+      status: "CONTENT_MATCHED_OTHER_DOCUMENT", runId: "run-other", claimedAt: "2026-01-02T00:00:00Z", completedAt: "2026-01-02T00:05:00Z", error: null,
+    });
+    renderPanel();
+    await screen.findByText(/content has already been analysed under a different document in this project/);
+    // Distinguishable from a genuine own-document result and from "never run".
+    expect(screen.queryByText("LOCATION extraction has not been run for this document.")).not.toBeInTheDocument();
+    expect(screen.queryByText(/observation\(s\)? extracted from this document/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/failed/i)).not.toBeInTheDocument();
+    // Never fetches/displays observations for the matched run — this fix is
+    // scoped to explaining the STATE, not to also surfacing that run's content.
+    expect(locationObservations.loadLocationObservations).not.toHaveBeenCalled();
+  });
+
+  it("F. content matched but original document attribution is unavailable (document_id was NULL)", async () => {
+    vi.mocked(locationObservations.latestLocationRunForDocument).mockResolvedValue({
+      status: "CONTENT_MATCHED_UNATTRIBUTED", runId: "run-old", claimedAt: "2026-01-02T00:00:00Z", completedAt: "2026-01-02T00:05:00Z", error: null,
+    });
+    renderPanel();
+    await screen.findByText(/original source document record is no longer available/);
+    expect(screen.queryByText(/different document in this project/)).not.toBeInTheDocument(); // distinct from E
+    expect(screen.queryByText("LOCATION extraction has not been run for this document.")).not.toBeInTheDocument();
+  });
+
+  it("shows the matched analysis's completion timestamp for both fallback states, when available", async () => {
+    vi.mocked(locationObservations.latestLocationRunForDocument).mockResolvedValue({
+      status: "CONTENT_MATCHED_OTHER_DOCUMENT", runId: "run-other", claimedAt: "2026-01-02T00:00:00Z", completedAt: "2026-01-02T00:05:00Z", error: null,
+    });
+    renderPanel();
+    await screen.findByText(new RegExp(new Date("2026-01-02T00:05:00Z").toLocaleString().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  });
+});
