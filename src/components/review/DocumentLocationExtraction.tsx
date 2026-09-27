@@ -13,11 +13,12 @@
 // presentation flag (showInternalAiControls) never unlocks anything by
 // itself — the server independently confirms admin via the `internal` block
 // on the preflight response before this renders anything.
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { fetchPreflight, generateAnalysis, showInternalAiControls } from "@/lib/ai/analysisClient";
+import DocumentLocationObservations from "./DocumentLocationObservations";
 
 export default function DocumentLocationExtraction({
   projectId, documentId,
@@ -25,6 +26,7 @@ export default function DocumentLocationExtraction({
   projectId: string;
   documentId: string;
 }) {
+  const qc = useQueryClient();
   const showInternal = showInternalAiControls();
 
   // One admin-check query per project, shared (via this exact query key)
@@ -42,6 +44,10 @@ export default function DocumentLocationExtraction({
   const mutation = useMutation({
     mutationFn: () => generateAnalysis({ projectId, boqId: null, documentIds: [documentId], mode: "LOCATION" }),
     onError: (e) => toast.error(e instanceof Error ? e.message : "LOCATION extraction failed"),
+    // Refresh the observation inspector below — without this, a click here
+    // would update the toast/result line but leave the inspector showing
+    // stale (possibly "never run") state until an unrelated page reload.
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["location-run-state", projectId, documentId] }),
   });
 
   if (!showInternal || !isAdmin) return null;
@@ -78,6 +84,8 @@ export default function DocumentLocationExtraction({
           return <span className="text-emerald-700">LOCATION extraction complete — {res.observationCount} observation(s) persisted</span>;
         })()}
       </div>
+
+      <DocumentLocationObservations projectId={projectId} documentId={documentId} />
     </div>
   );
 }

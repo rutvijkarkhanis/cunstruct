@@ -2,6 +2,9 @@
 // replaces the old BOQ-Review-internal "Run LOCATION test" control. Mocks
 // src/lib/ai/analysisClient.ts (the ONLY network boundary this component
 // uses) so this exercises the real component logic with zero network calls.
+// Also mocks locationObservations.ts: this component now renders the real
+// DocumentLocationObservations inspector as a child, which would otherwise
+// make its own real (unmocked) Supabase calls during these tests.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -12,6 +15,11 @@ vi.mock("@/lib/ai/analysisClient", async () => {
   const actual = await vi.importActual<typeof analysisClient>("@/lib/ai/analysisClient");
   return { ...actual, fetchPreflight: vi.fn(), generateAnalysis: vi.fn(), showInternalAiControls: vi.fn(() => false) };
 });
+
+vi.mock("@/lib/review/locationObservations", () => ({
+  latestLocationRunForDocument: vi.fn(async () => ({ status: "NOT_RUN", runId: null, claimedAt: null, completedAt: null, error: null })),
+  loadLocationObservations: vi.fn(async () => []),
+}));
 
 function renderControl() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
