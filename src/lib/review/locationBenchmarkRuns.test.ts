@@ -383,3 +383,30 @@ describe("scoreObservations — page accuracy", () => {
     expect(result.ungradedIds).toEqual(["not-yet-audited-with-page"]);
   });
 });
+
+// ── Duplicate-observation detection on the two REAL production runs —
+// neither run's actual output has ever contained a repeated fact, so both
+// honestly report zero. This proves the field is wired into the real-run
+// path, not just the synthetic mechanism tests in
+// observationBenchmarkScorer.test.ts. ───────────────────────────────────────
+describe("scoreObservations — duplicate detection on the real runs", () => {
+  it("real Rev A reports zero duplicate observations", () => {
+    const result = scoreObservations(SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928, SRIKAKULAM_ACTUAL_RUN, SRIKAKULAM_RUN.distinctnessPairs);
+    expect(result.duplicateActualIds).toEqual([]);
+  });
+
+  it("real Second Floor reports zero duplicate observations", () => {
+    const result = scoreObservations(SECOND_FLOOR_RUN.expectedObservations, SECOND_FLOOR_ACTUAL_RUN, SECOND_FLOOR_RUN.distinctnessPairs);
+    expect(result.duplicateActualIds).toEqual([]);
+  });
+
+  it("adding duplicate detection left every other real-run metric exactly as it was", () => {
+    const result = scoreObservations(SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928, SRIKAKULAM_ACTUAL_RUN, SRIKAKULAM_RUN.distinctnessPairs);
+    expect(result.scopeRecall).toBe(1);
+    expect(result.observationTypeAccuracy).toBeCloseTo(8 / 9);
+    expect(result.attributeAccuracy).toBe(1);
+    expect(result.pageAccuracy).toBe(1);
+    expect(result.falsePositiveCount).toBe(0);
+    expect(result.distinctnessFailures).toEqual([]);
+  });
+});

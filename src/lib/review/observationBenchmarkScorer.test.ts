@@ -148,3 +148,83 @@ describe("scoreObservations — graded:false is excluded from every ratio, never
     expect(result.scopeRecall).toBeNull();
   });
 });
+
+// ── Duplicate-observation detection — a purely structural check on the
+// ACTUAL array itself (never on `expected`): does this run report the same
+// real-world fact more than once? Orthogonal to matching/falsePositiveCount,
+// which stay exactly as they were before this field existed. ────────────────
+describe("scoreObservations — duplicate detection (actual-array only)", () => {
+  it("two actual observations with the same (type, mark, scopeHint) are flagged as duplicates", () => {
+    const expected = [
+      { id: "only-expected", observationType: "room_or_space" as const, mark: "Kitchen", scopeHint: "Ground", sourcePage: "p.1" },
+    ];
+    const actual: ObservationV1[] = [
+      { observationType: "room_or_space", mark: "Kitchen", scopeHint: "Ground", attributes: {}, evidenceCompleteness: "FULL", source: { evidence: [] } },
+      { observationType: "room_or_space", mark: "Kitchen", scopeHint: "Ground", attributes: {}, evidenceCompleteness: "FULL", source: { evidence: [] } },
+    ];
+    const result = scoreObservations(expected, actual, []);
+    expect(result.duplicateActualIds).toEqual(["actual#0", "actual#1"]);
+  });
+
+  it("two observations differing only in attributes are still detected as duplicates — identity ignores dimension/specification/material", () => {
+    const actual: ObservationV1[] = [
+      { observationType: "opening", mark: "W1", scopeHint: "Second Floor", attributes: { dimension: "5'x5'3\"" }, evidenceCompleteness: "FULL", source: { evidence: [] } },
+      { observationType: "opening", mark: "W1", scopeHint: "Second Floor", attributes: { dimension: "6'x6'", material: "Wood" }, evidenceCompleteness: "FULL", source: { evidence: [] } },
+    ];
+    const result = scoreObservations([], actual, []);
+    expect(result.duplicateActualIds).toEqual(["actual#0", "actual#1"]);
+  });
+
+  it("the same mark reused across DIFFERENT floors is never a duplicate — cross-floor identity reuse (e.g. W1) is legitimate", () => {
+    const actual: ObservationV1[] = [
+      { observationType: "opening", mark: "W1", scopeHint: "Stilt", attributes: {}, evidenceCompleteness: "FULL", source: { evidence: [] } },
+      { observationType: "opening", mark: "W1", scopeHint: "Ground", attributes: {}, evidenceCompleteness: "FULL", source: { evidence: [] } },
+    ];
+    const result = scoreObservations([], actual, []);
+    expect(result.duplicateActualIds).toEqual([]);
+  });
+
+  it("two different marks on the same floor are never a duplicate", () => {
+    const actual: ObservationV1[] = [
+      { observationType: "room_or_space", mark: "Kitchen", scopeHint: "Ground", attributes: {}, evidenceCompleteness: "FULL", source: { evidence: [] } },
+      { observationType: "room_or_space", mark: "Dining", scopeHint: "Ground", attributes: {}, evidenceCompleteness: "FULL", source: { evidence: [] } },
+    ];
+    const result = scoreObservations([], actual, []);
+    expect(result.duplicateActualIds).toEqual([]);
+  });
+
+  it("a duplicate that is also unmatched still surfaces as a false positive independently — duplicate detection never suppresses or substitutes for falsePositiveCount", () => {
+    const expected = [
+      { id: "only-one-expected", observationType: "room_or_space" as const, mark: "Kitchen", scopeHint: "Ground", sourcePage: "p.1" },
+    ];
+    const actual: ObservationV1[] = [
+      { observationType: "room_or_space", mark: "Kitchen", scopeHint: "Ground", attributes: {}, evidenceCompleteness: "FULL", source: { evidence: [] } },
+      { observationType: "room_or_space", mark: "Kitchen", scopeHint: "Ground", attributes: {}, evidenceCompleteness: "FULL", source: { evidence: [] } },
+    ];
+    const result = scoreObservations(expected, actual, []);
+    // One of the two identical actuals claims the sole expected entry; the
+    // other is an unmatched extra — an existing, unrelated false positive.
+    expect(result.falsePositiveCount).toBe(1);
+    // Both are still reported as duplicates of each other — being claimed by
+    // an expected entry doesn't make a copy stop being a duplicate, and being
+    // a duplicate doesn't add a second false positive either.
+    expect(result.duplicateActualIds).toEqual(["actual#0", "actual#1"]);
+  });
+
+  it("duplicate ids are sorted by ascending original actual-array index, regardless of which identity group appears first", () => {
+    const actual: ObservationV1[] = [
+      { observationType: "room_or_space", mark: "Dining", scopeHint: "Ground", attributes: {}, evidenceCompleteness: "FULL", source: { evidence: [] } }, // 0: unique
+      { observationType: "room_or_space", mark: "Kitchen", scopeHint: "Ground", attributes: {}, evidenceCompleteness: "FULL", source: { evidence: [] } }, // 1: dup group A
+      { observationType: "opening", mark: "W1", scopeHint: "Stilt", attributes: {}, evidenceCompleteness: "FULL", source: { evidence: [] } }, // 2: dup group B
+      { observationType: "room_or_space", mark: "Kitchen", scopeHint: "Ground", attributes: {}, evidenceCompleteness: "FULL", source: { evidence: [] } }, // 3: dup group A
+      { observationType: "opening", mark: "W1", scopeHint: "Stilt", attributes: {}, evidenceCompleteness: "FULL", source: { evidence: [] } }, // 4: dup group B
+    ];
+    const result = scoreObservations([], actual, []);
+    expect(result.duplicateActualIds).toEqual(["actual#1", "actual#2", "actual#3", "actual#4"]);
+  });
+
+  it("the existing perfect-run result (no duplicates in the fixture) reports an empty duplicateActualIds", () => {
+    const result = scoreObservations(SRIKAKULAM_OBSERVATIONS, perfectRun, OBSERVATION_DISTINCTNESS_PAIRS);
+    expect(result.duplicateActualIds).toEqual([]);
+  });
+});
