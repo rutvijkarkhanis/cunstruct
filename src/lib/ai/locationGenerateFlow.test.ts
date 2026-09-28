@@ -120,6 +120,60 @@ describe("LOCATION generate flow — end-to-end composition (OpenAI wire -> pars
     });
   });
 
+  // REGRESSION — the single-file override must fix the document_id/revision_id
+  // columns from the claimed file while leaving every model-provided field
+  // (page, evidence bboxes, mark, location text) untouched — the fix only
+  // changes WHICH document/revision an observation is attributed to, never
+  // what evidence is persisted for it.
+  it("single-file override: authoritative document_id/revision_id come from the claimed file, while page/evidence/location fields stay exactly as the model reported them", async () => {
+    const wireJson = JSON.stringify({
+      schema_version: "cunstruct.observation.v1",
+      observations: [
+        {
+          observation_type: "opening", mark: "W1", scope_hint: "Ground Floor",
+          location_text: "Door/Window schedule, Ground floor sheet",
+          attributes: { dimension: "6'x6'9\"", specification: "UPVC", material: null },
+          evidence_completeness: "FULL",
+          // The model's own source reference is WRONG/unfulfillable (it was
+          // never told the real document_id) — this must not affect the page/
+          // evidence fields sitting alongside it.
+          source: { document_id: "doc-uuid", document: null, page: 8, evidence: [{ bbox: [1, 2, 3, 4], page: 8, label: null, claim: "general" }] },
+        },
+      ],
+    });
+    const fetchMock = mockOpenAiResponses(wireJson);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const openAiResult = await generateAnalysisViaOpenAI("key", "gpt-4o-mini", "prompt", [{ filename: "Ground Floor Plan.pdf", bytes: new Uint8Array([1]) }], CUNSTRUCT_OBSERVATION_JSON_SCHEMA);
+    const parsed = parseObservationsV1(openAiResult.rawJson);
+    expect(parsed.ok).toBe(true);
+    const obs = parsed.observations![0];
+    expect(obs.source.documentId).toBe("doc-uuid"); // the model's wrong value, parsed through unmodified
+
+    const resolved = resolveObservationSource({ documentId: obs.source.documentId, document: obs.source.document }, claimedFiles);
+    // Authoritative identity comes from the ONE claimed file, never "doc-uuid".
+    expect(resolved).toEqual({ documentId: "doc-ground", revisionId: "rev-ground-1" });
+
+    const row = {
+      run_id: "run-fake-id", project_id: "proj-1",
+      document_id: resolved!.documentId, revision_id: resolved!.revisionId,
+      observation_type: obs.observationType, mark: obs.mark ?? null, scope_hint: obs.scopeHint ?? null,
+      location_text: obs.locationText ?? null, attributes: obs.attributes, evidence: obs.source,
+      evidence_completeness: obs.evidenceCompleteness,
+    };
+    // document_id/revision_id: the claimed file's, not the model's "doc-uuid".
+    expect(row.document_id).toBe("doc-ground");
+    expect(row.revision_id).toBe("rev-ground-1");
+    // Every model-provided field is preserved exactly, untouched by the fix.
+    expect(row.mark).toBe("W1");
+    expect(row.scope_hint).toBe("Ground Floor");
+    expect(row.location_text).toBe("Door/Window schedule, Ground floor sheet");
+    expect(row.evidence).toEqual({
+      documentId: "doc-uuid", document: undefined, page: 8,
+      evidence: [{ bbox: [1, 2, 3, 4], page: 8, label: undefined, claim: "general" }], pageSize: undefined,
+    });
+  });
+
   it("zero observations surviving the parser (proof #10): parseObservationsV1 itself reports ok:false — index.ts's failClaims/502 branch is reached, never a false ok:true", async () => {
     // A response with an observations array that parses structurally but
     // whose sole entry is invalid (unrecognized observation_type) — the
@@ -135,7 +189,15 @@ describe("LOCATION generate flow — end-to-end composition (OpenAI wire -> pars
     expect(parsed.observations).toBeUndefined();
   });
 
-  it("zero observations surviving source-pinning (proof #10, Layer B): every observation unresolvable -> index.ts's explicit pinned.length===0 guard fires", () => {
+  // REGRESSION — the exact production failure: a single-document LOCATION
+  // request (claimedFiles has exactly one entry, as DocumentLocationExtraction
+  // always sends) where the model's source.document_id doesn't match anything
+  // (the model was never told Cunstruct's internal document_id — see
+  // observationSource.ts's header comment) must still pin, using the one
+  // claimed file as the authoritative source. Before the fix, this produced
+  // index.ts's "No observation could be pinned to an exact source
+  // document/revision." 502 for content that had genuinely been analysed.
+  it("proof #10 (single-file override): a single claimed file resolves the observation even when source.document_id matches nothing — never index.ts's pinned.length===0 guard", () => {
     const wireJson = JSON.stringify({
       schema_version: "cunstruct.observation.v1",
       observations: [{
@@ -144,16 +206,38 @@ describe("LOCATION generate flow — end-to-end composition (OpenAI wire -> pars
       }],
     });
     const parsed = parseObservationsV1(wireJson);
-    expect(parsed.ok).toBe(true); // structurally valid...
+    expect(parsed.ok).toBe(true);
     const pinned = parsed.observations!
       .map((obs) => resolveObservationSource({ documentId: obs.source.documentId, document: obs.source.document }, claimedFiles))
       .filter((r): r is NonNullable<typeof r> => r !== null);
-    // ...but unpinnable, which is exactly index.ts's `if (parsedObservations.observations.length > 0
-    // && pinned.length === 0)` guard — the case that must still fail the request (a NON-empty
-    // response that couldn't be attributed to a real document/revision is a genuine
-    // attribution problem), never reported as ok:true with zero persisted rows.
+    expect(pinned).toHaveLength(1);
+    expect(pinned[0]).toEqual({ documentId: "doc-ground", revisionId: "rev-ground-1" }); // the claimed file, never the model's bogus id
+    expect(parsed.observations!.length > 0 && pinned.length === 0).toBe(false); // the guard never fires here
+  });
+
+  // The genuine multi-document attribution failure this guard exists for —
+  // TWO claimed files, an observation whose source matches neither — must
+  // still fail exactly as before. This is the real ambiguity the single-file
+  // override above does NOT extend to.
+  it("proof #10 (multi-file, unchanged): with two claimed files, an unresolvable source still fires index.ts's pinned.length===0 guard", () => {
+    const twoClaimedFiles: ClaimedFile[] = [
+      ...claimedFiles,
+      { documentId: "doc-stilt", documentRevisionId: "rev-stilt-1", filename: "Stilt Floor Plan.pdf" },
+    ];
+    const wireJson = JSON.stringify({
+      schema_version: "cunstruct.observation.v1",
+      observations: [{
+        observation_type: "opening", evidence_completeness: "FULL",
+        source: { document_id: "doc-not-in-this-batch", evidence: [{ bbox: [0, 0, 1, 1] }] },
+      }],
+    });
+    const parsed = parseObservationsV1(wireJson);
+    expect(parsed.ok).toBe(true);
+    const pinned = parsed.observations!
+      .map((obs) => resolveObservationSource({ documentId: obs.source.documentId, document: obs.source.document }, twoClaimedFiles))
+      .filter((r): r is NonNullable<typeof r> => r !== null);
     expect(pinned).toHaveLength(0);
-    expect(parsed.observations!.length > 0 && pinned.length === 0).toBe(true); // the guard's condition fires
+    expect(parsed.observations!.length > 0 && pinned.length === 0).toBe(true); // the guard still fires — a real ambiguity
   });
 
   it("a genuinely EMPTY observations array (the model honestly found nothing) parses as ok:true, not the same failure as an unpinnable non-empty response", () => {
