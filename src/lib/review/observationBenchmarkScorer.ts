@@ -43,21 +43,37 @@ export interface ObservationCaseResult {
   /** Pairs from OBSERVATION_DISTINCTNESS_PAIRS that incorrectly matched the
    *  SAME actual observation index — should always be empty. */
   distinctnessFailures: { a: string; b: string }[];
+  /** Ids of `expected` entries with `graded: false` (NOT YET AUDITED) —
+   *  excluded from every ratio above, same convention as
+   *  benchmarkScorer.ts's BenchmarkReport.ungradedCaseIds. Reported, never
+   *  silently dropped. */
+  ungradedIds: string[];
+  /** Every `expected` entry that carries a `gap` (a known, already-classified
+   *  discrepancy — see srikakulamObservationBenchmark.ts's audit-status
+   *  convention), whether or not it's graded. */
+  gapFlaggedIds: { id: string; gap: NonNullable<ExpectedObservation["gap"]> }[];
 }
 
 /** Score one set of expected observations against a real/simulated actual
- *  set, plus the distinctness pairs that must never collapse. Pure. */
+ *  set, plus the distinctness pairs that must never collapse. Pure.
+ *
+ * Matching runs over EVERY expected entry (graded or not) — an ungraded
+ * entry that genuinely matches a real observation must still claim it,
+ * exactly as benchmarkScorer.ts matches every expectedItem in a case
+ * regardless of the case's own `graded` flag. Only the RATIOS below (never
+ * the matching itself) exclude `graded: false` entries. */
 export function scoreObservations(
   expected: ExpectedObservation[],
   actual: ObservationV1[],
   distinctnessPairs: { a: string; b: string }[],
 ): ObservationCaseResult {
   const { matchOf, indexOf, falsePositives } = matchObservations(expected, actual);
-  const unmatchedExpectedIds = expected.filter((e) => !matchOf.has(e.id)).map((e) => e.id);
+  const gradedExpected = expected.filter((e) => e.graded !== false);
+  const unmatchedExpectedIds = gradedExpected.filter((e) => !matchOf.has(e.id)).map((e) => e.id);
 
   let typeOk = 0;
   let attrOk = 0, attrTotal = 0;
-  for (const e of expected) {
+  for (const e of gradedExpected) {
     const a = matchOf.get(e.id);
     if (a && a.observationType === e.observationType) typeOk++;
     if (e.attributes?.dimension) {
@@ -77,11 +93,14 @@ export function scoreObservations(
   });
 
   return {
-    scopeRecall: ratio(expected.length - unmatchedExpectedIds.length, expected.length),
-    observationTypeAccuracy: ratio(typeOk, expected.length - unmatchedExpectedIds.length),
+    scopeRecall: ratio(gradedExpected.length - unmatchedExpectedIds.length, gradedExpected.length),
+    observationTypeAccuracy: ratio(typeOk, gradedExpected.length - unmatchedExpectedIds.length),
     attributeAccuracy: ratio(attrOk, attrTotal),
     falsePositiveCount: falsePositives.length,
     unmatchedExpectedIds,
     distinctnessFailures,
+    ungradedIds: expected.filter((e) => e.graded === false).map((e) => e.id),
+    gapFlaggedIds: expected.filter((e): e is ExpectedObservation & { gap: NonNullable<ExpectedObservation["gap"]> } => !!e.gap)
+      .map((e) => ({ id: e.id, gap: e.gap })),
   };
 }
