@@ -313,3 +313,73 @@ describe("scoreLocationBenchmark — both real runs together: no leakage between
     expect(report.averages.scopeRecall).toBeCloseTo((1 + 8 / 19) / 2);
   });
 });
+
+// ── Page accuracy — `expectedPage` (backfilled from each entry's own
+// `sourcePage` text, never independently re-derived) compared against the
+// matched actual observation's `source?.page`. Both real fixtures' actual
+// runs already carry the correct page per entry, so a perfect 1.0 here is
+// not a new assertion about the drawings — it's proof the new metric reports
+// what was already true. ────────────────────────────────────────────────────
+describe("scoreObservations — page accuracy", () => {
+  it("both real LOCATION runs report page accuracy 1.0", () => {
+    const srikakulamResult = scoreObservations(SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928, SRIKAKULAM_ACTUAL_RUN, SRIKAKULAM_RUN.distinctnessPairs);
+    const secondFloorResult = scoreObservations(SECOND_FLOOR_RUN.expectedObservations, SECOND_FLOOR_ACTUAL_RUN, SECOND_FLOOR_RUN.distinctnessPairs);
+    expect(srikakulamResult.pageAccuracy).toBe(1);
+    expect(secondFloorResult.pageAccuracy).toBe(1);
+  });
+
+  it("an intentionally incorrect page is detected and lowers page accuracy", () => {
+    // Same actual run as the perfect case above, except Living's page is
+    // deliberately wrong (2 -> 3) — every other entry's page is untouched.
+    const actualWithWrongPage: ObservationV1[] = SRIKAKULAM_ACTUAL_RUN.map((o) =>
+      o.mark === "Living" ? { ...o, source: { ...o.source, page: 3 } } : o,
+    );
+    const result = scoreObservations(SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928, actualWithWrongPage, SRIKAKULAM_RUN.distinctnessPairs);
+    expect(result.pageAccuracy).toBeCloseTo(8 / 9);
+  });
+
+  it("an observation without expectedPage is excluded from the denominator", () => {
+    const expected: ExpectedObservation[] = [
+      { id: "with-page", observationType: "room_or_space", mark: "A", scopeHint: "Ground", sourcePage: "p.1", expectedPage: 1 },
+      { id: "without-page", observationType: "room_or_space", mark: "B", scopeHint: "Ground", sourcePage: "unclear which page" },
+    ];
+    const actual: ObservationV1[] = [
+      { observationType: "room_or_space", mark: "A", scopeHint: "Ground", attributes: {}, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+      // Deliberately a DIFFERENT page than "A" — if this entry were wrongly
+      // included in the denominator (it has no expectedPage to compare
+      // against), it could only ever count as neither right nor wrong; it
+      // must not appear in the ratio at all.
+      { observationType: "room_or_space", mark: "B", scopeHint: "Ground", attributes: {}, evidenceCompleteness: "FULL", source: { page: 9, evidence: [] } },
+    ];
+    const result = scoreObservations(expected, actual, []);
+    // Only "with-page" enters the ratio, and it's correct — a clean 1.0, not
+    // diluted or contaminated by "without-page".
+    expect(result.pageAccuracy).toBe(1);
+  });
+
+  it("an ungraded observation is excluded from page accuracy, even with a wrong matched page", () => {
+    const expected: ExpectedObservation[] = [
+      { id: "audited-with-page", observationType: "room_or_space", mark: "A", scopeHint: "Ground", sourcePage: "p.1", expectedPage: 1 },
+      {
+        id: "not-yet-audited-with-page",
+        observationType: "fixture",
+        mark: "B",
+        scopeHint: "Ground",
+        sourcePage: "p.1",
+        expectedPage: 1,
+        graded: false,
+        gap: { category: "D_BENCHMARK_DATA_GAP", note: "not yet manually checked against the drawing" },
+      },
+    ];
+    const actual: ObservationV1[] = [
+      { observationType: "room_or_space", mark: "A", scopeHint: "Ground", attributes: {}, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+      // Wrong page for the ungraded entry — must not drag pageAccuracy down
+      // from its otherwise-perfect 1.0, since ungraded entries never enter
+      // any ratio.
+      { observationType: "fixture", mark: "B", scopeHint: "Ground", attributes: {}, evidenceCompleteness: "FULL", source: { page: 5, evidence: [] } },
+    ];
+    const result = scoreObservations(expected, actual, []);
+    expect(result.pageAccuracy).toBe(1);
+    expect(result.ungradedIds).toEqual(["not-yet-audited-with-page"]);
+  });
+});

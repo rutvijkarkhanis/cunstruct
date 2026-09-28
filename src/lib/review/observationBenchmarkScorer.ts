@@ -38,6 +38,11 @@ export interface ObservationCaseResult {
   scopeRecall: number | null;
   observationTypeAccuracy: number | null;
   attributeAccuracy: number | null;
+  /** Fraction of graded, matched observations whose `expectedPage` equals
+   *  the actual observation's `source?.page` — null when no graded, matched
+   *  entry defines `expectedPage` (same "excluded from the denominator"
+   *  convention as attributeAccuracy's per-field checks). */
+  pageAccuracy: number | null;
   falsePositiveCount: number;
   unmatchedExpectedIds: string[];
   /** Pairs from OBSERVATION_DISTINCTNESS_PAIRS that incorrectly matched the
@@ -73,9 +78,14 @@ export function scoreObservations(
 
   let typeOk = 0;
   let attrOk = 0, attrTotal = 0;
+  let pageOk = 0, pageTotal = 0;
   for (const e of gradedExpected) {
     const a = matchOf.get(e.id);
     if (a && a.observationType === e.observationType) typeOk++;
+    if (a && e.expectedPage !== undefined) {
+      pageTotal++;
+      if (a.source?.page === e.expectedPage) pageOk++;
+    }
     if (e.attributes?.dimension) {
       attrTotal++;
       if (a && norm(a.attributes.dimension) === norm(e.attributes.dimension)) attrOk++;
@@ -105,6 +115,7 @@ export function scoreObservations(
     scopeRecall: ratio(gradedExpected.length - unmatchedExpectedIds.length, gradedExpected.length),
     observationTypeAccuracy: ratio(typeOk, gradedExpected.length - unmatchedExpectedIds.length),
     attributeAccuracy: ratio(attrOk, attrTotal),
+    pageAccuracy: ratio(pageOk, pageTotal),
     falsePositiveCount: falsePositives.length,
     unmatchedExpectedIds,
     distinctnessFailures,
