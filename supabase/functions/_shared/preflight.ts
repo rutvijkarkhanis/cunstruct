@@ -178,3 +178,58 @@ export function computePreflight(
     mode: opts.mode,
   };
 }
+
+/**
+ * Resolves which of a set of REQUESTED documents should actually be sent, for
+ * a caller that scopes Generate to specific documentIds (e.g. the LOCATION
+ * document-level entry point, which always requests exactly one document).
+ *
+ * The bug this exists to fix: `willSend` already deduplicates by content
+ * hash PROJECT-WIDE (see `oneOfEachHash` above) — if two or more documents
+ * share byte-identical content, only ONE of them (whichever came first in
+ * `files`, an iteration-order accident, never a choice the caller made)
+ * appears in `willSend`. A caller that then filters `willSend` down to its
+ * own requested documentId can find NOTHING there even though that exact
+ * document's content is genuinely new and has never been analysed — a
+ * completely different situation from "already analysed," but
+ * indistinguishable from it once collapsed into `willSend` alone. This is
+ * exactly the production bug: three documents shared one content hash, zero
+ * ledger rows existed for it, and requesting the one that didn't happen to
+ * be `willSend`'s representative produced "No new eligible files to
+ * analyse" for content that had never been sent to OpenAI.
+ *
+ * The fix: `newEligible` (unlike `willSend`) is NOT deduplicated — it lists
+ * every candidate-new file with its OWN documentId, one entry per file,
+ * hash-duplicates included (see `candidateNew`/`newEligible` above).
+ * Filtering THAT down to the requested documentIds, then deduplicating by
+ * content hash only WITHIN the requested set, gives back exactly the
+ * requested document's own identity whenever its content is new — never a
+ * non-requested sibling's — while still never sending the same content hash
+ * twice. This never touches `computePreflight`'s own classification or the
+ * project-wide `willSend`/`duplicateGroups` computation: a requested
+ * document already SUCCEEDED or currently (non-stale) PROCESSING is excluded
+ * here for free, because computePreflight's ledger lookup is keyed by
+ * content hash, not document_id — ANY file sharing that hash, requested or
+ * not, was already routed into `alreadyAnalysed`/`inFlight` instead of
+ * `newEligible` before this function ever runs. No new identity key is
+ * introduced: this only re-scopes `newEligible`'s existing classification to
+ * the caller's requested documents.
+ */
+export function resolveRequestedToSend(
+  newEligible: PreflightFileSummary[],
+  requestedDocumentIds: string[],
+): PreflightFileSummary[] {
+  const requested = new Set(requestedDocumentIds);
+  const seenHashes = new Set<string>();
+  const toSend: PreflightFileSummary[] = [];
+  for (const f of newEligible) {
+    if (!requested.has(f.documentId)) continue;
+    // Two REQUESTED documents sharing a hash: send it once, keeping
+    // whichever of THEM comes first — never a non-requested sibling, since
+    // `newEligible` was already filtered down to requested documents above.
+    if (seenHashes.has(f.contentHash)) continue;
+    seenHashes.add(f.contentHash);
+    toSend.push(f);
+  }
+  return toSend;
+}

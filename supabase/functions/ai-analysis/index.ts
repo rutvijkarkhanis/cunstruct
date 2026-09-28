@@ -29,7 +29,7 @@ import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { z } from "npm:zod@3.22.4";
 import { ANALYSIS_CONTRACT_VERSION, DEFAULT_PROVIDER, resolveAnalysisMode, type AnalysisMode } from "../_shared/contract.ts";
 import { DEFAULT_MODEL, SUPPORTED_MODELS, actualCostUsd, estimateCostRange, resolveModel } from "../_shared/modelConfig.ts";
-import { computePreflight, type EligibleFile, type LedgerRow } from "../_shared/preflight.ts";
+import { computePreflight, resolveRequestedToSend, type EligibleFile, type LedgerRow } from "../_shared/preflight.ts";
 import { parseAnalysisV1, buildReviewItems } from "../_shared/analysisValidation.ts";
 import { generateAnalysisViaOpenAI } from "../_shared/openaiClient.ts";
 import { CUNSTRUCT_ANALYSIS_JSON_SCHEMA, CUNSTRUCT_OBSERVATION_JSON_SCHEMA } from "../_shared/openaiSchema.ts";
@@ -360,11 +360,21 @@ Deno.serve(async (req) => {
   // ── action === "generate" ────────────────────────────────────────────────
   if (!OPENAI_API_KEY) return json({ ok: false, error: "AI generation is not configured on the server." }, 500);
 
-  let toSend = preflight.willSend;
-  if (input.documentIds?.length) {
-    const requested = new Set(input.documentIds);
-    toSend = toSend.filter((f) => requested.has(f.documentId));
-  }
+  // A caller scoping Generate to specific documents (the LOCATION
+  // document-level entry point always requests exactly one) must NOT be
+  // filtered against `willSend` — `willSend` already deduplicates by content
+  // hash PROJECT-WIDE, so a document that shares byte-identical content with
+  // another document in the project may be genuinely new but absent from
+  // `willSend` in its own right (a sibling document holds that hash's one
+  // `willSend` entry instead). Filtering `willSend` by documentId in that
+  // case finds nothing, even though the requested document's content was
+  // never sent — the exact production bug this replaces. `newEligible` is
+  // NOT deduplicated, so resolving against it (and deduping only WITHIN the
+  // requested set) gives back the requested document's own identity whenever
+  // its content is new. See resolveRequestedToSend()'s doc comment.
+  const toSend = input.documentIds?.length
+    ? resolveRequestedToSend(preflight.newEligible, input.documentIds)
+    : preflight.willSend;
 
   if (toSend.length === 0) {
     return json({
