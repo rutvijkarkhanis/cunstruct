@@ -43,6 +43,10 @@ export interface ExpectedObservation {
   scopeHint?: string;
   attributes?: { dimension?: string; specification?: string; material?: string };
   sourcePage: string;
+  /** The page number already stated in `sourcePage`'s own text, restated as
+   *  a comparable number — never independently re-derived or guessed.
+   *  Omitted only if a future entry's sourcePage genuinely doesn't state one. */
+  expectedPage?: number;
   notes?: string;
   /** Omitted (or `true`) means this entry's ground truth has been manually
    *  confirmed — see the file header's audit-status convention. `false`
@@ -68,6 +72,7 @@ const W1_AND_BRICKWORK_OBSERVATIONS: ExpectedObservation[] = [
     scopeHint: "Stilt",
     attributes: { dimension: "4'x5'3\"", specification: "UPVC" },
     sourcePage: "p.7 (Stilt door/window schedule)",
+    expectedPage: 7,
     notes: "One W1 row on the Stilt floor's own door/window schedule — a schedule-sourced fact, not a plan marker.",
   },
   {
@@ -77,6 +82,7 @@ const W1_AND_BRICKWORK_OBSERVATIONS: ExpectedObservation[] = [
     scopeHint: "Ground",
     attributes: { dimension: "6'x6'9\"", specification: "UPVC" },
     sourcePage: "p.8 (Ground door/window schedule)",
+    expectedPage: 8,
     notes: "The Ground floor's W1 schedule row — same mark code as Stilt, different floor, different dimension. This is the exact fact that must never be conflated with stilt-w1-obs.",
   },
   {
@@ -89,6 +95,7 @@ const W1_AND_BRICKWORK_OBSERVATIONS: ExpectedObservation[] = [
     // (same D_BENCHMARK_DATA_GAP as srikakulamBenchmark.ts's
     // "typical-floor-schedule-digits" case) — never guessed here either.
     sourcePage: "p.9 (Typical floor schedule)",
+    expectedPage: 9,
     notes: "Identity-only: this case exists to prove Typical W1 is recognized as its own distinct observation, not that its attributes are fully legible.",
   },
   {
@@ -97,6 +104,7 @@ const W1_AND_BRICKWORK_OBSERVATIONS: ExpectedObservation[] = [
     scopeHint: "Ground",
     attributes: { dimension: "3868 sqft" },
     sourcePage: "p.5 (Ground floor brickwork: \"FLAT AREA 3868 SQFT\")",
+    expectedPage: 5,
     notes: "A printed area annotation on the Ground floor brickwork drawing — dimension/specification context tied to a schedule/annotation source, distinct from the schedule-entry cases above.",
   },
 ];
@@ -127,6 +135,7 @@ export const SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928: ExpectedObservation[] =
     scopeHint: "Ground Floor",
     attributes: { dimension: "24'2\"x21'4\"" },
     sourcePage: "p.2 (Ground Floor)",
+    expectedPage: 2,
     notes: "Manually audited against the drawing: correct.",
   },
   {
@@ -136,6 +145,7 @@ export const SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928: ExpectedObservation[] =
     scopeHint: "Ground Floor",
     attributes: { dimension: "29'10\"x15'8\"" },
     sourcePage: "p.2 (Ground Floor)",
+    expectedPage: 2,
     notes: "Manually audited against the drawing: correct.",
   },
   {
@@ -145,6 +155,7 @@ export const SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928: ExpectedObservation[] =
     scopeHint: "Ground Floor",
     attributes: { dimension: "7'x6'6\"" },
     sourcePage: "p.2 (Ground Floor)",
+    expectedPage: 2,
     notes: "Manually audited against the drawing: correct.",
   },
   {
@@ -154,6 +165,7 @@ export const SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928: ExpectedObservation[] =
     scopeHint: "Stilt Floor",
     attributes: { dimension: "15'2\" wide" },
     sourcePage: "p.1 (Stilt Floor)",
+    expectedPage: 1,
     notes: "Manually audited against the drawing: correct.",
   },
   {
@@ -167,6 +179,7 @@ export const SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928: ExpectedObservation[] =
     scopeHint: "Stilt Floor",
     attributes: { dimension: "5'6\"x6'3\"" },
     sourcePage: "p.1 (Stilt Floor)",
+    expectedPage: 1,
     notes: "Manually audited: the underlying fact (existence + dimension) is correct. Classification is not — see gap.",
     graded: true,
     gap: {
@@ -181,6 +194,7 @@ export const SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928: ExpectedObservation[] =
     scopeHint: "Stilt Floor",
     attributes: { dimension: "10' wide" },
     sourcePage: "p.1 (Stilt Floor)",
+    expectedPage: 1,
     notes: "Manually audited: substantively supported by the drawing.",
   },
   {
@@ -193,6 +207,7 @@ export const SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928: ExpectedObservation[] =
     scopeHint: "Ground Floor",
     attributes: { dimension: "6'6\" wide" },
     sourcePage: "p.2 (Ground Floor)",
+    expectedPage: 2,
     notes: "Manually audited against the drawing: correct. Distinct fact from stilt-main-entrance-obs — same mark, different floor, never to be collapsed into one observation.",
   },
   {
@@ -202,6 +217,7 @@ export const SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928: ExpectedObservation[] =
     scopeHint: "Stilt Floor",
     attributes: { dimension: "19'4\"x37'" },
     sourcePage: "p.1 (Stilt Floor)",
+    expectedPage: 1,
     notes: "Manually audited: substantively supported by the drawing.",
   },
   {
@@ -211,6 +227,7 @@ export const SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928: ExpectedObservation[] =
     scopeHint: "Ground Floor",
     attributes: { dimension: "15'3\"x12'8\"" },
     sourcePage: "p.2 (Ground Floor)",
+    expectedPage: 2,
     notes: "Manually audited against the drawing: correct.",
   },
 ];
@@ -307,13 +324,13 @@ const SRIKAKULAM_APARTMENT_RUN_DISTINCTNESS_PAIRS: { a: string; b: string }[] = 
 // same way every entry below was, once individually audited.
 export const SRIKAKULAM_SECOND_FLOOR_LOCATION_RUN: ExpectedObservation[] = [
   // ── Extracted and manually audited — persisted by the real production run.
-  { id: "secondfloor-dining-obs", observationType: "room_or_space", mark: "Dining", scopeHint: "Second Floor", attributes: { dimension: "17'8\"x15'4\"" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually audited against the drawing: correct." },
-  { id: "secondfloor-master-bedroom-obs", observationType: "room_or_space", mark: "Master Bedroom", scopeHint: "Second Floor", attributes: { dimension: "16'6\"x13'3\"" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually audited against the drawing: correct." },
-  { id: "secondfloor-kitchen-obs", observationType: "room_or_space", mark: "Kitchen", scopeHint: "Second Floor", attributes: { dimension: "22'2\"x11'" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually audited against the drawing: correct." },
-  { id: "secondfloor-guest-bedroom-obs", observationType: "room_or_space", mark: "Guest Bedroom", scopeHint: "Second Floor", attributes: { dimension: "18'6\"x14'" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually audited against the drawing: correct." },
-  { id: "secondfloor-media-room-obs", observationType: "room_or_space", mark: "Media Room", scopeHint: "Second Floor", attributes: { dimension: "15'7\"x10'6\"" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually audited against the drawing: correct." },
-  { id: "secondfloor-living-obs", observationType: "room_or_space", mark: "Living", scopeHint: "Second Floor", attributes: { dimension: "17'8\"x15'6\"" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually audited against the drawing: correct." },
-  { id: "secondfloor-w1-obs", observationType: "opening", mark: "W1", scopeHint: "Second Floor", attributes: { dimension: "5'x5'3\"", specification: "UPVC" }, sourcePage: "p.2 (Door/Window Schedule)", notes: "Manually audited against the drawing: correct." },
+  { id: "secondfloor-dining-obs", observationType: "room_or_space", mark: "Dining", scopeHint: "Second Floor", attributes: { dimension: "17'8\"x15'4\"" }, sourcePage: "p.1 (Second Floor Plan)", expectedPage: 1, notes: "Manually audited against the drawing: correct." },
+  { id: "secondfloor-master-bedroom-obs", observationType: "room_or_space", mark: "Master Bedroom", scopeHint: "Second Floor", attributes: { dimension: "16'6\"x13'3\"" }, sourcePage: "p.1 (Second Floor Plan)", expectedPage: 1, notes: "Manually audited against the drawing: correct." },
+  { id: "secondfloor-kitchen-obs", observationType: "room_or_space", mark: "Kitchen", scopeHint: "Second Floor", attributes: { dimension: "22'2\"x11'" }, sourcePage: "p.1 (Second Floor Plan)", expectedPage: 1, notes: "Manually audited against the drawing: correct." },
+  { id: "secondfloor-guest-bedroom-obs", observationType: "room_or_space", mark: "Guest Bedroom", scopeHint: "Second Floor", attributes: { dimension: "18'6\"x14'" }, sourcePage: "p.1 (Second Floor Plan)", expectedPage: 1, notes: "Manually audited against the drawing: correct." },
+  { id: "secondfloor-media-room-obs", observationType: "room_or_space", mark: "Media Room", scopeHint: "Second Floor", attributes: { dimension: "15'7\"x10'6\"" }, sourcePage: "p.1 (Second Floor Plan)", expectedPage: 1, notes: "Manually audited against the drawing: correct." },
+  { id: "secondfloor-living-obs", observationType: "room_or_space", mark: "Living", scopeHint: "Second Floor", attributes: { dimension: "17'8\"x15'6\"" }, sourcePage: "p.1 (Second Floor Plan)", expectedPage: 1, notes: "Manually audited against the drawing: correct." },
+  { id: "secondfloor-w1-obs", observationType: "opening", mark: "W1", scopeHint: "Second Floor", attributes: { dimension: "5'x5'3\"", specification: "UPVC" }, sourcePage: "p.2 (Door/Window Schedule)", expectedPage: 2, notes: "Manually audited against the drawing: correct." },
   {
     id: "secondfloor-d1-obs",
     observationType: "opening",
@@ -327,6 +344,7 @@ export const SRIKAKULAM_SECOND_FLOOR_LOCATION_RUN: ExpectedObservation[] = [
     // as Wood).
     attributes: { dimension: "3'6\"x7'9\"", material: "Granite/Marble" },
     sourcePage: "p.2 (Door/Window Schedule)",
+    expectedPage: 2,
     notes: "Manually audited: size is correct. Material is not — see gap. This is an attribute-level discrepancy only; the observation's existence, type, and scope are all correct.",
     graded: true,
     gap: {
@@ -337,20 +355,20 @@ export const SRIKAKULAM_SECOND_FLOOR_LOCATION_RUN: ExpectedObservation[] = [
 
   // ── Coverage misses — clearly labeled, manually verified facts the real
   // production run did NOT extract at all.
-  { id: "secondfloor-pooja-obs", observationType: "room_or_space", mark: "Pooja", scopeHint: "Second Floor", attributes: { dimension: "6'2\"x8'8\"" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
-  { id: "secondfloor-lift-obs", observationType: "equipment", mark: "Lift", scopeHint: "Second Floor", attributes: { dimension: "7'x6'6\"" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
-  { id: "secondfloor-utility-obs", observationType: "room_or_space", mark: "Utility", scopeHint: "Second Floor", attributes: { dimension: "11'2\"x11'6\"" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
-  { id: "secondfloor-wet-kitchen-obs", observationType: "room_or_space", mark: "Wet Kitchen", scopeHint: "Second Floor", attributes: { dimension: "10'6\"x8'5\"" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
-  { id: "secondfloor-storage-obs", observationType: "room_or_space", mark: "Storage", scopeHint: "Second Floor", attributes: { dimension: "5'2\"x6'3\"" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
-  { id: "secondfloor-children-bedroom-1-obs", observationType: "room_or_space", mark: "Children Bedroom-1", scopeHint: "Second Floor", attributes: { dimension: "18'6\"x11'6\"" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
-  { id: "secondfloor-children-bedroom-2-obs", observationType: "room_or_space", mark: "Children Bedroom-2", scopeHint: "Second Floor", attributes: { dimension: "15'3\"x12'8\"" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
-  { id: "secondfloor-great-room-obs", observationType: "room_or_space", mark: "Great Room", scopeHint: "Second Floor", attributes: { dimension: "25'5\"x18'" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
+  { id: "secondfloor-pooja-obs", observationType: "room_or_space", mark: "Pooja", scopeHint: "Second Floor", attributes: { dimension: "6'2\"x8'8\"" }, sourcePage: "p.1 (Second Floor Plan)", expectedPage: 1, notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
+  { id: "secondfloor-lift-obs", observationType: "equipment", mark: "Lift", scopeHint: "Second Floor", attributes: { dimension: "7'x6'6\"" }, sourcePage: "p.1 (Second Floor Plan)", expectedPage: 1, notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
+  { id: "secondfloor-utility-obs", observationType: "room_or_space", mark: "Utility", scopeHint: "Second Floor", attributes: { dimension: "11'2\"x11'6\"" }, sourcePage: "p.1 (Second Floor Plan)", expectedPage: 1, notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
+  { id: "secondfloor-wet-kitchen-obs", observationType: "room_or_space", mark: "Wet Kitchen", scopeHint: "Second Floor", attributes: { dimension: "10'6\"x8'5\"" }, sourcePage: "p.1 (Second Floor Plan)", expectedPage: 1, notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
+  { id: "secondfloor-storage-obs", observationType: "room_or_space", mark: "Storage", scopeHint: "Second Floor", attributes: { dimension: "5'2\"x6'3\"" }, sourcePage: "p.1 (Second Floor Plan)", expectedPage: 1, notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
+  { id: "secondfloor-children-bedroom-1-obs", observationType: "room_or_space", mark: "Children Bedroom-1", scopeHint: "Second Floor", attributes: { dimension: "18'6\"x11'6\"" }, sourcePage: "p.1 (Second Floor Plan)", expectedPage: 1, notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
+  { id: "secondfloor-children-bedroom-2-obs", observationType: "room_or_space", mark: "Children Bedroom-2", scopeHint: "Second Floor", attributes: { dimension: "15'3\"x12'8\"" }, sourcePage: "p.1 (Second Floor Plan)", expectedPage: 1, notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
+  { id: "secondfloor-great-room-obs", observationType: "room_or_space", mark: "Great Room", scopeHint: "Second Floor", attributes: { dimension: "25'5\"x18'" }, sourcePage: "p.1 (Second Floor Plan)", expectedPage: 1, notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
   // Named and confirmed present on the drawing; no dimension was recorded
   // during this audit — identity/coverage is graded, size is simply not
   // asserted (never guessed), the same convention as typical-w1-obs above.
-  { id: "secondfloor-wic-obs", observationType: "room_or_space", mark: "W.I.C", scopeHint: "Second Floor", sourcePage: "p.1 (Second Floor Plan)", notes: "Manually verified as clearly labeled on the drawing; NOT extracted — coverage miss. No dimension recorded during this audit." },
-  { id: "secondfloor-wr-obs", observationType: "room_or_space", mark: "W.R", scopeHint: "Second Floor", sourcePage: "p.1 (Second Floor Plan)", notes: "Manually verified as clearly labeled on the drawing; NOT extracted — coverage miss. No dimension recorded during this audit." },
-  { id: "secondfloor-dress-obs", observationType: "room_or_space", mark: "Dress", scopeHint: "Second Floor", sourcePage: "p.1 (Second Floor Plan)", notes: "Manually verified as clearly labeled on the drawing; NOT extracted — coverage miss. No dimension recorded during this audit." },
+  { id: "secondfloor-wic-obs", observationType: "room_or_space", mark: "W.I.C", scopeHint: "Second Floor", sourcePage: "p.1 (Second Floor Plan)", expectedPage: 1, notes: "Manually verified as clearly labeled on the drawing; NOT extracted — coverage miss. No dimension recorded during this audit." },
+  { id: "secondfloor-wr-obs", observationType: "room_or_space", mark: "W.R", scopeHint: "Second Floor", sourcePage: "p.1 (Second Floor Plan)", expectedPage: 1, notes: "Manually verified as clearly labeled on the drawing; NOT extracted — coverage miss. No dimension recorded during this audit." },
+  { id: "secondfloor-dress-obs", observationType: "room_or_space", mark: "Dress", scopeHint: "Second Floor", sourcePage: "p.1 (Second Floor Plan)", expectedPage: 1, notes: "Manually verified as clearly labeled on the drawing; NOT extracted — coverage miss. No dimension recorded during this audit." },
 ];
 
 /** No cross-scope mark reuse exists in this run's audited data (unlike the
