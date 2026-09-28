@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { scoreObservations } from "./observationBenchmarkScorer";
-import { SRIKAKULAM_OBSERVATIONS, OBSERVATION_DISTINCTNESS_PAIRS } from "./srikakulamObservationBenchmark";
+import { SRIKAKULAM_OBSERVATIONS, SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928, OBSERVATION_DISTINCTNESS_PAIRS } from "./srikakulamObservationBenchmark";
 import type { ObservationV1 } from "./observationSchemaV1";
 
 /** A "perfect" simulated LOCATION run — one observation per ground-truth
@@ -55,5 +55,96 @@ describe("scoreObservations — cross-floor collapse is caught, not silently pas
     // expectations against a single actual observation — the other must be
     // unmatched, never both silently "matched" to the same index.
     expect(result.unmatchedExpectedIds).toHaveLength(1);
+  });
+});
+
+// ── The real 2026-09-28 production run (after PR #126) — scored against the
+// dedicated per-run fixture, never the full SRIKAKULAM_OBSERVATIONS (which
+// would also expect unrelated W1/brickwork facts this run never covered and
+// falsely count them as misses). This is the benchmark this run was actually
+// built to capture: 9 real, manually audited observations, 8 correct and one
+// (Maid Room-1) with a known, already-tracked classification error. ────────
+describe("scoreObservations — the real 2026-09-28 apartment production run", () => {
+  // The actual persisted output, reproduced field-for-field from the
+  // production report — including the classification error PR #126 exposed
+  // (Maid Room-1 as "fixture"), never corrected here: this is the ACTUAL run,
+  // not what it should have produced.
+  const actualRun: ObservationV1[] = [
+    { observationType: "room_or_space", mark: "Living", scopeHint: "Ground Floor", attributes: { dimension: "24'2\"x21'4\"" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
+    { observationType: "room_or_space", mark: "Dining", scopeHint: "Ground Floor", attributes: { dimension: "29'10\"x15'8\"" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
+    { observationType: "equipment", mark: "Lift", scopeHint: "Ground Floor", attributes: { dimension: "7'x6'6\"" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
+    { observationType: "opening", mark: "Main Entrance", scopeHint: "Stilt Floor", attributes: { dimension: "15'2\" wide" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+    { observationType: "fixture", mark: "Maid Room-1", scopeHint: "Stilt Floor", attributes: { dimension: "5'6\"x6'3\"" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+    { observationType: "other_construction_fact", mark: "Security Gate", scopeHint: "Stilt Floor", attributes: { dimension: "10' wide" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+    { observationType: "dimension_annotation", mark: "Main Entrance", scopeHint: "Ground Floor", attributes: { dimension: "6'6\" wide" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
+    { observationType: "structural_element", mark: "Car Parking", scopeHint: "Stilt Floor", attributes: { dimension: "19'4\"x37'" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+    { observationType: "room_or_space", mark: "Gym", scopeHint: "Ground Floor", attributes: { dimension: "15'3\"x12'8\"" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
+  ];
+
+  const distinctnessPairs = [{ a: "stilt-main-entrance-obs", b: "ground-main-entrance-dim-obs" }];
+  const result = scoreObservations(SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928, actualRun, distinctnessPairs);
+
+  it("all 9 audited observations are found — full coverage for this run's scope", () => {
+    expect(result.scopeRecall).toBe(1);
+    expect(result.unmatchedExpectedIds).toEqual([]);
+  });
+
+  it("no false positives — every actual observation matched a known, audited fact", () => {
+    expect(result.falsePositiveCount).toBe(0);
+  });
+
+  it("observation_type accuracy is 8/9 — the one KNOWN, tracked Maid Room-1 classification error, not silently passed", () => {
+    expect(result.observationTypeAccuracy).toBeCloseTo(8 / 9);
+  });
+
+  it("full attribute (dimension) accuracy — every persisted dimension matches the audited value", () => {
+    expect(result.attributeAccuracy).toBe(1);
+  });
+
+  it("Main Entrance on Stilt and Ground are kept distinct — no cross-floor collapse", () => {
+    expect(result.distinctnessFailures).toEqual([]);
+  });
+
+  it("the Maid Room-1 classification error is surfaced via gapFlaggedIds, not hidden", () => {
+    expect(result.gapFlaggedIds.map((g) => g.id)).toEqual(["stilt-maid-room-1-obs"]);
+    expect(result.gapFlaggedIds[0].gap.category).toBe("A_EXTRACTION_FAILURE");
+  });
+
+  it("nothing in this run's fixture is unaudited", () => {
+    expect(result.ungradedIds).toEqual([]);
+  });
+});
+
+// ── Audit-status plumbing (graded/gap) — proves the mechanism itself, not
+// just this one document's data. ────────────────────────────────────────────
+describe("scoreObservations — graded:false is excluded from every ratio, never silently counted", () => {
+  it("an ungraded (not-yet-audited) entry that goes completely unmatched does not drag scopeRecall/observationTypeAccuracy down", () => {
+    const expected = [
+      { id: "audited-1", observationType: "room_or_space" as const, mark: "A", scopeHint: "Ground", sourcePage: "p.1" },
+      { id: "not-yet-audited-1", observationType: "fixture" as const, mark: "B", scopeHint: "Ground", sourcePage: "p.1", graded: false, gap: { category: "D_BENCHMARK_DATA_GAP" as const, note: "not yet manually checked against the drawing" } },
+    ];
+    const actual: ObservationV1[] = [
+      { observationType: "room_or_space", mark: "A", scopeHint: "Ground", attributes: {}, evidenceCompleteness: "FULL", source: { evidence: [] } },
+    ];
+    const result = scoreObservations(expected, actual, []);
+    // Only the audited entry counts — a perfect 1.0, not penalized for the
+    // not-yet-audited one being absent from `actual`.
+    expect(result.scopeRecall).toBe(1);
+    expect(result.observationTypeAccuracy).toBe(1);
+    expect(result.ungradedIds).toEqual(["not-yet-audited-1"]);
+  });
+
+  it("an ungraded entry that DOES match a real observation still claims it (matching ignores `graded`) — it just isn't scored", () => {
+    const expected = [
+      { id: "not-yet-audited-1", observationType: "fixture" as const, mark: "B", scopeHint: "Ground", sourcePage: "p.1", graded: false },
+    ];
+    const actual: ObservationV1[] = [
+      { observationType: "fixture", mark: "B", scopeHint: "Ground", attributes: {}, evidenceCompleteness: "FULL", source: { evidence: [] } },
+    ];
+    const result = scoreObservations(expected, actual, []);
+    // Claimed, so not a false positive — but excluded from the ratios (both
+    // are null/0-of-0 since it was the only expected entry and it's ungraded).
+    expect(result.falsePositiveCount).toBe(0);
+    expect(result.scopeRecall).toBeNull();
   });
 });
