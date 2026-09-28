@@ -499,9 +499,13 @@ Deno.serve(async (req) => {
     }
 
     // Layer B: pin each observation to an exact claimed document/revision.
-    // Never trusts the model's own documentId/document without checking it
-    // against what was actually sent this batch — an observation that can't
-    // be pinned is dropped entirely, never persisted with a guessed source.
+    // For a multi-file batch, never trusts the model's own documentId/document
+    // without checking it against what was actually sent this batch. For a
+    // single-file batch (documentIds always has exactly one for a LOCATION
+    // document-level request), the claimed file itself is authoritative
+    // regardless of what the model says — see resolveObservationSource()'s
+    // doc comment. An observation that still can't be pinned is dropped
+    // entirely, never persisted with a guessed source.
     const claimedFiles: ClaimedFile[] = claimed.map(({ file }) => ({
       documentId: file.documentId, documentRevisionId: file.documentRevisionId, filename: file.filename,
     }));
