@@ -34,6 +34,48 @@ function ratio(matched: number, total: number): number | null {
   return total === 0 ? null : matched / total;
 }
 
+/** A stable, human-readable id for one ACTUAL observation, derived only from
+ *  its position in the `actual` array it was scored with — ObservationV1
+ *  itself carries no id. Never reused across different `actual` arrays/runs;
+ *  only meaningful alongside the same result it was computed for. */
+function actualObservationId(index: number): string {
+  return `actual#${index}`;
+}
+
+/** Identity key for duplicate detection: (observationType, mark, scopeHint),
+ *  normalized the same way matchObservations() compares mark/scopeHint.
+ *  Deliberately excludes attributes (dimension/specification/material) — two
+ *  observations of the same real-world fact reported with different/missing
+ *  attributes are still the SAME fact reported twice, not two facts. */
+function duplicateIdentityKey(o: ObservationV1): string {
+  return `${norm(o.observationType)}|${norm(o.mark)}|${norm(o.scopeHint)}`;
+}
+
+/** Finds duplicate observations WITHIN a single ACTUAL array — never
+ *  compared against `expected`, never affecting matching or
+ *  falsePositiveCount. Two or more actual observations that collide on
+ *  `duplicateIdentityKey` mean the run reported the same real-world fact
+ *  more than once; every one of them (not just the "extra" copies) is
+ *  reported, since which copy is the "original" is arbitrary. Returns ids
+ *  sorted by ascending original array index — deterministic, independent of
+ *  Map iteration order. */
+function findDuplicateActualIds(actual: ObservationV1[]): string[] {
+  const indicesByKey = new Map<string, number[]>();
+  actual.forEach((a, i) => {
+    const key = duplicateIdentityKey(a);
+    const indices = indicesByKey.get(key);
+    if (indices) indices.push(i);
+    else indicesByKey.set(key, [i]);
+  });
+
+  const duplicateIndices: number[] = [];
+  for (const indices of indicesByKey.values()) {
+    if (indices.length > 1) duplicateIndices.push(...indices);
+  }
+  duplicateIndices.sort((a, b) => a - b);
+  return duplicateIndices.map(actualObservationId);
+}
+
 export interface ObservationCaseResult {
   scopeRecall: number | null;
   observationTypeAccuracy: number | null;
@@ -44,6 +86,15 @@ export interface ObservationCaseResult {
    *  convention as attributeAccuracy's per-field checks). */
   pageAccuracy: number | null;
   falsePositiveCount: number;
+  /** Ids (see actualObservationId()) of every ACTUAL observation that shares
+   *  its (observationType, mark, scopeHint) identity with at least one other
+   *  actual observation in this same run — i.e. the run extracted the same
+   *  real-world fact more than once. Computed purely from `actual`, never
+   *  from `expected`, and never folded into falsePositiveCount: whether an
+   *  observation is a duplicate and whether it was claimed by an expected
+   *  entry are orthogonal questions. Empty for both real audited runs today
+   *  — reported, never assumed. */
+  duplicateActualIds: string[];
   unmatchedExpectedIds: string[];
   /** Pairs from OBSERVATION_DISTINCTNESS_PAIRS that incorrectly matched the
    *  SAME actual observation index — should always be empty. */
@@ -117,6 +168,7 @@ export function scoreObservations(
     attributeAccuracy: ratio(attrOk, attrTotal),
     pageAccuracy: ratio(pageOk, pageTotal),
     falsePositiveCount: falsePositives.length,
+    duplicateActualIds: findDuplicateActualIds(actual),
     unmatchedExpectedIds,
     distinctnessFailures,
     ungradedIds: expected.filter((e) => e.graded === false).map((e) => e.id),
