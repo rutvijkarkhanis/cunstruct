@@ -39,6 +39,15 @@ import { folderBreadcrumb } from "../_shared/folderContext.ts";
 import { buildStaleReclaimFilter } from "../_shared/claiming.ts";
 import { parseObservationsV1 } from "../_shared/observationValidation.ts";
 import { resolveObservationSource, type ClaimedFile } from "../_shared/observationSource.ts";
+// TEMPORARY, DIAGNOSTIC-ONLY (LOCATION recall investigation) — see
+// locationDiagnostics.ts's own header for scope/removal intent. Only read
+// from when LOCATION_DIAGNOSTIC_MODE is explicitly set; never affects
+// normal behavior otherwise.
+import {
+  buildLocationDiagnosticReport,
+  LOCATION_DIAGNOSTIC_LOG_PREFIX,
+  type LocationDiagnosticPersistenceInfo,
+} from "../_shared/locationDiagnostics.ts";
 
 // A PROCESSING claim with no completed_at older than this is presumed dead
 // (the edge function that made it crashed/timed out) and becomes reclaimable,
@@ -52,6 +61,11 @@ const DRAWINGS_BUCKET = "project-drawings";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+// TEMPORARY, DIAGNOSTIC-ONLY — off unless an operator explicitly sets this
+// secret before making ONE LOCATION generate call. Never a client-supplied
+// field (the request body has no field for it — see BodySchema below), so a
+// normal caller can never enable or observe this. See locationDiagnostics.ts.
+const LOCATION_DIAGNOSTIC_MODE = Deno.env.get("LOCATION_DIAGNOSTIC_MODE") === "true";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -498,6 +512,23 @@ Deno.serve(async (req) => {
       return json({ ok: false, error: "OpenAI response failed validation: " + (parsedObservations.error ?? "unknown error"), skipped }, 502);
     }
 
+    // TEMPORARY, DIAGNOSTIC-ONLY — captures exactly what the model returned
+    // vs. what survived parseObservationsV1, for the LOCATION recall
+    // investigation. No effect on `parsedObservations` or anything
+    // downstream; a no-op unless LOCATION_DIAGNOSTIC_MODE is set.
+    if (LOCATION_DIAGNOSTIC_MODE) {
+      const diagnosticReport = buildLocationDiagnosticReport(
+        {
+          model: model.id, status: locationResult.status, incompleteDetails: locationResult.incompleteDetails,
+          inputTokens: locationResult.inputTokens, outputTokens: locationResult.outputTokens, totalTokens: locationResult.totalTokens,
+        },
+        locationResult.rawJson,
+        parsedObservations.warnings,
+        parsedObservations.observations.length,
+      );
+      console.log(LOCATION_DIAGNOSTIC_LOG_PREFIX, "raw_vs_parsed", JSON.stringify(diagnosticReport));
+    }
+
     // Layer B: pin each observation to an exact claimed document/revision.
     // For a multi-file batch, never trusts the model's own documentId/document
     // without checking it against what was actually sent this batch. For a
@@ -566,6 +597,12 @@ Deno.serve(async (req) => {
       ? await supabase.from("analysis_observation").insert(observationRows)
       : { error: null };
     if (obsErr) {
+      if (LOCATION_DIAGNOSTIC_MODE) {
+        const persistenceInfo: LocationDiagnosticPersistenceInfo = {
+          handedToPersistenceCount: observationRows.length, persistedCount: 0, persistenceError: obsErr.message,
+        };
+        console.log(LOCATION_DIAGNOSTIC_LOG_PREFIX, "persistence", JSON.stringify(persistenceInfo));
+      }
       // Compensating cleanup — the same shape as ProjectDocuments.tsx's
       // uploadOnePdf() catch block (insert parent, insert child, delete the
       // parent back out on child-insert failure) — never leave an orphaned
@@ -573,6 +610,13 @@ Deno.serve(async (req) => {
       await supabase.from("analysis_run").delete().eq("id", locationRun.id);
       await failClaims(supabase, claimed.map((c) => c.claimId), "Failed to persist observations.");
       return json({ ok: false, error: obsErr.message }, 500);
+    }
+
+    if (LOCATION_DIAGNOSTIC_MODE) {
+      const persistenceInfo: LocationDiagnosticPersistenceInfo = {
+        handedToPersistenceCount: observationRows.length, persistedCount: observationRows.length, persistenceError: null,
+      };
+      console.log(LOCATION_DIAGNOSTIC_LOG_PREFIX, "persistence", JSON.stringify(persistenceInfo));
     }
 
     await supabase

@@ -30,6 +30,16 @@ export interface OpenAiAnalysisResult {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  /** The Responses API's own completion status (e.g. "completed",
+   *  "incomplete") and, when present, why it stopped short
+   *  (`incomplete_details`, e.g. `{ reason: "max_output_tokens" }`). Always
+   *  read and returned (never previously captured anywhere) so a caller CAN
+   *  tell a truncated response apart from a complete one with a short
+   *  answer — added for the LOCATION recall investigation's diagnostic
+   *  instrumentation (see locationDiagnostics.ts); harmless/unused by every
+   *  existing caller (BOQ mode) until something reads it. */
+  status: string | null;
+  incompleteDetails: unknown;
 }
 
 class OpenAiError extends Error {
@@ -122,6 +132,8 @@ export async function generateAnalysisViaOpenAI(
       inputTokens: usage.input_tokens ?? 0,
       outputTokens: usage.output_tokens ?? 0,
       totalTokens: usage.total_tokens ?? (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0),
+      status: typeof data.status === "string" ? data.status : null,
+      incompleteDetails: data.incomplete_details ?? null,
     };
   } finally {
     for (const id of fileIds) await deleteFile(apiKey, id);
