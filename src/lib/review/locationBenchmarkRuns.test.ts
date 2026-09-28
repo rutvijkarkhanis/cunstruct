@@ -67,10 +67,12 @@ const SECOND_FLOOR_ACTUAL_RUN: ObservationV1[] = [
  *  scopeHint pair here uses a DIFFERENT convention than runs #1/#2: scopeHint
  *  names the room/context a fixture belongs to ("Master Bedroom", "Dining
  *  Room", "Building Lift"), not the floor ("First Floor"/"Second Floor") the
- *  expected fixture above uses. That mismatch is exactly what the tests below
- *  demonstrate — the existing, UNMODIFIED matcher requires both mark AND
- *  scopeHint to agree, so none of these 5 actuals matches any of the 26
- *  expected entries. */
+ *  expected fixture above uses. The PRIMARY (mark, scopeHint) pass alone
+ *  finds zero matches because of this — exactly what motivated the
+ *  page-based fallback in observationBenchmarkScorer.ts. With the fallback,
+ *  3 of the 5 (Dining, Kitchen, Lift) match via (mark, page); W.R and Plasma
+ *  still don't, because no expected entry exists for either mark at all
+ *  (see the tests below). */
 const THIRD_RUN_ACTUAL: ObservationV1[] = [
   { observationType: "room_or_space", mark: "W.R", scopeHint: "Master Bedroom", attributes: { dimension: "16'6\"x13'3\"" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
   { observationType: "room_or_space", mark: "Dining", scopeHint: "Dining Room", attributes: { dimension: "17'8\"x15'4\"" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
@@ -468,31 +470,51 @@ describe("scoreLocationBenchmark — the third real run is registered correctly"
 describe("scoreLocationBenchmark — scoring the supplied third-run actuals against the third-run fixture", () => {
   const result = scoreObservations(THIRD_RUN.expectedObservations, THIRD_RUN_ACTUAL, THIRD_RUN.distinctnessPairs);
 
-  it("zero coverage — none of the 5 actuals share BOTH mark and scopeHint with any expected entry", () => {
-    // mark alone overlaps for Dining/Kitchen/Lift, but the actual output's
-    // scopeHint names a room/context ("Dining Room", "Kitchen", "Building
-    // Lift"), never the floor ("First Floor"/"Second Floor") the expected
-    // fixture uses — so the existing, unmodified one-to-one matcher
-    // (mark AND scopeHint) finds no match at all. This is the mechanical,
-    // unmodified-scorer result — not something adjusted to look a certain way.
-    expect(result.scopeRecall).toBe(0);
-    expect(result.unmatchedExpectedIds).toHaveLength(26);
+  it("3 of 26 match via the page fallback — Dining (p.1), Kitchen (p.2), Lift (p.2); W.R and Plasma stay unmatched", () => {
+    // None of the 5 actuals share BOTH mark and scopeHint with an expected
+    // entry (the actual output's scopeHint names a room/context — "Dining
+    // Room", "Kitchen", "Building Lift" — never the floor the expected
+    // fixture uses), so the PRIMARY pass alone would find zero matches, same
+    // as before the fallback existed. The SECONDARY (mark, page) fallback
+    // then finds exactly 3: the First Floor Dining actual (page 1) claims
+    // thirdrun-firstfloor-dining-obs; the Second Floor Kitchen and Lift
+    // actuals (page 2) claim their Second Floor counterparts. W.R and Plasma
+    // have no expected entry at all (deliberately excluded), so no page can
+    // ever match them — they remain unmatched/false positives regardless.
+    expect(result.scopeRecall).toBeCloseTo(3 / 26);
+    expect(result.unmatchedExpectedIds).toHaveLength(23);
+    expect(result.unmatchedExpectedIds).not.toContain("thirdrun-firstfloor-dining-obs");
+    expect(result.unmatchedExpectedIds).not.toContain("thirdrun-secondfloor-kitchen-obs");
+    expect(result.unmatchedExpectedIds).not.toContain("thirdrun-secondfloor-lift-obs");
+    // The First Floor Lift and Second Floor Dining expectations are NOT
+    // satisfied — there is no actual observation on their own page for
+    // either, so the fallback correctly leaves them unmatched rather than
+    // guessing.
+    expect(result.unmatchedExpectedIds).toContain("thirdrun-firstfloor-lift-obs");
+    expect(result.unmatchedExpectedIds).toContain("thirdrun-secondfloor-dining-obs");
   });
 
-  it("all 5 actual observations are false positives — none was claimed by an expected entry", () => {
-    expect(result.falsePositiveCount).toBe(5);
+  it("2 of the 5 actual observations remain false positives — W.R and Plasma, both deliberately excluded from the fixture", () => {
+    expect(result.falsePositiveCount).toBe(2);
   });
 
-  it("observationTypeAccuracy and pageAccuracy are null — no matched pair exists to compute either ratio over", () => {
-    expect(result.observationTypeAccuracy).toBeNull();
-    expect(result.pageAccuracy).toBeNull();
+  it("observationTypeAccuracy is 2/3 — Lift's matched pair surfaces a real classification mismatch (actual equipment vs. this fixture's room_or_space)", () => {
+    // Not a benchmark bug: this fixture types Lift as room_or_space per
+    // explicit instruction (unlike runs #1/#2's equipment), so a genuinely
+    // matched Lift observation typed "equipment" by production shows up as a
+    // mismatch here — an honest, visible consequence of that fixture choice.
+    expect(result.observationTypeAccuracy).toBeCloseTo(2 / 3);
   });
 
-  it("attributeAccuracy is 0 — every expected dimension check has no matched actual to compare against", () => {
-    expect(result.attributeAccuracy).toBe(0);
+  it("pageAccuracy is 1 for the 3 matched entries — tautological for fallback-matched pairs, since they were matched BECAUSE their page agreed", () => {
+    expect(result.pageAccuracy).toBe(1);
   });
 
-  it("zero duplicates — the 5 actuals have 5 distinct (type, mark, scopeHint) identities", () => {
+  it("attributeAccuracy is 3/26 — only the 3 matched entries' dimensions enter the ratio, and all 3 are correct", () => {
+    expect(result.attributeAccuracy).toBeCloseTo(3 / 26);
+  });
+
+  it("zero duplicates — the 5 actuals have 5 distinct (type, mark, scopeHint) identities, unaffected by matching", () => {
     expect(result.duplicateActualIds).toEqual([]);
   });
 
@@ -536,8 +558,8 @@ describe("scoreLocationBenchmark — adding the third run left runs #1 and #2 ex
     const r3 = report.results.find((r) => r.runId === THIRD_RUN.id)!;
     expect(r1.scopeRecall).toBe(1);
     expect(r2.scopeRecall).toBeCloseTo(8 / 19);
-    expect(r3.scopeRecall).toBe(0);
+    expect(r3.scopeRecall).toBeCloseTo(3 / 26);
     expect(r1.falsePositiveCount + r2.falsePositiveCount + r3.falsePositiveCount).toBe(report.totalFalsePositives);
-    expect(report.totalFalsePositives).toBe(5);
+    expect(report.totalFalsePositives).toBe(2);
   });
 });
