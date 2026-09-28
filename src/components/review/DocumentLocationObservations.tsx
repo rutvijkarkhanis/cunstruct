@@ -22,6 +22,9 @@
 // cross-document, while a document_id-scoped lookup alone cannot see that
 // match — see the PR that added this fallback for the production case that
 // exposed it. Neither E nor F ever claims extraction ran for THIS document.
+// The `model` prop is required so that hash-level match also proves the same
+// model preflight used — a hash match under a DIFFERENT model is never
+// reported as E/F (see locationObservations.ts's fallback query).
 //
 // Read-only: this component and locationObservations.ts together have no
 // write path at all. These are LOCATION observations, extracted
@@ -38,14 +41,19 @@ import {
 } from "@/lib/review/locationObservations";
 
 export default function DocumentLocationObservations({
-  projectId, documentId,
+  projectId, documentId, model,
 }: {
   projectId: string;
   documentId: string;
+  /** The exact model preflight resolved for this project's LOCATION
+   *  eligibility (DocumentLocationExtraction's `fetchPreflight()` result,
+   *  `internal.model`) — required so the hash-level fallback below can match
+   *  preflight's exact identity instead of a model-agnostic approximation. */
+  model: string;
 }) {
   const { data: run } = useQuery({
-    queryKey: ["location-run-state", projectId, documentId],
-    queryFn: () => latestLocationRunForDocument(projectId, documentId),
+    queryKey: ["location-run-state", projectId, documentId, model],
+    queryFn: () => latestLocationRunForDocument(projectId, documentId, model),
   });
 
   const { data: observations } = useQuery({

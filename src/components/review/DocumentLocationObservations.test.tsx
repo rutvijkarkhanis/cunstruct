@@ -14,11 +14,11 @@ vi.mock("@/lib/review/locationObservations", () => ({
   loadLocationObservations: vi.fn(),
 }));
 
-function renderPanel() {
+function renderPanel(model = "gpt-4o-mini") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <DocumentLocationObservations projectId="proj-1" documentId="doc-1" />
+      <DocumentLocationObservations projectId="proj-1" documentId="doc-1" model={model} />
     </QueryClientProvider>,
   );
 }
@@ -82,11 +82,20 @@ describe("DocumentLocationObservations — the four states", () => {
 
   it("never invokes anything BOQ-shaped — the component takes no boqId/BOQ prop at all", () => {
     // Structural: DocumentLocationObservations's props are exactly
-    // {projectId, documentId} — no boqId, no onApplyToBoq, nothing
+    // {projectId, documentId, model} — no boqId, no onApplyToBoq, nothing
     // BOQ-shaped could even be wired in without changing this file.
     vi.mocked(locationObservations.latestLocationRunForDocument).mockResolvedValue(NOT_RUN);
     const { container } = renderPanel();
     expect(container.innerHTML).not.toMatch(/boq/i);
+  });
+
+  // 1. Model is passed through from the component to the data layer — proves
+  // the wiring, not just that SOME model string satisfies the (mocked) call.
+  it("passes the exact model prop through to latestLocationRunForDocument", async () => {
+    vi.mocked(locationObservations.latestLocationRunForDocument).mockResolvedValue(NOT_RUN);
+    renderPanel("gpt-4o");
+    await screen.findByText("LOCATION extraction has not been run for this document.");
+    expect(locationObservations.latestLocationRunForDocument).toHaveBeenCalledWith("proj-1", "doc-1", "gpt-4o");
   });
 });
 

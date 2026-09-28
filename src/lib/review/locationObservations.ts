@@ -18,10 +18,11 @@ import { supabase } from "@/integrations/supabase/client";
 import type { AnalysisSource } from "./analysisSchemaV1";
 import type { ObservationAttributes, ObservationType, EvidenceCompleteness } from "./observationSchemaV1";
 // Safe to import into the browser: a version string + provider name, not the
-// server-only pricing/model-selection table (modelConfig.ts is explicitly
-// forbidden from src/ by its own header comment — this file never imports
-// it, and the fallback lookup below deliberately omits `model` for that
-// reason; see its comment).
+// server-only pricing/model-selection table. The `model` dimension of
+// preflight's identity is NOT imported from here — modelConfig.ts is
+// explicitly forbidden from src/ by its own header comment — it is instead
+// passed in by the caller, sourced from fetchPreflight()'s admin-only
+// `internal.model` (see latestLocationRunForDocument's doc comment below).
 import { ANALYSIS_CONTRACT_VERSION, DEFAULT_PROVIDER } from "../../../supabase/functions/_shared/contract.ts";
 
 /**
@@ -83,21 +84,24 @@ async function currentRevisionContentHash(documentId: string): Promise<string | 
 }
 
 /**
- * Fallback lookup using preflight's OWN identity dimensions (see
+ * Fallback lookup using preflight's EXACT identity dimensions (see
  * computePreflight()/loadLedger() in the edge function) instead of
  * document_id: project_id + content_hash + contract_version + provider +
- * mode. Deliberately omits `model` — the only place that value lives
- * client-side would be importing modelConfig.ts, which is explicitly
- * forbidden from `src/` (server-only pricing/model table). Omitting it only
- * WIDENS this read-only diagnostic match slightly (it can never narrow
- * eligibility itself, which still runs server-side with full precision) —
- * in practice there is one default model for this feature, so this is not a
- * meaningful gap. Only ever reports a SUCCEEDED match: a PROCESSING/FAILED
- * hash-level row doesn't explain "No new eligible files to analyse" the way
- * a SUCCEEDED one does (see computePreflight's alreadyAnalysed vs inFlight).
+ * model + mode. `model` is the exact string the caller already obtained from
+ * fetchPreflight()'s admin-only `internal.model` field — the same value
+ * resolveModel() resolved server-side for this project's LOCATION eligibility
+ * — never imported from the server-only modelConfig.ts. A hash match under a
+ * DIFFERENT model must NOT be reported here: preflight itself would not
+ * consider that content already analysed under the current model (see
+ * contract.ts's note that a model upgrade makes previously-analysed files
+ * eligible again), so neither can this diagnostic without recreating the
+ * exact contradiction this fallback exists to eliminate. Only ever reports a
+ * SUCCEEDED match: a PROCESSING/FAILED hash-level row doesn't explain "No new
+ * eligible files to analyse" the way a SUCCEEDED one does (see
+ * computePreflight's alreadyAnalysed vs inFlight).
  */
 async function latestSucceededLocationRunForContentHash(
-  projectId: string, contentHash: string,
+  projectId: string, contentHash: string, model: string,
 ): Promise<{ runId: string | null; claimedAt: string | null; completedAt: string | null; documentId: string | null } | null> {
   const { data, error } = await supabase
     .from("analysis_run_source")
@@ -106,6 +110,7 @@ async function latestSucceededLocationRunForContentHash(
     .eq("content_hash", contentHash)
     .eq("contract_version", ANALYSIS_CONTRACT_VERSION)
     .eq("provider", DEFAULT_PROVIDER)
+    .eq("model", model)
     .eq("mode", "LOCATION")
     .eq("status", "SUCCEEDED")
     .order("claimed_at", { ascending: false })
@@ -130,8 +135,16 @@ async function latestSucceededLocationRunForContentHash(
  * could report NOT_RUN for that same content. This fallback NEVER claims
  * extraction ran for THIS document — it reports a clearly distinct status
  * instead (CONTENT_MATCHED_OTHER_DOCUMENT / CONTENT_MATCHED_UNATTRIBUTED).
+ *
+ * `model` is required and must be the exact model preflight resolved for
+ * this project's LOCATION eligibility (the caller already has this from
+ * fetchPreflight()'s `internal.model`) — without it, the fallback could
+ * report "already analysed" for content that only a DIFFERENT model
+ * analysed, which preflight itself would not treat as already analysed.
  */
-export async function latestLocationRunForDocument(projectId: string, documentId: string): Promise<LocationRunState> {
+export async function latestLocationRunForDocument(
+  projectId: string, documentId: string, model: string,
+): Promise<LocationRunState> {
   const { data, error } = await supabase
     .from("analysis_run_source")
     .select("status, analysis_run_id, claimed_at, completed_at, error")
@@ -155,7 +168,7 @@ export async function latestLocationRunForDocument(projectId: string, documentId
   const contentHash = await currentRevisionContentHash(documentId);
   if (!contentHash) return NOT_RUN;
 
-  const hashMatch = await latestSucceededLocationRunForContentHash(projectId, contentHash);
+  const hashMatch = await latestSucceededLocationRunForContentHash(projectId, contentHash, model);
   if (!hashMatch) return NOT_RUN;
 
   return {
