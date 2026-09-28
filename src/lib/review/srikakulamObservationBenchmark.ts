@@ -237,3 +237,148 @@ export const OBSERVATION_DISTINCTNESS_PAIRS: { a: string; b: string }[] = [
   { a: "ground-w1-obs", b: "typical-w1-obs" },
   { a: "stilt-main-entrance-obs", b: "ground-main-entrance-dim-obs" },
 ];
+
+// ── Multi-run support ────────────────────────────────────────────────────
+//
+// Everything above this point is the ORIGINAL, single-array fixture and is
+// unchanged (existing consumers of SRIKAKULAM_OBSERVATIONS/
+// OBSERVATION_DISTINCTNESS_PAIRS keep working identically). What follows adds
+// the ability to register MULTIPLE manually audited LOCATION runs — each
+// document/run's expected observations and distinctness pairs stay in their
+// OWN array, exactly like SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928 already
+// does relative to the older W1/brickwork facts — so that scoring one run's
+// actual output can never see, match against, or be penalized for a
+// DIFFERENT run's expected facts. See observationBenchmarkScorer.ts's
+// scoreLocationBenchmark() for how a registry of these is scored together.
+
+/** One manually audited LOCATION production run, ready to be scored on its
+ *  own via scoreObservations() (or as part of a registry via
+ *  scoreLocationBenchmark()). `expectedObservations` and `distinctnessPairs`
+ *  must reference only ids from THIS run — never another run's — so a
+ *  missing fact from one document can never surface as a false negative
+ *  against a different document's run. */
+export interface LocationBenchmarkRun {
+  id: string;
+  title: string;
+  /** Free-text identity, for humans reading a report — never parsed. */
+  documentDescription: string;
+  expectedObservations: ExpectedObservation[];
+  distinctnessPairs: { a: string; b: string }[];
+}
+
+/** The Main Entrance cross-floor pair, scoped to the 2026-09-28 apartment run
+ *  alone (both ids come only from SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928)
+ *  — the same fact already present in the combined OBSERVATION_DISTINCTNESS_PAIRS
+ *  above, restated here so this run can be scored in isolation without
+ *  pulling in the unrelated W1 pairs (whose ids aren't in this run at all). */
+const SRIKAKULAM_APARTMENT_RUN_DISTINCTNESS_PAIRS: { a: string; b: string }[] = [
+  { a: "stilt-main-entrance-obs", b: "ground-main-entrance-dim-obs" },
+];
+
+// ── Real production LOCATION run #2 — "Proposed Apartment at Srikakulam —
+// Second Floor Plan" (a 2-page PDF: p.1 Second Floor Plan/Brickwork Drawing,
+// p.2 Door/Window Schedule). A SEPARATE real document from the 2026-09-28
+// apartment run above — its own id namespace (`secondfloor-*`), its own
+// distinctness pairs (none needed: nothing in this single-floor audit reuses
+// a mark across scopes the way Main Entrance/W1 do in the run above), and
+// deliberately NOT folded into SRIKAKULAM_OBSERVATIONS (that export is
+// scoped to the original Ground/Stilt/Typical document only — see its own
+// doc comment — never rewritten by this addition).
+//
+// Exact project/document/revision identifiers were not supplied for this
+// run (unlike SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928's real UUIDs); this
+// fixture identifies the document only by its title, never a fabricated id.
+//
+// Includes BOTH the 8 extracted-and-audited observations (one — D1 — with a
+// confirmed MATERIAL-only discrepancy, never a type-level one) AND
+// independently verified COVERAGE MISSES: real, clearly-labeled facts on the
+// drawing this production run did not extract at all. A coverage miss is
+// graded exactly like any other entry — it simply has no matching actual
+// observation, so it correctly counts against scopeRecall, which is the
+// entire point of recording it.
+//
+// Deliberately EXCLUDED, per explicit instruction not to invent ground truth
+// beyond what was manually verified: "additional balconies / entrances /
+// passages / corridor / security gate" and "additional door/window schedule
+// entries on page 2" from the same audit. These were named only as a general
+// category — no mark, no dimension, no count — so recording them as
+// individual ExpectedObservation entries would require inventing exactly the
+// identifying details the audit never established. They can be added the
+// same way every entry below was, once individually audited.
+export const SRIKAKULAM_SECOND_FLOOR_LOCATION_RUN: ExpectedObservation[] = [
+  // ── Extracted and manually audited — persisted by the real production run.
+  { id: "secondfloor-dining-obs", observationType: "room_or_space", mark: "Dining", scopeHint: "Second Floor", attributes: { dimension: "17'8\"x15'4\"" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually audited against the drawing: correct." },
+  { id: "secondfloor-master-bedroom-obs", observationType: "room_or_space", mark: "Master Bedroom", scopeHint: "Second Floor", attributes: { dimension: "16'6\"x13'3\"" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually audited against the drawing: correct." },
+  { id: "secondfloor-kitchen-obs", observationType: "room_or_space", mark: "Kitchen", scopeHint: "Second Floor", attributes: { dimension: "22'2\"x11'" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually audited against the drawing: correct." },
+  { id: "secondfloor-guest-bedroom-obs", observationType: "room_or_space", mark: "Guest Bedroom", scopeHint: "Second Floor", attributes: { dimension: "18'6\"x14'" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually audited against the drawing: correct." },
+  { id: "secondfloor-media-room-obs", observationType: "room_or_space", mark: "Media Room", scopeHint: "Second Floor", attributes: { dimension: "15'7\"x10'6\"" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually audited against the drawing: correct." },
+  { id: "secondfloor-living-obs", observationType: "room_or_space", mark: "Living", scopeHint: "Second Floor", attributes: { dimension: "17'8\"x15'6\"" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually audited against the drawing: correct." },
+  { id: "secondfloor-w1-obs", observationType: "opening", mark: "W1", scopeHint: "Second Floor", attributes: { dimension: "5'x5'3\"", specification: "UPVC" }, sourcePage: "p.2 (Door/Window Schedule)", notes: "Manually audited against the drawing: correct." },
+  {
+    id: "secondfloor-d1-obs",
+    observationType: "opening",
+    mark: "D1",
+    scopeHint: "Second Floor",
+    // Dimension is confirmed correct. Material is the ONLY confirmed
+    // discrepancy — see gap below. The value here is the audited-correct
+    // group name as verified against the schedule, never invented beyond
+    // that: the schedule places D1 in the granite/marble door group, distinct
+    // from MD (a different door mark, which the schedule genuinely does list
+    // as Wood).
+    attributes: { dimension: "3'6\"x7'9\"", material: "Granite/Marble" },
+    sourcePage: "p.2 (Door/Window Schedule)",
+    notes: "Manually audited: size is correct. Material is not — see gap. This is an attribute-level discrepancy only; the observation's existence, type, and scope are all correct.",
+    graded: true,
+    gap: {
+      category: "A_EXTRACTION_FAILURE",
+      note: "Production's real Second Floor LOCATION run reported material \"Wood\" for D1. The door/window schedule identifies MD (a different door mark) as Wood; D1 belongs to the granite/marble group. Not yet fixed — this entry exists to track and score the known discrepancy, per explicit instruction not to change extraction behavior yet.",
+    },
+  },
+
+  // ── Coverage misses — clearly labeled, manually verified facts the real
+  // production run did NOT extract at all.
+  { id: "secondfloor-pooja-obs", observationType: "room_or_space", mark: "Pooja", scopeHint: "Second Floor", attributes: { dimension: "6'2\"x8'8\"" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
+  { id: "secondfloor-lift-obs", observationType: "equipment", mark: "Lift", scopeHint: "Second Floor", attributes: { dimension: "7'x6'6\"" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
+  { id: "secondfloor-utility-obs", observationType: "room_or_space", mark: "Utility", scopeHint: "Second Floor", attributes: { dimension: "11'2\"x11'6\"" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
+  { id: "secondfloor-wet-kitchen-obs", observationType: "room_or_space", mark: "Wet Kitchen", scopeHint: "Second Floor", attributes: { dimension: "10'6\"x8'5\"" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
+  { id: "secondfloor-storage-obs", observationType: "room_or_space", mark: "Storage", scopeHint: "Second Floor", attributes: { dimension: "5'2\"x6'3\"" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
+  { id: "secondfloor-children-bedroom-1-obs", observationType: "room_or_space", mark: "Children Bedroom-1", scopeHint: "Second Floor", attributes: { dimension: "18'6\"x11'6\"" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
+  { id: "secondfloor-children-bedroom-2-obs", observationType: "room_or_space", mark: "Children Bedroom-2", scopeHint: "Second Floor", attributes: { dimension: "15'3\"x12'8\"" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
+  { id: "secondfloor-great-room-obs", observationType: "room_or_space", mark: "Great Room", scopeHint: "Second Floor", attributes: { dimension: "25'5\"x18'" }, sourcePage: "p.1 (Second Floor Plan)", notes: "Manually verified on the drawing; NOT extracted by the production run — coverage miss." },
+  // Named and confirmed present on the drawing; no dimension was recorded
+  // during this audit — identity/coverage is graded, size is simply not
+  // asserted (never guessed), the same convention as typical-w1-obs above.
+  { id: "secondfloor-wic-obs", observationType: "room_or_space", mark: "W.I.C", scopeHint: "Second Floor", sourcePage: "p.1 (Second Floor Plan)", notes: "Manually verified as clearly labeled on the drawing; NOT extracted — coverage miss. No dimension recorded during this audit." },
+  { id: "secondfloor-wr-obs", observationType: "room_or_space", mark: "W.R", scopeHint: "Second Floor", sourcePage: "p.1 (Second Floor Plan)", notes: "Manually verified as clearly labeled on the drawing; NOT extracted — coverage miss. No dimension recorded during this audit." },
+  { id: "secondfloor-dress-obs", observationType: "room_or_space", mark: "Dress", scopeHint: "Second Floor", sourcePage: "p.1 (Second Floor Plan)", notes: "Manually verified as clearly labeled on the drawing; NOT extracted — coverage miss. No dimension recorded during this audit." },
+];
+
+/** No cross-scope mark reuse exists in this run's audited data (unlike the
+ *  2026-09-28 run's Main Entrance/W1 cases) — nothing to check here yet. */
+const SRIKAKULAM_SECOND_FLOOR_DISTINCTNESS_PAIRS: { a: string; b: string }[] = [];
+
+/** Registry of every manually audited LOCATION run available to score
+ *  independently. Add a new run by appending a new entry here with its OWN
+ *  expectedObservations/distinctnessPairs arrays (defined above, following
+ *  the SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928 pattern) — never by editing
+ *  an existing run's entry to fold in another document's facts. */
+export const LOCATION_BENCHMARK_RUNS: LocationBenchmarkRun[] = [
+  {
+    id: "srikakulam-apartment-20260928",
+    title: "Srikakulam Apartment (Dr.Sandeep) — 2026-09-28 production run",
+    documentDescription:
+      "Apartment at Srikakulam (Dr.Sandeep)-Floor plans, Brickwork Drawing & Door and Window Schedule " +
+      "(project 5749f58f-9b30-4545-8d1a-70e6a935d574, document cbcfd9c1-3d40-40b6-9761-6cc5e313d541)",
+    expectedObservations: SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928,
+    distinctnessPairs: SRIKAKULAM_APARTMENT_RUN_DISTINCTNESS_PAIRS,
+  },
+  {
+    id: "srikakulam-second-floor",
+    title: "Proposed Apartment at Srikakulam — Second Floor Plan",
+    documentDescription:
+      "Proposed Apartment at Srikakulam — Second Floor Plan (2-page PDF: p.1 Second Floor Plan/Brickwork " +
+      "Drawing, p.2 Door/Window Schedule). Project/document/revision identifiers not supplied for this run.",
+    expectedObservations: SRIKAKULAM_SECOND_FLOOR_LOCATION_RUN,
+    distinctnessPairs: SRIKAKULAM_SECOND_FLOOR_DISTINCTNESS_PAIRS,
+  },
+];
