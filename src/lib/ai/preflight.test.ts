@@ -3,7 +3,7 @@
 // relative, explicit-extension path — the same way the edge function imports
 // it — so this is exercising the real module, not a copy.
 import { describe, it, expect } from "vitest";
-import { computePreflight, type EligibleFile, type LedgerRow } from "../../../supabase/functions/_shared/preflight.ts";
+import { computePreflight, resolveRequestedToSend, type EligibleFile, type LedgerRow } from "../../../supabase/functions/_shared/preflight.ts";
 
 const NOW = 1_000_000_000_000; // fixed "now" so staleness math is deterministic
 const STALE_AFTER_MS = 10 * 60 * 1000; // matches STALE_PROCESSING_MS in index.ts
@@ -180,5 +180,111 @@ describe("computePreflight — mode", () => {
     const withDefault = computePreflight(2, files, ledger, opts);
     const withExplicitBoq = computePreflight(2, files, ledger, { ...opts, mode: "BOQ" });
     expect(withExplicitBoq).toEqual(withDefault);
+  });
+});
+
+// ── resolveRequestedToSend — the fix for the production identity-mismatch
+// bug: three real documents (eb2fd669-cd47-41bf-ac08-785e00e9bf8a,
+// cbcfd9c1-3d40-40b6-9761-6cc5e313d541, 2cc3d480-b50f-453b-918f-aaefa301f26e)
+// shared one content hash with ZERO analysis_run_source rows for it. The
+// LOCATION document-level entry point requested the middle document by its
+// own documentId; `willSend`'s single, project-wide, order-picked
+// representative for that hash was a DIFFERENT document, so filtering
+// `willSend` by the requested documentId found nothing — "No new eligible
+// files to analyse" for content that had never been sent. These tests
+// exercise `computePreflight` (unmodified) feeding its real `newEligible`
+// into `resolveRequestedToSend`, the same composition index.ts now uses. ────
+describe("resolveRequestedToSend — per-document resolution against a shared-hash duplicate group", () => {
+  it("1. requesting document A (of an A/B duplicate pair, no ledger) sends A, not B's representative", () => {
+    const files = [file({ documentId: "doc-a", contentHash: "same-bytes" }), file({ documentId: "doc-b", contentHash: "same-bytes" })];
+    const r = computePreflight(2, files, [], opts);
+    // willSend already collapsed this pair to ONE representative (existing,
+    // unmodified computePreflight behavior) — proving the bug still exists
+    // upstream of the fix, and that the fix works from `newEligible` instead.
+    expect(r.willSend).toHaveLength(1);
+    const toSend = resolveRequestedToSend(r.newEligible, ["doc-a"]);
+    expect(toSend.map((f) => f.documentId)).toEqual(["doc-a"]);
+  });
+
+  it("2. requesting document B of the SAME pair sends B, not A's representative", () => {
+    const files = [file({ documentId: "doc-a", contentHash: "same-bytes" }), file({ documentId: "doc-b", contentHash: "same-bytes" })];
+    const r = computePreflight(2, files, [], opts);
+    const toSend = resolveRequestedToSend(r.newEligible, ["doc-b"]);
+    expect(toSend.map((f) => f.documentId)).toEqual(["doc-b"]);
+  });
+
+  it("3. requesting BOTH documents of a duplicate pair sends the content once, under one of the requested documents' own identity — never a duplicate claim", () => {
+    const files = [file({ documentId: "doc-a", contentHash: "same-bytes" }), file({ documentId: "doc-b", contentHash: "same-bytes" })];
+    const r = computePreflight(2, files, [], opts);
+    const toSend = resolveRequestedToSend(r.newEligible, ["doc-a", "doc-b"]);
+    expect(toSend).toHaveLength(1);
+    expect(["doc-a", "doc-b"]).toContain(toSend[0].documentId);
+    expect(toSend[0].contentHash).toBe("same-bytes");
+  });
+
+  it("4. duplicate content whose hash is already SUCCEEDED (under a third, non-requested document) — neither requested sibling is (re-)sent", () => {
+    const files = [file({ documentId: "doc-a", contentHash: "same-bytes" }), file({ documentId: "doc-b", contentHash: "same-bytes" })];
+    const ledger = [ledgerRow({ contentHash: "same-bytes", status: "SUCCEEDED", documentId: "doc-c", filenameAtTimeOfAnalysis: "c.pdf", analysisRunId: "run1" })];
+    const r = computePreflight(2, files, ledger, opts);
+    expect(r.alreadyAnalysed.map((f) => f.documentId).sort()).toEqual(["doc-a", "doc-b"]);
+    expect(resolveRequestedToSend(r.newEligible, ["doc-a", "doc-b"])).toEqual([]);
+  });
+
+  it("5. duplicate content whose hash is currently LIVE PROCESSING (under a third, non-requested document) — neither requested sibling is sent", () => {
+    const files = [file({ documentId: "doc-a", contentHash: "same-bytes" }), file({ documentId: "doc-b", contentHash: "same-bytes" })];
+    const ledger = [ledgerRow({ contentHash: "same-bytes", status: "PROCESSING", documentId: "doc-c", claimedAtMs: NOW - 1000 })];
+    const r = computePreflight(2, files, ledger, opts);
+    expect(r.inFlight.map((f) => f.documentId).sort()).toEqual(["doc-a", "doc-b"]);
+    expect(resolveRequestedToSend(r.newEligible, ["doc-a", "doc-b"])).toEqual([]);
+  });
+
+  it("6. with NO documentIds requested, project-wide behavior (willSend, still hash-deduped) is exactly what index.ts uses — unchanged by this fix", () => {
+    const files = [file({ documentId: "doc-a", contentHash: "same-bytes" }), file({ documentId: "doc-b", contentHash: "same-bytes" })];
+    const r = computePreflight(2, files, [], opts);
+    // index.ts's own branch: `input.documentIds?.length ? resolveRequestedToSend(...) : preflight.willSend`.
+    // The project-wide dedup this fix must NOT weaken is exactly this.
+    expect(r.willSend).toHaveLength(1);
+    expect(r.duplicateGroups).toHaveLength(1);
+  });
+
+  it("7. multiple distinct hashes, only some documents requested — only the requested documents' own hashes are sent, unrelated new files are not swept in", () => {
+    const files = [
+      file({ documentId: "doc-a", contentHash: "hash-1" }),
+      file({ documentId: "doc-a-dup", contentHash: "hash-1" }), // shares doc-a's hash
+      file({ documentId: "doc-unrelated", contentHash: "hash-2" }), // genuinely new, but never requested
+    ];
+    const r = computePreflight(3, files, [], opts);
+    const toSend = resolveRequestedToSend(r.newEligible, ["doc-a"]);
+    expect(toSend.map((f) => f.documentId)).toEqual(["doc-a"]);
+    expect(toSend.some((f) => f.contentHash === "hash-2")).toBe(false);
+  });
+
+  it("8. the returned summary's documentId — exactly what index.ts's claim insert uses as `document_id` — is the REQUESTED document, never an arbitrary sibling chosen by hash-group iteration order", () => {
+    const files = [file({ documentId: "sibling-first", contentHash: "same-bytes" }), file({ documentId: "requested-second", contentHash: "same-bytes" })];
+    const r = computePreflight(2, files, [], opts);
+    // Confirms the premise: willSend's own representative is the FIRST file
+    // in iteration order (the pre-fix behavior), i.e. NOT the one we'll request.
+    expect(r.willSend.map((f) => f.documentId)).toEqual(["sibling-first"]);
+    const toSend = resolveRequestedToSend(r.newEligible, ["requested-second"]);
+    expect(toSend).toHaveLength(1);
+    expect(toSend[0].documentId).toBe("requested-second"); // never "sibling-first"
+  });
+
+  it("10. REGRESSION — the exact production case: three documents share one content hash, zero ledger rows, requesting the MIDDLE document by id sends it", () => {
+    const files = [
+      file({ documentId: "eb2fd669-cd47-41bf-ac08-785e00e9bf8a", contentHash: "prod-shared-hash" }),
+      file({ documentId: "cbcfd9c1-3d40-40b6-9761-6cc5e313d541", contentHash: "prod-shared-hash" }),
+      file({ documentId: "2cc3d480-b50f-453b-918f-aaefa301f26e", contentHash: "prod-shared-hash" }),
+    ];
+    const r = computePreflight(3, files, [], opts);
+    expect(r.alreadyAnalysed).toEqual([]);
+    expect(r.inFlight).toEqual([]);
+    // Reproduces the bug's precondition: the project-wide representative is
+    // NOT the middle document.
+    expect(r.willSend.map((f) => f.documentId)).toEqual(["eb2fd669-cd47-41bf-ac08-785e00e9bf8a"]);
+    const toSend = resolveRequestedToSend(r.newEligible, ["cbcfd9c1-3d40-40b6-9761-6cc5e313d541"]);
+    expect(toSend).toHaveLength(1);
+    expect(toSend[0].documentId).toBe("cbcfd9c1-3d40-40b6-9761-6cc5e313d541");
+    expect(toSend[0].contentHash).toBe("prod-shared-hash");
   });
 });
