@@ -1,12 +1,30 @@
 // DOCUMENT LOCATION OBSERVATIONS — read-only inspector answering "what did
 // Cunstruct actually extract from this document?" A count alone can't
-// validate an extraction; this distinguishes the four states that a bare
+// validate an extraction; this distinguishes the six states that a bare
 // "0 observation(s) persisted" collapsed into one ambiguous green message:
 //
-//   A. never run       — no analysis_run_source row for this document/mode
-//   B. ran, found none — status SUCCEEDED, zero analysis_observation rows
-//   C. ran, found some — status SUCCEEDED, observations listed below
-//   D. failed          — status FAILED, with the stored error
+//   A. never run           — no analysis_run_source row for this document,
+//                             AND no hash-level match for its content either
+//   B. ran, found none     — status SUCCEEDED, zero analysis_observation rows
+//   C. ran, found some     — status SUCCEEDED, observations listed below
+//   D. failed              — status FAILED, with the stored error
+//   E. content matched     — this document's own document_id was never
+//      (other document)      claimed, but its current content is
+//                             byte-identical to a file claimed and
+//                             SUCCEEDED under a DIFFERENT document_id — see
+//                             locationObservations.ts's fallback lookup.
+//   F. content matched     — same as E, but the original document_id was
+//      (unattributed)        set to NULL (its project_document row was
+//                             deleted; analysis_run_source.document_id is
+//                             ON DELETE SET NULL).
+//
+// E and F exist because eligibility/preflight matches by CONTENT HASH,
+// cross-document, while a document_id-scoped lookup alone cannot see that
+// match — see the PR that added this fallback for the production case that
+// exposed it. Neither E nor F ever claims extraction ran for THIS document.
+// The `model` prop is required so that hash-level match also proves the same
+// model preflight used — a hash match under a DIFFERENT model is never
+// reported as E/F (see locationObservations.ts's fallback query).
 //
 // Read-only: this component and locationObservations.ts together have no
 // write path at all. These are LOCATION observations, extracted
@@ -23,14 +41,19 @@ import {
 } from "@/lib/review/locationObservations";
 
 export default function DocumentLocationObservations({
-  projectId, documentId,
+  projectId, documentId, model,
 }: {
   projectId: string;
   documentId: string;
+  /** The exact model preflight resolved for this project's LOCATION
+   *  eligibility (DocumentLocationExtraction's `fetchPreflight()` result,
+   *  `internal.model`) — required so the hash-level fallback below can match
+   *  preflight's exact identity instead of a model-agnostic approximation. */
+  model: string;
 }) {
   const { data: run } = useQuery({
-    queryKey: ["location-run-state", projectId, documentId],
-    queryFn: () => latestLocationRunForDocument(projectId, documentId),
+    queryKey: ["location-run-state", projectId, documentId, model],
+    queryFn: () => latestLocationRunForDocument(projectId, documentId, model),
   });
 
   const { data: observations } = useQuery({
@@ -50,6 +73,20 @@ export default function DocumentLocationObservations({
 
       {run.status === "NOT_RUN" && (
         <div className="text-muted-foreground">LOCATION extraction has not been run for this document.</div>
+      )}
+
+      {run.status === "CONTENT_MATCHED_OTHER_DOCUMENT" && (
+        <div className="text-muted-foreground">
+          <div>Not run for this document — but its content has already been analysed under a different document in this project.</div>
+          {run.completedAt && <div>That analysis completed {new Date(run.completedAt).toLocaleString()}.</div>}
+        </div>
+      )}
+
+      {run.status === "CONTENT_MATCHED_UNATTRIBUTED" && (
+        <div className="text-muted-foreground">
+          <div>Not run for this document — but its content has already been analysed. The original source document record is no longer available.</div>
+          {run.completedAt && <div>That analysis completed {new Date(run.completedAt).toLocaleString()}.</div>}
+        </div>
       )}
 
       {run.status === "PROCESSING" && (

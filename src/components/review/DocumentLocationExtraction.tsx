@@ -51,6 +51,10 @@ export default function DocumentLocationExtraction({
   });
 
   if (!showInternal || !isAdmin) return null;
+  // Safe: isAdmin is exactly `!!data?.internal`, so `data.internal` (and thus
+  // `.model` — the exact model preflight just resolved for LOCATION
+  // eligibility on this project) is guaranteed present past this guard.
+  const model = data!.internal!.model;
 
   return (
     <div className="mt-2 pl-7 pt-2 border-t text-xs space-y-1.5">
@@ -85,7 +89,7 @@ export default function DocumentLocationExtraction({
         })()}
       </div>
 
-      <DocumentLocationObservations projectId={projectId} documentId={documentId} />
+      <DocumentLocationObservations projectId={projectId} documentId={documentId} model={model} />
     </div>
   );
 }

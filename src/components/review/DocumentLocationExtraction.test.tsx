@@ -171,6 +171,17 @@ describe("DocumentLocationExtraction — request shape and result display", () =
     expect(screen.queryByText("LOCATION extraction has not been run for this document.")).not.toBeInTheDocument();
   });
 
+  // REGRESSION — the fix for the LOCATION inspector's identity mismatch with
+  // preflight (see locationObservations.ts's hash-level fallback) requires
+  // this component to thread preflight's OWN resolved model (internal.model)
+  // down to the inspector, so its fallback query can match preflight's exact
+  // identity instead of a model-agnostic approximation.
+  it("passes the exact model preflight resolved (internal.model) down to the observation inspector", async () => {
+    renderControl();
+    await screen.findByText("Run LOCATION extraction");
+    await waitFor(() => expect(locationObservations.latestLocationRunForDocument).toHaveBeenCalledWith("proj-1", "doc-42", "gpt-4o-mini"));
+  });
+
   it("uses the preflight/generate admin-check query only once per project across multiple mounted rows", async () => {
     vi.mocked(analysisClient.generateAnalysis).mockResolvedValue({ ok: true, generated: 1, runId: "run-loc-1", observationCount: 1, itemCount: 0 });
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });

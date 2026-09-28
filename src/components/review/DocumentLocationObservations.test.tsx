@@ -14,11 +14,11 @@ vi.mock("@/lib/review/locationObservations", () => ({
   loadLocationObservations: vi.fn(),
 }));
 
-function renderPanel() {
+function renderPanel(model = "gpt-4o-mini") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <DocumentLocationObservations projectId="proj-1" documentId="doc-1" />
+      <DocumentLocationObservations projectId="proj-1" documentId="doc-1" model={model} />
     </QueryClientProvider>,
   );
 }
@@ -82,10 +82,56 @@ describe("DocumentLocationObservations — the four states", () => {
 
   it("never invokes anything BOQ-shaped — the component takes no boqId/BOQ prop at all", () => {
     // Structural: DocumentLocationObservations's props are exactly
-    // {projectId, documentId} — no boqId, no onApplyToBoq, nothing
+    // {projectId, documentId, model} — no boqId, no onApplyToBoq, nothing
     // BOQ-shaped could even be wired in without changing this file.
     vi.mocked(locationObservations.latestLocationRunForDocument).mockResolvedValue(NOT_RUN);
     const { container } = renderPanel();
     expect(container.innerHTML).not.toMatch(/boq/i);
+  });
+
+  // 1. Model is passed through from the component to the data layer — proves
+  // the wiring, not just that SOME model string satisfies the (mocked) call.
+  it("passes the exact model prop through to latestLocationRunForDocument", async () => {
+    vi.mocked(locationObservations.latestLocationRunForDocument).mockResolvedValue(NOT_RUN);
+    renderPanel("gpt-4o");
+    await screen.findByText("LOCATION extraction has not been run for this document.");
+    expect(locationObservations.latestLocationRunForDocument).toHaveBeenCalledWith("proj-1", "doc-1", "gpt-4o");
+  });
+});
+
+describe("DocumentLocationObservations — content-hash fallback states (the identity-mismatch fix)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("E. content matched under a different document — never worded as this document's own run, never as an error", async () => {
+    vi.mocked(locationObservations.latestLocationRunForDocument).mockResolvedValue({
+      status: "CONTENT_MATCHED_OTHER_DOCUMENT", runId: "run-other", claimedAt: "2026-01-02T00:00:00Z", completedAt: "2026-01-02T00:05:00Z", error: null,
+    });
+    renderPanel();
+    await screen.findByText(/content has already been analysed under a different document in this project/);
+    // Distinguishable from a genuine own-document result and from "never run".
+    expect(screen.queryByText("LOCATION extraction has not been run for this document.")).not.toBeInTheDocument();
+    expect(screen.queryByText(/observation\(s\)? extracted from this document/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/failed/i)).not.toBeInTheDocument();
+    // Never fetches/displays observations for the matched run — this fix is
+    // scoped to explaining the STATE, not to also surfacing that run's content.
+    expect(locationObservations.loadLocationObservations).not.toHaveBeenCalled();
+  });
+
+  it("F. content matched but original document attribution is unavailable (document_id was NULL)", async () => {
+    vi.mocked(locationObservations.latestLocationRunForDocument).mockResolvedValue({
+      status: "CONTENT_MATCHED_UNATTRIBUTED", runId: "run-old", claimedAt: "2026-01-02T00:00:00Z", completedAt: "2026-01-02T00:05:00Z", error: null,
+    });
+    renderPanel();
+    await screen.findByText(/original source document record is no longer available/);
+    expect(screen.queryByText(/different document in this project/)).not.toBeInTheDocument(); // distinct from E
+    expect(screen.queryByText("LOCATION extraction has not been run for this document.")).not.toBeInTheDocument();
+  });
+
+  it("shows the matched analysis's completion timestamp for both fallback states, when available", async () => {
+    vi.mocked(locationObservations.latestLocationRunForDocument).mockResolvedValue({
+      status: "CONTENT_MATCHED_OTHER_DOCUMENT", runId: "run-other", claimedAt: "2026-01-02T00:00:00Z", completedAt: "2026-01-02T00:05:00Z", error: null,
+    });
+    renderPanel();
+    await screen.findByText(new RegExp(new Date("2026-01-02T00:05:00Z").toLocaleString().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   });
 });
