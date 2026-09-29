@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { ArrowLeft, Loader2, Plus, Trash2, Search, Layers, FileDown, FileText, Sheet, ClipboardList, ClipboardCheck, Percent, AlertTriangle, Eye, Presentation, ChevronDown, UserCheck, Braces } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -549,7 +550,7 @@ export default function OpsBoqBuilder() {
           {!present && flaggedCount > 0 && (
             <p className="text-xs mt-0.5">
               <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-500">
-                <AlertTriangle className="h-3 w-3" />{flaggedCount} to review
+                <AlertTriangle className="h-3 w-3" />{flaggedCount} quantit{flaggedCount === 1 ? "y" : "ies"} flagged as unusual
               </span>
             </p>
           )}
@@ -587,53 +588,68 @@ export default function OpsBoqBuilder() {
 
       {!present && (<>
       <div className="flex flex-wrap items-center gap-2">
-        <Button onClick={() => setShowBrowser((s) => !s)}>
-          <Plus className="h-4 w-4 mr-2" />Add item
-        </Button>
-        <Button variant="outline" onClick={addBlankLine} disabled={busy}>
-          <Plus className="h-4 w-4 mr-2" />Add blank line
-        </Button>
-        <Button variant={showJson ? "default" : "outline"} onClick={() => setShowJson((s) => !s)}
-          title="Add lines from a structured drawing-evaluation JSON (deterministic; no AI)">
-          <Braces className="h-4 w-4 mr-2" />{showJson ? "Hide JSON" : "From JSON"}
-        </Button>
-        <Button variant={showAudit ? "default" : "outline"} onClick={() => setShowAudit((s) => !s)}
-          title="Import an externally-produced audit JSON and review its findings (deterministic; no AI)">
-          <ClipboardCheck className="h-4 w-4 mr-2" />{showAudit ? "Hide review" : "BOQ Audit"}
-        </Button>
         <Button variant="outline" onClick={() => navigate(`review`)}
-          title="Open the split-screen Review Workstation for a drawing analysis (JSON import; works with no AI configured)">
+          title="Review AI-extracted quantities from a drawing analysis and apply them to this BOQ">
           <ClipboardCheck className="h-4 w-4 mr-2" />Review Analysis
         </Button>
-        {boq.project_id && (
-          <Button variant={showDocs ? "default" : "outline"} onClick={() => setShowDocs((s) => !s)}
-            title="Assign project documents (drawings, references) to this BOQ">
-            <FileText className="h-4 w-4 mr-2" />{showDocs ? "Hide documents" : "Documents"}
-          </Button>
-        )}
-        <Button variant="outline" onClick={() => printIntake(false)} title="Printable project details form — pre-filled where known, blank lines to complete by hand">
-          <ClipboardList className="h-4 w-4 mr-2" />Intake form
-        </Button>
-        {boq.contractor_id && (
-          <Button variant="outline" onClick={saveDefaults} title="Remember these choices for next time">
-            <UserCheck className="h-4 w-4 mr-2" />Save {contractor?.name ?? "contractor"}'s usual
-          </Button>
-        )}
-        <Button variant="outline" onClick={() => exportQuote(false, true)} disabled={lines.length === 0}
-          title="Opens the priced quote and the print dialog — choose “Save as PDF” to download">
-          <FileText className="h-4 w-4 mr-2" />Download PDF
-        </Button>
-        <Button variant="outline" onClick={() => exportQuote(false, false)} disabled={lines.length === 0}
-          title="Preview the priced quote in a new tab">
-          <FileDown className="h-4 w-4 mr-2" />Export quote
-        </Button>
-        <Button variant="outline" onClick={() => exportQuote(true, false)} disabled={lines.length === 0}
-          title="Specification & quantities, rates left blank — the version to confirm with the architect / issue for pricing">
-          <FileDown className="h-4 w-4 mr-2" />Spec &amp; Qty BOQ
-        </Button>
-        <Button variant="outline" onClick={exportExcel} disabled={lines.length === 0}>
-          <Sheet className="h-4 w-4 mr-2" />Export to Excel
-        </Button>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" disabled={lines.length === 0}>
+              <FileDown className="h-4 w-4 mr-2" />Export<ChevronDown className="h-4 w-4 ml-1" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem onClick={() => exportQuote(false, true)}>
+              <FileText className="h-4 w-4 mr-2" />PDF
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => exportQuote(true, false)}>
+              <FileDown className="h-4 w-4 mr-2" />PDF / Spec &amp; Qty
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={exportExcel}>
+              <Sheet className="h-4 w-4 mr-2" />Excel
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline">More<ChevronDown className="h-4 w-4 ml-1" /></Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem onClick={() => setShowBrowser((s) => !s)}>
+              <Plus className="h-4 w-4 mr-2" />{showBrowser ? "Hide add item" : "Add item"}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={addBlankLine} disabled={busy}>
+              <Plus className="h-4 w-4 mr-2" />Add blank line
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => setShowJson((s) => !s)}
+              title="Add lines from a structured drawing-evaluation JSON (deterministic; no AI)">
+              <Braces className="h-4 w-4 mr-2" />{showJson ? "Hide JSON import" : "Add lines from JSON"}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setShowAudit((s) => !s)}
+              title="Import an externally-produced audit JSON and review its findings (deterministic; no AI)">
+              <ClipboardCheck className="h-4 w-4 mr-2" />{showAudit ? "Hide BOQ Audit" : "BOQ Audit"}
+            </DropdownMenuItem>
+            {boq.project_id && (
+              <DropdownMenuItem onClick={() => setShowDocs((s) => !s)}
+                title="Assign project documents (drawings, references) to this BOQ">
+                <FileText className="h-4 w-4 mr-2" />{showDocs ? "Hide documents" : "Assign documents"}
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => printIntake(false)}>
+              <ClipboardList className="h-4 w-4 mr-2" />Intake form
+            </DropdownMenuItem>
+            {boq.contractor_id && (
+              <DropdownMenuItem onClick={saveDefaults}>
+                <UserCheck className="h-4 w-4 mr-2" />Save {contractor?.name ?? "contractor"}'s usual
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         <div className="ml-auto inline-flex rounded-md border p-0.5">
           <Button size="sm" variant={view === "lines" ? "secondary" : "ghost"} onClick={() => setView("lines")}>Lines</Button>
           <Button size="sm" variant={view === "make" ? "secondary" : "ghost"} onClick={() => setView("make")}>

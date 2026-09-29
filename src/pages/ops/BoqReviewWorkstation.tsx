@@ -16,9 +16,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Check, Pencil, Flag, Clock, ChevronLeft, ChevronRight, Upload, Cpu, FileText, ChevronDown, ChevronUp, AlertTriangle, Link2,
+  ArrowLeft, Check, Pencil, Flag, Clock, ChevronLeft, ChevronRight, Upload, Cpu, FileText, ChevronDown, ChevronUp, AlertTriangle, Link2, MoreHorizontal, Info,
 } from "lucide-react";
 import { parseAnalysisV1, type ClaimType } from "@/lib/review/analysisSchemaV1";
 import {
@@ -50,7 +51,12 @@ const FLAG_REASONS: { key: FlagReason; label: string }[] = [
   { key: "OTHER", label: "Other" },
 ];
 
-const FILTERS: ReviewFilter[] = ["ALL", "NEEDS_REVIEW", "CRITICAL", "PENDING", "VERIFIED", "EDITED", "FLAGGED"];
+// Default-visible filters — the two a first-time reviewer actually needs.
+// The rest live behind the "More filters" menu so the row before the first
+// item doesn't compete with it. No semantics change — every filter still
+// works exactly as before via matchesFilter().
+const PRIMARY_FILTERS: ReviewFilter[] = ["NEEDS_REVIEW", "ALL"];
+const MORE_FILTERS: ReviewFilter[] = ["CRITICAL", "PENDING", "VERIFIED", "EDITED", "FLAGGED"];
 
 export default function BoqReviewWorkstation() {
   const { id: routeId, boqId: routeBoqId } = useParams<{ id?: string; boqId?: string }>();
@@ -127,6 +133,7 @@ export default function BoqReviewWorkstation() {
   const [relinking, setRelinking] = useState(false);
   const [selectedApplyIds, setSelectedApplyIds] = useState<Set<string>>(new Set());
   const [selectedClaim, setSelectedClaim] = useState<ClaimType | null>(null);
+  const [showStatsBreakdown, setShowStatsBreakdown] = useState(false);
 
   // Load the latest run for this BOQ, if any.
   useEffect(() => {
@@ -264,30 +271,79 @@ export default function BoqReviewWorkstation() {
         <Button variant="ghost" size="sm" onClick={() => navigate(`../boqs/${boqId}`)}><ArrowLeft className="w-4 h-4 mr-1" /> BOQ</Button>
         <h2 className="font-semibold">BOQ Review</h2>
         <span className="text-sm text-muted-foreground">{boq?.name}</span>
-        {runCreatedAt && <span className="text-xs text-muted-foreground">run {new Date(runCreatedAt).toLocaleString()}</span>}
-        <DrawingLinkButton status={linkStatus} onClick={() => setShowRelinkModal(true)} className="ml-auto" />
-        <Button variant="outline" size="sm" onClick={openApplyModal}>
+        {/* Only surface the drawing-link affordance by default when it needs
+            attention — a healthy "linked" state is still reachable from the
+            overflow menu below, just not competing for space when nothing's wrong. */}
+        {linkStatus !== "linked" && <DrawingLinkButton status={linkStatus} onClick={() => setShowRelinkModal(true)} />}
+        <Button variant="outline" size="sm" onClick={openApplyModal} className="ml-auto">
           Apply to BOQ{applyableCandidates.length > 0 ? ` (${applyableCandidates.length})` : ""}
         </Button>
-        <Button variant="outline" size="sm" onClick={() => setShowImportModal(true)}>Import New Analysis</Button>
-        <span className="ml-auto text-sm text-muted-foreground">{summary.total - summary.remaining} / {summary.total} reviewed · {summary.completionPct}%</span>
+        <span className="text-sm text-muted-foreground">{summary.total - summary.remaining} / {summary.total} reviewed · {summary.completionPct}%</span>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" aria-label="More options"><MoreHorizontal className="w-4 h-4" /></Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {runCreatedAt && (
+              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                Run {new Date(runCreatedAt).toLocaleString()}
+              </DropdownMenuLabel>
+            )}
+            {linkStatus === "linked" && (
+              <DropdownMenuItem onClick={() => setShowRelinkModal(true)}>
+                <Link2 className="w-4 h-4 mr-2" />Re-link drawing
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem onClick={() => setShowImportModal(true)}>
+              <Upload className="w-4 h-4 mr-2" />Import New Analysis
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
-        <Stat label="Total" value={summary.total} />
-        <Stat label="Verified" value={summary.verified} cls="text-green-700" />
-        <Stat label="Edited" value={summary.edited} cls="text-blue-700" />
-        <Stat label="Flagged" value={summary.flagged} cls="text-amber-700" />
-        <Stat label="Pending" value={summary.markedPending} cls="text-purple-700" />
-        <Stat label="Remaining" value={summary.remaining} cls="text-muted-foreground" />
+
+      {/* Stats: only Remaining (+ Flagged, if any) by default — the full
+          6-tile breakdown is one click away, not standing chrome. */}
+      <div className="flex items-center gap-4 text-sm">
+        <span className="text-muted-foreground">Remaining <b className="text-foreground">{summary.remaining}</b></span>
+        {summary.flagged > 0 && <span className="text-amber-700">Flagged <b>{summary.flagged}</b></span>}
+        <button onClick={() => setShowStatsBreakdown((s) => !s)} className="text-xs text-primary hover:underline ml-auto">
+          {showStatsBreakdown ? "Hide breakdown" : "Show breakdown"}
+        </button>
       </div>
+      {showStatsBreakdown && (
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
+          <Stat label="Total" value={summary.total} />
+          <Stat label="Verified" value={summary.verified} cls="text-green-700" />
+          <Stat label="Edited" value={summary.edited} cls="text-blue-700" />
+          <Stat label="Flagged" value={summary.flagged} cls="text-amber-700" />
+          <Stat label="Pending" value={summary.markedPending} cls="text-purple-700" />
+          <Stat label="Remaining" value={summary.remaining} cls="text-muted-foreground" />
+        </div>
+      )}
+
+      {/* Filters: Needs review + All by default; the rest behind "more filters" —
+          same matchesFilter() semantics, just less to scan before the first item. */}
       <div className="flex items-center gap-1.5 flex-wrap">
-        {FILTERS.map((f) => (
+        {PRIMARY_FILTERS.map((f) => (
           <button key={f} onClick={() => { setFilter(f); setCursor(0); }}
             className={`text-xs px-2 py-1 rounded border ${filter === f ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
             {f.replace("_", " ").toLowerCase()}
           </button>
         ))}
-        <span className="ml-auto text-xs text-muted-foreground">Keys: V verify · E edit · F flag · P pending · ← → move</span>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className={`text-xs px-2 py-1 rounded border inline-flex items-center gap-1 ${MORE_FILTERS.includes(filter) ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
+              {MORE_FILTERS.includes(filter) ? filter.replace("_", " ").toLowerCase() : "more filters"}<ChevronDown className="w-3 h-3" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            {MORE_FILTERS.map((f) => (
+              <DropdownMenuItem key={f} onClick={() => { setFilter(f); setCursor(0); }}>
+                {f.replace("_", " ").toLowerCase()}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {!current ? (
@@ -687,8 +743,14 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
   // (uncontrolled) quantity input remounts and picks up the new defaultValue —
   // it never remounts on ordinary typing.
   const [candidateNonce, setCandidateNonce] = useState(0);
+  // Dimension/specification/location are collapsed by default — criticalReasons()
+  // never names one of these three as the reason an item needs review, so there is
+  // no case where forcing one open-by-default is currently warranted; an actual
+  // reviewer edit to one of them still surfaces immediately via the AI-vs-reviewer
+  // diff box below, without needing this section open.
+  const [moreDetails, setMoreDetails] = useState(false);
 
-  useEffect(() => { setEditing(false); setFlagging(false); setWhy(false); setDraft({}); setEvidenceViewed(false); }, [item.id]);
+  useEffect(() => { setEditing(false); setFlagging(false); setWhy(false); setDraft({}); setEvidenceViewed(false); setMoreDetails(false); }, [item.id]);
 
   // Stages a candidate's value into the draft and opens the Edit form — never
   // saves anything itself. The reviewer still must click Save correction (and
@@ -831,15 +893,15 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
           the reviewer should accept it without checking. */}
       <div className="rounded border p-2 space-y-2">
         <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">AI result</div>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-          <ClaimField claim="quantity" value={formatClaimValue(ai, "quantity")} evidence={claimEvidence.quantity} onSelectClaim={handleSelectClaim} />
-          <ClaimField claim="dimension" value={formatClaimValue(ai, "dimension")} evidence={claimEvidence.dimension} onSelectClaim={handleSelectClaim} />
-          <ClaimField claim="specification" value={formatClaimValue(ai, "specification")} evidence={claimEvidence.specification} onSelectClaim={handleSelectClaim} />
-          <ClaimField claim="location" value={formatClaimValue(ai, "location")} evidence={claimEvidence.location} onSelectClaim={handleSelectClaim} />
-        </div>
+        <ClaimField claim="quantity" value={formatClaimValue(ai, "quantity")} evidence={claimEvidence.quantity} onSelectClaim={handleSelectClaim} emphasize />
         <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm pt-1 border-t">
           <Field label="AI status" value={ai.aiStatus} tone={ai.aiStatus === "PENDING" ? "danger" : ai.aiStatus === "INFERRED" ? "warning" : undefined} />
-          <Field label="Confidence" value={ai.confidence == null ? "—" : `${Math.round(ai.confidence * 100)}%`} tone={ai.confidence != null && ai.confidence <= LOW_CONFIDENCE ? "danger" : undefined} />
+          <Field
+            label="Confidence"
+            value={ai.confidence == null ? "—" : `${Math.round(ai.confidence * 100)}%`}
+            tone={ai.confidence != null && ai.confidence <= LOW_CONFIDENCE ? "danger" : undefined}
+            hint="A high AI confidence is not a substitute for checking the evidence — verify before accepting."
+          />
           <Field label="Source" value={ai.source?.document ? `${ai.source.document}${ai.source.page != null ? ` — Page ${ai.source.page}` : ""}` : "—"} />
         </div>
         {ai.candidates && ai.candidates.length > 1 && (
@@ -867,18 +929,30 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
             <p className="text-[10px] text-muted-foreground pl-5">No value has been chosen — pick one via Edit before verifying.</p>
           </div>
         )}
-        <p className="text-[10px] text-muted-foreground">A high AI confidence is not a substitute for checking the evidence — verify before accepting.</p>
-      </div>
-
-      {/* Reviewer result — separate from the AI's own (immutable) values above.
-          Status badge is already shown in the header above; this section adds
-          the reviewer's own value once one exists. */}
-      <div className="rounded border p-2 space-y-2">
-        <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Reviewer result</div>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-          <Field label="Reviewer qty" value={item.reviewer && "quantity" in item.reviewer ? `${eff ?? "—"} ${delta ? `(${delta})` : ""}` : "—"} />
+        <div className="pt-1 border-t">
+          <button type="button" className="text-xs font-medium flex items-center gap-1 text-muted-foreground" onClick={() => setMoreDetails((m) => !m)}>
+            More details {moreDetails ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          </button>
+          {moreDetails && (
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm mt-1.5">
+              <ClaimField claim="dimension" value={formatClaimValue(ai, "dimension")} evidence={claimEvidence.dimension} onSelectClaim={handleSelectClaim} />
+              <ClaimField claim="specification" value={formatClaimValue(ai, "specification")} evidence={claimEvidence.specification} onSelectClaim={handleSelectClaim} />
+              <ClaimField claim="location" value={formatClaimValue(ai, "location")} evidence={claimEvidence.location} onSelectClaim={handleSelectClaim} />
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Reviewer result — only once a reviewer value actually exists; an empty
+          box before any correction is noise, not information. */}
+      {item.reviewer && "quantity" in item.reviewer && (
+        <div className="rounded border p-2 space-y-2">
+          <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Reviewer result</div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+            <Field label="Reviewer qty" value={`${eff ?? "—"} ${delta ? `(${delta})` : ""}`} />
+          </div>
+        </div>
+      )}
 
       {/* Why this quantity? */}
       <div>
@@ -954,8 +1028,8 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
         <div className="sticky bottom-0 bg-background border-t flex flex-wrap gap-2 pt-2">
           <Button size="sm" onClick={onVerify} disabled={verifyDisabled} title={verifyDisabledReason}><Check className="w-4 h-4 mr-1" /> Verify</Button>
           <Button size="sm" variant="outline" onClick={() => setEditing(true)}><Pencil className="w-4 h-4 mr-1" /> Edit</Button>
-          <Button size="sm" variant="outline" onClick={() => setFlagging(true)}><Flag className="w-4 h-4 mr-1" /> Flag</Button>
-          <Button size="sm" variant="outline" onClick={onPending}><Clock className="w-4 h-4 mr-1" /> Mark Pending</Button>
+          <Button size="sm" variant="ghost" onClick={() => setFlagging(true)}><Flag className="w-4 h-4 mr-1" /> Flag</Button>
+          <Button size="sm" variant="ghost" onClick={onPending}><Clock className="w-4 h-4 mr-1" /> Mark Pending</Button>
         </div>
       )}
 
@@ -1107,11 +1181,18 @@ function EvidenceViewer({ item }: { item: StoredReviewItem }) {
 function Stat({ label, value, cls = "" }: { label: string; value: number; cls?: string }) {
   return <div className="rounded border p-2"><div className={`text-lg font-bold ${cls}`}>{value}</div><div className="text-[11px] text-muted-foreground">{label}</div></div>;
 }
-function Field({ label, value, tone }: { label: string; value: string; tone?: "warning" | "danger" }) {
+// `hint`, when given, replaces a permanently-visible caveat sentence with a
+// small info affordance (native title — same hover pattern already used for
+// `value` below) — the explanation is still one hover away, but it no longer
+// stands in the default flow of every single item.
+function Field({ label, value, tone, hint }: { label: string; value: string; tone?: "warning" | "danger"; hint?: string }) {
   const toneCls = tone === "danger" ? "text-rose-700 font-medium" : tone === "warning" ? "text-amber-700 font-medium" : "";
   return (
     <div>
-      <div className="text-[11px] text-muted-foreground">{label}</div>
+      <div className="text-[11px] text-muted-foreground flex items-center gap-1">
+        {label}
+        {hint && <Info className="w-3 h-3 text-muted-foreground/70 shrink-0" title={hint} />}
+      </div>
       <div className={`truncate ${toneCls}`} title={value}>{value}</div>
     </div>
   );
@@ -1119,13 +1200,16 @@ function Field({ label, value, tone }: { label: string; value: string; tone?: "w
 // A claim's AI value plus its evidence state (P0-3/P0-5): clickable when
 // evidence exists (navigates the viewer to it), plain muted text otherwise —
 // never implying a link that isn't actually backed by evidence data.
-function ClaimField({ claim, value, evidence, onSelectClaim }: {
-  claim: ClaimType; value: string; evidence: EvidenceSummary; onSelectClaim: (claim: ClaimType) => void;
+// `emphasize` renders the value at reading-dominant size — used for quantity,
+// the one field a reviewer is actually here to check, versus the equal-weight
+// treatment every claim used to get.
+function ClaimField({ claim, value, evidence, onSelectClaim, emphasize }: {
+  claim: ClaimType; value: string; evidence: EvidenceSummary; onSelectClaim: (claim: ClaimType) => void; emphasize?: boolean;
 }) {
   return (
     <div>
       <div className="text-[11px] text-muted-foreground">{claimLabel(claim)}</div>
-      <div className="truncate" title={value}>{value}</div>
+      <div className={emphasize ? "truncate text-lg font-semibold" : "truncate"} title={value}>{value}</div>
       {evidence.hasEvidence ? (
         <button onClick={() => onSelectClaim(claim)} className="text-[10px] text-amber-600 hover:text-amber-700 font-medium text-left truncate block max-w-full" title={evidence.text}>
           {evidence.text}

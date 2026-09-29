@@ -117,7 +117,11 @@ describe("ItemPanel — claim selection", () => {
     const onSelectClaim = vi.fn();
     render(<ItemPanel {...itemPanelProps(onSelectClaim)} />);
 
-    // Quantity, Dimension, Specification, Location all have evidence in the fixture.
+    // Quantity's own evidence link is visible immediately; dimension/specification/
+    // location are collapsed under "More details" by default (demo-clarity pass) —
+    // opening it reveals the other three, still backed by the same evidence data.
+    expect(screen.getAllByText(/^Evidence ·/)).toHaveLength(1);
+    fireEvent.click(screen.getByText("More details"));
     const links = screen.getAllByText(/^Evidence ·/);
     expect(links).toHaveLength(4);
 
@@ -127,6 +131,7 @@ describe("ItemPanel — claim selection", () => {
 
   it("shows the evidence source and page in the link text", () => {
     render(<ItemPanel {...itemPanelProps(vi.fn())} />);
+    fireEvent.click(screen.getByText("More details"));
     // Quantity, dimension, and specification all share the same schedule-row region.
     expect(screen.getAllByText("Evidence · Synthetic schedule row · p.999")).toHaveLength(3);
     expect(screen.getByText("Evidence · Synthetic location note · p.998")).toBeInTheDocument();
@@ -138,6 +143,7 @@ describe("ItemPanel — claim selection", () => {
       ai: { ...w1Item.ai, source: { document: "test-drawing.pdf", evidence: [] } },
     };
     render(<ItemPanel {...itemPanelProps(vi.fn())} item={bare} />);
+    fireEvent.click(screen.getByText("More details"));
     expect(screen.queryByText(/^Evidence ·/)).toBeNull();
     expect(screen.getAllByText("No evidence attached")).toHaveLength(4);
   });
@@ -145,14 +151,20 @@ describe("ItemPanel — claim selection", () => {
 
 describe("ItemPanel — AI vs reviewer separation (P0-4)", () => {
   it("renders distinct AI result and Reviewer result sections", () => {
-    render(<ItemPanel {...itemPanelProps(vi.fn())} />);
+    // The Reviewer result box only renders once a reviewer value actually
+    // exists (demo-clarity pass) — an edited item is what makes it appear.
+    const edited: StoredReviewItem = { ...w1Item, reviewStatus: "EDITED", reviewer: { quantity: 9 } };
+    render(<ItemPanel {...itemPanelProps(vi.fn())} item={edited} />);
     expect(screen.getByText("AI result")).toBeInTheDocument();
     expect(screen.getByText("Reviewer result")).toBeInTheDocument();
   });
 
   it("never implies a high AI confidence should be auto-accepted", () => {
     render(<ItemPanel {...itemPanelProps(vi.fn())} />);
-    expect(screen.getByText(/not a substitute for checking the evidence/i)).toBeInTheDocument();
+    // Moved from a permanent caveat sentence to a hover affordance next to
+    // Confidence (demo-clarity pass) — same explanation, no longer standing
+    // chrome on every item.
+    expect(screen.getByTitle(/not a substitute for checking the evidence/i)).toBeInTheDocument();
   });
 
   it("keeps the AI's immutable quantity and the reviewer's edited quantity visibly separate", () => {
@@ -262,6 +274,10 @@ describe("ItemPanel + ResolvedEvidenceViewer — end-to-end claim selection", ()
 
     // Before any click: verified page-5 box plus all synthetic boxes are present (unfiltered).
     expect((await screen.findAllByTestId("evidence-box"))).toHaveLength(5);
+
+    // Dimension/Specification/Location sit behind "More details" by default
+    // (demo-clarity pass) — open it to reach Specification's evidence link.
+    fireEvent.click(screen.getByText("More details"));
 
     // AI-result field order is Quantity, Dimension, Specification, Location —
     // the 3rd evidence link is Specification.
