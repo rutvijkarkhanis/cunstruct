@@ -68,6 +68,8 @@ export default function AiApiPanel({
         return;
       }
       if (res.skipped?.length) res.skipped.forEach((s) => toast.warning(`${s.filename}: ${s.reason}`));
+      const n = res.itemCount ?? 0;
+      toast.success(`Extraction complete — ${n} item${n === 1 ? "" : "s"} ready for review.`);
       await onGenerated(res.runId!);
       qc.invalidateQueries({ queryKey: preflightKey });
     },
@@ -146,9 +148,12 @@ export default function AiApiPanel({
               disabled={disabled}
               onClick={() => (canOpenExisting ? onGenerated(p.latestRunId!) : generateMutation.mutate())}
             >
+              {generateMutation.isPending && <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />}
               {generateMutation.isPending ? "Generating…" : canOpenExisting ? "Open existing analysis" : "Generate analysis"}
             </Button>
-            <span className="text-xs text-muted-foreground">Only new, not-yet-analysed files are sent.</span>
+            <span className="text-xs text-muted-foreground">
+              {generateMutation.isPending ? "This may take up to a minute." : "Only new, not-yet-analysed files are sent."}
+            </span>
           </div>
         );
       })()}

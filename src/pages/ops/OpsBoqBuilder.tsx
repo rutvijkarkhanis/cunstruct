@@ -880,7 +880,7 @@ export default function OpsBoqBuilder() {
         <div className="p-8 flex justify-center"><Loader2 className="animate-spin" /></div>
       ) : lines.length === 0 ? (
         <Card><CardContent className="py-10 text-center text-muted-foreground">
-          No items yet — add an item from the DSR, add a blank line, add lines from a JSON evaluation, or import a BOQ from the project's BOQs tab.
+          No items yet — add an item from the DSR, add a blank line, run Review Analysis on a project drawing, add lines from a JSON evaluation, or import a BOQ from the project's BOQs tab.
         </CardContent></Card>
       ) : (
         bySubhead.map(({ no, name, rows, subtotal }) => (

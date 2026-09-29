@@ -195,7 +195,9 @@ export default function BoqReviewWorkstation() {
   const applyMut = useMutation({
     mutationFn: () => applyReviewPlan({ boqId, candidates: applyPlan, selectedIds: selectedApplyIds }),
     onSuccess: (res) => {
-      toast.success(`Applied ${res.appliedCount} to the BOQ` + (res.unresolvedCount ? ` · ${res.unresolvedCount} unresolved` : ""));
+      toast.success(`Applied ${res.appliedCount} to the BOQ` + (res.unresolvedCount ? ` · ${res.unresolvedCount} unresolved` : ""), {
+        action: { label: "View updated BOQ", onClick: () => navigate(`../boqs/${boqId}`) },
+      });
       qc.invalidateQueries({ queryKey: ["rw-lines", boqId] });
       qc.invalidateQueries({ queryKey: ["boq-lines", boqId] });
       setShowApplyModal(false);
@@ -922,9 +924,10 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
             </div>
             <LabeledInput label="Notes" defaultValue={reviewer?.notes ?? ""} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
           </div>
-          <div className="sticky bottom-0 bg-background border-t pt-2 flex gap-2">
+          <div className="sticky bottom-0 bg-background border-t pt-2 flex flex-wrap items-center gap-2">
             <Button size="sm" onClick={() => onEdit(pruneDraft(draft))} disabled={Object.keys(pruneDraft(draft)).length === 0}>Save correction</Button>
             <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
+            <p className="w-full text-xs text-muted-foreground">Saved corrections are applied to the BOQ when you click Apply to BOQ.</p>
           </div>
         </>
       )}
