@@ -234,6 +234,19 @@ export interface ApplyResult {
   appliedCount: number;
   skippedNoChange: number;
   unresolvedCount: number;
+  /**
+   * Review item ids classified APPLY but skipped because an earlier selected
+   * candidate in this SAME call already wrote to the same matchedLineId. Both
+   * candidates were classified against one pre-apply snapshot, so a later one
+   * targeting a line an earlier one just changed is computing its "from"
+   * value against data that's now stale — applying it would silently
+   * overwrite the earlier, already-logged change with no warning. Never
+   * done: each conflicted id is left untouched (no boq_line write, no audit
+   * row) and counted in `unresolvedCount`, exactly like any other item that
+   * needs a fresh apply pass to be classified correctly against the line's
+   * current value.
+   */
+  conflictedReviewItemIds: string[];
 }
 
 /**
@@ -287,16 +300,34 @@ export async function applyReviewPlan(args: {
   // Looked up at most once per call, only if some NEW_LINE actually needs it.
   // undefined = not yet looked up; null = looked up, boq has no project_id.
   let projectId: string | null | undefined;
+  // Lines this call has already written to. Every candidate's `changes` was
+  // computed by classifyReviewItem against ONE static pre-apply snapshot, so
+  // a second selected candidate targeting a line the first one already wrote
+  // to is working from a now-stale "from" value — applying it would silently
+  // overwrite the first candidate's change with no warning (see the
+  // conflictedReviewItemIds bug this guards against).
+  const modifiedLineIds = new Set<string>();
+  const conflictedReviewItemIds: string[] = [];
 
   for (const c of args.candidates) {
     if (!args.selectedIds.has(c.reviewItemId)) continue;
     if (c.classification !== "APPLY" && c.classification !== "NEW_LINE") continue;
+
+    if (c.classification === "APPLY" && c.matchedLineId && modifiedLineIds.has(c.matchedLineId)) {
+      // Never silently apply on top of another selected candidate's write in
+      // this same call: no boq_line update, no fabricated audit row. Left
+      // for a fresh apply pass, which will re-classify against the line's
+      // now-current value instead of the stale snapshot this plan used.
+      conflictedReviewItemIds.push(c.reviewItemId);
+      continue;
+    }
 
     let lineId: string;
     let logRows: { boq_id: string; boq_line_id: string; review_item_id: string; field: string; old_value: string | null; new_value: string | null; changed_by: string | null }[];
 
     if (c.classification === "APPLY" && c.matchedLineId) {
       lineId = c.matchedLineId;
+      modifiedLineIds.add(lineId);
       const patch: Record<string, unknown> = {};
       const qtyChange = c.changes.find((f) => f.field === "qty");
       const unitChange = c.changes.find((f) => f.field === "unit");
@@ -346,9 +377,15 @@ export async function applyReviewPlan(args: {
   }
 
   const skippedNoChange = args.candidates.filter((c) => c.classification === "NO_CHANGE").length;
-  const unresolvedCount = args.candidates.filter((c) =>
+  const staticUnresolvedCount = args.candidates.filter((c) =>
     c.classification === "NOT_ELIGIBLE" || c.classification === "CANNOT_APPLY"
     || c.classification === "REVIEWED_NOT_APPLICABLE" || c.classification === "AMBIGUOUS",
   ).length;
-  return { appliedCount, skippedNoChange, unresolvedCount };
+  // A same-batch conflict is discovered only during execution (it depends on
+  // apply order), never from a candidate's static classification, so it is
+  // added on top of the statically-classified unresolved count rather than
+  // replacing it — the two sets never overlap (a conflicted candidate was
+  // always classified APPLY, never one of the four classifications above).
+  const unresolvedCount = staticUnresolvedCount + conflictedReviewItemIds.length;
+  return { appliedCount, skippedNoChange, unresolvedCount, conflictedReviewItemIds };
 }

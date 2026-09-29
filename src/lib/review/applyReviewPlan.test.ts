@@ -130,3 +130,94 @@ describe("applyReviewPlan — existing behavior remains intact", () => {
     expect(calls.filter((c) => c.table === "boq_line_change_log").length).toBe(0);
   });
 });
+
+// ── Same-batch APPLY conflict: two selected candidates targeting the SAME
+// existing boq_line, both classified against one static pre-apply snapshot.
+// Reproduces the confirmed bug: applying both used to silently last-write-win
+// (final qty = the second candidate's value, the first's approved correction
+// gone with no warning, both reported as successfully applied, and the
+// second's audit row recorded a false "from" value). ────────────────────────
+describe("applyReviewPlan — same-batch APPLY conflict on the same line is never silently applied", () => {
+  it("qty: existing W1 qty=1, candidate A -> 8, candidate B -> 10 — only A applies, B is rejected, not last-write-wins", async () => {
+    const items: StoredReviewItem[] = [
+      reviewItem({ id: "ri-A", ai: ai({ key: "W1", quantity: 7, unit: "nos" }), reviewStatus: "EDITED", reviewer: { quantity: 8 } }),
+      reviewItem({ id: "ri-B", ai: ai({ key: "W1", quantity: 7, unit: "nos" }), reviewStatus: "EDITED", reviewer: { quantity: 10 } }),
+    ];
+    const lines = [{ id: "line-1", external_key: "W1", qty: 1, unit: "nos", quantity_status: "MEASURED", scope_name: null }];
+    const plan = buildApplyPlan(items, lines);
+
+    // Both classify against the SAME static snapshot — this is the root
+    // condition the bug depends on, asserted here so a future change to
+    // classifyReviewItem that accidentally "fixes" this at the wrong layer
+    // doesn't silently invalidate what this test is actually proving.
+    expect(plan[0].classification).toBe("APPLY");
+    expect(plan[1].classification).toBe("APPLY");
+    expect(plan[0].matchedLineId).toBe("line-1");
+    expect(plan[1].matchedLineId).toBe("line-1");
+    expect(plan[0].changes.find((c) => c.field === "qty")).toEqual({ field: "qty", from: "1", to: "8" });
+    expect(plan[1].changes.find((c) => c.field === "qty")).toEqual({ field: "qty", from: "1", to: "10" });
+
+    const result = await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-A", "ri-B"]) });
+
+    // The two candidates can never both report successful application.
+    expect(result.appliedCount).toBe(1);
+    expect(result.conflictedReviewItemIds).toEqual(["ri-B"]);
+    expect(result.unresolvedCount).toBe(1);
+
+    // Exactly one write reached boq_line, for the FIRST candidate's value —
+    // never last-write-wins, never both, never neither.
+    const updateCalls = calls.filter((c) => c.table === "boq_line" && c.op === "update");
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0].lineId).toBe("line-1");
+    expect((updateCalls[0].payload as { qty: number }).qty).toBe(8);
+
+    // Truthful audit trail: exactly one qty row, 1 -> 8. No row for B's
+    // rejected 1 -> 10 (never fabricated), and no row anywhere claims the
+    // line went to 10.
+    const rows = changeLogRows();
+    expect(rows).toEqual([expect.objectContaining({ field: "qty", old_value: "1", new_value: "8", boq_line_id: "line-1" })]);
+    expect(rows.some((r) => r.new_value === "10")).toBe(false);
+  });
+
+  it("unit: a line-level conflict blocks a later candidate even when it changes a DIFFERENT field than the first", async () => {
+    const items: StoredReviewItem[] = [
+      reviewItem({ id: "ri-A2", ai: ai({ key: "W2", quantity: 5, unit: "nos" }), reviewStatus: "EDITED", reviewer: { unit: "sqft" } }),
+      reviewItem({ id: "ri-B2", ai: ai({ key: "W2", quantity: 5, unit: "nos" }), reviewStatus: "EDITED", reviewer: { unit: "sqm" } }),
+    ];
+    const lines = [{ id: "line-2", external_key: "W2", qty: 5, unit: "nos", quantity_status: "MEASURED", scope_name: null }];
+    const plan = buildApplyPlan(items, lines);
+    expect(plan[0].classification).toBe("APPLY");
+    expect(plan[1].classification).toBe("APPLY");
+    expect(plan[0].matchedLineId).toBe("line-2");
+    expect(plan[1].matchedLineId).toBe("line-2");
+
+    const result = await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-A2", "ri-B2"]) });
+
+    expect(result.appliedCount).toBe(1);
+    expect(result.conflictedReviewItemIds).toEqual(["ri-B2"]);
+
+    const updateCalls = calls.filter((c) => c.table === "boq_line" && c.op === "update" && c.lineId === "line-2");
+    expect(updateCalls).toHaveLength(1);
+    expect((updateCalls[0].payload as { unit: string }).unit).toBe("sqft");
+
+    const rows = changeLogRows();
+    expect(rows).toEqual([expect.objectContaining({ field: "unit", old_value: "nos", new_value: "sqft" })]);
+    expect(rows.some((r) => r.new_value === "sqm")).toBe(false);
+  });
+
+  it("candidates matching DIFFERENT lines never conflict — both apply normally", async () => {
+    const items: StoredReviewItem[] = [
+      reviewItem({ id: "ri-C", ai: ai({ key: "C", quantity: 7, unit: "nos" }), reviewStatus: "EDITED", reviewer: { quantity: 8 } }),
+      reviewItem({ id: "ri-D", ai: ai({ key: "D", quantity: 3, unit: "nos" }), reviewStatus: "EDITED", reviewer: { quantity: 5 } }),
+    ];
+    const lines = [
+      { id: "line-c", external_key: "C", qty: 9, unit: "nos", quantity_status: "MEASURED", scope_name: null },
+      { id: "line-d", external_key: "D", qty: 3, unit: "nos", quantity_status: "MEASURED", scope_name: null },
+    ];
+    const plan = buildApplyPlan(items, lines);
+
+    const result = await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-C", "ri-D"]) });
+    expect(result.appliedCount).toBe(2);
+    expect(result.conflictedReviewItemIds).toEqual([]);
+  });
+});
