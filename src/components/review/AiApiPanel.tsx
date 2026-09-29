@@ -75,7 +75,7 @@ export default function AiApiPanel({
       }
       if (res.skipped?.length) res.skipped.forEach((s) => toast.warning(`${s.filename}: ${s.reason}`));
       const n = res.itemCount ?? 0;
-      toast.success(`Extraction complete — ${n} item${n === 1 ? "" : "s"} ready for review.`);
+      toast.success(`${n} quantit${n === 1 ? "y" : "ies"} extracted — ready for review.`);
       await onGenerated(res.runId!);
       qc.invalidateQueries({ queryKey: preflightKey });
     },
@@ -92,9 +92,25 @@ export default function AiApiPanel({
     return <div className="text-sm text-red-600">{data?.error ?? (error instanceof Error ? error.message : "Could not load AI analysis status.")}</div>;
   }
   const p = data.preflight;
+  // Lifted out of the button block below so the "which drawing(s)" framing
+  // above it can use the same booleans — no behavior change, just reused.
+  const nothingNew = p.newFilesCount === 0 && !forceReanalyse;
+  const canOpenExisting = nothingNew && !!p.latestRunId;
+  const generateDisabled = generateMutation.isPending || p.totalEligibleDrawingFiles === 0 || (nothingNew && !canOpenExisting);
 
   return (
     <div className="space-y-3">
+      {/* Leads with the actual relationship this screen represents — THIS
+          drawing, read by Cunstruct — before the supporting file-count detail. */}
+      {!nothingNew && p.willSendFiles.length > 0 && (
+        <p className="text-sm">
+          Cunstruct will read{" "}
+          {p.willSendFiles.length === 1
+            ? <b>{p.willSendFiles[0].filename}</b>
+            : <b>{p.willSendFiles.length} drawings</b>}
+          {" "}and propose BOQ quantities.
+        </p>
+      )}
       <div className="text-sm space-y-1">
         <div>{p.totalProjectFiles} file{p.totalProjectFiles === 1 ? "" : "s"} in this project · {p.alreadyAnalysedCount} already analysed · <b>{p.newFilesCount} new</b></div>
         {p.duplicateFilesSkipped > 0 && (
@@ -146,26 +162,19 @@ export default function AiApiPanel({
         </CardContent></Card>
       )}
 
-      {(() => {
-        const nothingNew = p.newFilesCount === 0 && !forceReanalyse;
-        const canOpenExisting = nothingNew && !!p.latestRunId;
-        const disabled = generateMutation.isPending || p.totalEligibleDrawingFiles === 0 || (nothingNew && !canOpenExisting);
-        return (
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              disabled={disabled}
-              onClick={() => (canOpenExisting ? onGenerated(p.latestRunId!) : generateMutation.mutate())}
-            >
-              {generateMutation.isPending && <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />}
-              {generateMutation.isPending ? "Generating…" : canOpenExisting ? "Open existing analysis" : "Generate analysis"}
-            </Button>
-            <span className="text-xs text-muted-foreground">
-              {generateMutation.isPending ? "This may take up to a minute." : "Only new, not-yet-analysed files are sent."}
-            </span>
-          </div>
-        );
-      })()}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          disabled={generateDisabled}
+          onClick={() => (canOpenExisting ? onGenerated(p.latestRunId!) : generateMutation.mutate())}
+        >
+          {generateMutation.isPending && <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />}
+          {generateMutation.isPending ? "Generating…" : canOpenExisting ? "Open existing analysis" : "Generate quantities"}
+        </Button>
+        <span className="text-xs text-muted-foreground">
+          {generateMutation.isPending ? "This may take up to a minute." : "Only new, not-yet-analysed files are sent."}
+        </span>
+      </div>
     </div>
   );
 }

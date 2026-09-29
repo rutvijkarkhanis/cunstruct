@@ -39,6 +39,7 @@ import { signedDrawingUrl, loadProjectDrawings } from "@/lib/review/drawingStora
 import PdfEvidenceViewer from "@/components/review/PdfEvidenceViewer";
 import DocumentSelector from "@/components/review/DocumentSelector";
 import AiApiPanel from "@/components/review/AiApiPanel";
+import AiExtractedBadge from "@/components/review/AiExtractedBadge";
 
 const FLAG_REASONS: { key: FlagReason; label: string }[] = [
   { key: "DRAWING_UNCLEAR", label: "Drawing unclear" },
@@ -202,8 +203,22 @@ export default function BoqReviewWorkstation() {
   const applyMut = useMutation({
     mutationFn: () => applyReviewPlan({ boqId, candidates: applyPlan, selectedIds: selectedApplyIds }),
     onSuccess: (res) => {
+      // Honest, best-effort provenance for the BOQ screen: only existing lines
+      // this exact call is known to have modified — matchedLineId comes from
+      // the pure classification computed before the call, and any review item
+      // this same result reports conflicted is excluded (it was never
+      // written). A NEW_LINE's real id is never returned to the client (see
+      // applyReview.ts's ApplyResult, untouched here), so a newly-created
+      // line is correctly left unmarked rather than guessed at.
+      const justAppliedLineIds = applyPlan
+        .filter((c) =>
+          c.classification === "APPLY" && c.matchedLineId
+          && selectedApplyIds.has(c.reviewItemId)
+          && !res.conflictedReviewItemIds.includes(c.reviewItemId),
+        )
+        .map((c) => c.matchedLineId!);
       toast.success(`Applied ${res.appliedCount} to the BOQ` + (res.unresolvedCount ? ` · ${res.unresolvedCount} unresolved` : ""), {
-        action: { label: "View updated BOQ", onClick: () => navigate(`../boqs/${boqId}`) },
+        action: { label: "View updated BOQ", onClick: () => navigate(`../boqs/${boqId}`, { state: { justAppliedLineIds } }) },
       });
       qc.invalidateQueries({ queryKey: ["rw-lines", boqId] });
       qc.invalidateQueries({ queryKey: ["boq-lines", boqId] });
@@ -275,7 +290,10 @@ export default function BoqReviewWorkstation() {
             attention — a healthy "linked" state is still reachable from the
             overflow menu below, just not competing for space when nothing's wrong. */}
         {linkStatus !== "linked" && <DrawingLinkButton status={linkStatus} onClick={() => setShowRelinkModal(true)} />}
-        <Button variant="outline" size="sm" onClick={openApplyModal} className="ml-auto">
+        {/* Filled/primary once there's something ready — this is the
+            culminating action of the whole review pass, not a peer of the
+            other outline buttons on this row. */}
+        <Button variant={applyableCandidates.length > 0 ? "default" : "outline"} size="sm" onClick={openApplyModal} className="ml-auto">
           Apply to BOQ{applyableCandidates.length > 0 ? ` (${applyableCandidates.length})` : ""}
         </Button>
         <span className="text-sm text-muted-foreground">{summary.total - summary.remaining} / {summary.total} reviewed · {summary.completionPct}%</span>
@@ -395,7 +413,7 @@ export default function BoqReviewWorkstation() {
       {/* Apply reviewed changes to the BOQ — explicit confirmation, exact diff */}
       <Dialog open={showApplyModal} onOpenChange={setShowApplyModal}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          <h2 className="font-semibold">Apply reviewed changes to BOQ</h2>
+          <h2 className="font-semibold">Apply your reviewed quantities to the BOQ</h2>
           <p className="text-xs text-muted-foreground -mt-2">
             Only verified/edited items that differ from the current BOQ are applied. Flagged and unreviewed items are never touched.
           </p>
@@ -889,12 +907,13 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
         </div>
       )}
 
-      {/* AI result — what the AI extracted, and why (evidence). Never implies
-          the reviewer should accept it without checking. */}
+      {/* AI extracted — what the AI produced, and why (evidence). Never implies
+          the reviewer should accept it without checking. The badge is the one
+          reusable "this came from AI" marker, reused in the BOQ after Apply. */}
       <div className="rounded border p-2 space-y-2">
-        <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">AI result</div>
+        <AiExtractedBadge />
         <ClaimField claim="quantity" value={formatClaimValue(ai, "quantity")} evidence={claimEvidence.quantity} onSelectClaim={handleSelectClaim} emphasize />
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm pt-1 border-t">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-sm pt-1 border-t">
           <Field label="AI status" value={ai.aiStatus} tone={ai.aiStatus === "PENDING" ? "danger" : ai.aiStatus === "INFERRED" ? "warning" : undefined} />
           <Field
             label="Confidence"
@@ -934,7 +953,7 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
             More details {moreDetails ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           </button>
           {moreDetails && (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm mt-1.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm mt-1.5">
               <ClaimField claim="dimension" value={formatClaimValue(ai, "dimension")} evidence={claimEvidence.dimension} onSelectClaim={handleSelectClaim} />
               <ClaimField claim="specification" value={formatClaimValue(ai, "specification")} evidence={claimEvidence.specification} onSelectClaim={handleSelectClaim} />
               <ClaimField claim="location" value={formatClaimValue(ai, "location")} evidence={claimEvidence.location} onSelectClaim={handleSelectClaim} />
@@ -943,13 +962,15 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
         </div>
       </div>
 
-      {/* Reviewer result — only once a reviewer value actually exists; an empty
-          box before any correction is noise, not information. */}
+      {/* Your review — only once a reviewer value actually exists; an empty
+          box before any correction is noise, not information. Deliberately
+          plain (no AI badge) so the AI-extracted vs. human-reviewed contrast
+          in the two boxes' treatment IS the hierarchy signal. */}
       {item.reviewer && "quantity" in item.reviewer && (
-        <div className="rounded border p-2 space-y-2">
-          <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Reviewer result</div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-            <Field label="Reviewer qty" value={`${eff ?? "—"} ${delta ? `(${delta})` : ""}`} />
+        <div className="rounded border border-primary/30 p-2 space-y-2">
+          <div className="text-[10px] font-semibold text-foreground uppercase tracking-wide">Your review</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-sm">
+            <Field label="Your quantity" value={`${eff ?? "—"} ${delta ? `(${delta})` : ""}`} />
           </div>
         </div>
       )}
@@ -1093,7 +1114,13 @@ export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, sel
   // half of this fix.
   if (resolved?.filePath) {
     return (
-      <Card className="min-w-0"><CardContent className="p-4">
+      <Card className="min-w-0"><CardContent className="p-4 space-y-2">
+        {/* Narrates the one relationship this whole split view exists to
+            show — the quantity on the left came from THIS drawing, not
+            nowhere. Static, factual, uses only already-resolved data. */}
+        <p className="text-xs text-muted-foreground">
+          Evidence from <span className="text-foreground font-medium">{documentName}</span> — the source of the AI-extracted quantity.
+        </p>
         <PdfEvidenceViewer
           fileUrl={signed}
           source={item.ai.source}

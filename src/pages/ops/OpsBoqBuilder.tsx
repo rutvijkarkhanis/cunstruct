@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { disciplineByKey } from "@/lib/disciplines";
@@ -10,6 +10,7 @@ import { sanityForCode, countFlagged } from "@/lib/boqSanity";
 import { parseBoqEvalJson, evalLinesToRows, pendingCount, PENDING_BASIS } from "@/lib/boqEvalJson";
 import BoqDocumentsPanel from "@/components/ops/BoqDocumentsPanel";
 import BoqAuditReview from "@/components/ops/BoqAuditReview";
+import AiExtractedBadge from "@/components/review/AiExtractedBadge";
 import { type Spec, type SpecValue } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -111,7 +112,15 @@ export default function OpsBoqBuilder() {
   const { id: routeId, boqId: routeBoqId } = useParams<{ id?: string; boqId?: string }>();
   const id = routeBoqId ?? routeId;
   const navigate = useNavigate();
+  const location = useLocation();
   const qc = useQueryClient();
+  // Set only via the Review Workstation's post-Apply "View updated BOQ" link —
+  // navigation state, never persisted. Honest and partial by construction: it
+  // names only existing lines that call is KNOWN to have modified (computed
+  // there from the pure classification + this exact result's conflict list),
+  // never a NEW_LINE's id (the server never returns it to the client) and
+  // never anything for a page load/refresh that didn't come from that link.
+  const justAppliedLineIds = (location.state as { justAppliedLineIds?: string[] } | null)?.justAppliedLineIds ?? [];
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
   const [showBrowser, setShowBrowser] = useState(false);
@@ -937,7 +946,7 @@ export default function OpsBoqBuilder() {
                       <input type="checkbox" className="mt-1" checked={l.included}
                         onChange={(e) => updateLine(l.id, { included: e.target.checked })} />
                       <div className="min-w-0 cursor-pointer" onClick={() => setExpanded(isExp ? null : l.id)} title="Show how this line is priced">
-                        <div className="text-[11px] font-mono text-accent-foreground/70 mb-0.5 flex items-center gap-1">
+                        <div className="text-[11px] font-mono text-accent-foreground/70 mb-0.5 flex items-center gap-1 flex-wrap">
                           <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform", isExp && "rotate-180")} />
                           <span className="text-muted-foreground">{itemNo}</span>{l.dsr_code ?? "Priced separately"}
                           {l.basis === PENDING_BASIS && (
@@ -948,6 +957,7 @@ export default function OpsBoqBuilder() {
                               <AlertTriangle className="h-3 w-3" />{flag.level}
                             </span>
                           )}
+                          {justAppliedLineIds.includes(l.id) && <AiExtractedBadge label="AI reviewed" />}
                         </div>
                         <Input className="h-8 text-[13px] mb-1" defaultValue={l.description ?? ""} placeholder="Item description"
                           onClick={(e) => e.stopPropagation()}

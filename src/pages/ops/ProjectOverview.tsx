@@ -54,11 +54,26 @@ export default function ProjectOverview() {
       </div>
 
       <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-base">Getting started</CardTitle></CardHeader>
-        <CardContent className="text-sm text-muted-foreground space-y-1">
-          <p>1. Add the project drawings and documents in <Link to="documents" className="text-primary hover:underline">Documents</Link>.</p>
-          <p>2. Define the BOQ structure in <Link to="boqs" className="text-primary hover:underline">BOQs</Link> — one scope can have several BOQs (e.g. Floor 2 → Architectural, Electrical, Plumbing).</p>
-          <p>3. Open a BOQ to quantify, price and generate its outputs.</p>
+        <CardHeader className="pb-2"><CardTitle className="text-base">How Cunstruct builds your BOQ</CardTitle></CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <li className="flex gap-2">
+              <span className="font-semibold text-foreground shrink-0">01</span>
+              <span><Link to="documents" className="text-primary hover:underline font-medium">Add a drawing</Link> — upload the architectural/construction PDF.</span>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-semibold text-foreground shrink-0">02</span>
+              <span>Generate quantities — Cunstruct analyses the drawing and proposes measurable BOQ quantities.</span>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-semibold text-foreground shrink-0">03</span>
+              <span>Review with confidence — verify, edit, or flag each quantity before it enters the BOQ.</span>
+            </li>
+            <li className="flex gap-2">
+              <span className="font-semibold text-foreground shrink-0">04</span>
+              <span>Build your <Link to="boqs" className="text-primary hover:underline font-medium">BOQ</Link> — apply the reviewed quantities and export.</span>
+            </li>
+          </ol>
         </CardContent>
       </Card>
     </div>

@@ -150,13 +150,15 @@ describe("ItemPanel — claim selection", () => {
 });
 
 describe("ItemPanel — AI vs reviewer separation (P0-4)", () => {
-  it("renders distinct AI result and Reviewer result sections", () => {
-    // The Reviewer result box only renders once a reviewer value actually
+  it("renders distinct AI extracted and Your review sections", () => {
+    // The "Your review" box only renders once a reviewer value actually
     // exists (demo-clarity pass) — an edited item is what makes it appear.
+    // "AI result"/"Reviewer result" were renamed to "AI extracted"/"Your
+    // review" as part of the AI-vs-human visual language pass.
     const edited: StoredReviewItem = { ...w1Item, reviewStatus: "EDITED", reviewer: { quantity: 9 } };
     render(<ItemPanel {...itemPanelProps(vi.fn())} item={edited} />);
-    expect(screen.getByText("AI result")).toBeInTheDocument();
-    expect(screen.getByText("Reviewer result")).toBeInTheDocument();
+    expect(screen.getByText("AI extracted")).toBeInTheDocument();
+    expect(screen.getByText("Your review")).toBeInTheDocument();
   });
 
   it("never implies a high AI confidence should be auto-accepted", () => {
@@ -177,8 +179,8 @@ describe("ItemPanel — AI vs reviewer separation (P0-4)", () => {
 
     // AI's own value (immutable, from ai.quantity) is untouched.
     expect(screen.getByTitle("7 nos")).toBeInTheDocument();
-    // Reviewer's override appears separately, under "Reviewer qty".
-    const reviewerQtyLabel = screen.getByText("Reviewer qty");
+    // Reviewer's override appears separately, under "Your quantity".
+    const reviewerQtyLabel = screen.getByText("Your quantity");
     expect(reviewerQtyLabel.parentElement).toHaveTextContent("9");
   });
 });

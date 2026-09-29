@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Plus, FileText, ChevronDown, ChevronRight, CheckCircle2, Link2, Upload, Trash2, FolderPlus, FolderOpen, Folder as FolderIcon } from "lucide-react";
+import { Plus, FileText, ChevronDown, ChevronRight, CheckCircle2, Link2, Upload, Trash2, FolderPlus, FolderOpen, Folder as FolderIcon, Sparkles } from "lucide-react";
 import { DOC_TYPES, DISCIPLINES, type ProjectDocument, type DocumentRevision, type DocumentFolder } from "@/lib/projectDocs";
 import { validateDrawingFile, buildDrawingPath, uploadDrawing, deleteDrawing, signedDrawingUrl } from "@/lib/review/drawingStorage";
 import { buildFolderTree, folderBreadcrumb, parseRelativePath, looksLikePdf, type FolderNode } from "@/lib/documentFolders";
@@ -21,7 +21,27 @@ type FileWithRelativePath = File & { webkitRelativePath?: string };
 
 export default function ProjectDocuments() {
   const { id: projectId } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const qc = useQueryClient();
+
+  // Routes "Generate BOQ from this drawing" into the EXISTING Review Analysis
+  // flow rather than duplicating any generation logic here — Documents never
+  // calls the AI itself. A document isn't tied to one BOQ (a project can have
+  // several), so this only knows where to send the user: straight to the one
+  // BOQ's review screen when unambiguous, otherwise to BOQs to pick/create one.
+  const { data: boqIds } = useQuery({
+    queryKey: ["project-boq-ids", projectId],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const { data } = await supabase.from("boq").select("id").eq("project_id", projectId!);
+      return (data ?? []).map((b) => (b as { id: string }).id);
+    },
+  });
+  const goGenerateFrom = (docName: string) => {
+    if (boqIds?.length === 1) { navigate(`../boqs/${boqIds[0]}/review`); return; }
+    if (!boqIds?.length) toast.info(`Create a BOQ first, then use Review Analysis to generate quantities from "${docName}".`);
+    navigate("../boqs");
+  };
 
   const { data: folders } = useQuery({
     queryKey: ["document-folders", projectId],
@@ -376,6 +396,29 @@ export default function ProjectDocuments() {
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
           </div>
+
+          {/* A real uploaded PDF is the input Cunstruct can actually read — the
+              primary path from here is straight into Generate/Review, not a
+              detour through the BOQ tab first. Reuses the existing per-revision
+              openDrawing() handler; never a second generation/extraction call. */}
+          {current?.file_path && (
+            <div className="mt-2 pl-7 flex flex-wrap items-center gap-2">
+              <Button size="sm" onClick={() => goGenerateFrom(d.name)}>
+                <Sparkles className="h-3.5 w-3.5 mr-1.5" />Generate BOQ from this drawing
+              </Button>
+              <Button
+                size="sm" variant="outline"
+                disabled={openingRevId === current.id}
+                onClick={() => openDrawing(current.id, current.file_path!)}
+              >
+                {/* Distinct from the per-revision list's own "Opening…" label
+                    below — both can be visible at once when expanded, and
+                    identical text on two elements breaks assistive tech and
+                    text-based test queries alike. */}
+                {openingRevId === current.id ? "Opening drawing…" : "Open drawing"}
+              </Button>
+            </div>
+          )}
 
           {open && projectId && (
             <DocumentLocationExtraction
