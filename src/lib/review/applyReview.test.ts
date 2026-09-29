@@ -99,7 +99,7 @@ describe("classifyReviewItem — new-line creation never fabricates data", () =>
     const it_ = reviewItem({ ai: ai({ key: "W9", item: "Window W9", quantity: 4, unit: "nos" }), reviewStatus: "VERIFIED" });
     const c = classifyReviewItem(it_, [line({ external_key: "W1" })]);
     expect(c.classification).toBe("NEW_LINE");
-    expect(c.newLine).toEqual({ description: "Window W9", unit: "nos", qty: 4, pending: false });
+    expect(c.newLine).toEqual({ description: "Window W9", unit: "nos", qty: 4, pending: false, location: null });
   });
   it("a PENDING item still proposes a new line, with pending semantics (never a fabricated quantity)", () => {
     const it_ = reviewItem({ ai: ai({ key: "W9", item: "Window W9", quantity: null, aiStatus: "PENDING" }), reviewStatus: "VERIFIED" });

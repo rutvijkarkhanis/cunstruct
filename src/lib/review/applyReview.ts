@@ -81,7 +81,7 @@ export interface ApplyCandidate {
    *  regardless of classification, so the UI can disclose them. */
   unsupportedChanges: UnsupportedChange[];
   reason?: string;
-  newLine?: { description: string; unit: string | null; qty: number; pending: boolean };
+  newLine?: { description: string; unit: string | null; qty: number; pending: boolean; location: string | null };
   /** Populated ONLY for classification AMBIGUOUS — every boq_line id whose
    *  external_key matched, so the UI can list them for manual resolution.
    *  Never populated for any other classification. */
@@ -138,17 +138,33 @@ export function classifyReviewItem(item: StoredReviewItem, lines: BoqLineForAppl
   const unsupportedChanges = unsupportedChangesFor(item);
 
   // Every line whose external_key matches this item's key — almost always 0
-  // or 1 (today's exact legacy behavior, untouched below). More than one
-  // means the same mark exists more than once in this batch (e.g. the same
-  // code reused across floors in a consolidated BOQ) and must be
-  // disambiguated by scope, never by which one happens to come first.
+  // or 1. More than one means the same mark exists more than once in this
+  // batch (e.g. the same code reused across floors in a consolidated BOQ)
+  // and must be disambiguated by scope, never by which one happens to come
+  // first.
   const candidates = item.ai.key ? lines.filter((l) => l.external_key && l.external_key === item.ai.key) : [];
+  const itemLocation = norm(item.ai.location);
 
   let match: BoqLineForApply | undefined;
   if (candidates.length === 1) {
-    match = candidates[0];
+    const only = candidates[0];
+    const lineScope = norm(only.scope_name);
+    // The dominant, legacy case (no scope on either side, or no location on
+    // the item) is untouched: match unconditionally. The one exception is a
+    // single existing line that already carries an EXPLICIT scope which
+    // disagrees with this item's EXPLICIT location — e.g. a line scoped to
+    // "Stilt" and an incoming item located on "Ground". That combination was
+    // never possible before scope_id was set at line-creation time; without
+    // this check it would silently overwrite one floor's quantity with
+    // another's just because no second line exists yet to trigger the
+    // multi-candidate disambiguation below. Falling through to "no matching
+    // line" lets it become its own correctly-scoped NEW_LINE instead.
+    if (itemLocation && lineScope && itemLocation !== lineScope) {
+      match = undefined;
+    } else {
+      match = only;
+    }
   } else if (candidates.length > 1) {
-    const itemLocation = norm(item.ai.location);
     // Disambiguate ONLY on an exact, normalized location <-> scope_name
     // match — never on array order/position. Requires the item to actually
     // state a location AND exactly one candidate's scope_name to agree with
@@ -205,7 +221,7 @@ export function classifyReviewItem(item: StoredReviewItem, lines: BoqLineForAppl
       { field: "unit", from: "—", to: unit ?? "—" },
     ],
     unsupportedChanges,
-    newLine: { description: item.ai.item, unit, qty: qty ?? 0, pending: qty == null },
+    newLine: { description: item.ai.item, unit, qty: qty ?? 0, pending: qty == null, location: item.ai.location ?? null },
   };
 }
 
@@ -218,6 +234,39 @@ export interface ApplyResult {
   appliedCount: number;
   skippedNoChange: number;
   unresolvedCount: number;
+}
+
+/**
+ * Resolve (creating if needed) the project_scope row whose name exactly
+ * matches a review item's location, so a newly-created BOQ line is scoped
+ * from the start rather than left null — the gap that let a later, different
+ * -scope item silently overwrite it via classifyReviewItem's single-candidate
+ * path (see the comment there). Mirrors the existing select-or-create
+ * convention already used for scope creation elsewhere (ProjectBoqs.tsx's
+ * "+ New scope…" flow) and the same trimmed, exact-match comparison
+ * classifyReviewItem itself relies on — no new scope model, no fuzzy match.
+ * Returns null (never throws) on any failure — a scope-resolution problem
+ * must never block the line from being created.
+ */
+async function resolveScopeIdForLocation(projectId: string, location: string): Promise<string | null> {
+  const name = location.trim();
+  if (!name) return null;
+  const { data: existing } = await supabase
+    .from("project_scope")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("name", name)
+    .limit(1)
+    .maybeSingle();
+  if (existing) return (existing as { id: string }).id;
+
+  const { data: created, error } = await supabase
+    .from("project_scope")
+    .insert({ project_id: projectId, name, kind: "floor" })
+    .select("id")
+    .single();
+  if (error || !created) return null;
+  return (created as { id: string }).id;
 }
 
 /**
@@ -235,6 +284,9 @@ export async function applyReviewPlan(args: {
   const { data: userData } = await supabase.auth.getUser();
   const changedBy = userData?.user?.id ?? null;
   let appliedCount = 0;
+  // Looked up at most once per call, only if some NEW_LINE actually needs it.
+  // undefined = not yet looked up; null = looked up, boq has no project_id.
+  let projectId: string | null | undefined;
 
   for (const c of args.candidates) {
     if (!args.selectedIds.has(c.reviewItemId)) continue;
@@ -261,9 +313,18 @@ export async function applyReviewPlan(args: {
         field: ch.field, old_value: ch.from, new_value: ch.to, changed_by: changedBy,
       }));
     } else if (c.classification === "NEW_LINE" && c.newLine) {
+      let scopeId: string | null = null;
+      const location = (c.newLine.location ?? "").trim();
+      if (location) {
+        if (projectId === undefined) {
+          const { data: boqRow } = await supabase.from("boq").select("project_id").eq("id", args.boqId).single();
+          projectId = (boqRow as { project_id: string | null } | null)?.project_id ?? null;
+        }
+        if (projectId) scopeId = await resolveScopeIdForLocation(projectId, location);
+      }
       lineId = await addReviewItemAsLine({
         boqId: args.boqId, description: c.newLine.description, unit: c.newLine.unit,
-        qty: c.newLine.qty, pending: c.newLine.pending, externalKey: c.itemKey,
+        qty: c.newLine.qty, pending: c.newLine.pending, externalKey: c.itemKey, scopeId,
       });
       // Field-level records for the actual values the line was created with —
       // "line_created" is kept alongside as provenance (which review item and
