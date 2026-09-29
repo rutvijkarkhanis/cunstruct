@@ -36,23 +36,9 @@ export default function ProjectOverview() {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {cards.map((c) => (
-          <Link key={c.label} to={c.to}>
-            <Card className="hover:border-primary/50 transition-colors">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">{c.label}</span>
-                  <c.icon className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="mt-2 text-2xl font-bold tabular-nums">{c.value}</div>
-                <div className="text-xs text-muted-foreground">{c.sub}</div>
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
-      </div>
-
+      {/* Leads the page — the AI-first workflow is the first meaningful thing
+          a new user sees, ahead of the generic count tiles below (audit
+          finding: the old stat grid was arriving first and outweighing it). */}
       <Card>
         <CardHeader className="pb-2"><CardTitle className="text-base">How Cunstruct builds your BOQ</CardTitle></CardHeader>
         <CardContent className="text-sm text-muted-foreground">
@@ -76,6 +62,23 @@ export default function ProjectOverview() {
           </ol>
         </CardContent>
       </Card>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {cards.map((c) => (
+          <Link key={c.label} to={c.to}>
+            <Card className="hover:border-primary/50 transition-colors">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">{c.label}</span>
+                  <c.icon className="h-4 w-4 text-muted-foreground" />
+                </div>
+                <div className="mt-2 text-2xl font-bold tabular-nums">{c.value}</div>
+                <div className="text-xs text-muted-foreground">{c.sub}</div>
+              </CardContent>
+            </Card>
+          </Link>
+        ))}
+      </div>
     </div>
   );
 }

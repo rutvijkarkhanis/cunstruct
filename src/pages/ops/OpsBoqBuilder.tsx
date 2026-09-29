@@ -120,7 +120,14 @@ export default function OpsBoqBuilder() {
   // there from the pure classification + this exact result's conflict list),
   // never a NEW_LINE's id (the server never returns it to the client) and
   // never anything for a page load/refresh that didn't come from that link.
-  const justAppliedLineIds = (location.state as { justAppliedLineIds?: string[] } | null)?.justAppliedLineIds ?? [];
+  const postApply = location.state as { justAppliedLineIds?: string[]; appliedCount?: number; unresolvedCount?: number } | null;
+  const justAppliedLineIds = postApply?.justAppliedLineIds ?? [];
+  // BOQ-level fallback for exactly the case per-line marking can't cover:
+  // NEW_LINE candidates, whose real ids are never returned to the client.
+  // These are the same appliedCount/unresolvedCount ApplyResult already
+  // returns — carried through navigation state, nothing invented here.
+  const justAppliedCount = postApply?.appliedCount ?? 0;
+  const justAppliedUnresolvedCount = postApply?.unresolvedCount ?? 0;
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
   const [showBrowser, setShowBrowser] = useState(false);
@@ -594,6 +601,18 @@ export default function OpsBoqBuilder() {
           )}
         </div>
       </div>
+
+      {!present && justAppliedCount > 0 && (
+        <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 flex items-center gap-2 flex-wrap text-sm">
+          <AiExtractedBadge label="AI reviewed" />
+          <span>
+            <b className="text-foreground">{justAppliedCount}</b> quantit{justAppliedCount === 1 ? "y" : "ies"} just applied from your review
+            {justAppliedUnresolvedCount > 0 && (
+              <span className="text-amber-700 dark:text-amber-500"> · {justAppliedUnresolvedCount} unresolved</span>
+            )}
+          </span>
+        </div>
+      )}
 
       {!present && (<>
       <div className="flex flex-wrap items-center gap-2">

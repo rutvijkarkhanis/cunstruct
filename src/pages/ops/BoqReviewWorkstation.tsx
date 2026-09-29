@@ -218,7 +218,16 @@ export default function BoqReviewWorkstation() {
         )
         .map((c) => c.matchedLineId!);
       toast.success(`Applied ${res.appliedCount} to the BOQ` + (res.unresolvedCount ? ` · ${res.unresolvedCount} unresolved` : ""), {
-        action: { label: "View updated BOQ", onClick: () => navigate(`../boqs/${boqId}`, { state: { justAppliedLineIds } }) },
+        action: {
+          label: "View updated BOQ",
+          // appliedCount/unresolvedCount are the exact counts ApplyResult
+          // already returns — carried through so the BOQ screen can show a
+          // truthful "just applied" banner even when no individual line can
+          // be marked (every NEW_LINE candidate; see justAppliedLineIds above).
+          onClick: () => navigate(`../boqs/${boqId}`, {
+            state: { justAppliedLineIds, appliedCount: res.appliedCount, unresolvedCount: res.unresolvedCount },
+          }),
+        },
       });
       qc.invalidateQueries({ queryKey: ["rw-lines", boqId] });
       qc.invalidateQueries({ queryKey: ["boq-lines", boqId] });
@@ -1114,7 +1123,11 @@ export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, sel
   // half of this fix.
   if (resolved?.filePath) {
     return (
-      <Card className="min-w-0"><CardContent className="p-4 space-y-2">
+      // border-primary/30 matches the "Your review"/AiExtractedBadge accent
+      // language on the left — a restrained visual grouping, not a new color,
+      // so "AI extracted quantity" and "evidence from the drawing" read as
+      // one connected concept. PdfEvidenceViewer itself is untouched.
+      <Card className="min-w-0 border-primary/30"><CardContent className="p-4 space-y-2">
         {/* Narrates the one relationship this whole split view exists to
             show — the quantity on the left came from THIS drawing, not
             nowhere. Static, factual, uses only already-resolved data. */}
