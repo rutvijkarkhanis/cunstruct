@@ -304,14 +304,17 @@ async function resolveScopeIdForLocation(projectId: string, location: string): P
  * never allow) is skipped defensively. Every actual field change is recorded in
  * boq_line_change_log with the before/after value, who, and when.
  *
- * Two layers protect against a candidate's diff being computed from a stale
+ * Layers protect against a candidate's diff being computed from a stale
  * boq_line snapshot: `modifiedLineIds`/`createdNewLineIdentities` below catch
  * same-batch collisions cheaply, in memory, before any DB call (see #133/
- * #134). The APPLY write itself is additionally guarded at the database level
- * (applyReviewQtyUnit's `expected` param) so a stale snapshot from a SEPARATE
- * apply call — a different reviewer, a different tab, or any apply that ran
- * between classification and this one — is caught too, not just within one
- * call.
+ * #134). Both write paths are additionally guarded at the database level for
+ * a stale snapshot from a SEPARATE apply call — a different reviewer, a
+ * different tab, or any apply that ran between classification and this one:
+ * APPLY via applyReviewQtyUnit's `expected` compare-and-swap param, and
+ * NEW_LINE via the boq_line identity unique indexes
+ * (20260929000000_boq_line_identity_constraint.sql) that addReviewItemAsLine
+ * translates a 23505 violation from into `null` rather than a fabricated
+ * success.
  */
 export async function applyReviewPlan(args: {
   boqId: string;
@@ -420,10 +423,21 @@ export async function applyReviewPlan(args: {
         }
         if (projectId) scopeId = await resolveScopeIdForLocation(projectId, location);
       }
-      lineId = await addReviewItemAsLine({
+      const insertedLineId = await addReviewItemAsLine({
         boqId: args.boqId, description: c.newLine.description, unit: c.newLine.unit,
         qty: c.newLine.qty, pending: c.newLine.pending, externalKey: c.itemKey, scopeId,
       });
+      if (insertedLineId == null) {
+        // The database's boq_line identity index rejected this insert as a
+        // duplicate of an existing (boq_id, external_key, scope) row — a
+        // SEPARATE, independent apply call already created it since this
+        // candidate was classified (the in-memory createdNewLineIdentities
+        // check above only sees THIS call's own inserts). Never treat this
+        // as success: no row was created here, so nothing to log.
+        conflictedReviewItemIds.push(c.reviewItemId);
+        continue;
+      }
+      lineId = insertedLineId;
       if (newLineIdentityKey) createdNewLineIdentities.add(newLineIdentityKey);
       // Field-level records for the actual values the line was created with —
       // "line_created" is kept alongside as provenance (which review item and
