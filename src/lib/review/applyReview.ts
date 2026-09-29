@@ -307,6 +307,13 @@ export async function applyReviewPlan(args: {
   // overwrite the first candidate's change with no warning (see the
   // conflictedReviewItemIds bug this guards against).
   const modifiedLineIds = new Set<string>();
+  // (external_key, normalized location) identities this call has already
+  // created a NEW_LINE for. Two selected candidates with no existing boq_line
+  // yet are both classified NEW_LINE against the SAME pre-apply snapshot —
+  // neither knows the other is about to create a matching line — so without
+  // this, both would insert a separate row for the identical mark, silently
+  // duplicating the BOQ entry (and double-counting its quantity).
+  const createdNewLineIdentities = new Set<string>();
   const conflictedReviewItemIds: string[] = [];
 
   for (const c of args.candidates) {
@@ -318,6 +325,22 @@ export async function applyReviewPlan(args: {
       // this same call: no boq_line update, no fabricated audit row. Left
       // for a fresh apply pass, which will re-classify against the line's
       // now-current value instead of the stale snapshot this plan used.
+      conflictedReviewItemIds.push(c.reviewItemId);
+      continue;
+    }
+
+    // Only meaningful for NEW_LINE; null for APPLY (and for a malformed
+    // NEW_LINE with no newLine payload, handled by the `continue` below).
+    const newLineIdentityKey = c.classification === "NEW_LINE" && c.newLine
+      ? `${c.itemKey}¦${norm(c.newLine.location)}`
+      : null;
+    if (newLineIdentityKey && createdNewLineIdentities.has(newLineIdentityKey)) {
+      // Same (external_key, location) identity as an earlier selected
+      // NEW_LINE candidate in this same call — its line already exists now,
+      // but this candidate's classification was computed before it did.
+      // Never insert a second row for it: left for a fresh apply pass, which
+      // will re-classify against the now-existing line instead of a stale
+      // "nothing exists yet" snapshot.
       conflictedReviewItemIds.push(c.reviewItemId);
       continue;
     }
@@ -357,6 +380,7 @@ export async function applyReviewPlan(args: {
         boqId: args.boqId, description: c.newLine.description, unit: c.newLine.unit,
         qty: c.newLine.qty, pending: c.newLine.pending, externalKey: c.itemKey, scopeId,
       });
+      if (newLineIdentityKey) createdNewLineIdentities.add(newLineIdentityKey);
       // Field-level records for the actual values the line was created with —
       // "line_created" is kept alongside as provenance (which review item and
       // description produced this line), never as a substitute for them. A
