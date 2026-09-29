@@ -10,19 +10,20 @@ import { PENDING_BASIS } from "./boqEvalJson";
 
 // The optional columns some deployments haven't migrated yet. On a schema error
 // we retry without them, mirroring the existing insert/update fallbacks.
-const OPTIONAL_COL_RE = /\bbasis\b|external_key|measurement_method|quantity_status|schema cache|could not find|does not exist/i;
+const OPTIONAL_COL_RE = /\bbasis\b|external_key|measurement_method|quantity_status|scope_id|schema cache|could not find|does not exist/i;
 
 interface NewLine {
   boq_id: string; section: string; description: string; unit: string | null;
   qty: number; basis: string | null; basis_note: string | null;
   external_key: string | null; measurement_method: string | null; quantity_status: string | null;
+  scope_id: string | null;
   included: boolean; source: string; sort: number;
 }
 
 async function insertLineResilient(row: NewLine): Promise<string> {
   let res = await supabase.from("boq_line").insert(row).select("id").single();
   if (res.error && OPTIONAL_COL_RE.test(res.error.message)) {
-    const { basis, basis_note, external_key, measurement_method, quantity_status, ...base } = row;
+    const { basis, basis_note, external_key, measurement_method, quantity_status, scope_id, ...base } = row;
     res = await supabase.from("boq_line").insert(base).select("id").single();
   }
   if (res.error) throw res.error;
@@ -32,7 +33,7 @@ async function insertLineResilient(row: NewLine): Promise<string> {
 async function updateLineResilient(lineId: string, patch: Record<string, unknown>): Promise<void> {
   let { error } = await supabase.from("boq_line").update(patch).eq("id", lineId);
   if (error && OPTIONAL_COL_RE.test(error.message)) {
-    const { measurement_method, quantity_status, external_key, basis, basis_note, ...base } = patch;
+    const { measurement_method, quantity_status, external_key, basis, basis_note, scope_id, ...base } = patch;
     ({ error } = await supabase.from("boq_line").update(base).eq("id", lineId));
   }
   if (error) throw error;
@@ -64,6 +65,7 @@ export async function addFindingAsLine(args: AddLineArgs): Promise<string> {
     external_key: args.externalKey ?? null,
     measurement_method: args.method ?? null,
     quantity_status: "PENDING",
+    scope_id: null,
     included: true,
     source: "manual",
     sort: args.sort ?? 9999,
@@ -107,6 +109,10 @@ export interface AddReviewLineArgs {
   pending: boolean;
   externalKey: string;
   sort?: number;
+  /** The project_scope id already resolved for this item's location, if any
+   *  (see applyReview.ts's resolveScopeIdForLocation) — never resolved here,
+   *  only persisted. A line created with no scope behaves exactly as before. */
+  scopeId?: string | null;
 }
 
 /**
@@ -127,6 +133,7 @@ export async function addReviewItemAsLine(args: AddReviewLineArgs): Promise<stri
     external_key: args.externalKey,
     measurement_method: null,
     quantity_status: args.pending ? "PENDING" : "MEASURED",
+    scope_id: args.scopeId ?? null,
     included: true,
     source: "manual",
     sort: args.sort ?? 9999,
