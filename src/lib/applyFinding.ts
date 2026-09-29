@@ -30,13 +30,65 @@ async function insertLineResilient(row: NewLine): Promise<string> {
   return (res.data as { id: string }).id;
 }
 
-async function updateLineResilient(lineId: string, patch: Record<string, unknown>): Promise<void> {
-  let { error } = await supabase.from("boq_line").update(patch).eq("id", lineId);
+/** The row's qty/unit the caller expects to still be persisted — a
+ *  compare-and-swap guard. A key is present only when that column is meant
+ *  to be checked; `unit: null` checks for a genuinely null column. */
+interface UpdateExpected {
+  qty?: number;
+  unit?: string | null;
+}
+
+/** Chain the compare-and-swap `.eq()`/`.is()` filters for whichever of
+ *  qty/unit `expected` asks to guard onto an in-flight update query. `null`
+ *  needs `.is()`, not `.eq()` — Postgres/PostgREST equality never matches
+ *  NULL. Untyped on purpose: supabase-js's builder type is reassigned through
+ *  several distinct generic instantiations as filters chain on, which a
+ *  shared helper can't express any more cleanly than `any` — the real
+ *  contract (both branches end in `.select("id")`) is exercised by the
+ *  regression tests, not by this helper's signature. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function withExpectedFilters(query: any, expected: UpdateExpected): any {
+  let q = query;
+  if (expected.qty !== undefined) q = q.eq("qty", expected.qty);
+  if ("unit" in expected) q = expected.unit == null ? q.is("unit", null) : q.eq("unit", expected.unit);
+  return q;
+}
+
+/**
+ * Update boq_line by id. When `expected` is omitted, behaves exactly as
+ * before (unconditional update, always resolves true) — the audit-import
+ * callers below (applyMethodUnit/setLineQty/markLinePending) never pass it.
+ * When `expected` carries a qty and/or unit to guard, the write is
+ * conditional on the row's CURRENT value(s) still matching — a
+ * compare-and-swap against a stale pre-apply snapshot (see applyReview.ts's
+ * applyReviewPlan). Returns false, with NO write and NO error, when the
+ * guard fails (zero rows matched): the caller must treat that as a conflict,
+ * never assume success.
+ */
+async function updateLineResilient(
+  lineId: string,
+  patch: Record<string, unknown>,
+  expected?: UpdateExpected,
+): Promise<boolean> {
+  const guarded = expected != null && (expected.qty !== undefined || "unit" in expected);
+
+  if (!guarded) {
+    let { error } = await supabase.from("boq_line").update(patch).eq("id", lineId);
+    if (error && OPTIONAL_COL_RE.test(error.message)) {
+      const { measurement_method, quantity_status, external_key, basis, basis_note, scope_id, ...base } = patch;
+      ({ error } = await supabase.from("boq_line").update(base).eq("id", lineId));
+    }
+    if (error) throw error;
+    return true;
+  }
+
+  let { data, error } = await withExpectedFilters(supabase.from("boq_line").update(patch).eq("id", lineId), expected).select("id");
   if (error && OPTIONAL_COL_RE.test(error.message)) {
     const { measurement_method, quantity_status, external_key, basis, basis_note, scope_id, ...base } = patch;
-    ({ error } = await supabase.from("boq_line").update(base).eq("id", lineId));
+    ({ data, error } = await withExpectedFilters(supabase.from("boq_line").update(base).eq("id", lineId), expected).select("id"));
   }
   if (error) throw error;
+  return (data ?? []).length > 0;
 }
 
 export interface AddLineArgs {
@@ -144,10 +196,17 @@ export async function addReviewItemAsLine(args: AddReviewLineArgs): Promise<stri
  * Apply a reviewed qty and/or unit to an existing, matched BOQ line. Only the
  * fields present in `patch` are written — never touches description, section,
  * rates, or any other unrelated column.
+ *
+ * `expected`, when given, makes the write a compare-and-swap: it only takes
+ * effect if the row's CURRENT qty/unit still match (see updateLineResilient).
+ * Returns false when the guard fails — no write happened, and the caller
+ * (applyReview.ts's applyReviewPlan) must treat that as a conflict, never a
+ * fabricated success.
  */
 export async function applyReviewQtyUnit(
   lineId: string,
   patch: { qty?: number; unit?: string | null; basis?: string | null; quantity_status?: string | null },
-): Promise<void> {
-  await updateLineResilient(lineId, patch);
+  expected?: { qty?: number; unit?: string | null },
+): Promise<boolean> {
+  return updateLineResilient(lineId, patch, expected);
 }

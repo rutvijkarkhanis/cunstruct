@@ -86,6 +86,18 @@ export interface ApplyCandidate {
    *  external_key matched, so the UI can list them for manual resolution.
    *  Never populated for any other classification. */
   candidateLineIds?: string[];
+  /**
+   * The matched boq_line's raw qty/unit at classification time — exactly
+   * what `changes[].from` was derived from. Used by applyReviewPlan to make
+   * the eventual write conditional on the row not having changed since this
+   * candidate was classified: a guard against a stale snapshot across
+   * SEPARATE apply calls (two reviewers, two tabs, or any apply operation
+   * that ran between classification and this write), which the in-call
+   * conflict tracking from #133/#134 cannot see. Populated only for
+   * classification APPLY (there's a matched line to snapshot); never for
+   * NEW_LINE or any other classification.
+   */
+  expectedLineState?: { qty: number; unit: string | null };
 }
 
 function effectiveUnit(item: StoredReviewItem): string | null {
@@ -203,7 +215,10 @@ export function classifyReviewItem(item: StoredReviewItem, lines: BoqLineForAppl
       }
       return { ...base, classification: "NO_CHANGE", matchedLineId: match.id, changes: [], unsupportedChanges: [] };
     }
-    return { ...base, classification: "APPLY", matchedLineId: match.id, changes, unsupportedChanges };
+    return {
+      ...base, classification: "APPLY", matchedLineId: match.id, changes, unsupportedChanges,
+      expectedLineState: { qty: match.qty, unit: match.unit },
+    };
   }
 
   // No matching line. Only insertable when the item carries the one field the
@@ -288,6 +303,15 @@ async function resolveScopeIdForLocation(projectId: string, location: string): P
  * a candidate that IS selected but isn't APPLY/NEW_LINE — which the UI should
  * never allow) is skipped defensively. Every actual field change is recorded in
  * boq_line_change_log with the before/after value, who, and when.
+ *
+ * Two layers protect against a candidate's diff being computed from a stale
+ * boq_line snapshot: `modifiedLineIds`/`createdNewLineIdentities` below catch
+ * same-batch collisions cheaply, in memory, before any DB call (see #133/
+ * #134). The APPLY write itself is additionally guarded at the database level
+ * (applyReviewQtyUnit's `expected` param) so a stale snapshot from a SEPARATE
+ * apply call — a different reviewer, a different tab, or any apply that ran
+ * between classification and this one — is caught too, not just within one
+ * call.
  */
 export async function applyReviewPlan(args: {
   boqId: string;
@@ -350,18 +374,38 @@ export async function applyReviewPlan(args: {
 
     if (c.classification === "APPLY" && c.matchedLineId) {
       lineId = c.matchedLineId;
-      modifiedLineIds.add(lineId);
       const patch: Record<string, unknown> = {};
       const qtyChange = c.changes.find((f) => f.field === "qty");
       const unitChange = c.changes.find((f) => f.field === "unit");
+      // Guard the write on the row's CURRENT qty/unit still matching what
+      // this candidate's diff was computed from — a compare-and-swap against
+      // a stale snapshot from a SEPARATE apply call (two reviewers, two
+      // tabs, or any apply that ran between classification and this write).
+      // Only the field(s) actually being changed are guarded; an unrelated
+      // field drifting elsewhere never blocks this write.
+      const expected: { qty?: number; unit?: string | null } = {};
       if (qtyChange) {
         const pending = qtyChange.to === "pending";
         patch.qty = pending ? 0 : Number(qtyChange.to);
         patch.basis = pending ? PENDING_BASIS : null;
         patch.quantity_status = pending ? "PENDING" : "MEASURED";
+        if (c.expectedLineState) expected.qty = c.expectedLineState.qty;
       }
-      if (unitChange) patch.unit = unitChange.to === "—" ? null : unitChange.to;
-      await applyReviewQtyUnit(lineId, patch);
+      if (unitChange) {
+        patch.unit = unitChange.to === "—" ? null : unitChange.to;
+        if (c.expectedLineState) expected.unit = c.expectedLineState.unit;
+      }
+      const applied = await applyReviewQtyUnit(lineId, patch, expected);
+      if (!applied) {
+        // The row no longer matches the snapshot this diff was computed
+        // from — something else changed it since classification. Never
+        // overwrite blindly: no boq_line write took place, so nothing to
+        // log. Left for a fresh apply pass to re-classify against the
+        // line's actual current value.
+        conflictedReviewItemIds.push(c.reviewItemId);
+        continue;
+      }
+      modifiedLineIds.add(lineId);
       logRows = c.changes.map((ch) => ({
         boq_id: args.boqId, boq_line_id: lineId, review_item_id: c.reviewItemId,
         field: ch.field, old_value: ch.from, new_value: ch.to, changed_by: changedBy,
