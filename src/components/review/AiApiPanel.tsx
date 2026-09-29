@@ -14,7 +14,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
-import { fetchPreflight, generateAnalysis, showInternalAiControls, type PreflightFile } from "@/lib/ai/analysisClient";
+import { fetchPreflight, friendlyGenerateError, generateAnalysis, showInternalAiControls, type PreflightFile } from "@/lib/ai/analysisClient";
 
 const UNFILED = "Unfiled";
 
@@ -59,7 +59,13 @@ export default function AiApiPanel({
   const generateMutation = useMutation({
     mutationFn: () => generateAnalysis({ projectId, boqId, forceReanalyse }),
     onSuccess: async (res) => {
-      if (!res.ok) { toast.error(res.error ?? "Analysis failed"); return; }
+      if (!res.ok) {
+        // Raw detail stays in the console for developers; the user only ever
+        // sees the translated, actionable version below.
+        if (res.error) console.error("[ai-analysis] generate failed:", res.error);
+        toast.error(friendlyGenerateError(res.error));
+        return;
+      }
       if (res.generated === 0) {
         toast.info(res.message ?? "Nothing new to analyse.");
         if (res.allAlreadyAnalysed && (res.latestRunId ?? data?.preflight?.latestRunId)) {
@@ -73,7 +79,10 @@ export default function AiApiPanel({
       await onGenerated(res.runId!);
       qc.invalidateQueries({ queryKey: preflightKey });
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Analysis failed"),
+    onError: (e) => {
+      console.error("[ai-analysis] generate request failed:", e);
+      toast.error(friendlyGenerateError(e instanceof Error ? e.message : undefined));
+    },
   });
 
   if (isLoading) {
