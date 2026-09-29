@@ -13,6 +13,54 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 interface Call { table: string; op: "insert" | "update"; payload: unknown; lineId?: string }
 const calls: Call[] = [];
 
+// The mock's own "current DB state" for boq_line rows — separate from the
+// `lines` snapshot a test hands to buildApplyPlan (which is what the
+// candidate's diff was computed FROM). Seeding it to the same values as that
+// snapshot means "nothing changed since classification" (today's normal
+// case, what every pre-existing test here assumes); the compare-and-swap
+// regression tests below deliberately seed it differently to simulate a
+// write that happened in between.
+const boqLineStore = new Map<string, { qty: number; unit: string | null }>();
+function seedLine(id: string, qty: number, unit: string | null) {
+  boqLineStore.set(id, { qty, unit });
+}
+
+/** A chainable update() builder supporting the two shapes updateLineResilient
+ *  actually produces: the plain legacy path (`.update(patch).eq("id", id)`,
+ *  awaited directly) and the guarded compare-and-swap path (additional
+ *  `.eq()`/`.is()` filters, terminated by `.select("id")`) — matching real
+ *  PostgREST semantics: a row is updated (and returned) only if it still
+ *  matches every filter, and zero rows come back with no error otherwise. */
+function updateBuilder(table: string, payload: Record<string, unknown>, filters: Record<string, unknown> = {}) {
+  const builder = {
+    eq: (col: string, val: unknown) => updateBuilder(table, payload, { ...filters, [col]: val }),
+    is: (col: string, val: unknown) => updateBuilder(table, payload, { ...filters, [col]: val }),
+    select: (_cols: string) => {
+      const id = filters.id as string | undefined;
+      const current = id ? boqLineStore.get(id) : undefined;
+      const matches = current != null && Object.entries(filters).every(
+        ([k, v]) => k === "id" || (current as Record<string, unknown>)[k] === v,
+      );
+      if (matches && id) {
+        boqLineStore.set(id, { ...current, ...payload } as { qty: number; unit: string | null });
+        calls.push({ table, op: "update", payload, lineId: id });
+        return Promise.resolve({ data: [{ id }], error: null });
+      }
+      return Promise.resolve({ data: [], error: null });
+    },
+    then: (onFulfilled: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) => {
+      const id = filters.id as string | undefined;
+      if (id) {
+        const current = boqLineStore.get(id) ?? { qty: 0, unit: null };
+        boqLineStore.set(id, { ...current, ...payload } as { qty: number; unit: string | null });
+        calls.push({ table, op: "update", payload, lineId: id });
+      }
+      return Promise.resolve({ error: null }).then(onFulfilled, onRejected);
+    },
+  };
+  return builder;
+}
+
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     auth: { getUser: async () => ({ data: { user: { id: "user-1" } } }) },
@@ -26,12 +74,7 @@ vi.mock("@/integrations/supabase/client", () => ({
             Promise.resolve(result).then(onFulfilled, onRejected),
         };
       },
-      update: (payload: unknown) => ({
-        eq: async (_col: string, id: string) => {
-          calls.push({ table, op: "update", payload, lineId: id });
-          return { error: null };
-        },
-      }),
+      update: (payload: Record<string, unknown>) => updateBuilder(table, payload),
     }),
   },
 }));
@@ -48,12 +91,16 @@ const reviewItem = (o: Partial<StoredReviewItem> & { ai: AnalysisItemV1 }): Stor
   id: o.id ?? "ri-1", ai: o.ai, reviewStatus: o.reviewStatus ?? "PENDING_REVIEW", reviewer: o.reviewer,
 });
 
+// Flattens EVERY boq_line_change_log insert across all calls so far — a test
+// exercising two SEPARATE applyReviewPlan() invocations produces two such
+// inserts, and both must be visible for a truthful cross-call audit check.
 function changeLogRows(): { field: string; old_value: string | null; new_value: string | null }[] {
-  const call = calls.find((c) => c.table === "boq_line_change_log");
-  return (call?.payload as { field: string; old_value: string | null; new_value: string | null }[]) ?? [];
+  return calls
+    .filter((c) => c.table === "boq_line_change_log")
+    .flatMap((c) => c.payload as { field: string; old_value: string | null; new_value: string | null }[]);
 }
 
-beforeEach(() => { calls.length = 0; });
+beforeEach(() => { calls.length = 0; boqLineStore.clear(); });
 
 describe("applyReviewPlan — NEW_LINE audit logging", () => {
   it("records field-level qty AND unit audit entries, alongside line_created as additional provenance", async () => {
@@ -105,6 +152,7 @@ describe("applyReviewPlan — existing behavior remains intact", () => {
     const it_ = reviewItem({ id: "ri-1", ai: ai({ key: "W1", quantity: 7, unit: "nos" }), reviewStatus: "EDITED", reviewer: { quantity: 8 } });
     const plan = buildApplyPlan([it_], [{ id: "line-1", external_key: "W1", qty: 9, unit: "nos", quantity_status: "MEASURED", scope_name: null }]);
     expect(plan[0].classification).toBe("APPLY");
+    seedLine("line-1", 9, "nos");
 
     const result = await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-1"]) });
     expect(result.appliedCount).toBe(1);
@@ -145,6 +193,7 @@ describe("applyReviewPlan — same-batch APPLY conflict on the same line is neve
     ];
     const lines = [{ id: "line-1", external_key: "W1", qty: 1, unit: "nos", quantity_status: "MEASURED", scope_name: null }];
     const plan = buildApplyPlan(items, lines);
+    seedLine("line-1", 1, "nos");
 
     // Both classify against the SAME static snapshot — this is the root
     // condition the bug depends on, asserted here so a future change to
@@ -186,6 +235,7 @@ describe("applyReviewPlan — same-batch APPLY conflict on the same line is neve
     ];
     const lines = [{ id: "line-2", external_key: "W2", qty: 5, unit: "nos", quantity_status: "MEASURED", scope_name: null }];
     const plan = buildApplyPlan(items, lines);
+    seedLine("line-2", 5, "nos");
     expect(plan[0].classification).toBe("APPLY");
     expect(plan[1].classification).toBe("APPLY");
     expect(plan[0].matchedLineId).toBe("line-2");
@@ -215,9 +265,110 @@ describe("applyReviewPlan — same-batch APPLY conflict on the same line is neve
       { id: "line-d", external_key: "D", qty: 3, unit: "nos", quantity_status: "MEASURED", scope_name: null },
     ];
     const plan = buildApplyPlan(items, lines);
+    seedLine("line-c", 9, "nos");
+    seedLine("line-d", 3, "nos");
 
     const result = await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-C", "ri-D"]) });
     expect(result.appliedCount).toBe(2);
     expect(result.conflictedReviewItemIds).toEqual([]);
+  });
+});
+
+// ── Cross-call stale-snapshot guard: two SEPARATE applyReviewPlan() calls
+// (not one batch — #133's in-memory modifiedLineIds Set is fresh on every
+// invocation and can't see across calls). Each call's plan is built from its
+// own snapshot; the compare-and-swap in applyReviewQtyUnit/updateLineResilient
+// is what has to catch a snapshot that went stale between calls. Reproduces
+// the confirmed bug: two independent apply operations against the same line,
+// both computed from qty=9, used to let the second silently overwrite the
+// first with a false audit "old_value". ─────────────────────────────────────
+describe("applyReviewPlan — cross-call stale-snapshot guard (compare-and-swap)", () => {
+  it("qty: second, independent apply call is rejected when the row changed since ITS classification", async () => {
+    const lines = [{ id: "line-1", external_key: "W1", qty: 9, unit: "nos", quantity_status: "MEASURED", scope_name: null }];
+    seedLine("line-1", 9, "nos");
+
+    // Call 1: item A, classified from qty=9, applies 9 -> 8.
+    const itemA = reviewItem({ id: "ri-A", ai: ai({ key: "W1", quantity: 7, unit: "nos" }), reviewStatus: "EDITED", reviewer: { quantity: 8 } });
+    const planA = buildApplyPlan([itemA], lines);
+    const resultA = await applyReviewPlan({ boqId: "boq-1", candidates: planA, selectedIds: new Set(["ri-A"]) });
+    expect(resultA.appliedCount).toBe(1);
+    expect(resultA.conflictedReviewItemIds).toEqual([]);
+    expect(boqLineStore.get("line-1")?.qty).toBe(8);
+
+    // Call 2: item B, classified from the SAME (now stale) snapshot qty=9 —
+    // a fresh, independent applyReviewPlan() invocation, so its own
+    // modifiedLineIds Set starts empty and knows nothing about call 1.
+    const itemB = reviewItem({ id: "ri-B", ai: ai({ key: "W1", quantity: 7, unit: "nos" }), reviewStatus: "EDITED", reviewer: { quantity: 12 } });
+    const planB = buildApplyPlan([itemB], lines);
+    expect(planB[0].changes.find((c) => c.field === "qty")).toEqual({ field: "qty", from: "9", to: "12" });
+
+    const resultB = await applyReviewPlan({ boqId: "boq-1", candidates: planB, selectedIds: new Set(["ri-B"]) });
+
+    // Must NOT overwrite — appliedCount/unresolvedCount are truthful.
+    expect(resultB.appliedCount).toBe(0);
+    expect(resultB.conflictedReviewItemIds).toEqual(["ri-B"]);
+    expect(resultB.unresolvedCount).toBe(1);
+
+    // Final qty remains A's value.
+    expect(boqLineStore.get("line-1")?.qty).toBe(8);
+
+    // No fabricated audit entry for the rejected second update — only A's
+    // original, truthful row exists.
+    const rows = changeLogRows();
+    expect(rows).toEqual([expect.objectContaining({ field: "qty", old_value: "9", new_value: "8" })]);
+    expect(rows.some((r) => r.new_value === "12")).toBe(false);
+  });
+
+  it("qty: a plan built from a REFRESHED snapshot applies normally, with truthful audit history for both operations", async () => {
+    const staleLines = [{ id: "line-1", external_key: "W1", qty: 9, unit: "nos", quantity_status: "MEASURED", scope_name: null }];
+    seedLine("line-1", 9, "nos");
+
+    const itemA = reviewItem({ id: "ri-A", ai: ai({ key: "W1", quantity: 7, unit: "nos" }), reviewStatus: "EDITED", reviewer: { quantity: 8 } });
+    const planA = buildApplyPlan([itemA], staleLines);
+    await applyReviewPlan({ boqId: "boq-1", candidates: planA, selectedIds: new Set(["ri-A"]) });
+    expect(boqLineStore.get("line-1")?.qty).toBe(8);
+
+    // Second plan built from a REFRESHED snapshot (qty=8, matching reality).
+    const refreshedLines = [{ id: "line-1", external_key: "W1", qty: 8, unit: "nos", quantity_status: "MEASURED", scope_name: null }];
+    const itemB = reviewItem({ id: "ri-B", ai: ai({ key: "W1", quantity: 7, unit: "nos" }), reviewStatus: "EDITED", reviewer: { quantity: 12 } });
+    const planB = buildApplyPlan([itemB], refreshedLines);
+    expect(planB[0].changes.find((c) => c.field === "qty")).toEqual({ field: "qty", from: "8", to: "12" });
+
+    const resultB = await applyReviewPlan({ boqId: "boq-1", candidates: planB, selectedIds: new Set(["ri-B"]) });
+    expect(resultB.appliedCount).toBe(1);
+    expect(resultB.conflictedReviewItemIds).toEqual([]);
+    expect(boqLineStore.get("line-1")?.qty).toBe(12);
+
+    const rows = changeLogRows();
+    expect(rows).toEqual([
+      expect.objectContaining({ field: "qty", old_value: "9", new_value: "8" }),
+      expect.objectContaining({ field: "qty", old_value: "8", new_value: "12" }),
+    ]);
+  });
+
+  it("unit: stale unit state cannot silently overwrite a newer unit change made by a separate call", async () => {
+    const lines = [{ id: "line-2", external_key: "W2", qty: 5, unit: "nos", quantity_status: "MEASURED", scope_name: null }];
+    seedLine("line-2", 5, "nos");
+
+    const itemA = reviewItem({ id: "ri-A2", ai: ai({ key: "W2", quantity: 5, unit: "nos" }), reviewStatus: "EDITED", reviewer: { unit: "sqft" } });
+    const planA = buildApplyPlan([itemA], lines);
+    const resultA = await applyReviewPlan({ boqId: "boq-1", candidates: planA, selectedIds: new Set(["ri-A2"]) });
+    expect(resultA.appliedCount).toBe(1);
+    expect(boqLineStore.get("line-2")?.unit).toBe("sqft");
+
+    // Second, separate call — classified from the SAME stale snapshot
+    // (unit still "nos"), unaware line-2 was already changed to "sqft".
+    const itemB = reviewItem({ id: "ri-B2", ai: ai({ key: "W2", quantity: 5, unit: "nos" }), reviewStatus: "EDITED", reviewer: { unit: "sqm" } });
+    const planB = buildApplyPlan([itemB], lines);
+    const resultB = await applyReviewPlan({ boqId: "boq-1", candidates: planB, selectedIds: new Set(["ri-B2"]) });
+
+    expect(resultB.appliedCount).toBe(0);
+    expect(resultB.conflictedReviewItemIds).toEqual(["ri-B2"]);
+    // The newer unit change ("sqft") survives — never silently overwritten.
+    expect(boqLineStore.get("line-2")?.unit).toBe("sqft");
+
+    const rows = changeLogRows();
+    expect(rows).toEqual([expect.objectContaining({ field: "unit", old_value: "nos", new_value: "sqft" })]);
+    expect(rows.some((r) => r.new_value === "sqm")).toBe(false);
   });
 });
