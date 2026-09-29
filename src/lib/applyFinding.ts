@@ -12,6 +12,19 @@ import { PENDING_BASIS } from "./boqEvalJson";
 // we retry without them, mirroring the existing insert/update fallbacks.
 const OPTIONAL_COL_RE = /\bbasis\b|external_key|measurement_method|quantity_status|scope_id|schema cache|could not find|does not exist/i;
 
+// Matches ONLY the two partial unique indexes 20260929000000_boq_line_identity_
+// constraint.sql adds for (boq_id, external_key, scope_id) — never any other
+// unique-violation boq_line might one day have. A Postgres/PostgREST 23505
+// whose message doesn't name one of these two indexes is a genuinely
+// unexpected error and must still throw, not be silently swallowed.
+const BOQ_LINE_IDENTITY_CONFLICT_RE = /boq_line_identity_(scoped|unscoped)_idx/i;
+
+/** True only for the specific unique-violation the boq_line identity indexes
+ *  raise — never any other 23505 a future, unrelated constraint might add. */
+function isBoqLineIdentityConflict(error: { code?: string; message?: string } | null | undefined): boolean {
+  return error?.code === "23505" && BOQ_LINE_IDENTITY_CONFLICT_RE.test(error.message ?? "");
+}
+
 interface NewLine {
   boq_id: string; section: string; description: string; unit: string | null;
   qty: number; basis: string | null; basis_note: string | null;
@@ -172,24 +185,37 @@ export interface AddReviewLineArgs {
  * matched no existing line. Only called when the item carries the one field the
  * existing insertion pattern actually requires (a non-empty description) — see
  * applyReview.ts's classifyReviewItem, which never calls this otherwise.
+ *
+ * Returns null — never throws — when the database's boq_line identity
+ * indexes (20260929000000_boq_line_identity_constraint.sql) reject this
+ * insert as a duplicate of an existing (boq_id, external_key, scope) row.
+ * That happens when a SEPARATE apply call (or, defensively, some other path)
+ * already created this exact line since this candidate was classified — the
+ * caller (applyReview.ts's applyReviewPlan) must treat that as a conflict,
+ * never a fabricated success. Any other error still throws.
  */
-export async function addReviewItemAsLine(args: AddReviewLineArgs): Promise<string> {
-  return insertLineResilient({
-    boq_id: args.boqId,
-    section: "Drawing review — added",
-    description: args.description,
-    unit: args.unit ?? null,
-    qty: args.qty,
-    basis: args.pending ? PENDING_BASIS : null,
-    basis_note: "Added from drawing analysis review",
-    external_key: args.externalKey,
-    measurement_method: null,
-    quantity_status: args.pending ? "PENDING" : "MEASURED",
-    scope_id: args.scopeId ?? null,
-    included: true,
-    source: "manual",
-    sort: args.sort ?? 9999,
-  });
+export async function addReviewItemAsLine(args: AddReviewLineArgs): Promise<string | null> {
+  try {
+    return await insertLineResilient({
+      boq_id: args.boqId,
+      section: "Drawing review — added",
+      description: args.description,
+      unit: args.unit ?? null,
+      qty: args.qty,
+      basis: args.pending ? PENDING_BASIS : null,
+      basis_note: "Added from drawing analysis review",
+      external_key: args.externalKey,
+      measurement_method: null,
+      quantity_status: args.pending ? "PENDING" : "MEASURED",
+      scope_id: args.scopeId ?? null,
+      included: true,
+      source: "manual",
+      sort: args.sort ?? 9999,
+    });
+  } catch (err) {
+    if (isBoqLineIdentityConflict(err as { code?: string; message?: string } | null | undefined)) return null;
+    throw err;
+  }
 }
 
 /**
