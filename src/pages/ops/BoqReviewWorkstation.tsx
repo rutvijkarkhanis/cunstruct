@@ -17,7 +17,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import {
   ArrowLeft, Check, Pencil, Flag, Clock, ChevronLeft, ChevronRight, Upload, Cpu, FileText, ChevronDown, ChevronUp, AlertTriangle, Link2, MoreHorizontal, Info,
 } from "lucide-react";
@@ -136,6 +138,7 @@ export default function BoqReviewWorkstation() {
   const [selectedApplyIds, setSelectedApplyIds] = useState<Set<string>>(new Set());
   const [selectedClaim, setSelectedClaim] = useState<ClaimType | null>(null);
   const [showStatsBreakdown, setShowStatsBreakdown] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(false);
 
   // Load the latest run for this BOQ, if any.
   useEffect(() => {
@@ -341,121 +344,148 @@ export default function BoqReviewWorkstation() {
     );
   }
 
+  const reviewedCount = summary.total - summary.remaining;
+  const reviewComplete = summary.remaining === 0;
+
   return (
-    <div className="p-4 space-y-3">
-      {/* Compact drawing-intelligence context bar — the document name and the
-          reviewer's position in the queue lead, not "BOQ Review" chrome.
-          Collapses further on mobile (icon-only back, no boq.name/reviewed%)
-          so nothing stands between opening this screen and seeing the
-          drawing itself. Single elements throughout (never a duplicated
-          mobile/desktop pair) — only their inner text/size responds to the
-          breakpoint, so every existing exact-name button query still matches
-          exactly one element. */}
-      <div className="flex items-start sm:items-center gap-2 sm:gap-3 flex-wrap">
-        <Button variant="ghost" size="sm" onClick={() => navigate(`../boqs/${boqId}`)} aria-label="Back to BOQ">
-          <ArrowLeft className="w-4 h-4 sm:mr-1" /><span className="hidden sm:inline">BOQ</span>
+    <div className="p-2 sm:p-4 space-y-2">
+      {/* QUIET top bar — the drawing's own identity + the reviewer's position
+          in the element set lead ("Ground Floor Plan · 3 / 12"), not "BOQ
+          Review" chrome. Everything else that used to stand permanently in
+          this row (filters, the full queue list, the stats breakdown) now
+          lives inside the one popover the position text opens — so the row
+          itself stays down to: back, position (+ element list), Apply
+          (quiet until review is complete), overflow. Single elements
+          throughout — only inner text/size responds to the breakpoint. */}
+      <div className="flex items-center gap-1 sm:gap-2">
+        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => navigate(`../boqs/${boqId}`)} aria-label="Back to BOQ">
+          <ArrowLeft className="w-4 h-4" />
         </Button>
-        <div className="min-w-0">
-          <h2 className="font-semibold text-sm sm:text-base leading-tight truncate max-w-[11rem] sm:max-w-none">
-            {currentDocumentName ?? "BOQ Review"}
-          </h2>
-          <p className="text-xs text-muted-foreground truncate">
-            {current ? `Quantity ${visible.indexOf(current) + 1} of ${summary.total}` : `${summary.total} quantities`}
-            <span className="hidden sm:inline"> · {boq?.name}</span>
-          </p>
-        </div>
-        {/* Only surface the drawing-link affordance by default when it needs
-            attention — a healthy "linked" state is still reachable from the
-            overflow menu below, just not competing for space when nothing's wrong. */}
-        {linkStatus !== "linked" && <DrawingLinkButton status={linkStatus} onClick={() => setShowRelinkModal(true)} className="hidden sm:inline-flex" />}
-        {/* Filled/primary once there's something ready — this is the
-            culminating action of the whole review pass, not a peer of the
-            other outline buttons on this row. */}
-        <Button variant={applyableCandidates.length > 0 ? "default" : "outline"} size="sm" onClick={openApplyModal} className="ml-auto">
-          <span className="sm:hidden">Apply{applyableCandidates.length > 0 ? ` (${applyableCandidates.length})` : ""}</span>
-          <span className="hidden sm:inline">Apply to BOQ{applyableCandidates.length > 0 ? ` (${applyableCandidates.length})` : ""}</span>
-        </Button>
-        <span className="hidden sm:inline text-sm text-muted-foreground">{summary.total - summary.remaining} / {summary.total} reviewed · {summary.completionPct}%</span>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" aria-label="More options"><MoreHorizontal className="w-4 h-4" /></Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {runCreatedAt && (
-              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                Run {new Date(runCreatedAt).toLocaleString()}
-              </DropdownMenuLabel>
-            )}
-            {linkStatus === "linked" && (
-              <DropdownMenuItem onClick={() => setShowRelinkModal(true)}>
-                <Link2 className="w-4 h-4 mr-2" />Re-link drawing
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem onClick={() => setShowImportModal(true)}>
-              <Upload className="w-4 h-4 mr-2" />Import New Analysis
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
 
-      {/* Stats breakdown: desktop-only standing chrome — on mobile the compact
-          context bar above and the queue control below already carry the
-          position/progress signal a reviewer needs at a glance. */}
-      <div className="hidden sm:flex items-center gap-4 text-sm">
-        <span className="text-muted-foreground">Remaining <b className="text-foreground">{summary.remaining}</b></span>
-        {summary.flagged > 0 && <span className="text-amber-700">Flagged <b>{summary.flagged}</b></span>}
-        <button onClick={() => setShowStatsBreakdown((s) => !s)} className="text-xs text-primary hover:underline ml-auto">
-          {showStatsBreakdown ? "Hide breakdown" : "Show breakdown"}
-        </button>
-      </div>
-      {showStatsBreakdown && (
-        <div className="hidden sm:grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
-          <Stat label="Total" value={summary.total} />
-          <Stat label="Verified" value={summary.verified} cls="text-green-700" />
-          <Stat label="Edited" value={summary.edited} cls="text-blue-700" />
-          <Stat label="Flagged" value={summary.flagged} cls="text-amber-700" />
-          <Stat label="Pending" value={summary.markedPending} cls="text-purple-700" />
-          <Stat label="Remaining" value={summary.remaining} cls="text-muted-foreground" />
-        </div>
-      )}
-
-      {/* Filters: Needs review + All by default; the rest behind "more filters" —
-          same matchesFilter() semantics, just less to scan before the first item. */}
-      <div className="flex items-center gap-1.5 flex-wrap">
-        {PRIMARY_FILTERS.map((f) => (
-          <button key={f} onClick={() => { setFilter(f); setCursor(0); }}
-            className={`text-xs px-2 py-1 rounded border ${filter === f ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
-            {f.replace("_", " ").toLowerCase()}
-          </button>
-        ))}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className={`text-xs px-2 py-1 rounded border inline-flex items-center gap-1 ${MORE_FILTERS.includes(filter) ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
-              {MORE_FILTERS.includes(filter) ? filter.replace("_", " ").toLowerCase() : "more filters"}<ChevronDown className="w-3 h-3" />
+        <Popover open={queueOpen} onOpenChange={setQueueOpen}>
+          <PopoverTrigger asChild>
+            <button type="button" aria-label="Element list and filters" className="flex items-baseline gap-1.5 min-w-0 text-left rounded px-1.5 py-1 -mx-1.5 hover:bg-muted/60">
+              <span className="font-semibold text-sm sm:text-base leading-tight truncate max-w-[8rem] sm:max-w-[18rem]">
+                {currentDocumentName ?? "Review"}
+              </span>
+              <span className="text-xs text-muted-foreground tabular-nums shrink-0 inline-flex items-center gap-0.5">
+                {current ? visible.indexOf(current) + 1 : 0} / {summary.total}
+                <ChevronDown className="w-3 h-3 opacity-60" />
+              </span>
             </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            {MORE_FILTERS.map((f) => (
-              <DropdownMenuItem key={f} onClick={() => { setFilter(f); setCursor(0); }}>
-                {f.replace("_", " ").toLowerCase()}
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-[22rem] p-0">
+            <div className="p-2.5 border-b space-y-2">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>{reviewedCount} / {summary.total} reviewed · {summary.completionPct}%</span>
+                <button onClick={() => setShowStatsBreakdown((s) => !s)} className="text-primary hover:underline">
+                  {showStatsBreakdown ? "Hide breakdown" : "Breakdown"}
+                </button>
+              </div>
+              {showStatsBreakdown && (
+                <div className="grid grid-cols-3 gap-1.5 text-center">
+                  <Stat label="Verified" value={summary.verified} cls="text-green-700" />
+                  <Stat label="Edited" value={summary.edited} cls="text-blue-700" />
+                  <Stat label="Flagged" value={summary.flagged} cls="text-amber-700" />
+                  <Stat label="Pending" value={summary.markedPending} cls="text-purple-700" />
+                  <Stat label="Remaining" value={summary.remaining} />
+                  <Stat label="Total" value={summary.total} />
+                </div>
+              )}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {PRIMARY_FILTERS.map((f) => (
+                  <button key={f} onClick={() => { setFilter(f); setCursor(0); }}
+                    className={`text-xs px-2 py-1 rounded border ${filter === f ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
+                    {f.replace("_", " ").toLowerCase()}
+                  </button>
+                ))}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className={`text-xs px-2 py-1 rounded border inline-flex items-center gap-1 ${MORE_FILTERS.includes(filter) ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
+                      {MORE_FILTERS.includes(filter) ? filter.replace("_", " ").toLowerCase() : "more"}<ChevronDown className="w-3 h-3" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    {MORE_FILTERS.map((f) => (
+                      <DropdownMenuItem key={f} onClick={() => { setFilter(f); setCursor(0); }}>
+                        {f.replace("_", " ").toLowerCase()}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+            <div className="max-h-72 overflow-y-auto">
+              {visible.length > 0 ? (
+                <ReviewQueue rows={queueRows} currentId={current?.id} onSelect={(id) => { selectQueueItem(id); setQueueOpen(false); }} reviewedCount={reviewedCount} totalCount={summary.total} />
+              ) : (
+                <p className="p-3 text-xs text-muted-foreground">Nothing in this filter. Switch to “all”.</p>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
+
+        <div className="ml-auto flex items-center gap-1">
+          {/* Apply is the completion action, not a peer of the other controls
+              on this bar — quiet text while items remain, a real primary
+              button once the review pass is actually done (Section 13). */}
+          {reviewComplete && applyableCandidates.length > 0 ? (
+            <Button size="sm" onClick={openApplyModal}>
+              <span className="sm:hidden">Apply ({applyableCandidates.length})</span>
+              <span className="hidden sm:inline">Apply {applyableCandidates.length} to BOQ</span>
+            </Button>
+          ) : (
+            <button onClick={openApplyModal} className="text-xs text-muted-foreground hover:text-foreground px-2 py-1">
+              Apply{applyableCandidates.length > 0 ? ` (${applyableCandidates.length})` : ""}
+            </button>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="More options"><MoreHorizontal className="w-4 h-4" /></Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {runCreatedAt && (
+                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                  Run {new Date(runCreatedAt).toLocaleString()}
+                </DropdownMenuLabel>
+              )}
+              {linkStatus !== "linked" && (
+                <DropdownMenuItem onClick={() => setShowRelinkModal(true)}>
+                  <AlertTriangle className="w-4 h-4 mr-2 text-amber-600" />{linkStatus === "needs_attention" ? "Drawing link needs attention" : "No drawing linked"} · Re-link
+                </DropdownMenuItem>
+              )}
+              {linkStatus === "linked" && (
+                <DropdownMenuItem onClick={() => setShowRelinkModal(true)}>
+                  <Link2 className="w-4 h-4 mr-2" />Re-link drawing
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={() => setShowImportModal(true)}>
+                <Upload className="w-4 h-4 mr-2" />Import New Analysis
               </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
-      {visible.length > 0 && (
-        <ReviewQueue rows={queueRows} currentId={current?.id} onSelect={selectQueueItem} reviewedCount={summary.total - summary.remaining} totalCount={summary.total} />
+      {/* Review-complete banner — the one moment Apply becomes the dominant
+          action on screen, replacing the quiet text link above with an
+          actual highlighted bar (Section 13). Absent while any item remains
+          unreviewed, so it never competes with the workspace below. */}
+      {reviewComplete && applyableCandidates.length > 0 && (
+        <button onClick={openApplyModal} className="w-full flex items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-left hover:bg-primary/10">
+          <span className="text-sm"><b>Review complete</b> — {applyableCandidates.length} quantity change{applyableCandidates.length === 1 ? "" : "s"} ready for the BOQ</span>
+          <span className="text-xs font-medium text-primary shrink-0">Apply to BOQ →</span>
+        </button>
       )}
 
       {!current ? (
         <Card><CardContent className="p-8 text-center text-muted-foreground">Nothing in this filter. Switch to “all”.</CardContent></Card>
       ) : (
-        // Drawing evidence leads (LEFT/MAIN on desktop, first when stacked on
-        // mobile); the AI quantity + decision panel follows (RIGHT/PANEL on
-        // desktop, second on mobile) — the drawing is what a reviewer is
-        // actually here to check, so it gets the wider, primary position.
-        <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-3">
+        // The drawing IS the workspace — it takes essentially all the space
+        // on desktop, with only a narrow fixed-width decision panel beside
+        // it (never a peer-sized "PDF card" vs. "form card" split). Stacked
+        // on mobile, drawing first, decision panel directly beneath it.
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_336px] gap-3 items-start">
           <ResolvedEvidenceViewer item={current} drawings={drawings} resolvedDocumentId={resolvedDocumentId} selectedClaim={selectedClaim} />
           <ItemPanel
             key={current.id}
@@ -553,27 +583,6 @@ export default function BoqReviewWorkstation() {
   );
 }
 
-// ── Drawing link state — header affordance ──────────────────────────────────────
-// Never inferred from resolved_document_id alone (see computeDrawingLinkStatus):
-// reflects whether this run's evidence actually resolves today.
-function DrawingLinkButton({ status, onClick, className }: { status: DrawingLinkStatus; onClick: () => void; className?: string }) {
-  const styles: Record<DrawingLinkStatus, string> = {
-    linked: "border-green-200 bg-green-50 text-green-800 hover:bg-green-100",
-    needs_attention: "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100",
-    none: "text-muted-foreground",
-  };
-  const label: Record<DrawingLinkStatus, string> = {
-    linked: "Drawing linked",
-    needs_attention: "Drawing link needs attention",
-    none: "No drawing linked",
-  };
-  return (
-    <Button variant="outline" size="sm" onClick={onClick} className={`${styles[status]} ${className ?? ""}`}>
-      {status === "needs_attention" ? <AlertTriangle className="w-3.5 h-3.5 mr-1" /> : <Link2 className="w-3.5 h-3.5 mr-1" />}
-      {label[status]} · Re-link
-    </Button>
-  );
-}
 
 // ── Apply to BOQ — confirmation screen ──────────────────────────────────────────
 const UNSUPPORTED_FIELD_LABEL: Record<UnsupportedChange["field"], string> = {
@@ -983,10 +992,21 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
   const effLocation = reviewer && "location" in reviewer ? reviewer.location : ai.location;
 
   return (
-    <Card><CardContent className="p-4 space-y-3">
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span className="hidden sm:inline">Item {index + 1} of {count}</span>
+    <div className="space-y-3">
+      {/* The selected element's identity — a small eyebrow, not a form-row
+          label, so it reads as "which object on the drawing am I looking
+          at" rather than a database field. AiStateBadge + StatusBadge stay
+          tiny and secondary; they're provenance, not the headline. */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <AiStateBadge state="ai" />
         <StatusBadge status={item.reviewStatus} />
+      </div>
+      <div>
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground truncate">
+          {ai.key}{ai.key !== ai.item ? ` · ${ai.item}` : ""}
+        </div>
+        {ai.description && <div className="text-xs text-muted-foreground mt-0.5">{ai.description}</div>}
+        {item.duplicateOf && <div className="text-xs text-rose-700 mt-0.5">Possible duplicate of {item.duplicateOf}</div>}
       </div>
 
       {/* Review-required banner — concise and factual: what's true about this
@@ -998,22 +1018,11 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
         </div>
       )}
 
-      {/* AI MEASUREMENT — the number a reviewer is actually here to decide on
-          leads, at reading-dominant size, not one field among many in a form
-          (drawing-intelligence-workstation framing). Never implies the
-          reviewer should accept it without checking — the evidence link
-          right under the number is how that check happens. No box/border:
-          open, editorial spacing instead of a bordered "form field" look. */}
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-2">
-          <AiStateBadge state="ai" />
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">AI measurement</span>
-        </div>
-        <div className="text-sm font-medium text-foreground truncate">{ai.key}{ai.key !== ai.item ? ` · ${ai.item}` : ""}</div>
-        {ai.description && <div className="text-xs text-muted-foreground">{ai.description}</div>}
-        {item.duplicateOf && <div className="text-xs text-rose-700">Possible duplicate of {item.duplicateOf}</div>}
-        <ClaimField claim="quantity" value={formatClaimValue(ai, "quantity")} evidence={claimEvidence.quantity} onSelectClaim={handleSelectClaim} emphasize />
-      </div>
+      {/* THE QUANTITY IS THE HERO — the one number a reviewer is actually
+          here to decide on, at a size nothing else on this panel competes
+          with. The evidence link directly beneath it is how "does this
+          look right?" actually gets checked, not a caveat. */}
+      <ClaimField claim="quantity" value={formatClaimValue(ai, "quantity")} evidence={claimEvidence.quantity} onSelectClaim={handleSelectClaim} emphasize />
 
       <div className="flex flex-wrap items-start gap-x-5 gap-y-1.5 text-xs border-t pt-2">
         <Field label="AI status" value={ai.aiStatus} tone={ai.aiStatus === "PENDING" ? "danger" : ai.aiStatus === "INFERRED" ? "warning" : undefined} />
@@ -1192,7 +1201,7 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
         <Button size="sm" variant="ghost" onClick={onPrev} aria-label="Previous quantity"><ChevronLeft className="w-4 h-4" /></Button>
         <Button onClick={onNext} className="flex-1">Next quantity <ChevronRight className="w-4 h-4 ml-1" /></Button>
       </div>
-    </CardContent></Card>
+    </div>
   );
 }
 
@@ -1239,8 +1248,10 @@ export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, sel
     return () => { alive = false; };
   }, [resolved?.filePath]);
 
-  // A real stored file we could sign → render the actual drawing with overlays.
-  // min-w-0: without it, this Card (a grid item on the review split view) can
+  // A real stored file we could sign → render the actual drawing with
+  // overlays. No card/border/padding chrome around it — the PDF viewer IS
+  // the workspace, not a "document preview" sitting inside an attachment
+  // card. min-w-0: without it, this grid item (on the review split view) can
   // be forced wider than its track by the PDF canvas's own intrinsic size —
   // grid/flex items default to min-width:auto (their content's min size), and
   // Tailwind's grid-cols-N utilities only guard against that with an explicit
@@ -1248,17 +1259,7 @@ export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, sel
   // half of this fix.
   if (resolved?.filePath) {
     return (
-      // border-primary/30 matches the AI-extracted box's accent language on
-      // the right — a restrained visual grouping, not a new color, so "AI
-      // extracted quantity" and "evidence from the drawing" read as one
-      // connected concept. PdfEvidenceViewer itself is untouched.
-      <Card className="min-w-0 border-primary/30"><CardContent className="p-4 space-y-2">
-        {/* Narrates the one relationship this whole split view exists to
-            show — the quantity on the left came from THIS drawing, not
-            nowhere. Static, factual, uses only already-resolved data. */}
-        <p className="text-xs text-muted-foreground">
-          Evidence from <span className="text-foreground font-medium">{documentName}</span> — the source of the AI-extracted quantity.
-        </p>
+      <div className="min-w-0">
         <PdfEvidenceViewer
           fileUrl={signed}
           source={item.ai.source}
@@ -1268,7 +1269,7 @@ export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, sel
           selectedClaimValue={selectedClaimValue}
           pageTitles={pageTitles}
         />
-      </CardContent></Card>
+      </div>
     );
   }
 
@@ -1306,18 +1307,25 @@ function EvidenceViewer({ item }: { item: StoredReviewItem }) {
 
   const rects = pageSpace ? transformBoxes(boxes, pageSpace, rendered) : [];
 
+  // Compact, never a giant empty placeholder (Section 14): no real drawing
+  // file resolved for this item, so there is genuinely nothing to render as
+  // "the drawing" — but the fallback itself stays small and factual (a
+  // capped-height plot, or a short sentence) instead of filling the
+  // workspace with an empty striped box. The Verify-gate's "Evidence
+  // unavailable" reason (in ItemPanel's banner) already carries the
+  // decision-relevant signal; this just shows what little we truthfully have.
   return (
-    <Card><CardContent className="p-4 space-y-2">
-      <div className="flex items-center gap-2 text-sm">
-        <FileText className="w-4 h-4 text-muted-foreground" />
-        <span className="font-medium">{ai.source?.document ?? "No source document"}</span>
-        {ai.source?.page != null && <span className="text-muted-foreground">· Page {ai.source.page}</span>}
+    <div className="rounded border bg-muted/20 p-3 space-y-2">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <FileText className="w-3.5 h-3.5" />
+        <span className="font-medium text-foreground">{ai.source?.document ?? "No source document"}</span>
+        {ai.source?.page != null && <span>· Page {ai.source.page}</span>}
       </div>
 
       {placeable && pageSpace ? (
         <>
           <div ref={boxRef} className="relative w-full border rounded bg-[repeating-linear-gradient(45deg,transparent,transparent_10px,rgba(0,0,0,0.03)_10px,rgba(0,0,0,0.03)_20px)]"
-            style={{ height: rendered.height || 300 }}>
+            style={{ height: Math.min(rendered.height || 240, 320) }}>
             {rects.map((r, i) => (
               <div key={i} className="absolute border-2 border-amber-500 bg-amber-400/20"
                 style={{ left: r.left, top: r.top, width: r.width, height: r.height }}
@@ -1332,13 +1340,13 @@ function EvidenceViewer({ item }: { item: StoredReviewItem }) {
           </p>
         </>
       ) : (
-        <div className="border rounded p-6 text-center text-sm text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           {ai.source?.document
-            ? <>Source: <b>{ai.source.document}</b>{ai.source.page != null ? ` — Page ${ai.source.page}` : ""}.<br />No evidence coordinates were supplied — precise highlighting is unavailable.</>
-            : <>This item has no drawing source in the analysis.</>}
-        </div>
+            ? <>Source: <b className="text-foreground">{ai.source.document}</b>{ai.source.page != null ? ` — Page ${ai.source.page}` : ""}. No evidence coordinates were supplied — review this quantity against the drawing directly.</>
+            : <>This item has no drawing source in the analysis — review this quantity on its own merits.</>}
+        </p>
       )}
-    </CardContent></Card>
+    </div>
   );
 }
 
@@ -1371,10 +1379,34 @@ function Field({ label, value, tone, hint }: { label: string; value: string; ton
 function ClaimField({ claim, value, evidence, onSelectClaim, emphasize }: {
   claim: ClaimType; value: string; evidence: EvidenceSummary; onSelectClaim: (claim: ClaimType) => void; emphasize?: boolean;
 }) {
+  if (emphasize) {
+    // Split "128.4 sq ft" into the number and its unit so the number alone
+    // can be rendered enormous — the unit stays legible but visually
+    // secondary. formatClaimValue always puts the number first when one
+    // exists ("—" alone, with no unit, when it doesn't), so this never
+    // misparses a real value.
+    const [num, ...rest] = value.split(" ");
+    const unit = rest.join(" ");
+    return (
+      <div>
+        <div title={value} className="flex items-baseline gap-2">
+          <span className="text-5xl sm:text-6xl font-bold tracking-tight tabular-nums leading-none">{num}</span>
+          {unit && <span className="text-base sm:text-lg font-medium text-muted-foreground">{unit}</span>}
+        </div>
+        {evidence.hasEvidence ? (
+          <button onClick={() => onSelectClaim(claim)} className="mt-2 text-xs text-amber-700 hover:text-amber-800 font-medium underline underline-offset-2 text-left truncate block max-w-full" title={evidence.text}>
+            {evidence.text}
+          </button>
+        ) : (
+          <div className="mt-2 text-xs text-muted-foreground">{evidence.text}</div>
+        )}
+      </div>
+    );
+  }
   return (
     <div>
       <div className="text-[11px] text-muted-foreground">{claimLabel(claim)}</div>
-      <div className={emphasize ? "truncate text-lg font-semibold" : "truncate"} title={value}>{value}</div>
+      <div className="truncate" title={value}>{value}</div>
       {evidence.hasEvidence ? (
         <button onClick={() => onSelectClaim(claim)} className="text-[10px] text-amber-600 hover:text-amber-700 font-medium text-left truncate block max-w-full" title={evidence.text}>
           {evidence.text}

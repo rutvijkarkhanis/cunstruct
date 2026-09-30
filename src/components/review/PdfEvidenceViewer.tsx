@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min?url";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { ZoomIn, ZoomOut, Maximize, Crosshair, ChevronLeft, ChevronRight, FileWarning, Loader2 } from "lucide-react";
 import { resolvePageSpace, transformBoxes, fitToEvidence, getEvidenceForClaim, detectPageSizeMismatch } from "@/lib/review/evidenceCoords";
 import { claimLabel, sheetPositionLabel } from "@/lib/review/evidenceDisplay";
@@ -208,8 +209,18 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
     }, 30);
   }, [source, pageBase, boxes]);
 
-  // Auto fit-to-evidence when a new item with boxes renders.
-  useEffect(() => { if (status === "ready" && boxes.length) fitEvidence(); }, [status, boxes, fitEvidence]);
+  // Auto re-fit whenever the CURRENT selection's evidence set changes: fit
+  // tightly to it when there is any, else fall back to the page-wide
+  // baseline fit. Without the `else fitPage()` branch, switching from an
+  // item WITH evidence to one WITHOUT (same page, so the first effect above
+  // never re-fires — neither `status` nor `pageBase` changed) left the
+  // viewer at the PREVIOUS item's zoomed-in crop. Section 14 is explicit
+  // that no evidence means "show the drawing normally", not whatever the
+  // last item happened to leave the scale at.
+  useEffect(() => {
+    if (status !== "ready") return;
+    if (boxes.length) fitEvidence(); else fitPage();
+  }, [status, boxes, fitEvidence, fitPage]);
 
   // Overlay rects for the current page.
   const overlayRects = useMemo(() => {
@@ -298,10 +309,12 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
           an oversized canvas internally instead of the canvas's intrinsic
           size pulling this container (and its ancestors) wider than the
           viewport — see the min-w-0 note on the caller's Card. */}
-      {/* The drawing is the hero, not a fixed-height panel among several —
-          most of the viewport on a phone, a comfortable fixed height on
-          desktop where the decision panel sits beside it. */}
-      <div ref={containerRef} className="relative overflow-auto border rounded bg-neutral-100 w-full max-w-full min-w-0 h-[58vh] min-h-[320px] max-h-[640px] lg:h-[520px] lg:max-h-none">
+      {/* The drawing IS the workspace, not a fixed-height panel among
+          several — most of the viewport on a phone, and on desktop it fills
+          essentially all available vertical space next to the narrow
+          decision panel (see the caller's grid), so it genuinely dominates
+          instead of sharing the screen with the panel at comparable size. */}
+      <div ref={containerRef} className="relative overflow-auto border rounded bg-neutral-100 w-full max-w-full min-w-0 h-[60vh] min-h-[360px] max-h-[72vh] lg:h-[calc(100vh-190px)] lg:min-h-[520px] lg:max-h-none">
         {status === "loading" && <div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>}
         {status === "error" && (
           <div className="absolute inset-0 flex items-center justify-center p-4">
@@ -313,15 +326,33 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
         )}
         <div className="relative inline-block" data-testid="evidence-overlays">
           <canvas ref={canvasRef} className="block" />
+          {/* The first box is the SELECTED element — it must read as an
+              object the reviewer picked on the drawing, not one of several
+              generic highlight rectangles. A heavier solid border + a
+              filled label chip (vs. the thin dashed treatment for any other
+              boxes on the same page) is the entire visual difference; no
+              geometry is invented — same rects transformBoxes already
+              computed from the analysis's real evidence coordinates. */}
           {overlayRects.map((r, i) => {
             const box = boxes[i];
             const claim = box?.claim ?? "general";
             const claimIndicator = selectedClaim ? `${claim.slice(0, 3).toUpperCase()}${i + 1}` : `E${i + 1}`;
+            const primary = i === 0;
             return (
               <div key={i}
-                className={`absolute pointer-events-none ${i === 0 ? "border-2 border-amber-500 bg-amber-400/25" : "border-2 border-dashed border-amber-500/80 bg-amber-400/10"}`}
+                className={cn(
+                  "absolute pointer-events-none",
+                  primary
+                    ? "border-[3px] border-amber-500 bg-amber-400/20 shadow-[0_0_0_4px_rgba(245,158,11,0.15)]"
+                    : "border-2 border-dashed border-amber-500/70 bg-amber-400/10",
+                )}
                 style={{ left: r.left, top: r.top, width: r.width, height: r.height }}>
-                <span className="absolute -top-4 left-0 text-[10px] font-medium text-amber-700 bg-white/70 px-0.5 rounded">{box?.label ?? claimIndicator}</span>
+                <span className={cn(
+                  "absolute -top-6 left-0 whitespace-nowrap rounded font-semibold",
+                  primary ? "text-[11px] px-1.5 py-0.5 bg-amber-500 text-white shadow-sm" : "text-[10px] px-1 py-0.5 bg-white/75 text-amber-700",
+                )}>
+                  {box?.label ?? claimIndicator}
+                </span>
               </div>
             );
           })}
