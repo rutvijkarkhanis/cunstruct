@@ -26,7 +26,7 @@ import {
   orderQueue, matchesFilter, reviewSummary, isCritical, criticalReasons, effectiveQuantity, diffItem, quantityDelta, LOW_CONFIDENCE,
   type ReviewFilter, type ReviewStatus, type FlagReason, type ReviewerValues,
 } from "@/lib/review/reviewQueue";
-import { transformBoxes, unionBox, hasPlaceableEvidence } from "@/lib/review/evidenceCoords";
+import { transformBoxes, unionBox, hasPlaceableEvidence, defaultEvidenceClaim } from "@/lib/review/evidenceCoords";
 import { claimLabel, formatClaimValue, summarizeClaimEvidence, type EvidenceSummary } from "@/lib/review/evidenceDisplay";
 import { defaultInputMode, isProviderConfigured, PROVIDERS, type InputMode } from "@/lib/review/analysisProviders";
 import { createAnalysisRun, loadReviewItems, latestRunForBoq, saveReviewDecision, updateResolvedDocument, type StoredReviewItem } from "@/lib/review/reviewStore";
@@ -262,8 +262,17 @@ export default function BoqReviewWorkstation() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to apply to the BOQ"),
   });
 
-  // Clear selectedClaim when item changes
-  useEffect(() => { setSelectedClaim(null); }, [current?.id]);
+  // Default the drawing's focus to the AI quantity's own evidence whenever a
+  // NEW item becomes current (the spatial-review entry point: "select Column
+  // — 12 nos → drawing focuses on the relevant evidence"). Falls back to null
+  // (show all of this item's evidence, unfiltered — today's exact prior
+  // behavior) when the analysis has no quantity-tagged evidence for it —
+  // never fabricates a focus the data doesn't support. Depends only on
+  // current?.id, not `current` itself, so an in-place update to the SAME item
+  // (e.g. after Verify) never resets the reviewer's own claim selection —
+  // only navigating to a genuinely different item does.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setSelectedClaim(defaultEvidenceClaim(current?.ai.source)); }, [current?.id]);
 
   const go = useCallback((delta: number) => {
     setCursor((c) => Math.max(0, Math.min(visible.length - 1, c + delta)));

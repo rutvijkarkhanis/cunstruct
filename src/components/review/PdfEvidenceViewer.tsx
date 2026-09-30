@@ -307,12 +307,28 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
           })}
         </div>
       </div>
-      {source?.evidence && source.evidence.length > 0 && boxes.length === 0 && (
-        <p className="text-[11px] text-muted-foreground">Evidence for this item is on another page — use the page controls.</p>
-      )}
-      {(!source?.evidence || source.evidence.length === 0) && (
-        <p className="text-[11px] text-muted-foreground">Evidence coordinates unavailable — showing the source page only.</p>
-      )}
+      {/* Claim-aware fallback (Section 9): distinguishes "this claim genuinely
+          has no evidence anywhere" (a truthful, non-fabricated statement) from
+          "it has evidence, just not on the page currently showing" — the
+          latter would be misleading if reported the same way once evidence
+          can be filtered to a single claim by default. Never invents a page
+          or a location either way. */}
+      {(() => {
+        const claimEvidenceAnyPage = selectedClaim ? getEvidenceForClaim(source?.evidence ?? [], selectedClaim) : (source?.evidence ?? []);
+        if (claimEvidenceAnyPage.length === 0) {
+          return (
+            <p className="text-[11px] text-muted-foreground">
+              {selectedClaim
+                ? `Drawing evidence unavailable for this item's ${claimLabel(selectedClaim).toLowerCase()} — showing the source page only.`
+                : "Evidence coordinates unavailable — showing the source page only."}
+            </p>
+          );
+        }
+        if (boxes.length === 0) {
+          return <p className="text-[11px] text-muted-foreground">Evidence for this item is on another page — use the page controls.</p>;
+        }
+        return null;
+      })()}
       {pageSizeWarning && <p className="text-[11px] text-amber-600">{pageSizeWarning}</p>}
     </Shell>
   );
