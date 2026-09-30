@@ -161,9 +161,26 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
   // Fit-to-page: scale so the page fills the container width.
   const fitPage = useCallback(() => {
     const c = containerRef.current;
-    if (!c || !pageBase) return;
+    // Never guess when the container isn't measurable yet (clientWidth 0 —
+    // e.g. not yet laid out, or a test environment with no real layout
+    // engine) — same defensive rule fitToEvidence already applies via its
+    // own viewportWidth check.
+    if (!c || !pageBase || !c.clientWidth) return;
     setScale(Math.max(0.1, Math.min(8, (c.clientWidth - 24) / pageBase.width)));
   }, [pageBase]);
+
+  // ROOT CAUSE of the mobile "blank drawing" report: without this, a page is
+  // first painted at whatever `scale` already was (default 1 — the PDF's own
+  // native point size) the instant it becomes ready, and nothing ever
+  // re-fits it unless this item happens to have evidence (see fitEvidence
+  // below, which only runs `if boxes.length`). A full architectural sheet at
+  // native scale is far wider/taller than any phone viewport, so the visible
+  // area shows an empty corner of the page — indistinguishable from "nothing
+  // rendered" on a small screen. This gives EVERY page a sane baseline fit
+  // the moment it's measurable; fitEvidence (defined next, so it runs after
+  // this in the same commit — effects fire in source order) still overrides
+  // it with a tighter fit whenever the item actually has evidence.
+  useEffect(() => { if (status === "ready" && pageBase) fitPage(); }, [status, pageBase, fitPage]);
 
   // Fit-to-evidence: delegate the scale calculation to the ONE canonical
   // implementation (evidenceCoords.fitToEvidence), then scroll to centre it.
@@ -281,7 +298,10 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
           an oversized canvas internally instead of the canvas's intrinsic
           size pulling this container (and its ancestors) wider than the
           viewport — see the min-w-0 note on the caller's Card. */}
-      <div ref={containerRef} className="relative overflow-auto border rounded bg-neutral-100 w-full max-w-full min-w-0" style={{ height: 460 }}>
+      {/* The drawing is the hero, not a fixed-height panel among several —
+          most of the viewport on a phone, a comfortable fixed height on
+          desktop where the decision panel sits beside it. */}
+      <div ref={containerRef} className="relative overflow-auto border rounded bg-neutral-100 w-full max-w-full min-w-0 h-[58vh] min-h-[320px] max-h-[640px] lg:h-[520px] lg:max-h-none">
         {status === "loading" && <div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>}
         {status === "error" && (
           <div className="absolute inset-0 flex items-center justify-center p-4">

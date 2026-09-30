@@ -9,9 +9,11 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import AiStateBadge from "@/components/review/AiStateBadge";
+import DrawingThumbnail from "@/components/review/DrawingThumbnail";
+import PdfEvidenceViewer from "@/components/review/PdfEvidenceViewer";
 import { toast } from "sonner";
-import { Plus, FileText, ChevronDown, ChevronRight, CheckCircle2, Link2, Upload, Trash2, FolderPlus, FolderOpen, Folder as FolderIcon, Sparkles, Eye, ClipboardCheck } from "lucide-react";
+import { Plus, FileText, ChevronDown, ChevronRight, CheckCircle2, Link2, Upload, Trash2, FolderPlus, FolderOpen, Folder as FolderIcon, Sparkles, MoreVertical, ArrowRight } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { DOC_TYPES, DISCIPLINES, type ProjectDocument, type DocumentRevision, type DocumentFolder } from "@/lib/projectDocs";
 import { validateDrawingFile, buildDrawingPath, uploadDrawing, deleteDrawing, signedDrawingUrl } from "@/lib/review/drawingStorage";
 import { buildFolderTree, folderBreadcrumb, parseRelativePath, looksLikePdf, type FolderNode } from "@/lib/documentFolders";
@@ -102,6 +104,24 @@ export default function ProjectDocuments() {
       const { data } = await supabase.from("analysis_run_source")
         .select("document_id").eq("status", "SUCCEEDED").in("document_id", ids);
       return new Set((data ?? []).map((r) => (r as { document_id: string | null }).document_id).filter(Boolean) as string[]);
+    },
+  });
+
+  // How many quantities the most recent analysis run found for each document —
+  // real, existing data (analysis_run.item_count), read fresh here only for
+  // display; never a fabricated "N quantities ready" figure. `order("created_at")`
+  // ascending + last-write-wins below keeps each document's LATEST run's count.
+  const { data: docQuantityCounts } = useQuery({
+    queryKey: ["document-quantity-counts", projectId, ids.join(",")],
+    enabled: ids.length > 0,
+    queryFn: async () => {
+      const { data } = await supabase.from("analysis_run")
+        .select("resolved_document_id, item_count, created_at").in("resolved_document_id", ids).order("created_at");
+      const out: Record<string, number> = {};
+      for (const r of (data ?? []) as { resolved_document_id: string | null; item_count: number | null }[]) {
+        if (r.resolved_document_id) out[r.resolved_document_id] = r.item_count ?? 0;
+      }
+      return out;
     },
   });
 
@@ -403,80 +423,99 @@ export default function ProjectDocuments() {
     const open = expandedDocs[d.id];
     const isDrawing = !!current?.file_path;
     const analysed = analysedDocIds?.has(d.id) ?? false;
+    const quantityCount = current ? docQuantityCounts?.[d.id] : undefined;
     return (
-      <Card key={d.id} className={cn(isDrawing && "border-l-2 border-l-primary/25")}>
-        <CardContent className="p-3">
-          <div className="flex items-start gap-3">
-            {/* Thumbnail slot — a drawing is a visual object first. No image
-                render (nothing here claims a preview that isn't there); a
-                colored icon block still gives every card a real, scannable
-                anchor instead of reading as a plain file-manager row. */}
-            <div className={cn(
-              "h-11 w-11 shrink-0 rounded-md flex items-center justify-center",
-              isDrawing ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
-            )}>
-              <FileText className="h-5 w-5" />
+      <Card key={d.id} className="overflow-hidden">
+        {/* THE DRAWING IS THE CARD — a large, real first-page preview leads,
+            not a filename row with an icon. Tapping it opens the in-app
+            preview; non-drawings (no uploaded file yet) keep a plain, honest
+            placeholder slot — there is nothing real to render a thumbnail
+            from. This is a drawing gallery, not a file manager. */}
+        {isDrawing ? (
+          <DrawingThumbnail
+            revisionId={current!.id}
+            filePath={current!.file_path!}
+            renderSize={640}
+            className="w-full h-44 sm:h-52 rounded-none border-0 border-b"
+            onClick={() => previewDrawing(current!.id, current!.file_path!, d.name)}
+          />
+        ) : (
+          <div className="h-20 w-full bg-muted text-muted-foreground flex items-center justify-center border-b">
+            <FileText className="h-6 w-6" />
+          </div>
+        )}
+        <CardContent className="p-3 space-y-2.5">
+          {breadcrumb.length > 0 && (
+            <div className="text-[11px] text-muted-foreground truncate" data-testid="doc-breadcrumb">
+              {breadcrumb.join(" / ")}
             </div>
-            <div className="min-w-0 flex-1">
-              {breadcrumb.length > 0 && (
-                <div className="text-[11px] text-muted-foreground truncate" data-testid="doc-breadcrumb">
-                  {breadcrumb.join(" / ")}
-                </div>
-              )}
-              <div className="flex items-center gap-2">
-                <span className="font-medium truncate">{d.name}</span>
-                {isDrawing && (analysed
-                  ? <AiStateBadge state="ai" label="Analysed" />
-                  : <Badge variant="outline" className="text-[10px] uppercase tracking-wide">Not analysed yet</Badge>)}
-              </div>
-              <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-2 mt-0.5">
-                {d.doc_type && <Badge variant="outline">{d.doc_type}</Badge>}
-                {d.discipline && <span>{d.discipline}</span>}
-                <span>· {current ? `Current: ${current.label}` : "No current revision"}</span>
-                <span>· added {d.created_at ? new Date(d.created_at).toLocaleString() : "—"}</span>
-                <span className="inline-flex items-center gap-1"><Link2 className="h-3 w-3" />{linkCounts?.[d.id] ?? 0} BOQ{(linkCounts?.[d.id] ?? 0) === 1 ? "" : "s"}</span>
+          )}
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="font-semibold truncate">{d.name}</div>
+              {/* Restrained caption — discipline · revision · truthful
+                  analysis state, never more than one line of chrome under
+                  the drawing itself. Real quantity count when a run exists
+                  for this document; otherwise a plain, honest status. */}
+              <div className="text-xs text-muted-foreground truncate">
+                {[d.discipline, current?.label].filter(Boolean).join(" · ")}
+                {isDrawing && (
+                  <span className={cn(analysed && "text-emerald-600 dark:text-emerald-400")}>
+                    {(d.discipline || current?.label) ? " · " : ""}
+                    {analysed
+                      ? (quantityCount != null ? `${quantityCount} quantit${quantityCount === 1 ? "y" : "ies"} ready` : "Analysed")
+                      : "Not analysed yet"}
+                  </span>
+                )}
               </div>
             </div>
-            <div className="flex items-center gap-1 shrink-0">
-              <Button size="sm" variant="ghost" onClick={() => setExpandedDocs((e) => ({ ...e, [d.id]: !e[d.id] }))} aria-label="Toggle revisions">
+            <div className="flex items-center gap-0.5 shrink-0">
+              {/* A direct, always-present affordance (not tucked in a menu) —
+                  expanding details/revisions is browsing this drawing, not an
+                  admin action. */}
+              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setExpandedDocs((e) => ({ ...e, [d.id]: !e[d.id] }))} aria-label="Toggle revisions">
                 {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
               </Button>
-              <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" title="Delete document" onClick={() => deleteDocument(d)}>
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
+              {/* Secondary/admin actions behind one small menu — add a
+                  revision, delete. Never four equal-weight buttons beside
+                  the primary action below. */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0" aria-label="Document actions"><MoreVertical className="h-4 w-4" /></Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => { setRevFor(revFor === d.id ? null : d.id); setRevLabel(""); setRevUrl(""); }}>
+                    <Plus className="h-4 w-4 mr-2" />Add revision
+                  </DropdownMenuItem>
+                  <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => deleteDocument(d)}>
+                    <Trash2 className="h-4 w-4 mr-2" />Delete document
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
 
-          {/* A real uploaded PDF is the input Cunstruct can actually read — the
-              primary path from here is straight into Generate/Review, not a
-              detour through the BOQ tab first. The CTA's label/icon reflects
-              REAL per-document analysis state (analysedDocIds, above) rather
-              than a fixed string — never invented. */}
+          {/* ONE dominant primary action — the whole point of uploading a
+              drawing. Label/icon reflect REAL per-document analysis state
+              (analysedDocIds, above), never a fixed string. */}
           {isDrawing && (
-            <div className="mt-3 pl-14 flex flex-wrap items-center gap-2">
-              <Button size="sm" onClick={() => goGenerateFrom(d.name)}>
-                {analysed
-                  ? <><ClipboardCheck className="h-3.5 w-3.5 mr-1.5" />Review quantities</>
-                  : <><Sparkles className="h-3.5 w-3.5 mr-1.5" />Generate quantities</>}
-              </Button>
-              <Button
-                size="sm" variant="outline"
-                disabled={previewLoadingFor === current!.id}
-                onClick={() => previewDrawing(current!.id, current!.file_path!, d.name)}
-              >
-                <Eye className="h-3.5 w-3.5 mr-1.5" />
-                {previewLoadingFor === current!.id ? "Opening preview…" : "Preview drawing"}
-              </Button>
-              <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => { setRevFor(revFor === d.id ? null : d.id); setRevLabel(""); setRevUrl(""); }}>
-                <Plus className="h-3.5 w-3.5 mr-1" />Revision
-              </Button>
-            </div>
+            <Button className="w-full" onClick={() => goGenerateFrom(d.name)}>
+              {analysed
+                ? <>Review quantities <ArrowRight className="h-4 w-4 ml-1.5" /></>
+                : <>Generate quantities <ArrowRight className="h-4 w-4 ml-1.5" /></>}
+            </Button>
           )}
           {!isDrawing && (
-            <div className="mt-3 pl-14">
-              <Button size="sm" variant="outline" onClick={() => { setRevFor(revFor === d.id ? null : d.id); setRevLabel(""); setRevUrl(""); }}>
-                <Plus className="h-3.5 w-3.5 mr-1" />Revision
-              </Button>
+            <Button size="sm" variant="outline" onClick={() => { setRevFor(revFor === d.id ? null : d.id); setRevLabel(""); setRevUrl(""); }}>
+              <Plus className="h-3.5 w-3.5 mr-1" />Add a revision
+            </Button>
+          )}
+
+          {open && d.doc_type && (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <Badge variant="outline">{d.doc_type}</Badge>
+              <span>added {d.created_at ? new Date(d.created_at).toLocaleString() : "—"}</span>
+              <span className="inline-flex items-center gap-1"><Link2 className="h-3 w-3" />{linkCounts?.[d.id] ?? 0} BOQ{(linkCounts?.[d.id] ?? 0) === 1 ? "" : "s"}</span>
             </div>
           )}
 
@@ -689,15 +728,31 @@ export default function ProjectDocuments() {
         )}
       </div>
 
-      {/* In-app drawing preview (Section 4) — keeps the user inside Cunstruct
-          instead of a new browser tab. Plain iframe against the same signed
-          URL signedDrawingUrl() already produces; no pdf.js involved, same
-          as the previous window.open() path — just rendered in place. */}
+      {/* In-app drawing preview — keeps the user inside Cunstruct instead of a
+          new browser tab or a raw iframe (mobile browsers frequently fail to
+          render a PDF inline in an iframe at all). Reuses PdfEvidenceViewer —
+          the SAME pdf.js rendering/zoom/pan/page-nav infrastructure Review
+          already uses — with no evidence and no claim selection, since this
+          is a plain "look at the drawing" context, not a review context.
+          PdfEvidenceViewer itself is untouched except for the mobile
+          fit-to-page fix, which benefits this preview too. */}
       <Dialog open={!!previewing} onOpenChange={(o) => { if (!o) setPreviewing(null); }}>
-        <DialogContent className="max-w-4xl h-[85vh] flex flex-col">
-          <DialogHeader><DialogTitle className="truncate">{previewing?.name}</DialogTitle></DialogHeader>
+        {/* min-w-0: DialogContent is `display:grid` with an auto-sized implicit
+            track — without this, the PDF canvas's own intrinsic width (its
+            native page size before the fit-to-page effect can shrink it) pulls
+            this grid item, and so the whole dialog, wider than the viewport on
+            a phone. Same fix, same cause, as ResolvedEvidenceViewer's Card on
+            the Review split view (see its own min-w-0 comment). */}
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto min-w-0">
+          <DialogHeader className="sr-only"><DialogTitle>{previewing?.name ?? "Drawing preview"}</DialogTitle></DialogHeader>
           {previewing && (
-            <iframe title={`Preview of ${previewing.name}`} src={previewing.url} className="flex-1 w-full rounded border" />
+            <div className="min-w-0">
+              <PdfEvidenceViewer
+                fileUrl={previewing.url}
+                source={{ document: previewing.name, evidence: [] }}
+                documentName={previewing.name}
+              />
+            </div>
           )}
         </DialogContent>
       </Dialog>

@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, Plus, Trash2, Search, Layers, FileDown, FileText, Sheet, ClipboardList, ClipboardCheck, Percent, AlertTriangle, Eye, Presentation, ChevronDown, UserCheck, Braces } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Trash2, Search, Layers, FileDown, FileText, Sheet, ClipboardList, ClipboardCheck, Percent, AlertTriangle, Eye, Presentation, ChevronDown, UserCheck, Braces, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DsrItem { id: string; code: string; description: string | null; unit: string | null; rate: number | null; chapter: string | null; }
@@ -120,7 +120,10 @@ export default function OpsBoqBuilder() {
   // there from the pure classification + this exact result's conflict list),
   // never a NEW_LINE's id (the server never returns it to the client) and
   // never anything for a page load/refresh that didn't come from that link.
-  const postApply = location.state as { justAppliedLineIds?: string[]; appliedCount?: number; unresolvedCount?: number; correctedCount?: number } | null;
+  const postApply = location.state as {
+    justAppliedLineIds?: string[]; appliedCount?: number; unresolvedCount?: number; correctedCount?: number;
+    reviewedCount?: number; verifiedCount?: number;
+  } | null;
   const justAppliedLineIds = postApply?.justAppliedLineIds ?? [];
   // BOQ-level fallback for exactly the case per-line marking can't cover:
   // NEW_LINE candidates, whose real ids are never returned to the client.
@@ -132,6 +135,14 @@ export default function OpsBoqBuilder() {
   // in the Review Workstation from the same applyPlan/items it already had,
   // carried through navigation state exactly like the other two counts.
   const justAppliedCorrectedCount = postApply?.correctedCount ?? 0;
+  // Reviewed/Verified totals from that same review session's `summary` —
+  // real, already-computed figures carried through the exact same
+  // navigation-state mechanism as the three counts above. Fall back to
+  // appliedCount when absent (an older navigation payload) rather than 0,
+  // since every applied item was necessarily reviewed.
+  const justAppliedReviewedCount = postApply?.reviewedCount ?? justAppliedCount;
+  const justAppliedVerifiedCount = postApply?.verifiedCount ?? 0;
+  const [mobileEditOpen, setMobileEditOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
   const [showBrowser, setShowBrowser] = useState(false);
@@ -553,6 +564,42 @@ export default function OpsBoqBuilder() {
 
   if (!boq) return <div className="p-8 flex justify-center"><Loader2 className="animate-spin" /></div>;
 
+  // The admin/catalogue actions shared by the desktop "More" menu and the
+  // mobile "More actions" menu (Section 7) — same items, same handlers,
+  // defined once as a local closure so both call sites stay in sync instead
+  // of duplicating seven DropdownMenuItems.
+  const AdminMenuItems = () => (
+    <>
+      <DropdownMenuItem onClick={() => setShowBrowser((s) => !s)}>
+        <Plus className="h-4 w-4 mr-2" />{showBrowser ? "Hide add item" : "Add item"}
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={addBlankLine} disabled={busy}>
+        <Plus className="h-4 w-4 mr-2" />Add blank line
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem onClick={() => setShowJson((s) => !s)} title="Add lines from a structured drawing-evaluation JSON">
+        <Braces className="h-4 w-4 mr-2" />{showJson ? "Hide JSON import" : "Add lines from JSON"}
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => setShowAudit((s) => !s)} title="Sanity-check quantities against the built-up area">
+        <ClipboardCheck className="h-4 w-4 mr-2" />{showAudit ? "Hide BOQ Audit" : "BOQ Audit"}
+      </DropdownMenuItem>
+      {boq.project_id && (
+        <DropdownMenuItem onClick={() => setShowDocs((s) => !s)} title="Assign or review the project's drawings">
+          <FileText className="h-4 w-4 mr-2" />{showDocs ? "Hide documents" : "Assign documents"}
+        </DropdownMenuItem>
+      )}
+      <DropdownMenuSeparator />
+      <DropdownMenuItem onClick={() => printIntake(false)}>
+        <ClipboardList className="h-4 w-4 mr-2" />Intake form
+      </DropdownMenuItem>
+      {boq.contractor_id && (
+        <DropdownMenuItem onClick={saveDefaults}>
+          <UserCheck className="h-4 w-4 mr-2" />Save {contractor?.name ?? "contractor"}'s usual
+        </DropdownMenuItem>
+      )}
+    </>
+  );
+
   return (
     <div className={cn("max-w-5xl mx-auto p-4 md:p-6 space-y-4", present && "pt-16")}>
       {present && (
@@ -568,7 +615,12 @@ export default function OpsBoqBuilder() {
           told as part of the output hero below (a fresh Apply this session);
           duplicating the same number in two places would undercut the hero
           rather than support it. */}
-      <div className="flex items-center gap-2">
+      {/* items-start, not items-center: a long BOQ name wraps to several lines
+          at phone width, and items-center would then vertically centre the
+          back/"Show to client" buttons against that whole tall block —
+          leaving the back arrow floating mid-row instead of beside the
+          title's first line. */}
+      <div className="flex items-start gap-2">
         <Button variant="ghost" size="sm" onClick={() => navigate(-1)}><ArrowLeft className="h-4 w-4" /></Button>
         <div className="flex-1">
           <h1 className="text-lg font-semibold">{boq.name}</h1>
@@ -628,21 +680,44 @@ export default function OpsBoqBuilder() {
           paths), so this hero never renders on a later revisit/refresh —
           see the neutral strip below for that case instead of a false claim. */}
       {!present && justAppliedCount > 0 && (
-        <div className="rounded-lg border-2 border-primary/25 bg-primary/5 p-4 md:p-5 space-y-4">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2">
-              <AiStateBadge state="applied" label="Applied to BOQ" />
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-primary">BOQ generated from review</span>
-            </div>
-            <span className="text-xs text-muted-foreground">
-              Review → Apply → <b className="text-foreground">BOQ</b> → Export
-            </span>
+        // THE PAYOFF — a result screen, not another data table. Every figure
+        // is exactly what Apply/the review session already returned
+        // (reviewedCount/verifiedCount/correctedCount/unresolvedCount) —
+        // nothing invented — which is also why this only ever renders for
+        // the session that just applied (see the neutral strip below for a
+        // later revisit, where none of this can be told truthfully).
+        <div className="rounded-xl border bg-gradient-to-b from-primary/[0.07] to-primary/[0.01] p-5 md:p-6 space-y-5">
+          <div className="flex items-center gap-2">
+            <AiStateBadge state="applied" label="Applied to BOQ" />
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-primary">BOQ generated from review</span>
+          </div>
+          <div>
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Your BOQ is ready</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">Built from your reviewed drawing quantities.</p>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <HeroStat label="Applied" value={String(justAppliedCount)} />
-            <HeroStat label="Corrected by you" value={justAppliedCorrectedCount > 0 ? String(justAppliedCorrectedCount) : "—"} />
-            <HeroStat label="Unresolved" value={justAppliedUnresolvedCount > 0 ? String(justAppliedUnresolvedCount) : "0"} tone={justAppliedUnresolvedCount > 0 ? "warning" : undefined} />
-            <HeroStat label={`${disciplineByKey(boq.discipline).name} total`} value={inr(displayGrand)} />
+            <HeroStat label="Reviewed" value={String(justAppliedReviewedCount)} />
+            <HeroStat label="Verified" value={String(justAppliedVerifiedCount)} />
+            <HeroStat label="Corrected" value={String(justAppliedCorrectedCount)} />
+            <HeroStat label="Flagged" value={String(justAppliedUnresolvedCount)} tone={justAppliedUnresolvedCount > 0 ? "warning" : undefined} />
+          </div>
+          <div className="flex flex-wrap items-end justify-between gap-4 pt-3 border-t">
+            <div>
+              <div className="text-3xl md:text-4xl font-bold tabular-nums tracking-tight">{inr(displayGrand)}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">Estimated {disciplineByKey(boq.discipline).name} BOQ total</div>
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="lg" disabled={lines.length === 0}>
+                  <FileDown className="h-4 w-4 mr-2" />Export BOQ<ChevronDown className="h-4 w-4 ml-1" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => exportQuote(false, true)}><FileText className="h-4 w-4 mr-2" />PDF</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => exportQuote(true, false)}><FileDown className="h-4 w-4 mr-2" />PDF / Spec &amp; Qty</DropdownMenuItem>
+                <DropdownMenuItem onClick={exportExcel}><Sheet className="h-4 w-4 mr-2" />Excel</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       )}
@@ -661,7 +736,8 @@ export default function OpsBoqBuilder() {
       )}
 
       {!present && (<>
-      <div className="flex flex-wrap items-center gap-2">
+      {/* Desktop/tablet — today's toolbar, unchanged (Section 8: no regression). */}
+      <div className="hidden lg:flex flex-wrap items-center gap-2">
         <Button variant="outline" onClick={() => navigate(`review`)}
           title="Review AI-extracted quantities from a drawing analysis and apply them to this BOQ">
           <ClipboardCheck className="h-4 w-4 mr-2" />Review Analysis
@@ -695,36 +771,7 @@ export default function OpsBoqBuilder() {
             <Button variant="outline">More<ChevronDown className="h-4 w-4 ml-1" /></Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
-            <DropdownMenuItem onClick={() => setShowBrowser((s) => !s)}>
-              <Plus className="h-4 w-4 mr-2" />{showBrowser ? "Hide add item" : "Add item"}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={addBlankLine} disabled={busy}>
-              <Plus className="h-4 w-4 mr-2" />Add blank line
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => setShowJson((s) => !s)}
-              title="Add lines from a structured drawing-evaluation JSON (deterministic; no AI)">
-              <Braces className="h-4 w-4 mr-2" />{showJson ? "Hide JSON import" : "Add lines from JSON"}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setShowAudit((s) => !s)}
-              title="Import an externally-produced audit JSON and review its findings (deterministic; no AI)">
-              <ClipboardCheck className="h-4 w-4 mr-2" />{showAudit ? "Hide BOQ Audit" : "BOQ Audit"}
-            </DropdownMenuItem>
-            {boq.project_id && (
-              <DropdownMenuItem onClick={() => setShowDocs((s) => !s)}
-                title="Assign project documents (drawings, references) to this BOQ">
-                <FileText className="h-4 w-4 mr-2" />{showDocs ? "Hide documents" : "Assign documents"}
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => printIntake(false)}>
-              <ClipboardList className="h-4 w-4 mr-2" />Intake form
-            </DropdownMenuItem>
-            {boq.contractor_id && (
-              <DropdownMenuItem onClick={saveDefaults}>
-                <UserCheck className="h-4 w-4 mr-2" />Save {contractor?.name ?? "contractor"}'s usual
-              </DropdownMenuItem>
-            )}
+            <AdminMenuItems />
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -738,9 +785,57 @@ export default function OpsBoqBuilder() {
           </Button>
         </div>
       </div>
+
+      {/* Mobile — the giant control row would be a wall of buttons on a phone
+          (Section 7). Export is the one obvious primary action; everything
+          else (Review Analysis, the Lines/Make/Materials view, and every
+          admin action from the desktop "More" menu) collapses into a single
+          secondary "More actions" menu. Same handlers, same state — only
+          which controls are visible by default changes. */}
+      <div className="flex lg:hidden items-center gap-2">
+        {/* The payoff hero above already carries its own "Export BOQ" CTA
+            once justAppliedCount > 0 — repeating it here would be the same
+            action twice in one screen. Only "More actions" stays. */}
+        {justAppliedCount === 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button className="flex-1" variant={lines.length > 0 ? "default" : "outline"} disabled={lines.length === 0}>
+                <FileDown className="h-4 w-4 mr-2" />Export BOQ<ChevronDown className="h-4 w-4 ml-1" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onClick={() => exportQuote(false, true)}>
+                <FileText className="h-4 w-4 mr-2" />PDF
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportQuote(true, false)}>
+                <FileDown className="h-4 w-4 mr-2" />PDF / Spec &amp; Qty
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={exportExcel}>
+                <Sheet className="h-4 w-4 mr-2" />Excel
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className={cn(justAppliedCount > 0 && "flex-1")}>More actions<ChevronDown className="h-4 w-4 ml-1" /></Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => navigate("review")}>
+              <ClipboardCheck className="h-4 w-4 mr-2" />Review Analysis
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => setView("lines")}>View: Lines</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setView("make")}>View: Make (margin)</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setView("materials")}>View: Materials</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <AdminMenuItems />
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
       {/* Export as the pipeline's final step (Section 5) — a plain caption,
           not a new control; the button above is unchanged. */}
-      {lines.length > 0 && (
+      {lines.length > 0 && justAppliedCount === 0 && (
         <p className="text-xs text-muted-foreground -mt-2">Export is the final step — hand this BOQ to your team as PDF or Excel.</p>
       )}
       </>)}
@@ -922,10 +1017,38 @@ export default function OpsBoqBuilder() {
             <div className="flex items-baseline justify-between gap-2 px-1">
               <h2 className="text-sm font-semibold">{justAppliedCount > 0 ? "Reviewed quantities" : "BOQ lines"}</h2>
               {justAppliedCount > 0 && (
-                <span className="text-xs text-muted-foreground">Grouped by work section · lines marked "Applied to BOQ" came from your review</span>
+                <span className="hidden lg:inline text-xs text-muted-foreground">Grouped by work section · lines marked "Applied to BOQ" came from your review</span>
               )}
             </div>
           )}
+
+          {/* Mobile default view (Section: BOQ payoff) — a clean, readable
+              result list, not the full editable grid. Same real lines/data;
+              the complete per-line editor (unchanged) sits behind "Edit BOQ".
+              Desktop always shows the full table (Section: BOQ desktop
+              hierarchy keeps it visible), so this block is lg:hidden. */}
+          {!present && !mobileEditOpen && (
+            <div className="lg:hidden rounded-lg border divide-y">
+              {bySubhead.flatMap(({ rows }) => rows).filter(({ line }) => line.included).map(({ line }) => (
+                <div key={line.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                  <span className="text-sm text-foreground truncate">{line.description ?? line.dsr_code ?? "Item"}</span>
+                  <span className="text-sm text-muted-foreground tabular-nums shrink-0">
+                    {line.qty.toLocaleString("en-IN", { maximumFractionDigits: 2 })} {line.unit}
+                  </span>
+                </div>
+              ))}
+              <button type="button" className="w-full flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm font-medium text-primary" onClick={() => setMobileEditOpen(true)}>
+                <Pencil className="h-3.5 w-3.5" />Edit BOQ
+              </button>
+            </div>
+          )}
+          {!present && mobileEditOpen && (
+            <button type="button" className="lg:hidden text-xs text-muted-foreground inline-flex items-center gap-1 px-1" onClick={() => setMobileEditOpen(false)}>
+              <ChevronDown className="h-3 w-3 rotate-90" />Back to summary
+            </button>
+          )}
+
+          <div className={cn("space-y-4", !present && !mobileEditOpen && "hidden lg:block")}>
           {bySubhead.map(({ no, name, rows, subtotal }) => (
           <Card key={name}>
             <CardHeader className="pb-2 flex-row items-center justify-between">
@@ -1045,6 +1168,7 @@ export default function OpsBoqBuilder() {
             </CardContent>
           </Card>
         ))}
+          </div>
         </>
       )}
 

@@ -162,6 +162,17 @@ export default function BoqReviewWorkstation() {
   const summary = useMemo(() => reviewSummary(items), [items]);
   const current = visible[Math.min(cursor, Math.max(0, visible.length - 1))];
 
+  // The current item's resolved drawing name — same resolution ResolvedEvidenceViewer
+  // uses, surfaced here too for the compact "GROUND FLOOR PLAN" context bar
+  // (drawing-intelligence-workstation framing). Real, already-loaded data only;
+  // never a guess when nothing resolves.
+  const currentDocumentName = useMemo(() => {
+    if (!current) return null;
+    const resolved = resolveItemDrawing(current.ai.source, drawings, resolvedDocumentId);
+    const stored = resolved ? drawings.find((d) => d.documentId === resolved.documentId) : undefined;
+    return stored?.name || current.ai.source?.document || null;
+  }, [current, drawings, resolvedDocumentId]);
+
   // Compact queue rows for ReviewQueue — presentational only, derived from
   // the exact same ordered/filtered list the main panel already uses.
   const queueRows = useMemo(
@@ -251,7 +262,14 @@ export default function BoqReviewWorkstation() {
           // truthful "just applied" banner even when no individual line can
           // be marked (every NEW_LINE candidate; see justAppliedLineIds above).
           onClick: () => navigate(`../boqs/${boqId}`, {
-            state: { justAppliedLineIds, appliedCount: res.appliedCount, unresolvedCount: res.unresolvedCount, correctedCount },
+            state: {
+              justAppliedLineIds, appliedCount: res.appliedCount, unresolvedCount: res.unresolvedCount, correctedCount,
+              // Real, already-computed review-session totals (same `summary`
+              // this screen already renders) — carried through so the BOQ
+              // payoff screen can show Reviewed/Verified alongside
+              // Applied/Corrected without inventing a new figure.
+              reviewedCount: summary.total - summary.remaining, verifiedCount: summary.verified,
+            },
           }),
         },
       });
@@ -325,22 +343,39 @@ export default function BoqReviewWorkstation() {
 
   return (
     <div className="p-4 space-y-3">
-      {/* Header + summary */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <Button variant="ghost" size="sm" onClick={() => navigate(`../boqs/${boqId}`)}><ArrowLeft className="w-4 h-4 mr-1" /> BOQ</Button>
-        <h2 className="font-semibold">BOQ Review</h2>
-        <span className="text-sm text-muted-foreground">{boq?.name}</span>
+      {/* Compact drawing-intelligence context bar — the document name and the
+          reviewer's position in the queue lead, not "BOQ Review" chrome.
+          Collapses further on mobile (icon-only back, no boq.name/reviewed%)
+          so nothing stands between opening this screen and seeing the
+          drawing itself. Single elements throughout (never a duplicated
+          mobile/desktop pair) — only their inner text/size responds to the
+          breakpoint, so every existing exact-name button query still matches
+          exactly one element. */}
+      <div className="flex items-start sm:items-center gap-2 sm:gap-3 flex-wrap">
+        <Button variant="ghost" size="sm" onClick={() => navigate(`../boqs/${boqId}`)} aria-label="Back to BOQ">
+          <ArrowLeft className="w-4 h-4 sm:mr-1" /><span className="hidden sm:inline">BOQ</span>
+        </Button>
+        <div className="min-w-0">
+          <h2 className="font-semibold text-sm sm:text-base leading-tight truncate max-w-[11rem] sm:max-w-none">
+            {currentDocumentName ?? "BOQ Review"}
+          </h2>
+          <p className="text-xs text-muted-foreground truncate">
+            {current ? `Quantity ${visible.indexOf(current) + 1} of ${summary.total}` : `${summary.total} quantities`}
+            <span className="hidden sm:inline"> · {boq?.name}</span>
+          </p>
+        </div>
         {/* Only surface the drawing-link affordance by default when it needs
             attention — a healthy "linked" state is still reachable from the
             overflow menu below, just not competing for space when nothing's wrong. */}
-        {linkStatus !== "linked" && <DrawingLinkButton status={linkStatus} onClick={() => setShowRelinkModal(true)} />}
+        {linkStatus !== "linked" && <DrawingLinkButton status={linkStatus} onClick={() => setShowRelinkModal(true)} className="hidden sm:inline-flex" />}
         {/* Filled/primary once there's something ready — this is the
             culminating action of the whole review pass, not a peer of the
             other outline buttons on this row. */}
         <Button variant={applyableCandidates.length > 0 ? "default" : "outline"} size="sm" onClick={openApplyModal} className="ml-auto">
-          Apply to BOQ{applyableCandidates.length > 0 ? ` (${applyableCandidates.length})` : ""}
+          <span className="sm:hidden">Apply{applyableCandidates.length > 0 ? ` (${applyableCandidates.length})` : ""}</span>
+          <span className="hidden sm:inline">Apply to BOQ{applyableCandidates.length > 0 ? ` (${applyableCandidates.length})` : ""}</span>
         </Button>
-        <span className="text-sm text-muted-foreground">{summary.total - summary.remaining} / {summary.total} reviewed · {summary.completionPct}%</span>
+        <span className="hidden sm:inline text-sm text-muted-foreground">{summary.total - summary.remaining} / {summary.total} reviewed · {summary.completionPct}%</span>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="sm" aria-label="More options"><MoreHorizontal className="w-4 h-4" /></Button>
@@ -363,9 +398,10 @@ export default function BoqReviewWorkstation() {
         </DropdownMenu>
       </div>
 
-      {/* Stats: only Remaining (+ Flagged, if any) by default — the full
-          6-tile breakdown is one click away, not standing chrome. */}
-      <div className="flex items-center gap-4 text-sm">
+      {/* Stats breakdown: desktop-only standing chrome — on mobile the compact
+          context bar above and the queue control below already carry the
+          position/progress signal a reviewer needs at a glance. */}
+      <div className="hidden sm:flex items-center gap-4 text-sm">
         <span className="text-muted-foreground">Remaining <b className="text-foreground">{summary.remaining}</b></span>
         {summary.flagged > 0 && <span className="text-amber-700">Flagged <b>{summary.flagged}</b></span>}
         <button onClick={() => setShowStatsBreakdown((s) => !s)} className="text-xs text-primary hover:underline ml-auto">
@@ -373,7 +409,7 @@ export default function BoqReviewWorkstation() {
         </button>
       </div>
       {showStatsBreakdown && (
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
+        <div className="hidden sm:grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
           <Stat label="Total" value={summary.total} />
           <Stat label="Verified" value={summary.verified} cls="text-green-700" />
           <Stat label="Edited" value={summary.edited} cls="text-blue-700" />
@@ -949,14 +985,8 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
   return (
     <Card><CardContent className="p-4 space-y-3">
       <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>Item {index + 1} of {count}</span>
+        <span className="hidden sm:inline">Item {index + 1} of {count}</span>
         <StatusBadge status={item.reviewStatus} />
-      </div>
-
-      <div>
-        <div className="text-lg font-semibold">{ai.key}{ai.key !== ai.item ? ` · ${ai.item}` : ""}</div>
-        {ai.description && <div className="text-sm text-muted-foreground">{ai.description}</div>}
-        {item.duplicateOf && <div className="text-xs text-rose-700 mt-0.5">Possible duplicate of {item.duplicateOf}</div>}
       </div>
 
       {/* Review-required banner — concise and factual: what's true about this
@@ -968,59 +998,71 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
         </div>
       )}
 
-      {/* AI extracted — what the AI produced, and why (evidence). Never implies
-          the reviewer should accept it without checking. The badge is the one
-          reusable "this came from AI" marker, reused in the BOQ after Apply. */}
-      <div className="rounded border p-2 space-y-2">
-        <AiStateBadge state="ai" />
-        <ClaimField claim="quantity" value={formatClaimValue(ai, "quantity")} evidence={claimEvidence.quantity} onSelectClaim={handleSelectClaim} emphasize />
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-sm pt-1 border-t">
-          <Field label="AI status" value={ai.aiStatus} tone={ai.aiStatus === "PENDING" ? "danger" : ai.aiStatus === "INFERRED" ? "warning" : undefined} />
-          <Field
-            label="Confidence"
-            value={ai.confidence == null ? "—" : `${Math.round(ai.confidence * 100)}%`}
-            tone={ai.confidence != null && ai.confidence <= LOW_CONFIDENCE ? "danger" : undefined}
-            hint="A high AI confidence is not a substitute for checking the evidence — verify before accepting."
-          />
-          <Field label="Source" value={ai.source?.document ? `${ai.source.document}${ai.source.page != null ? ` — Page ${ai.source.page}` : ""}` : "—"} />
+      {/* AI MEASUREMENT — the number a reviewer is actually here to decide on
+          leads, at reading-dominant size, not one field among many in a form
+          (drawing-intelligence-workstation framing). Never implies the
+          reviewer should accept it without checking — the evidence link
+          right under the number is how that check happens. No box/border:
+          open, editorial spacing instead of a bordered "form field" look. */}
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-2">
+          <AiStateBadge state="ai" />
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">AI measurement</span>
         </div>
-        {ai.candidates && ai.candidates.length > 1 && (
-          <div className="text-xs bg-amber-50 border border-amber-200 rounded p-2 space-y-1">
-            <div className="flex items-center gap-1.5 font-medium text-amber-800">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-              Conflicting sources — {ai.candidates.length} candidate values found
+        <div className="text-sm font-medium text-foreground truncate">{ai.key}{ai.key !== ai.item ? ` · ${ai.item}` : ""}</div>
+        {ai.description && <div className="text-xs text-muted-foreground">{ai.description}</div>}
+        {item.duplicateOf && <div className="text-xs text-rose-700">Possible duplicate of {item.duplicateOf}</div>}
+        <ClaimField claim="quantity" value={formatClaimValue(ai, "quantity")} evidence={claimEvidence.quantity} onSelectClaim={handleSelectClaim} emphasize />
+      </div>
+
+      <div className="flex flex-wrap items-start gap-x-5 gap-y-1.5 text-xs border-t pt-2">
+        <Field label="AI status" value={ai.aiStatus} tone={ai.aiStatus === "PENDING" ? "danger" : ai.aiStatus === "INFERRED" ? "warning" : undefined} />
+        <Field
+          label="Confidence"
+          value={ai.confidence == null ? "—" : `${Math.round(ai.confidence * 100)}%`}
+          tone={ai.confidence != null && ai.confidence <= LOW_CONFIDENCE ? "danger" : undefined}
+          hint="A high AI confidence is not a substitute for checking the evidence — verify before accepting."
+        />
+        <Field label="Source" value={ai.source?.document ? `${ai.source.document}${ai.source.page != null ? ` — Page ${ai.source.page}` : ""}` : "—"} />
+      </div>
+
+      {ai.candidates && ai.candidates.length > 1 && (
+        <div className="text-xs bg-amber-50 border border-amber-200 rounded p-2 space-y-1">
+          <div className="flex items-center gap-1.5 font-medium text-amber-800">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+            Conflicting sources — {ai.candidates.length} candidate values found
+          </div>
+          {ai.candidates.map((c, i) => (
+            <div key={i} className="flex items-center justify-between gap-2 pl-5">
+              <span className="font-medium">{c.value}{c.unit ? ` ${c.unit}` : ""}</span>
+              <span className="text-muted-foreground text-right flex-1 truncate">
+                {c.basis}
+                {c.source?.document ? ` — ${c.source.document}${c.source.page != null ? ` p.${c.source.page}` : ""}` : ""}
+              </span>
+              <button
+                type="button"
+                onClick={() => stageCandidateValue(c.value)}
+                className="text-[10px] text-amber-700 hover:text-amber-900 underline shrink-0"
+              >
+                Use this value
+              </button>
             </div>
-            {ai.candidates.map((c, i) => (
-              <div key={i} className="flex items-center justify-between gap-2 pl-5">
-                <span className="font-medium">{c.value}{c.unit ? ` ${c.unit}` : ""}</span>
-                <span className="text-muted-foreground text-right flex-1 truncate">
-                  {c.basis}
-                  {c.source?.document ? ` — ${c.source.document}${c.source.page != null ? ` p.${c.source.page}` : ""}` : ""}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => stageCandidateValue(c.value)}
-                  className="text-[10px] text-amber-700 hover:text-amber-900 underline shrink-0"
-                >
-                  Use this value
-                </button>
-              </div>
-            ))}
-            <p className="text-[10px] text-muted-foreground pl-5">No value has been chosen — pick one via Edit before verifying.</p>
+          ))}
+          <p className="text-[10px] text-muted-foreground pl-5">No value has been chosen — pick one via Edit before verifying.</p>
+        </div>
+      )}
+
+      <div>
+        <button type="button" className="text-xs font-medium flex items-center gap-1 text-muted-foreground" onClick={() => setMoreDetails((m) => !m)}>
+          More details {moreDetails ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        </button>
+        {moreDetails && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm mt-1.5">
+            <ClaimField claim="dimension" value={formatClaimValue(ai, "dimension")} evidence={claimEvidence.dimension} onSelectClaim={handleSelectClaim} />
+            <ClaimField claim="specification" value={formatClaimValue(ai, "specification")} evidence={claimEvidence.specification} onSelectClaim={handleSelectClaim} />
+            <ClaimField claim="location" value={formatClaimValue(ai, "location")} evidence={claimEvidence.location} onSelectClaim={handleSelectClaim} />
           </div>
         )}
-        <div className="pt-1 border-t">
-          <button type="button" className="text-xs font-medium flex items-center gap-1 text-muted-foreground" onClick={() => setMoreDetails((m) => !m)}>
-            More details {moreDetails ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-          </button>
-          {moreDetails && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm mt-1.5">
-              <ClaimField claim="dimension" value={formatClaimValue(ai, "dimension")} evidence={claimEvidence.dimension} onSelectClaim={handleSelectClaim} />
-              <ClaimField claim="specification" value={formatClaimValue(ai, "specification")} evidence={claimEvidence.specification} onSelectClaim={handleSelectClaim} />
-              <ClaimField claim="location" value={formatClaimValue(ai, "location")} evidence={claimEvidence.location} onSelectClaim={handleSelectClaim} />
-            </div>
-          )}
-        </div>
       </div>
 
       {/* Your review — only once a reviewer value actually exists; an empty
@@ -1114,29 +1156,41 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
           Pending stays a plain quiet option alongside Flag — same semantics
           and handlers as before, only the framing text is new. */}
       {!editing && !flagging && (
-        <div className="sticky bottom-0 bg-background border-t flex flex-wrap items-start gap-2 pt-2">
+        <p className="text-sm font-medium">Does this look right?</p>
+      )}
+      {!editing && !flagging && (
+        <div className="sticky bottom-0 bg-background border-t grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-start pt-2">
           {/* Spans, not divs, wrap each button+caption pair — a test asserts
               the Verify button's closest("div") is THIS sticky row, so the
               caption can't sit inside a new intervening div. */}
-          <span className="inline-flex flex-col items-start">
-            <Button size="sm" onClick={onVerify} disabled={verifyDisabled} title={verifyDisabledReason}><Check className="w-4 h-4 mr-1" /> Verify</Button>
-            <span className="text-[10px] text-muted-foreground mt-0.5">Accept the AI quantity</span>
+          <span className="inline-flex flex-col items-stretch sm:items-start">
+            <Button className="w-full sm:w-auto" onClick={onVerify} disabled={verifyDisabled} title={verifyDisabledReason}><Check className="w-4 h-4 mr-1" /> Verify</Button>
+            <span className="hidden sm:inline text-[10px] text-muted-foreground mt-0.5">Accept the AI quantity</span>
           </span>
-          <span className="inline-flex flex-col items-start">
-            <Button size="sm" variant="outline" onClick={() => setEditing(true)}><Pencil className="w-4 h-4 mr-1" /> Edit</Button>
-            <span className="text-[10px] text-muted-foreground mt-0.5">Correct the AI quantity</span>
+          <span className="inline-flex flex-col items-stretch sm:items-start">
+            <Button className="w-full sm:w-auto" variant="outline" onClick={() => setEditing(true)}><Pencil className="w-4 h-4 mr-1" /> Edit</Button>
+            <span className="hidden sm:inline text-[10px] text-muted-foreground mt-0.5">Correct the AI quantity</span>
           </span>
-          <span className="inline-flex flex-col items-start">
-            <Button size="sm" variant="ghost" onClick={() => setFlagging(true)}><Flag className="w-4 h-4 mr-1" /> Flag</Button>
-            <span className="text-[10px] text-muted-foreground mt-0.5">Don't trust this quantity yet</span>
+          <span className="inline-flex flex-col items-stretch sm:items-start">
+            <Button className="w-full sm:w-auto" size="sm" variant="ghost" onClick={() => setFlagging(true)}><Flag className="w-4 h-4 mr-1" /> Flag</Button>
+            <span className="hidden sm:inline text-[10px] text-muted-foreground mt-0.5">Don't trust this quantity yet</span>
           </span>
-          <Button size="sm" variant="ghost" onClick={onPending}><Clock className="w-4 h-4 mr-1" /> Mark Pending</Button>
+          <Button className="w-full sm:w-auto" size="sm" variant="ghost" onClick={onPending}><Clock className="w-4 h-4 mr-1" /> Mark Pending</Button>
         </div>
       )}
 
-      <div className="flex items-center justify-between pt-1">
+      {/* Desktop/tablet: today's even Previous/Next pair, unchanged. Mobile:
+          one obvious continuation action ("Next quantity →") instead of two
+          equal-weight buttons — Previous stays reachable as a small icon-only
+          affordance rather than competing for the primary action. Same
+          onPrev/onNext handlers either way — presentation only. */}
+      <div className="hidden sm:flex items-center justify-between pt-1">
         <Button size="sm" variant="ghost" onClick={onPrev}><ChevronLeft className="w-4 h-4 mr-1" /> Previous</Button>
         <Button size="sm" variant="ghost" onClick={onNext}>Next <ChevronRight className="w-4 h-4 ml-1" /></Button>
+      </div>
+      <div className="flex sm:hidden items-center gap-2 pt-1">
+        <Button size="sm" variant="ghost" onClick={onPrev} aria-label="Previous quantity"><ChevronLeft className="w-4 h-4" /></Button>
+        <Button onClick={onNext} className="flex-1">Next quantity <ChevronRight className="w-4 h-4 ml-1" /></Button>
       </div>
     </CardContent></Card>
   );
