@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2, Sparkles } from "lucide-react";
 import { fetchPreflight, friendlyGenerateError, generateAnalysis, showInternalAiControls, type PreflightFile } from "@/lib/ai/analysisClient";
 
 const UNFILED = "Unfiled";
@@ -100,17 +100,25 @@ export default function AiApiPanel({
 
   return (
     <div className="space-y-3">
-      {/* Leads with the actual relationship this screen represents — THIS
-          drawing, read by Cunstruct — before the supporting file-count detail. */}
-      {!nothingNew && p.willSendFiles.length > 0 && (
-        <p className="text-sm">
-          Cunstruct will read{" "}
-          {p.willSendFiles.length === 1
-            ? <b>{p.willSendFiles[0].filename}</b>
-            : <b>{p.willSendFiles.length} drawings</b>}
-          {" "}and propose BOQ quantities.
-        </p>
-      )}
+      {/* The core product moment, not a form: what's about to happen, in one
+          sentence, ahead of every supporting count/detail below it. */}
+      <div className="flex items-start gap-3 rounded-md border border-primary/20 bg-primary/5 p-3">
+        <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
+          <Sparkles className="h-4 w-4" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground">
+            {!nothingNew && p.willSendFiles.length > 0
+              ? <>Cunstruct will read {p.willSendFiles.length === 1 ? <b>{p.willSendFiles[0].filename}</b> : <b>{p.willSendFiles.length} drawings</b>} and propose BOQ quantities.</>
+              : canOpenExisting
+                ? "This drawing has already been analysed."
+                : "No new drawings to read yet."}
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Every proposed quantity stays a proposal until you verify, edit, or flag it in review — nothing here touches the BOQ directly.
+          </p>
+        </div>
+      </div>
       <div className="text-sm space-y-1">
         <div>{p.totalProjectFiles} file{p.totalProjectFiles === 1 ? "" : "s"} in this project · {p.alreadyAnalysedCount} already analysed · <b>{p.newFilesCount} new</b></div>
         {p.duplicateFilesSkipped > 0 && (

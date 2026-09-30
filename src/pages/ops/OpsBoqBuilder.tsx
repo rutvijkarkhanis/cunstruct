@@ -10,7 +10,7 @@ import { sanityForCode, countFlagged } from "@/lib/boqSanity";
 import { parseBoqEvalJson, evalLinesToRows, pendingCount, PENDING_BASIS } from "@/lib/boqEvalJson";
 import BoqDocumentsPanel from "@/components/ops/BoqDocumentsPanel";
 import BoqAuditReview from "@/components/ops/BoqAuditReview";
-import AiExtractedBadge from "@/components/review/AiExtractedBadge";
+import AiStateBadge from "@/components/review/AiStateBadge";
 import { type Spec, type SpecValue } from "@/lib/boqSpec";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -120,7 +120,7 @@ export default function OpsBoqBuilder() {
   // there from the pure classification + this exact result's conflict list),
   // never a NEW_LINE's id (the server never returns it to the client) and
   // never anything for a page load/refresh that didn't come from that link.
-  const postApply = location.state as { justAppliedLineIds?: string[]; appliedCount?: number; unresolvedCount?: number } | null;
+  const postApply = location.state as { justAppliedLineIds?: string[]; appliedCount?: number; unresolvedCount?: number; correctedCount?: number } | null;
   const justAppliedLineIds = postApply?.justAppliedLineIds ?? [];
   // BOQ-level fallback for exactly the case per-line marking can't cover:
   // NEW_LINE candidates, whose real ids are never returned to the client.
@@ -128,6 +128,10 @@ export default function OpsBoqBuilder() {
   // returns — carried through navigation state, nothing invented here.
   const justAppliedCount = postApply?.appliedCount ?? 0;
   const justAppliedUnresolvedCount = postApply?.unresolvedCount ?? 0;
+  // How many of justAppliedCount came from an EDITED review item — computed
+  // in the Review Workstation from the same applyPlan/items it already had,
+  // carried through navigation state exactly like the other two counts.
+  const justAppliedCorrectedCount = postApply?.correctedCount ?? 0;
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
   const [showBrowser, setShowBrowser] = useState(false);
@@ -602,15 +606,24 @@ export default function OpsBoqBuilder() {
         </div>
       </div>
 
+      {/* The pipeline's culmination, stated plainly before the table below it
+          gets into editing/pricing detail (Section 11) — every number here
+          is one Apply already returned (appliedCount/unresolvedCount) or a
+          count the Review Workstation derived from the same real review
+          state (correctedCount); nothing invented for this banner. */}
       {!present && justAppliedCount > 0 && (
-        <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 flex items-center gap-2 flex-wrap text-sm">
-          <AiExtractedBadge label="AI reviewed" />
-          <span>
-            <b className="text-foreground">{justAppliedCount}</b> quantit{justAppliedCount === 1 ? "y" : "ies"} just applied from your review
+        <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2.5 space-y-1">
+          <div className="flex items-center gap-2">
+            <AiStateBadge state="applied" />
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-primary">BOQ generated from review</span>
+          </div>
+          <p className="text-sm">
+            <b className="text-foreground">{justAppliedCount}</b> quantit{justAppliedCount === 1 ? "y" : "ies"} applied
+            {justAppliedCorrectedCount > 0 && <> · <b className="text-foreground">{justAppliedCorrectedCount}</b> corrected by you</>}
             {justAppliedUnresolvedCount > 0 && (
               <span className="text-amber-700 dark:text-amber-500"> · {justAppliedUnresolvedCount} unresolved</span>
             )}
-          </span>
+          </p>
         </div>
       )}
 
@@ -621,10 +634,14 @@ export default function OpsBoqBuilder() {
           <ClipboardCheck className="h-4 w-4 mr-2" />Review Analysis
         </Button>
 
+        {/* Export as the final step of the pipeline (Section 13) — primary
+            once there's a real BOQ to export, same three export actions,
+            same underlying export functions, only the button's prominence
+            changed. */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" disabled={lines.length === 0}>
-              <FileDown className="h-4 w-4 mr-2" />Export<ChevronDown className="h-4 w-4 ml-1" />
+            <Button variant={lines.length > 0 ? "default" : "outline"} disabled={lines.length === 0}>
+              <FileDown className="h-4 w-4 mr-2" />Export BOQ<ChevronDown className="h-4 w-4 ml-1" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
@@ -976,7 +993,7 @@ export default function OpsBoqBuilder() {
                               <AlertTriangle className="h-3 w-3" />{flag.level}
                             </span>
                           )}
-                          {justAppliedLineIds.includes(l.id) && <AiExtractedBadge label="AI reviewed" />}
+                          {justAppliedLineIds.includes(l.id) && <AiStateBadge state="applied" />}
                         </div>
                         <Input className="h-8 text-[13px] mb-1" defaultValue={l.description ?? ""} placeholder="Item description"
                           onClick={(e) => e.stopPropagation()}

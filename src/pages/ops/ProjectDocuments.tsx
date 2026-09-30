@@ -2,13 +2,16 @@ import { useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import AiStateBadge from "@/components/review/AiStateBadge";
 import { toast } from "sonner";
-import { Plus, FileText, ChevronDown, ChevronRight, CheckCircle2, Link2, Upload, Trash2, FolderPlus, FolderOpen, Folder as FolderIcon, Sparkles } from "lucide-react";
+import { Plus, FileText, ChevronDown, ChevronRight, CheckCircle2, Link2, Upload, Trash2, FolderPlus, FolderOpen, Folder as FolderIcon, Sparkles, Eye, ClipboardCheck } from "lucide-react";
 import { DOC_TYPES, DISCIPLINES, type ProjectDocument, type DocumentRevision, type DocumentFolder } from "@/lib/projectDocs";
 import { validateDrawingFile, buildDrawingPath, uploadDrawing, deleteDrawing, signedDrawingUrl } from "@/lib/review/drawingStorage";
 import { buildFolderTree, folderBreadcrumb, parseRelativePath, looksLikePdf, type FolderNode } from "@/lib/documentFolders";
@@ -88,7 +91,40 @@ export default function ProjectDocuments() {
     },
   });
 
+  // Which documents Cunstruct has already produced a completed analysis for —
+  // real data (a SUCCEEDED analysis_run_source row), never inferred/guessed.
+  // Drives the card's primary CTA ("Generate quantities" vs "Review
+  // quantities") so it reflects what's actually true, not a fixed label.
+  const { data: analysedDocIds } = useQuery({
+    queryKey: ["document-analysed-ids", projectId, ids.join(",")],
+    enabled: ids.length > 0,
+    queryFn: async () => {
+      const { data } = await supabase.from("analysis_run_source")
+        .select("document_id").eq("status", "SUCCEEDED").in("document_id", ids);
+      return new Set((data ?? []).map((r) => (r as { document_id: string | null }).document_id).filter(Boolean) as string[]);
+    },
+  });
+
   const revsFor = (docId: string) => (revs ?? []).filter((r) => r.document_id === docId);
+
+  // In-app drawing preview (Section 4) — replaces window.open() for the
+  // primary "look at this drawing" action. Signed URLs are still fetched
+  // fresh, never cached/stored, via the existing signedDrawingUrl(); this
+  // just renders the result inside Cunstruct instead of a new browser tab.
+  // The per-revision "Open" links deeper in the expanded revision list are
+  // untouched — this only replaces the card's own primary preview action.
+  const [previewing, setPreviewing] = useState<{ name: string; url: string } | null>(null);
+  const [previewLoadingFor, setPreviewLoadingFor] = useState<string | null>(null);
+  const previewDrawing = async (revId: string, path: string, name: string) => {
+    setPreviewLoadingFor(revId);
+    try {
+      const url = await signedDrawingUrl(path);
+      if (!url) { toast.error("Could not open this drawing. It may be missing or you may not have access."); return; }
+      setPreviewing({ name, url });
+    } finally {
+      setPreviewLoadingFor(null);
+    }
+  };
 
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: ["document-folders", projectId] });
@@ -365,22 +401,35 @@ export default function ProjectDocuments() {
     const rs = revsFor(d.id);
     const current = rs.find((r) => r.id === d.current_revision_id);
     const open = expandedDocs[d.id];
+    const isDrawing = !!current?.file_path;
+    const analysed = analysedDocIds?.has(d.id) ?? false;
     return (
-      <Card key={d.id}>
+      <Card key={d.id} className={cn(isDrawing && "border-l-2 border-l-primary/25")}>
         <CardContent className="p-3">
-          <div className="flex items-center gap-3">
-            <button className="text-muted-foreground" onClick={() => setExpandedDocs((e) => ({ ...e, [d.id]: !e[d.id] }))} aria-label="Toggle revisions">
-              {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-            </button>
-            <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+          <div className="flex items-start gap-3">
+            {/* Thumbnail slot — a drawing is a visual object first. No image
+                render (nothing here claims a preview that isn't there); a
+                colored icon block still gives every card a real, scannable
+                anchor instead of reading as a plain file-manager row. */}
+            <div className={cn(
+              "h-11 w-11 shrink-0 rounded-md flex items-center justify-center",
+              isDrawing ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+            )}>
+              <FileText className="h-5 w-5" />
+            </div>
             <div className="min-w-0 flex-1">
               {breadcrumb.length > 0 && (
                 <div className="text-[11px] text-muted-foreground truncate" data-testid="doc-breadcrumb">
                   {breadcrumb.join(" / ")}
                 </div>
               )}
-              <div className="font-medium truncate">{d.name}</div>
-              <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2">
+                <span className="font-medium truncate">{d.name}</span>
+                {isDrawing && (analysed
+                  ? <AiStateBadge state="ai" label="Analysed" />
+                  : <Badge variant="outline" className="text-[10px] uppercase tracking-wide">Not analysed yet</Badge>)}
+              </div>
+              <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-2 mt-0.5">
                 {d.doc_type && <Badge variant="outline">{d.doc_type}</Badge>}
                 {d.discipline && <span>{d.discipline}</span>}
                 <span>· {current ? `Current: ${current.label}` : "No current revision"}</span>
@@ -388,34 +437,45 @@ export default function ProjectDocuments() {
                 <span className="inline-flex items-center gap-1"><Link2 className="h-3 w-3" />{linkCounts?.[d.id] ?? 0} BOQ{(linkCounts?.[d.id] ?? 0) === 1 ? "" : "s"}</span>
               </div>
             </div>
-            <Badge variant="outline" className="shrink-0">{d.status}</Badge>
-            <Button size="sm" variant="outline" onClick={() => { setRevFor(revFor === d.id ? null : d.id); setRevLabel(""); setRevUrl(""); }}>
-              <Plus className="h-3.5 w-3.5 mr-1" />Revision
-            </Button>
-            <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" title="Delete document" onClick={() => deleteDocument(d)}>
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
+            <div className="flex items-center gap-1 shrink-0">
+              <Button size="sm" variant="ghost" onClick={() => setExpandedDocs((e) => ({ ...e, [d.id]: !e[d.id] }))} aria-label="Toggle revisions">
+                {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              </Button>
+              <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" title="Delete document" onClick={() => deleteDocument(d)}>
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
           </div>
 
           {/* A real uploaded PDF is the input Cunstruct can actually read — the
               primary path from here is straight into Generate/Review, not a
-              detour through the BOQ tab first. Reuses the existing per-revision
-              openDrawing() handler; never a second generation/extraction call. */}
-          {current?.file_path && (
-            <div className="mt-2 pl-7 flex flex-wrap items-center gap-2">
+              detour through the BOQ tab first. The CTA's label/icon reflects
+              REAL per-document analysis state (analysedDocIds, above) rather
+              than a fixed string — never invented. */}
+          {isDrawing && (
+            <div className="mt-3 pl-14 flex flex-wrap items-center gap-2">
               <Button size="sm" onClick={() => goGenerateFrom(d.name)}>
-                <Sparkles className="h-3.5 w-3.5 mr-1.5" />Generate BOQ from this drawing
+                {analysed
+                  ? <><ClipboardCheck className="h-3.5 w-3.5 mr-1.5" />Review quantities</>
+                  : <><Sparkles className="h-3.5 w-3.5 mr-1.5" />Generate quantities</>}
               </Button>
               <Button
                 size="sm" variant="outline"
-                disabled={openingRevId === current.id}
-                onClick={() => openDrawing(current.id, current.file_path!)}
+                disabled={previewLoadingFor === current!.id}
+                onClick={() => previewDrawing(current!.id, current!.file_path!, d.name)}
               >
-                {/* Distinct from the per-revision list's own "Opening…" label
-                    below — both can be visible at once when expanded, and
-                    identical text on two elements breaks assistive tech and
-                    text-based test queries alike. */}
-                {openingRevId === current.id ? "Opening drawing…" : "Open drawing"}
+                <Eye className="h-3.5 w-3.5 mr-1.5" />
+                {previewLoadingFor === current!.id ? "Opening preview…" : "Preview drawing"}
+              </Button>
+              <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => { setRevFor(revFor === d.id ? null : d.id); setRevLabel(""); setRevUrl(""); }}>
+                <Plus className="h-3.5 w-3.5 mr-1" />Revision
+              </Button>
+            </div>
+          )}
+          {!isDrawing && (
+            <div className="mt-3 pl-14">
+              <Button size="sm" variant="outline" onClick={() => { setRevFor(revFor === d.id ? null : d.id); setRevLabel(""); setRevUrl(""); }}>
+                <Plus className="h-3.5 w-3.5 mr-1" />Revision
               </Button>
             </div>
           )}
@@ -592,7 +652,24 @@ export default function ProjectDocuments() {
       )}
 
       {isEmpty && (
-        <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No documents yet. Add a folder or upload the project's drawings and documents here.</CardContent></Card>
+        <Card><CardContent className="p-10 text-center space-y-3">
+          <div className="mx-auto h-12 w-12 rounded-full bg-primary/10 text-primary flex items-center justify-center">
+            <Sparkles className="h-6 w-6" />
+          </div>
+          <div>
+            <div className="font-semibold text-sm">Start with a drawing</div>
+            <p className="text-sm text-muted-foreground mt-1 max-w-sm mx-auto">
+              Upload your architectural or construction PDF and Cunstruct will extract measurable quantities for review.
+            </p>
+          </div>
+          <Button asChild disabled={uploading}>
+            <label className="cursor-pointer">
+              <Upload className="h-4 w-4 mr-2" />{uploading ? "Uploading…" : "Upload drawing"}
+              <input type="file" accept="application/pdf,.pdf" className="hidden" disabled={uploading}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadPdf(f); e.currentTarget.value = ""; }} />
+            </label>
+          </Button>
+        </CardContent></Card>
       )}
 
       <div className="space-y-3">
@@ -611,6 +688,19 @@ export default function ProjectDocuments() {
           </div>
         )}
       </div>
+
+      {/* In-app drawing preview (Section 4) — keeps the user inside Cunstruct
+          instead of a new browser tab. Plain iframe against the same signed
+          URL signedDrawingUrl() already produces; no pdf.js involved, same
+          as the previous window.open() path — just rendered in place. */}
+      <Dialog open={!!previewing} onOpenChange={(o) => { if (!o) setPreviewing(null); }}>
+        <DialogContent className="max-w-4xl h-[85vh] flex flex-col">
+          <DialogHeader><DialogTitle className="truncate">{previewing?.name}</DialogTitle></DialogHeader>
+          {previewing && (
+            <iframe title={`Preview of ${previewing.name}`} src={previewing.url} className="flex-1 w-full rounded border" />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,11 +1,12 @@
 import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import ProjectWorkflow from "@/components/ops/ProjectWorkflow";
 import { FileText, Calculator, PackageSearch, Layers } from "lucide-react";
 
-// Project overview — a light dashboard of the project's shape (documents, scopes,
-// BOQs). Phase 2: counts + quick links. Richer coverage metrics come in Phase 4.
+// Project overview — the workflow (DRAWING → AI → REVIEW → BOQ → EXPORT) is the
+// first meaningful thing a new user sees here. The counts below it are a light
+// secondary summary of the project's shape, not the headline.
 export default function ProjectOverview() {
   const { id } = useParams<{ id: string }>();
 
@@ -35,49 +36,27 @@ export default function ProjectOverview() {
   ];
 
   return (
-    <div className="space-y-4">
-      {/* Leads the page — the AI-first workflow is the first meaningful thing
-          a new user sees, ahead of the generic count tiles below (audit
-          finding: the old stat grid was arriving first and outweighing it). */}
-      <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-base">How Cunstruct builds your BOQ</CardTitle></CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            <li className="flex gap-2">
-              <span className="font-semibold text-foreground shrink-0">01</span>
-              <span><Link to="documents" className="text-primary hover:underline font-medium">Add a drawing</Link> — upload the architectural/construction PDF.</span>
-            </li>
-            <li className="flex gap-2">
-              <span className="font-semibold text-foreground shrink-0">02</span>
-              <span>Generate quantities — Cunstruct analyses the drawing and proposes measurable BOQ quantities.</span>
-            </li>
-            <li className="flex gap-2">
-              <span className="font-semibold text-foreground shrink-0">03</span>
-              <span>Review with confidence — verify, edit, or flag each quantity before it enters the BOQ.</span>
-            </li>
-            <li className="flex gap-2">
-              <span className="font-semibold text-foreground shrink-0">04</span>
-              <span>Build your <Link to="boqs" className="text-primary hover:underline font-medium">BOQ</Link> — apply the reviewed quantities and export.</span>
-            </li>
-          </ol>
-        </CardContent>
-      </Card>
+    <div className="space-y-5">
+      <ProjectWorkflow hasDocuments={(data?.documents ?? 0) > 0} />
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {cards.map((c) => (
-          <Link key={c.label} to={c.to}>
-            <Card className="hover:border-primary/50 transition-colors">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">{c.label}</span>
-                  <c.icon className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="mt-2 text-2xl font-bold tabular-nums">{c.value}</div>
-                <div className="text-xs text-muted-foreground">{c.sub}</div>
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
+      {/* Secondary — a light shape-of-the-project summary, deliberately quieter
+          (smaller type, muted rule) than the workflow above it. */}
+      <div>
+        <div className="text-xs font-medium text-muted-foreground mb-2">At a glance</div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          {cards.map((c) => (
+            <Link key={c.label} to={c.to} className="rounded-md border px-3 py-2 hover:border-primary/40 transition-colors">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">{c.label}</span>
+                <c.icon className="h-3.5 w-3.5 text-muted-foreground" />
+              </div>
+              <div className="mt-0.5 flex items-baseline gap-1.5">
+                <span className="text-lg font-semibold tabular-nums">{c.value}</span>
+                <span className="text-[11px] text-muted-foreground">{c.sub}</span>
+              </div>
+            </Link>
+          ))}
+        </div>
       </div>
     </div>
   );

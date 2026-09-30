@@ -39,7 +39,8 @@ import { signedDrawingUrl, loadProjectDrawings } from "@/lib/review/drawingStora
 import PdfEvidenceViewer from "@/components/review/PdfEvidenceViewer";
 import DocumentSelector from "@/components/review/DocumentSelector";
 import AiApiPanel from "@/components/review/AiApiPanel";
-import AiExtractedBadge from "@/components/review/AiExtractedBadge";
+import AiStateBadge from "@/components/review/AiStateBadge";
+import ReviewQueue from "@/components/review/ReviewQueue";
 
 const FLAG_REASONS: { key: FlagReason; label: string }[] = [
   { key: "DRAWING_UNCLEAR", label: "Drawing unclear" },
@@ -161,6 +162,23 @@ export default function BoqReviewWorkstation() {
   const summary = useMemo(() => reviewSummary(items), [items]);
   const current = visible[Math.min(cursor, Math.max(0, visible.length - 1))];
 
+  // Compact queue rows for ReviewQueue — presentational only, derived from
+  // the exact same ordered/filtered list the main panel already uses.
+  const queueRows = useMemo(
+    () => visible.map((it) => ({
+      id: it.id,
+      label: it.ai.key || it.ai.item,
+      quantity: `${effectiveQuantity(it) ?? "—"}${it.ai.unit ? ` ${it.ai.unit}` : ""}`,
+      status: it.reviewStatus,
+      critical: isCritical(it),
+    })),
+    [visible],
+  );
+  const selectQueueItem = useCallback((id: string) => {
+    const idx = visible.findIndex((it) => it.id === id);
+    if (idx >= 0) setCursor(idx);
+  }, [visible]);
+
   // Apply-to-BOQ: pure classification, recomputed against the CURRENT BOQ lines
   // every render — never automatic, only acted on when the reviewer confirms.
   const applyPlan = useMemo(() => buildApplyPlan(items, boqLines), [items, boqLines]);
@@ -210,13 +228,21 @@ export default function BoqReviewWorkstation() {
       // written). A NEW_LINE's real id is never returned to the client (see
       // applyReview.ts's ApplyResult, untouched here), so a newly-created
       // line is correctly left unmarked rather than guessed at.
-      const justAppliedLineIds = applyPlan
-        .filter((c) =>
-          c.classification === "APPLY" && c.matchedLineId
-          && selectedApplyIds.has(c.reviewItemId)
-          && !res.conflictedReviewItemIds.includes(c.reviewItemId),
-        )
+      const appliedCandidates = applyPlan.filter((c) =>
+        (c.classification === "APPLY" || c.classification === "NEW_LINE")
+        && selectedApplyIds.has(c.reviewItemId)
+        && !res.conflictedReviewItemIds.includes(c.reviewItemId),
+      );
+      const justAppliedLineIds = appliedCandidates
+        .filter((c) => c.classification === "APPLY" && c.matchedLineId)
         .map((c) => c.matchedLineId!);
+      // How many of what was just applied came from an EDITED review item —
+      // real, derived from the same items[] this run of the reviewer state
+      // machine already has, not a fabricated figure. Carried through
+      // navigation state the same way appliedCount/unresolvedCount already are.
+      const correctedCount = appliedCandidates.filter((c) =>
+        items.find((it) => it.id === c.reviewItemId)?.reviewStatus === "EDITED",
+      ).length;
       toast.success(`Applied ${res.appliedCount} to the BOQ` + (res.unresolvedCount ? ` · ${res.unresolvedCount} unresolved` : ""), {
         action: {
           label: "View updated BOQ",
@@ -225,7 +251,7 @@ export default function BoqReviewWorkstation() {
           // truthful "just applied" banner even when no individual line can
           // be marked (every NEW_LINE candidate; see justAppliedLineIds above).
           onClick: () => navigate(`../boqs/${boqId}`, {
-            state: { justAppliedLineIds, appliedCount: res.appliedCount, unresolvedCount: res.unresolvedCount },
+            state: { justAppliedLineIds, appliedCount: res.appliedCount, unresolvedCount: res.unresolvedCount, correctedCount },
           }),
         },
       });
@@ -373,10 +399,19 @@ export default function BoqReviewWorkstation() {
         </DropdownMenu>
       </div>
 
+      {visible.length > 0 && (
+        <ReviewQueue rows={queueRows} currentId={current?.id} onSelect={selectQueueItem} reviewedCount={summary.total - summary.remaining} totalCount={summary.total} />
+      )}
+
       {!current ? (
         <Card><CardContent className="p-8 text-center text-muted-foreground">Nothing in this filter. Switch to “all”.</CardContent></Card>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        // Drawing evidence leads (LEFT/MAIN on desktop, first when stacked on
+        // mobile); the AI quantity + decision panel follows (RIGHT/PANEL on
+        // desktop, second on mobile) — the drawing is what a reviewer is
+        // actually here to check, so it gets the wider, primary position.
+        <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-3">
+          <ResolvedEvidenceViewer item={current} drawings={drawings} resolvedDocumentId={resolvedDocumentId} selectedClaim={selectedClaim} />
           <ItemPanel
             key={current.id}
             item={current}
@@ -393,7 +428,6 @@ export default function BoqReviewWorkstation() {
             drawings={drawings}
             resolvedDocumentId={resolvedDocumentId}
           />
-          <ResolvedEvidenceViewer item={current} drawings={drawings} resolvedDocumentId={resolvedDocumentId} selectedClaim={selectedClaim} />
         </div>
       )}
 
@@ -419,10 +453,19 @@ export default function BoqReviewWorkstation() {
         </DialogContent>
       </Dialog>
 
-      {/* Apply reviewed changes to the BOQ — explicit confirmation, exact diff */}
+      {/* Apply reviewed changes to the BOQ — explicit confirmation, exact diff.
+          The checkpoint framing (REVIEW COMPLETE — N/M/K) uses summary and
+          applyableCandidates, both already computed above from real review
+          state; nothing here is a new number. */}
       <Dialog open={showApplyModal} onOpenChange={setShowApplyModal}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          <h2 className="font-semibold">Apply your reviewed quantities to the BOQ</h2>
+          <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 -mt-1">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-primary">Review complete</div>
+            <p className="text-sm mt-0.5">
+              <b>{summary.total - summary.remaining}</b> reviewed · <b>{summary.edited}</b> corrected · <b>{applyableCandidates.length}</b> ready to enter the BOQ
+            </p>
+          </div>
+          <h2 className="font-semibold">Apply reviewed quantities</h2>
           <p className="text-xs text-muted-foreground -mt-2">
             Only verified/edited items that differ from the current BOQ are applied. Flagged and unreviewed items are never touched.
           </p>
@@ -920,7 +963,7 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
           the reviewer should accept it without checking. The badge is the one
           reusable "this came from AI" marker, reused in the BOQ after Apply. */}
       <div className="rounded border p-2 space-y-2">
-        <AiExtractedBadge />
+        <AiStateBadge state="ai" />
         <ClaimField claim="quantity" value={formatClaimValue(ai, "quantity")} evidence={claimEvidence.quantity} onSelectClaim={handleSelectClaim} emphasize />
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-sm pt-1 border-t">
           <Field label="AI status" value={ai.aiStatus} tone={ai.aiStatus === "PENDING" ? "danger" : ai.aiStatus === "INFERRED" ? "warning" : undefined} />
@@ -976,8 +1019,11 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
           plain (no AI badge) so the AI-extracted vs. human-reviewed contrast
           in the two boxes' treatment IS the hierarchy signal. */}
       {item.reviewer && "quantity" in item.reviewer && (
-        <div className="rounded border border-primary/30 p-2 space-y-2">
-          <div className="text-[10px] font-semibold text-foreground uppercase tracking-wide">Your review</div>
+        <div className="rounded border border-blue-500/30 p-2 space-y-2">
+          <div className="flex items-center gap-2">
+            <AiStateBadge state="human" />
+            <div className="text-[10px] font-semibold text-foreground uppercase tracking-wide">Your review</div>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-sm">
             <Field label="Your quantity" value={`${eff ?? "—"} ${delta ? `(${delta})` : ""}`} />
           </div>
@@ -1053,12 +1099,28 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
         </>
       )}
 
-      {/* Actions */}
+      {/* Actions — three decisions, not four equal buttons: Verify accepts the
+          AI quantity as-is (primary), Edit corrects it (secondary but still
+          prominent), Flag says don't trust it yet (tertiary/exception). Mark
+          Pending stays a plain quiet option alongside Flag — same semantics
+          and handlers as before, only the framing text is new. */}
       {!editing && !flagging && (
-        <div className="sticky bottom-0 bg-background border-t flex flex-wrap gap-2 pt-2">
-          <Button size="sm" onClick={onVerify} disabled={verifyDisabled} title={verifyDisabledReason}><Check className="w-4 h-4 mr-1" /> Verify</Button>
-          <Button size="sm" variant="outline" onClick={() => setEditing(true)}><Pencil className="w-4 h-4 mr-1" /> Edit</Button>
-          <Button size="sm" variant="ghost" onClick={() => setFlagging(true)}><Flag className="w-4 h-4 mr-1" /> Flag</Button>
+        <div className="sticky bottom-0 bg-background border-t flex flex-wrap items-start gap-2 pt-2">
+          {/* Spans, not divs, wrap each button+caption pair — a test asserts
+              the Verify button's closest("div") is THIS sticky row, so the
+              caption can't sit inside a new intervening div. */}
+          <span className="inline-flex flex-col items-start">
+            <Button size="sm" onClick={onVerify} disabled={verifyDisabled} title={verifyDisabledReason}><Check className="w-4 h-4 mr-1" /> Verify</Button>
+            <span className="text-[10px] text-muted-foreground mt-0.5">Accept the AI quantity</span>
+          </span>
+          <span className="inline-flex flex-col items-start">
+            <Button size="sm" variant="outline" onClick={() => setEditing(true)}><Pencil className="w-4 h-4 mr-1" /> Edit</Button>
+            <span className="text-[10px] text-muted-foreground mt-0.5">Correct the AI quantity</span>
+          </span>
+          <span className="inline-flex flex-col items-start">
+            <Button size="sm" variant="ghost" onClick={() => setFlagging(true)}><Flag className="w-4 h-4 mr-1" /> Flag</Button>
+            <span className="text-[10px] text-muted-foreground mt-0.5">Don't trust this quantity yet</span>
+          </span>
           <Button size="sm" variant="ghost" onClick={onPending}><Clock className="w-4 h-4 mr-1" /> Mark Pending</Button>
         </div>
       )}
@@ -1123,10 +1185,10 @@ export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, sel
   // half of this fix.
   if (resolved?.filePath) {
     return (
-      // border-primary/30 matches the "Your review"/AiExtractedBadge accent
-      // language on the left — a restrained visual grouping, not a new color,
-      // so "AI extracted quantity" and "evidence from the drawing" read as
-      // one connected concept. PdfEvidenceViewer itself is untouched.
+      // border-primary/30 matches the AI-extracted box's accent language on
+      // the right — a restrained visual grouping, not a new color, so "AI
+      // extracted quantity" and "evidence from the drawing" read as one
+      // connected concept. PdfEvidenceViewer itself is untouched.
       <Card className="min-w-0 border-primary/30"><CardContent className="p-4 space-y-2">
         {/* Narrates the one relationship this whole split view exists to
             show — the quantity on the left came from THIS drawing, not
