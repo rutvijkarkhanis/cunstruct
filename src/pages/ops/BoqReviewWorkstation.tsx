@@ -17,18 +17,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
-  ArrowLeft, Check, Pencil, Flag, Clock, ChevronLeft, ChevronRight, Upload, Cpu, FileText, ChevronDown, ChevronUp, AlertTriangle, Link2, MoreHorizontal, Info,
+  ArrowLeft, Check, Pencil, Flag, Clock, ChevronLeft, ChevronRight, Upload, Cpu, FileText, ChevronDown, ChevronUp, AlertTriangle, Link2, MoreHorizontal, Info, X,
 } from "lucide-react";
 import { parseAnalysisV1, type ClaimType } from "@/lib/review/analysisSchemaV1";
 import {
-  orderQueue, matchesFilter, reviewSummary, isCritical, criticalReasons, effectiveQuantity, diffItem, quantityDelta, LOW_CONFIDENCE,
-  type ReviewFilter, type ReviewStatus, type FlagReason, type ReviewerValues,
+  orderQueue, reviewSummary, isCritical, criticalReasons, effectiveQuantity, diffItem, quantityDelta, LOW_CONFIDENCE,
+  type ReviewStatus, type FlagReason, type ReviewerValues, type ReviewSummary,
 } from "@/lib/review/reviewQueue";
-import { transformBoxes, unionBox, hasPlaceableEvidence, defaultEvidenceClaim } from "@/lib/review/evidenceCoords";
+import { transformBoxes, unionBox, hasPlaceableEvidence } from "@/lib/review/evidenceCoords";
 import { claimLabel, formatClaimValue, summarizeClaimEvidence, type EvidenceSummary } from "@/lib/review/evidenceDisplay";
 import { defaultInputMode, isProviderConfigured, PROVIDERS, type InputMode } from "@/lib/review/analysisProviders";
 import { createAnalysisRun, loadReviewItems, latestRunForBoq, saveReviewDecision, updateResolvedDocument, type StoredReviewItem } from "@/lib/review/reviewStore";
@@ -38,11 +37,14 @@ import {
   type StoredDrawing, type DrawingLinkStatus,
 } from "@/lib/review/documentResolve";
 import { signedDrawingUrl, loadProjectDrawings } from "@/lib/review/drawingStorage";
+import { groupByCategory, isCountableUnit, type CategoryGroup, type TypeCard, type ElementCategory } from "@/lib/review/typeGrouping";
+import { instancesForType, type TypeInstance } from "@/lib/review/typeInstances";
+import { latestLocationRunForDocument, loadLocationObservations, type LocationObservation } from "@/lib/review/locationObservations";
+import { markersForAll, markersForCategory, markersForType, markersForInstance, type DrawingMarker } from "@/lib/review/drawingMarkers";
 import PdfEvidenceViewer from "@/components/review/PdfEvidenceViewer";
 import DocumentSelector from "@/components/review/DocumentSelector";
 import AiApiPanel from "@/components/review/AiApiPanel";
 import AiStateBadge from "@/components/review/AiStateBadge";
-import ReviewQueue from "@/components/review/ReviewQueue";
 
 const FLAG_REASONS: { key: FlagReason; label: string }[] = [
   { key: "DRAWING_UNCLEAR", label: "Drawing unclear" },
@@ -54,13 +56,6 @@ const FLAG_REASONS: { key: FlagReason; label: string }[] = [
   { key: "DUPLICATE", label: "Duplicate" },
   { key: "OTHER", label: "Other" },
 ];
-
-// Default-visible filters — the two a first-time reviewer actually needs.
-// The rest live behind the "More filters" menu so the row before the first
-// item doesn't compete with it. No semantics change — every filter still
-// works exactly as before via matchesFilter().
-const PRIMARY_FILTERS: ReviewFilter[] = ["NEEDS_REVIEW", "ALL"];
-const MORE_FILTERS: ReviewFilter[] = ["CRITICAL", "PENDING", "VERIFIED", "EDITED", "FLAGGED"];
 
 export default function BoqReviewWorkstation() {
   const { id: routeId, boqId: routeBoqId } = useParams<{ id?: string; boqId?: string }>();
@@ -129,7 +124,6 @@ export default function BoqReviewWorkstation() {
   const [resolvedDocumentId, setResolvedDocumentId] = useState<string | null>(null);
   const [runCreatedAt, setRunCreatedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<ReviewFilter>("NEEDS_REVIEW");
   const [cursor, setCursor] = useState(0);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
@@ -137,8 +131,27 @@ export default function BoqReviewWorkstation() {
   const [relinking, setRelinking] = useState(false);
   const [selectedApplyIds, setSelectedApplyIds] = useState<Set<string>>(new Set());
   const [selectedClaim, setSelectedClaim] = useState<ClaimType | null>(null);
+  // Which of the current type's LOCATION instances (if any) the drawing is
+  // focused on — mutually exclusive with selectedClaim (selecting one clears
+  // the other): the drawing shows either the type's own claim evidence or
+  // one specific instance's own real evidence, never a blend of both.
+  const [focusedInstanceId, setFocusedInstanceId] = useState<string | null>(null);
   const [showStatsBreakdown, setShowStatsBreakdown] = useState(false);
-  const [queueOpen, setQueueOpen] = useState(false);
+  // Element/type navigator — an always-visible rail on desktop (the
+  // reference's permanent Instance List), a full-screen drill-down overlay
+  // on mobile where there's no room for three regions at once. ONE
+  // TypeNavigator instance either way (see its own component) — never a
+  // duplicated mobile/desktop pair.
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [needsReviewOnly, setNeedsReviewOnly] = useState(true);
+  // What the drawing's annotation layer is scoped to (Sections 6/7/8 of the
+  // reference-adoption plan): "type" (the default — the current item's own
+  // instances/evidence), "category" (every type in one category, entered by
+  // clicking a category header), or "all" (every real marking in the
+  // analysis). A focused instance (focusedInstanceId above) narrows further
+  // within whichever of these is active, rather than being a fourth mode.
+  const [drawingMode, setDrawingMode] = useState<"type" | "category" | "all">("type");
+  const [selectedCategory, setSelectedCategory] = useState<ElementCategory | null>(null);
 
   // Load the latest run for this BOQ, if any.
   useEffect(() => {
@@ -160,10 +173,20 @@ export default function BoqReviewWorkstation() {
     return () => { alive = false; };
   }, [boqId]);
 
+  // The full, unfiltered navigation set — Prev/Next and the type navigator
+  // both work over EVERY item, attention-first ordered (orderQueue), never
+  // restricted by a display filter. "Needs review only" (below) only ever
+  // changes which types are SHOWN in the navigator list, never which ones
+  // Prev/Next can reach — a reviewer can always get to any type.
   const ordered = useMemo(() => orderQueue(items), [items]);
-  const visible = useMemo(() => ordered.filter((it) => matchesFilter(it, filter)), [ordered, filter]);
   const summary = useMemo(() => reviewSummary(items), [items]);
-  const current = visible[Math.min(cursor, Math.max(0, visible.length - 1))];
+  const current = ordered[Math.min(cursor, Math.max(0, ordered.length - 1))];
+
+  // Category -> Type grouping (Section B/C of the reference-adoption plan):
+  // a pure, derived view over the SAME items — never a second identity.
+  // Each TypeCard.reviewItem IS the exact StoredReviewItem Apply/persistence
+  // already operates on; grouping never merges two items into one type.
+  const categoryGroups = useMemo(() => groupByCategory(ordered), [ordered]);
 
   // The current item's resolved drawing name — same resolution ResolvedEvidenceViewer
   // uses, surfaced here too for the compact "GROUND FLOOR PLAN" context bar
@@ -176,22 +199,135 @@ export default function BoqReviewWorkstation() {
     return stored?.name || current.ai.source?.document || null;
   }, [current, drawings, resolvedDocumentId]);
 
-  // Compact queue rows for ReviewQueue — presentational only, derived from
-  // the exact same ordered/filtered list the main panel already uses.
-  const queueRows = useMemo(
-    () => visible.map((it) => ({
-      id: it.id,
-      label: it.ai.key || it.ai.item,
-      quantity: `${effectiveQuantity(it) ?? "—"}${it.ai.unit ? ` ${it.ai.unit}` : ""}`,
-      status: it.reviewStatus,
-      critical: isCritical(it),
-    })),
-    [visible],
-  );
-  const selectQueueItem = useCallback((id: string) => {
-    const idx = visible.findIndex((it) => it.id === id);
+  // Every navigation entry point clears any focused instance itself —
+  // deliberately NOT a `useEffect` keyed on `current?.id`, which would also
+  // fire (and clobber) the one case that must set a NEW focus in the same
+  // interaction: clicking a different type's instance marker directly on the
+  // canvas (see onSelectMarker below, which switches type and focuses an
+  // instance together).
+  const selectType = useCallback((id: string) => {
+    const idx = ordered.findIndex((it) => it.id === id);
     if (idx >= 0) setCursor(idx);
-  }, [visible]);
+    setDrawingMode("type");
+    setFocusedInstanceId(null);
+    setSelectedClaim(null);
+    setMobileNavOpen(false);
+  }, [ordered]);
+
+  // Selecting a category (Section 6): the drawing scopes to every type in it
+  // (markersForCategory), and the inspector settles on that category's first
+  // type so there's always a coherent single "current" item, matching the
+  // reference's own behavior of still letting a category selection drill
+  // toward a type. Never merges categories or invents a type.
+  const selectCategory = useCallback((category: ElementCategory) => {
+    setSelectedCategory(category);
+    setDrawingMode("category");
+    setFocusedInstanceId(null);
+    setSelectedClaim(null);
+    const first = categoryGroups.find((g) => g.category === category)?.types[0]?.reviewItem.id;
+    if (first) {
+      const idx = ordered.findIndex((it) => it.id === first);
+      if (idx >= 0) setCursor(idx);
+    }
+  }, [categoryGroups, ordered]);
+
+  const selectAll = useCallback(() => {
+    setDrawingMode("all"); setSelectedCategory(null); setFocusedInstanceId(null); setSelectedClaim(null);
+  }, []);
+
+  // LOCATION observations — the one place Cunstruct has genuine per-occurrence
+  // evidence (see typeInstances.ts). Read-only, admin-produced-but-not-admin-
+  // gated-to-read: fetched for every distinct document this run's items
+  // resolve against, using the primary document-scoped lookup (model="" —
+  // that param only affects the rarer cross-document content-hash fallback,
+  // never the direct per-document lookup this relies on). Absent for a
+  // document LOCATION extraction was never run for — an honest "instance
+  // detail unavailable" state, never worked around.
+  //
+  // Resolved once per item (not just for `current`) — Category/All marker
+  // modes need every type's instances, not only the one currently inspected.
+  const docIdByItemId = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const it of items) map.set(it.id, resolveItemDrawing(it.ai.source, drawings, resolvedDocumentId)?.documentId ?? null);
+    return map;
+  }, [items, drawings, resolvedDocumentId]);
+
+  const resolvedDocIds = useMemo(
+    () => [...new Set([...docIdByItemId.values()].filter((id): id is string => id != null))].sort(),
+    [docIdByItemId],
+  );
+
+  const { data: observationsByDoc = {} } = useQuery({
+    queryKey: ["rw-location-observations", boq?.project_id, resolvedDocIds],
+    enabled: !!boq?.project_id && resolvedDocIds.length > 0,
+    queryFn: async (): Promise<Record<string, LocationObservation[]>> => {
+      const projectId = boq!.project_id!;
+      const entries = await Promise.all(resolvedDocIds.map(async (docId): Promise<[string, LocationObservation[]]> => {
+        const run = await latestLocationRunForDocument(projectId, docId, "");
+        if (run.status !== "SUCCEEDED" || !run.runId) return [docId, []];
+        return [docId, await loadLocationObservations(run.runId)];
+      }));
+      return Object.fromEntries(entries);
+    },
+  });
+
+  const instancesByItemId = useMemo(() => {
+    const map = new Map<string, TypeInstance[]>();
+    for (const it of items) {
+      const docId = docIdByItemId.get(it.id);
+      const observations = docId ? (observationsByDoc[docId] ?? []) : [];
+      map.set(it.id, instancesForType({ key: it.ai.key, dimension: it.ai.dimension, specification: it.ai.specification }, observations));
+    }
+    return map;
+  }, [items, docIdByItemId, observationsByDoc]);
+
+  const currentInstances: TypeInstance[] = useMemo(
+    () => (current ? (instancesByItemId.get(current.id) ?? []) : []),
+    [current, instancesByItemId],
+  );
+
+  const currentCategory = useMemo(
+    () => categoryGroups.find((g) => g.types.some((t) => t.reviewItem.id === current?.id))?.category ?? "Other",
+    [categoryGroups, current?.id],
+  );
+
+  // The drawing's actual annotation layer (Section 3): real markers only —
+  // never a fabricated box. A focused instance narrows within the active
+  // mode (instance always wins, regardless of type/category/all); otherwise
+  // the mode itself decides the scope. Markers are then restricted to items
+  // that resolve to the SAME document `current` does — a review session
+  // spanning several source drawings must never show one document's
+  // markings on another's page.
+  const drawingMarkers: DrawingMarker[] = useMemo(() => {
+    if (!current) return [];
+    const raw = focusedInstanceId
+      ? markersForInstance(current, currentCategory, currentInstances, focusedInstanceId)
+      : drawingMode === "all"
+        ? markersForAll(categoryGroups, instancesByItemId)
+        : drawingMode === "category" && selectedCategory
+          ? markersForCategory(categoryGroups.find((g) => g.category === selectedCategory)!, instancesByItemId)
+          : markersForType(current, currentCategory, currentInstances);
+    const currentDocId = docIdByItemId.get(current.id);
+    return raw.filter((m) => docIdByItemId.get(m.reviewItemId) === currentDocId);
+  }, [current, focusedInstanceId, drawingMode, selectedCategory, categoryGroups, instancesByItemId, currentInstances, currentCategory, docIdByItemId]);
+
+  // "What am I looking at?" (acceptance criteria) — a real, computed label
+  // for the canvas's own context row, never a static caption.
+  const markerContextLabel = useMemo(() => {
+    if (!current) return "";
+    if (focusedInstanceId) {
+      const idx = currentInstances.findIndex((i) => i.observation.id === focusedInstanceId);
+      return idx >= 0 ? `${current.ai.key} — instance ${idx + 1} of ${currentInstances.length}` : current.ai.key;
+    }
+    if (drawingMode === "all") return `All categories — ${categoryGroups.reduce((n, g) => n + g.types.length, 0)} types`;
+    if (drawingMode === "category" && selectedCategory) {
+      const group = categoryGroups.find((g) => g.category === selectedCategory);
+      return `${selectedCategory} — ${group?.types.length ?? 0} type${group?.types.length === 1 ? "" : "s"}`;
+    }
+    return isCountableUnit(current.ai.unit) && currentInstances.length
+      ? `${current.ai.key} — ${currentInstances.length} instance${currentInstances.length === 1 ? "" : "s"}`
+      : current.ai.key;
+  }, [current, focusedInstanceId, currentInstances, drawingMode, selectedCategory, categoryGroups]);
 
   // Apply-to-BOQ: pure classification, recomputed against the CURRENT BOQ lines
   // every render — never automatic, only acted on when the reviewer confirms.
@@ -283,21 +419,24 @@ export default function BoqReviewWorkstation() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to apply to the BOQ"),
   });
 
-  // Default the drawing's focus to the AI quantity's own evidence whenever a
-  // NEW item becomes current (the spatial-review entry point: "select Column
-  // — 12 nos → drawing focuses on the relevant evidence"). Falls back to null
-  // (show all of this item's evidence, unfiltered — today's exact prior
-  // behavior) when the analysis has no quantity-tagged evidence for it —
-  // never fabricates a focus the data doesn't support. Depends only on
-  // current?.id, not `current` itself, so an in-place update to the SAME item
-  // (e.g. after Verify) never resets the reviewer's own claim selection —
-  // only navigating to a genuinely different item does.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { setSelectedClaim(defaultEvidenceClaim(current?.ai.source)); }, [current?.id]);
+  // NOTE on the drawing's default focus: this used to auto-select the
+  // quantity claim here (the pre-marker-mode "spatial review entry point").
+  // Now that the Category/Type/Instance annotation layer (drawingMarkers.ts)
+  // is the drawing's default view for every selection — type, category, or
+  // all — that auto-selection would silently steal precedence away from
+  // marker mode every time `current` changes (PdfEvidenceViewer gives a
+  // selected claim priority over markers, since a reviewer who explicitly
+  // clicked an evidence link means it). selectType/go/selectCategory/
+  // selectAll each clear `selectedClaim` themselves instead — a claim stays
+  // selected ONLY when the reviewer explicitly picked one via an "Evidence ·"
+  // link in the inspector, never as a side effect of navigation.
 
   const go = useCallback((delta: number) => {
-    setCursor((c) => Math.max(0, Math.min(visible.length - 1, c + delta)));
-  }, [visible.length]);
+    setCursor((c) => Math.max(0, Math.min(ordered.length - 1, c + delta)));
+    setFocusedInstanceId(null);
+    setDrawingMode("type");
+    setSelectedClaim(null);
+  }, [ordered.length]);
 
   const applyDecision = useCallback(async (
     status: ReviewStatus, opts: { reviewer?: ReviewerValues | null; flagReason?: FlagReason | null; note?: string | null } = {},
@@ -362,68 +501,21 @@ export default function BoqReviewWorkstation() {
           <ArrowLeft className="w-4 h-4" />
         </Button>
 
-        <Popover open={queueOpen} onOpenChange={setQueueOpen}>
-          <PopoverTrigger asChild>
-            <button type="button" aria-label="Element list and filters" className="flex items-baseline gap-1.5 min-w-0 text-left rounded px-1.5 py-1 -mx-1.5 hover:bg-muted/60">
-              <span className="font-semibold text-sm sm:text-base leading-tight truncate max-w-[8rem] sm:max-w-[18rem]">
-                {currentDocumentName ?? "Review"}
-              </span>
-              <span className="text-xs text-muted-foreground tabular-nums shrink-0 inline-flex items-center gap-0.5">
-                {current ? visible.indexOf(current) + 1 : 0} / {summary.total}
-                <ChevronDown className="w-3 h-3 opacity-60" />
-              </span>
-            </button>
-          </PopoverTrigger>
-          <PopoverContent align="start" className="w-[22rem] p-0">
-            <div className="p-2.5 border-b space-y-2">
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>{reviewedCount} / {summary.total} reviewed · {summary.completionPct}%</span>
-                <button onClick={() => setShowStatsBreakdown((s) => !s)} className="text-primary hover:underline">
-                  {showStatsBreakdown ? "Hide breakdown" : "Breakdown"}
-                </button>
-              </div>
-              {showStatsBreakdown && (
-                <div className="grid grid-cols-3 gap-1.5 text-center">
-                  <Stat label="Verified" value={summary.verified} cls="text-green-700" />
-                  <Stat label="Edited" value={summary.edited} cls="text-blue-700" />
-                  <Stat label="Flagged" value={summary.flagged} cls="text-amber-700" />
-                  <Stat label="Pending" value={summary.markedPending} cls="text-purple-700" />
-                  <Stat label="Remaining" value={summary.remaining} />
-                  <Stat label="Total" value={summary.total} />
-                </div>
-              )}
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {PRIMARY_FILTERS.map((f) => (
-                  <button key={f} onClick={() => { setFilter(f); setCursor(0); }}
-                    className={`text-xs px-2 py-1 rounded border ${filter === f ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
-                    {f.replace("_", " ").toLowerCase()}
-                  </button>
-                ))}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button className={`text-xs px-2 py-1 rounded border inline-flex items-center gap-1 ${MORE_FILTERS.includes(filter) ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
-                      {MORE_FILTERS.includes(filter) ? filter.replace("_", " ").toLowerCase() : "more"}<ChevronDown className="w-3 h-3" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start">
-                    {MORE_FILTERS.map((f) => (
-                      <DropdownMenuItem key={f} onClick={() => { setFilter(f); setCursor(0); }}>
-                        {f.replace("_", " ").toLowerCase()}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </div>
-            <div className="max-h-72 overflow-y-auto">
-              {visible.length > 0 ? (
-                <ReviewQueue rows={queueRows} currentId={current?.id} onSelect={(id) => { selectQueueItem(id); setQueueOpen(false); }} reviewedCount={reviewedCount} totalCount={summary.total} />
-              ) : (
-                <p className="p-3 text-xs text-muted-foreground">Nothing in this filter. Switch to “all”.</p>
-              )}
-            </div>
-          </PopoverContent>
-        </Popover>
+        {/* Opens the full-screen Element Types drill-down on mobile (the
+            navigator rail has no room there). Harmless on desktop — the
+            overlay it would open is itself `lg:hidden`, since the rail is
+            already a permanent visible column there (see TypeNavigator
+            below): one button, one behavior, never a second copy of this
+            text duplicated per breakpoint. */}
+        <button type="button" onClick={() => setMobileNavOpen(true)} aria-label="Element types" className="lg:pointer-events-none flex items-baseline gap-1.5 min-w-0 text-left rounded px-1.5 py-1 -mx-1.5 hover:bg-muted/60">
+          <span className="font-semibold text-sm sm:text-base leading-tight truncate max-w-[8rem] sm:max-w-[18rem]">
+            {currentDocumentName ?? "Review"}
+          </span>
+          <span className="text-xs text-muted-foreground tabular-nums shrink-0 inline-flex items-center gap-0.5">
+            {current ? ordered.indexOf(current) + 1 : 0} / {summary.total}
+            <ChevronDown className="w-3 h-3 opacity-60 lg:hidden" />
+          </span>
+        </button>
 
         <div className="ml-auto flex items-center gap-1">
           {/* Apply is the completion action, not a peer of the other controls
@@ -478,47 +570,105 @@ export default function BoqReviewWorkstation() {
         </button>
       )}
 
-      {!current ? (
-        <Card><CardContent className="p-8 text-center text-muted-foreground">Nothing in this filter. Switch to “all”.</CardContent></Card>
-      ) : (
-        // THE CANVAS IS THE PRODUCT — on desktop the drawing fills the whole
-        // workspace; the inspector is a small floating card attached to it
-        // (bottom-right), not a second dashboard column of comparable
-        // weight. On mobile there's no room to float anything over the
-        // drawing, so the inspector sits directly below it in normal flow —
-        // but still frameless/edge-to-edge, never a second bordered "card"
-        // stacked under the first. ONE ItemPanel instance either way
-        // (responsive classes on its wrapper only) — a duplicated mobile/
-        // desktop pair would break every exact-name button query in its tests.
-        // ProjectLayout strips its breadcrumb/title/tabs entirely in Review
-        // mode (see its REVIEW_MODE_RE branch) and OpsLayout has no desktop
-        // top bar at all — so the only chrome above this workspace on
-        // desktop is this page's own compact top bar + padding, not the
-        // project header this buffer used to have to clear.
-        <div className="relative lg:h-[calc(100vh-100px)] lg:min-h-[460px]">
-          <div className="lg:absolute lg:inset-0 lg:h-full">
-            <ResolvedEvidenceViewer item={current} drawings={drawings} resolvedDocumentId={resolvedDocumentId} selectedClaim={selectedClaim} />
-          </div>
-          <div className="mt-3 lg:mt-0 lg:absolute lg:bottom-3 lg:right-3 lg:w-[336px] lg:max-h-[calc(100%-1.5rem)] lg:overflow-y-auto lg:rounded-lg lg:border lg:bg-background lg:shadow-xl lg:p-3">
-            <ItemPanel
-              key={current.id}
-              item={current}
-              index={visible.indexOf(current)}
-              count={visible.length}
-              onVerify={() => applyDecision("VERIFIED")}
-              onEdit={(reviewer) => applyDecision("EDITED", { reviewer })}
-              onFlag={(flagReason, note) => applyDecision("FLAGGED", { flagReason, note })}
-              onPending={() => applyDecision("MARKED_PENDING")}
-              onPrev={() => go(-1)}
-              onNext={() => go(1)}
-              keyboardEnabled
-              onSelectClaim={setSelectedClaim}
-              drawings={drawings}
-              resolvedDocumentId={resolvedDocumentId}
-            />
-          </div>
-        </div>
-      )}
+      {/* THREE-PANE WORKSPACE — matches the reference's own composition
+          exactly: a permanent navigator rail (left — the reference's file/
+          plan tree, translated for Cunstruct into Category/Type, since a
+          single-document BOQ review has no multi-sheet project to browse),
+          the drawing (center, the dominant region), and a permanent
+          instances+details rail (right — the reference's own INSTANCE LIST +
+          DETAILS column). Visual verification against the reference frames
+          showed the previous floating-card-over-the-drawing inspector still
+          read as "a PDF with a panel attached," not the reference's actual
+          persistent right column — this is a structural fix, not a
+          restyling: same ItemPanel, same props, just given its own column
+          instead of an absolutely-positioned overlay. */}
+      <div className="lg:flex lg:gap-3 lg:h-[calc(100vh-100px)] lg:min-h-[460px]">
+        <TypeNavigator
+          groups={categoryGroups}
+          currentId={current?.id}
+          onSelect={selectType}
+          reviewedCount={reviewedCount}
+          totalCount={summary.total}
+          completionPct={summary.completionPct}
+          needsReviewOnly={needsReviewOnly}
+          onNeedsReviewOnlyChange={setNeedsReviewOnly}
+          showBreakdown={showStatsBreakdown}
+          onToggleBreakdown={() => setShowStatsBreakdown((s) => !s)}
+          summary={summary}
+          mobileOpen={mobileNavOpen}
+          onMobileClose={() => setMobileNavOpen(false)}
+          drawingMode={drawingMode}
+          selectedCategory={selectedCategory}
+          onSelectCategory={selectCategory}
+          onSelectAll={selectAll}
+        />
+
+        {!current ? (
+          <Card className="flex-1"><CardContent className="p-8 text-center text-muted-foreground">Nothing in this filter. Switch to “all”.</CardContent></Card>
+        ) : (
+          <>
+            {/* THE DRAWING IS THE PRODUCT — still the dominant region,
+                filling whatever space the two rails either side leave it,
+                exactly as the reference's own canvas does between its
+                file tree and its Instances column. */}
+            <div className="flex-1 min-w-0 mt-2 lg:mt-0 lg:h-full">
+              <ResolvedEvidenceViewer
+                item={current}
+                drawings={drawings}
+                resolvedDocumentId={resolvedDocumentId}
+                selectedClaim={selectedClaim}
+                markers={drawingMarkers}
+                markerContextLabel={markerContextLabel}
+                onSelectMarker={(id) => {
+                  const marker = drawingMarkers.find((m) => m.id === id);
+                  if (!marker) return;
+                  setSelectedClaim(null);
+                  // Clicking a marker for a DIFFERENT type drills the
+                  // inspector into it directly from the canvas — the
+                  // reference's own "click the object, not just the list
+                  // row" interaction. Already-focused-same-instance toggles
+                  // off; anything else focuses the clicked instance.
+                  const alreadyFocused = marker.reviewItemId === current.id && focusedInstanceId === marker.observationId;
+                  if (marker.reviewItemId !== current.id) {
+                    const idx = ordered.findIndex((it) => it.id === marker.reviewItemId);
+                    if (idx >= 0) setCursor(idx);
+                    setDrawingMode("type");
+                  }
+                  setFocusedInstanceId(marker.observationId ? (alreadyFocused ? null : marker.observationId) : null);
+                }}
+              />
+            </div>
+            {/* Instances + Details — the reference's own right column. On
+                mobile there's no room for a third region, so it drops below
+                the drawing in normal flow instead of becoming a fourth
+                stacked card. ONE ItemPanel instance either way (responsive
+                classes on its wrapper only) — a duplicated mobile/desktop
+                pair would break every exact-name button query in its tests. */}
+            <div className="mt-3 lg:mt-0 lg:w-80 lg:shrink-0 lg:h-full lg:overflow-y-auto lg:rounded-lg lg:border lg:bg-card lg:p-3">
+              <ItemPanel
+                key={current.id}
+                item={current}
+                index={ordered.indexOf(current)}
+                count={ordered.length}
+                category={categoryGroups.find((g) => g.types.some((t) => t.reviewItem.id === current.id))?.category ?? "Other"}
+                instances={currentInstances}
+                focusedInstanceId={focusedInstanceId}
+                onFocusInstance={(id) => { setFocusedInstanceId(id); setSelectedClaim(null); }}
+                onVerify={() => applyDecision("VERIFIED")}
+                onEdit={(reviewer) => applyDecision("EDITED", { reviewer })}
+                onFlag={(flagReason, note) => applyDecision("FLAGGED", { flagReason, note })}
+                onPending={() => applyDecision("MARKED_PENDING")}
+                onPrev={() => go(-1)}
+                onNext={() => go(1)}
+                keyboardEnabled
+                onSelectClaim={(c) => { setSelectedClaim(c); setFocusedInstanceId(null); }}
+                drawings={drawings}
+                resolvedDocumentId={resolvedDocumentId}
+              />
+            </div>
+          </>
+        )}
+      </div>
 
       {/* Import new analysis modal */}
       <Dialog open={showImportModal} onOpenChange={setShowImportModal}>
@@ -597,6 +747,190 @@ export default function BoqReviewWorkstation() {
   );
 }
 
+// ── Element Type Navigator ───────────────────────────────────────────────────────
+// The reference's permanent Instance List, one grain up — types, not raw
+// instances (see typeGrouping.ts for why that's the honest grain Cunstruct's
+// data actually supports). Always visible on desktop; a full-screen
+// drill-down overlay on mobile, since there's no room for three regions on a
+// phone. ONE instance either way (responsive classes only) — a duplicated
+// mobile/desktop pair would break exact-text queries the same way it would
+// in ItemPanel.
+export function TypeNavigator({
+  groups, currentId, onSelect, reviewedCount, totalCount, completionPct,
+  needsReviewOnly, onNeedsReviewOnlyChange, showBreakdown, onToggleBreakdown, summary,
+  mobileOpen, onMobileClose, drawingMode, selectedCategory, onSelectCategory, onSelectAll,
+}: {
+  groups: CategoryGroup[];
+  currentId?: string;
+  onSelect: (id: string) => void;
+  reviewedCount: number;
+  totalCount: number;
+  completionPct: number;
+  needsReviewOnly: boolean;
+  onNeedsReviewOnlyChange: (v: boolean) => void;
+  showBreakdown: boolean;
+  onToggleBreakdown: () => void;
+  summary: ReviewSummary;
+  mobileOpen: boolean;
+  onMobileClose: () => void;
+  /** Which of the drawing's annotation scopes is active (Section 6/7) — drives
+   *  the "All"/category header's selected-state styling. Optional so a caller
+   *  that doesn't yet wire category selection (e.g. an older test render)
+   *  still gets a working, if unhighlighted, navigator. */
+  drawingMode?: "type" | "category" | "all";
+  selectedCategory?: ElementCategory | null;
+  onSelectCategory?: (category: ElementCategory) => void;
+  onSelectAll?: () => void;
+}) {
+  // Collapsed state per category — nothing starts collapsed, so a category
+  // with exceptions is never a click away from where the reviewer lands.
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const toggleCategory = (cat: string) => setCollapsed((prev) => {
+    const next = new Set(prev);
+    if (next.has(cat)) next.delete(cat); else next.add(cat);
+    return next;
+  });
+
+  return (
+    <div
+      className={cn(
+        "lg:flex lg:relative lg:z-auto lg:h-full lg:w-64 lg:shrink-0 lg:border lg:rounded-lg lg:bg-card flex-col overflow-y-auto",
+        mobileOpen ? "fixed inset-0 z-50 bg-background flex" : "hidden lg:flex",
+      )}
+    >
+      <div className="p-3 border-b space-y-2 shrink-0">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold">Element Types</span>
+          <button type="button" onClick={onMobileClose} aria-label="Close element types" className="lg:hidden text-muted-foreground">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>{reviewedCount} / {totalCount} reviewed</span>
+            <span>{completionPct}%</span>
+          </div>
+          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+            <div className="h-full bg-primary" style={{ width: `${completionPct}%` }} />
+          </div>
+        </div>
+        <div className="flex items-center justify-between text-xs">
+          <label className="flex items-center gap-1.5 cursor-pointer text-muted-foreground">
+            <input type="checkbox" checked={needsReviewOnly} onChange={(e) => onNeedsReviewOnlyChange(e.target.checked)} />
+            Needs review only
+          </label>
+          <button onClick={onToggleBreakdown} className="text-primary hover:underline">
+            {showBreakdown ? "Hide breakdown" : "Breakdown"}
+          </button>
+        </div>
+        {showBreakdown && (
+          <div className="grid grid-cols-3 gap-1.5 text-center pt-1">
+            <Stat label="Verified" value={summary.verified} cls="text-green-700" />
+            <Stat label="Edited" value={summary.edited} cls="text-blue-700" />
+            <Stat label="Flagged" value={summary.flagged} cls="text-amber-700" />
+            <Stat label="Pending" value={summary.markedPending} cls="text-purple-700" />
+            <Stat label="Remaining" value={summary.remaining} />
+            <Stat label="Total" value={summary.total} />
+          </div>
+        )}
+      </div>
+
+      {/* "All" — the drawing's un-scoped state (Section 6): every real
+          marking in the analysis, all equally muted. A quiet text row, not a
+          category peer, since it isn't one. */}
+      {onSelectAll && (
+        <button
+          type="button"
+          onClick={onSelectAll}
+          className={cn(
+            "shrink-0 text-left px-3 py-1.5 text-xs border-b",
+            drawingMode === "all" ? "bg-primary/10 font-medium text-foreground" : "text-muted-foreground hover:bg-muted/50",
+          )}
+        >
+          All categories
+        </button>
+      )}
+
+      <div className="flex-1 overflow-y-auto divide-y">
+        {groups.length === 0 && (
+          <p className="p-3 text-xs text-muted-foreground">No element types in this analysis.</p>
+        )}
+        {groups.map((group) => {
+          const shown = needsReviewOnly ? group.types.filter((t) => t.reviewStatus === "PENDING_REVIEW") : group.types;
+          if (needsReviewOnly && shown.length === 0) return null;
+          const isCollapsed = collapsed.has(group.category);
+          const categorySelected = drawingMode === "category" && selectedCategory === group.category;
+          return (
+            <div key={group.category}>
+              <div className={cn("w-full flex items-center gap-1 pr-3", categorySelected ? "bg-primary/10" : "hover:bg-muted/50")}>
+                <button
+                  type="button"
+                  onClick={() => toggleCategory(group.category)}
+                  aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${group.category}`}
+                  className="p-2 text-muted-foreground shrink-0"
+                >
+                  {isCollapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                </button>
+                {/* Selecting the category NAME (Section 6) — not the chevron,
+                    which only expands/collapses the list — scopes the
+                    drawing's annotation layer to every type in it. */}
+                <button
+                  type="button"
+                  onClick={() => onSelectCategory?.(group.category)}
+                  className="flex-1 min-w-0 flex items-center justify-between gap-2 py-2 text-xs font-semibold text-left"
+                >
+                  <span className="truncate">{group.category} <span className="text-muted-foreground font-normal">({shown.length})</span></span>
+                  {group.needsAttentionCount > 0 && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 shrink-0">
+                      {group.needsAttentionCount} needs review
+                    </span>
+                  )}
+                </button>
+              </div>
+              {!isCollapsed && shown.map((t) => (
+                <TypeRow key={t.reviewItem.id} card={t} current={t.reviewItem.id === currentId} onSelect={onSelect} />
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// One type's row in the navigator: key/name, dimension+specification when
+// known, and its quantity framed honestly — "N instances" only for a
+// countable unit (the real, already-extracted count), the measurement
+// itself otherwise (typeGrouping.isCountableUnit decides which).
+function TypeRow({ card, current, onSelect }: { card: TypeCard; current: boolean; onSelect: (id: string) => void }) {
+  const { reviewItem, countable, instanceCount } = card;
+  const ai = reviewItem.ai;
+  const qtyLabel = countable
+    ? `${instanceCount ?? "—"} instance${instanceCount === 1 ? "" : "s"}`
+    : `${ai.quantity ?? "—"}${ai.unit ? ` ${ai.unit}` : ""}`;
+  const dot = card.needsAttention
+    ? "bg-amber-500"
+    : reviewItem.reviewStatus === "FLAGGED" ? "bg-amber-600"
+    : reviewItem.reviewStatus === "PENDING_REVIEW" ? "bg-muted-foreground/40"
+    : "bg-emerald-500";
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(reviewItem.id)}
+      className={cn(
+        "w-full flex items-start gap-2 pl-7 pr-3 py-2 text-left text-xs",
+        current ? "bg-primary/10" : "hover:bg-muted/50",
+      )}
+    >
+      <span className={cn("mt-1 h-1.5 w-1.5 rounded-full shrink-0", dot)} aria-hidden="true" />
+      <span className="min-w-0 flex-1">
+        <span className="block font-medium truncate">{ai.key}{ai.key !== ai.item ? ` — ${ai.item}` : ""}</span>
+        {ai.dimension && <span className="block text-muted-foreground truncate">{ai.dimension}{ai.specification ? ` · ${ai.specification}` : ""}</span>}
+        <span className="block text-muted-foreground tabular-nums">{qtyLabel}</span>
+      </span>
+    </button>
+  );
+}
 
 // ── Apply to BOQ — confirmation screen ──────────────────────────────────────────
 const UNSUPPORTED_FIELD_LABEL: Record<UnsupportedChange["field"], string> = {
@@ -861,8 +1195,19 @@ export function ImportGate({ boqId, projectId, projectType, boqName, onImported,
 }
 
 // ── Left item panel ────────────────────────────────────────────────────────────
-export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPending, onPrev, onNext, keyboardEnabled, onSelectClaim, drawings, resolvedDocumentId }: {
+export function ItemPanel({
+  item, index, count, category, instances, focusedInstanceId, onFocusInstance,
+  onVerify, onEdit, onFlag, onPending, onPrev, onNext, keyboardEnabled, onSelectClaim, drawings, resolvedDocumentId,
+}: {
   item: StoredReviewItem; index: number; count: number;
+  /** Derived, presentation-only — see typeGrouping.categorize(). */
+  category?: string;
+  /** Real LOCATION-observation instances for this type, when that extraction
+   *  has actually been run for its document — [] otherwise (an honest
+   *  "instance detail unavailable" state, never worked around). */
+  instances?: TypeInstance[];
+  focusedInstanceId?: string | null;
+  onFocusInstance?: (id: string | null) => void;
   onVerify: () => void; onEdit: (r: ReviewerValues) => void; onFlag: (r: FlagReason, note: string) => void; onPending: () => void;
   onPrev: () => void; onNext: () => void; keyboardEnabled?: boolean; onSelectClaim: (claim: ClaimType) => void;
   drawings: StoredDrawing[]; resolvedDocumentId?: string | null;
@@ -870,7 +1215,6 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
   const ai = item.ai;
   const [editing, setEditing] = useState(false);
   const [flagging, setFlagging] = useState(false);
-  const [why, setWhy] = useState(false);
   const [draft, setDraft] = useState<ReviewerValues>({});
   const [flagReason, setFlagReason] = useState<FlagReason>("DRAWING_UNCLEAR");
   const [flagNote, setFlagNote] = useState("");
@@ -888,7 +1232,7 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
   // diff box below, without needing this section open.
   const [moreDetails, setMoreDetails] = useState(false);
 
-  useEffect(() => { setEditing(false); setFlagging(false); setWhy(false); setDraft({}); setEvidenceViewed(false); setMoreDetails(false); }, [item.id]);
+  useEffect(() => { setEditing(false); setFlagging(false); setDraft({}); setEvidenceViewed(false); setMoreDetails(false); }, [item.id]);
 
   // Stages a candidate's value into the draft and opens the Edit form — never
   // saves anything itself. The reviewer still must click Save correction (and
@@ -1012,8 +1356,10 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
           the Review workflow and knows this is the AI's proposed measurement
           (Section 7) — AiStateBadge/StatusBadge/AI status/Confidence/Source
           moved into Details below, alongside dimension/specification/
-          location, instead of standing chrome above the hero number. */}
+          location, matching the reference's own compact identity line above
+          its dense DETAILS column. */}
       <div>
+        {category && <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">{category}</div>}
         <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground truncate">
           {ai.key}{ai.key !== ai.item ? ` · ${ai.item}` : ""}
         </div>
@@ -1032,11 +1378,49 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
         </div>
       )}
 
-      {/* THE QUANTITY IS THE HERO — the one number a reviewer is actually
-          here to decide on, at a size nothing else on this panel competes
-          with. The evidence link directly beneath it is how "does this
-          look right?" actually gets checked, not a caveat. */}
-      <ClaimField claim="quantity" value={formatClaimValue(ai, "quantity")} evidence={claimEvidence.quantity} onSelectClaim={handleSelectClaim} emphasize />
+      {/* Quantity — the one value a reviewer is actually here to decide on,
+          but rendered as a compact property row (like every other claim),
+          not an oversized hero number: visual verification against the
+          reference showed a giant number here was exactly the old
+          item-review card's dominant visual model the reviewer explicitly
+          asked to move away from. Its evidence link is how "does this look
+          right?" actually gets checked. */}
+      <ClaimField claim="quantity" value={formatClaimValue(ai, "quantity")} evidence={claimEvidence.quantity} onSelectClaim={handleSelectClaim} />
+
+      {/* Type -> Instances (Section B/C/D of the reference-adoption plan).
+          Real per-occurrence evidence, only ever shown when LOCATION
+          extraction has actually produced it for this drawing — never a
+          fabricated placement. Selecting a row focuses the drawing's
+          annotation layer on THAT instance via drawingMarkers.ts, giving it
+          the "primary" marker treatment while its siblings stay visible but
+          subordinate (see markersForInstance in the parent). */}
+      {isCountableUnit(ai.unit) && instances && instances.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[11px] font-medium text-muted-foreground">{instances.length} instance{instances.length === 1 ? "" : "s"} located on the drawing</div>
+          <div className="rounded border divide-y max-h-32 overflow-y-auto">
+            {instances.map((inst, i) => (
+              <button
+                key={inst.observation.id}
+                type="button"
+                onClick={() => onFocusInstance?.(focusedInstanceId === inst.observation.id ? null : inst.observation.id)}
+                className={cn(
+                  "w-full flex items-center justify-between gap-2 px-2 py-1 text-left text-[11px]",
+                  focusedInstanceId === inst.observation.id ? "bg-primary/10" : "hover:bg-muted/50",
+                )}
+              >
+                <span className="truncate">
+                  Instance {i + 1}{inst.observation.scopeHint ? ` · ${inst.observation.scopeHint}` : ""}
+                  {inst.differsFromType && <span className="text-amber-700 font-medium"> · differs from type</span>}
+                </span>
+                <span className="text-muted-foreground shrink-0">p.{inst.observation.evidence.page ?? "—"}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {isCountableUnit(ai.unit) && (!instances || instances.length === 0) && (
+        <p className="text-[11px] text-muted-foreground">Instance detail unavailable — LOCATION extraction hasn't been run for this drawing yet.</p>
+      )}
 
       {ai.candidates && ai.candidates.length > 1 && (
         <div className="text-xs bg-amber-50 border border-amber-200 rounded p-2 space-y-1">
@@ -1089,6 +1473,16 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
               <ClaimField claim="specification" value={formatClaimValue(ai, "specification")} evidence={claimEvidence.specification} onSelectClaim={handleSelectClaim} />
               <ClaimField claim="location" value={formatClaimValue(ai, "location")} evidence={claimEvidence.location} onSelectClaim={handleSelectClaim} />
             </div>
+            {/* Reasoning — the reference's own "why this result?" text, folded
+                into this single DETAILS column rather than a second,
+                redundant disclosure the reference doesn't have. Only shown
+                when the analysis actually supplied it. */}
+            {(ai.calculation || ai.notes) && (
+              <div className="text-xs text-muted-foreground space-y-0.5">
+                {ai.calculation && <div>Calculation: {ai.calculation}</div>}
+                {ai.notes && <div>Notes: {ai.notes}</div>}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1108,23 +1502,6 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
           </div>
         </div>
       )}
-
-      {/* Why this quantity? */}
-      <div>
-        <button className="text-xs font-medium flex items-center gap-1" onClick={() => setWhy((w) => !w)}>
-          Why this quantity? {why ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-        </button>
-        {why && (
-          <div className="mt-1 text-xs text-muted-foreground space-y-0.5">
-            <div>Source: {ai.source?.document ?? "—"}{ai.source?.page != null ? ` — Page ${ai.source.page}` : ""}</div>
-            <div>Evidence: {ai.source?.evidence.length ? `${ai.source.evidence.length} region(s)` : "none supplied"}</div>
-            <div>Dimension: {ai.dimension ?? "—"}</div>
-            {ai.calculation ? <div>Calculation: {ai.calculation}</div> : <div>Calculation: not supplied by the analysis</div>}
-            {ai.notes && <div>Notes: {ai.notes}</div>}
-            <div>AI confidence: {ai.confidence == null ? "—" : `${Math.round(ai.confidence * 100)}%`}</div>
-          </div>
-        )}
-      </div>
 
       {/* AI vs reviewer diff (edited items) */}
       {diffs.length > 0 && (
@@ -1180,11 +1557,9 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
 
       {/* Actions — Verify/Edit as the primary pair (accept vs. correct),
           Flag/Mark Pending as a smaller secondary row underneath (exception
-          paths, not equal-weight peers of Verify) — matches the target
-          inspector composition: measurement, decision, done. */}
-      {!editing && !flagging && (
-        <p className="text-sm font-medium">Does this look right?</p>
-      )}
+          paths, not equal-weight peers of Verify) — matches the reference's
+          own Accept/Reject pair at the foot of its DETAILS column, not a
+          captioned decision prompt above them. */}
       {!editing && !flagging && (
         // Verify's nearest `div` ancestor must itself carry `sticky`/
         // `bottom-0` (an existing test checks exactly that) — so Flag/Mark
@@ -1207,15 +1582,18 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
           competing for primary attention — one composition on every
           breakpoint, not a separate desktop Prev/Next pair. */}
       <div className="flex items-center gap-2 pt-1">
-        <Button size="sm" variant="ghost" onClick={onPrev} aria-label="Previous quantity"><ChevronLeft className="w-4 h-4" /></Button>
-        <Button onClick={onNext} className="flex-1">Next quantity <ChevronRight className="w-4 h-4 ml-1" /></Button>
+        <Button size="sm" variant="ghost" onClick={onPrev} aria-label="Previous type"><ChevronLeft className="w-4 h-4" /></Button>
+        <Button onClick={onNext} className="flex-1">Next type <ChevronRight className="w-4 h-4 ml-1" /></Button>
       </div>
     </div>
   );
 }
 
 // ── Right panel: resolve the real drawing, else fall back to the coord plot ────
-export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, selectedClaim }: { item: StoredReviewItem; drawings: StoredDrawing[]; resolvedDocumentId?: string | null; selectedClaim?: ClaimType | null }) {
+export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, selectedClaim, markers, onSelectMarker, markerContextLabel }: {
+  item: StoredReviewItem; drawings: StoredDrawing[]; resolvedDocumentId?: string | null; selectedClaim?: ClaimType | null;
+  markers?: DrawingMarker[]; onSelectMarker?: (id: string) => void; markerContextLabel?: string | null;
+}) {
   const resolved = useMemo(
     () => resolveItemDrawing(item.ai.source, drawings, resolvedDocumentId),
     [item.ai.source, drawings, resolvedDocumentId],
@@ -1277,6 +1655,9 @@ export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, sel
           selectedClaim={selectedClaim}
           selectedClaimValue={selectedClaimValue}
           pageTitles={pageTitles}
+          markers={markers}
+          onSelectMarker={onSelectMarker}
+          markerContextLabel={markerContextLabel}
         />
       </div>
     );
@@ -1381,37 +1762,15 @@ function Field({ label, value, tone, hint }: { label: string; value: string; ton
 }
 // A claim's AI value plus its evidence state (P0-3/P0-5): clickable when
 // evidence exists (navigates the viewer to it), plain muted text otherwise —
-// never implying a link that isn't actually backed by evidence data.
-// `emphasize` renders the value at reading-dominant size — used for quantity,
-// the one field a reviewer is actually here to check, versus the equal-weight
-// treatment every claim used to get.
-function ClaimField({ claim, value, evidence, onSelectClaim, emphasize }: {
-  claim: ClaimType; value: string; evidence: EvidenceSummary; onSelectClaim: (claim: ClaimType) => void; emphasize?: boolean;
+// never implying a link that isn't actually backed by evidence data. Every
+// claim (quantity included) renders as the same compact property row,
+// matching the reference's own dense DETAILS column — quantity used to get
+// an oversized hero-number treatment nothing else on the panel competed
+// with; visual verification against the reference showed that was exactly
+// the old item-review card's dominant visual model, so it's gone.
+function ClaimField({ claim, value, evidence, onSelectClaim }: {
+  claim: ClaimType; value: string; evidence: EvidenceSummary; onSelectClaim: (claim: ClaimType) => void;
 }) {
-  if (emphasize) {
-    // Split "128.4 sq ft" into the number and its unit so the number alone
-    // can be rendered enormous — the unit stays legible but visually
-    // secondary. formatClaimValue always puts the number first when one
-    // exists ("—" alone, with no unit, when it doesn't), so this never
-    // misparses a real value.
-    const [num, ...rest] = value.split(" ");
-    const unit = rest.join(" ");
-    return (
-      <div>
-        <div title={value} className="flex items-baseline gap-2">
-          <span className="text-5xl sm:text-6xl font-bold tracking-tight tabular-nums leading-none">{num}</span>
-          {unit && <span className="text-base sm:text-lg font-medium text-muted-foreground">{unit}</span>}
-        </div>
-        {evidence.hasEvidence ? (
-          <button onClick={() => onSelectClaim(claim)} className="mt-2 text-xs text-amber-700 hover:text-amber-800 font-medium underline underline-offset-2 text-left truncate block max-w-full" title={evidence.text}>
-            {evidence.text}
-          </button>
-        ) : (
-          <div className="mt-2 text-xs text-muted-foreground">{evidence.text}</div>
-        )}
-      </div>
-    );
-  }
   return (
     <div>
       <div className="text-[11px] text-muted-foreground">{claimLabel(claim)}</div>
