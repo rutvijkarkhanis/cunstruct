@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min?url";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { ZoomIn, ZoomOut, Maximize, Crosshair, ChevronLeft, ChevronRight, FileWarning, Loader2 } from "lucide-react";
 import { resolvePageSpace, transformBoxes, fitToEvidence, getEvidenceForClaim, detectPageSizeMismatch } from "@/lib/review/evidenceCoords";
 import { claimLabel, sheetPositionLabel } from "@/lib/review/evidenceDisplay";
@@ -196,20 +197,36 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
     const fit = fitToEvidence(boxes, space, pageBase, c.clientWidth, { maxScale: 4 });
     if (!fit) return;
     setScale(fit.scale);
-    // Centre after the canvas resizes.
+    // Centre after the canvas resizes — biased toward the upper-left of the
+    // viewport (38%/38% instead of dead-center 50%/50%) rather than
+    // geometric center. The inspector floats over the canvas's bottom-right
+    // corner on desktop (see BoqReviewWorkstation's workspace layout); a
+    // dead-centered box routinely landed half-hidden under it. This is a
+    // presentation-layer scroll-position heuristic only — never changes the
+    // evidence geometry or the fit scale itself.
     setTimeout(() => {
       const rendered: Size = { width: pageBase.width * fit.scale, height: pageBase.height * fit.scale };
       const rects = transformBoxes(boxes, space, rendered);
       if (!rects.length) return;
       const cx = rects.reduce((m, r) => m + r.left + r.width / 2, 0) / rects.length;
       const cy = rects.reduce((m, r) => m + r.top + r.height / 2, 0) / rects.length;
-      c.scrollLeft = cx - c.clientWidth / 2;
-      c.scrollTop = cy - c.clientHeight / 2;
+      c.scrollLeft = cx - c.clientWidth * 0.38;
+      c.scrollTop = cy - c.clientHeight * 0.38;
     }, 30);
   }, [source, pageBase, boxes]);
 
-  // Auto fit-to-evidence when a new item with boxes renders.
-  useEffect(() => { if (status === "ready" && boxes.length) fitEvidence(); }, [status, boxes, fitEvidence]);
+  // Auto re-fit whenever the CURRENT selection's evidence set changes: fit
+  // tightly to it when there is any, else fall back to the page-wide
+  // baseline fit. Without the `else fitPage()` branch, switching from an
+  // item WITH evidence to one WITHOUT (same page, so the first effect above
+  // never re-fires — neither `status` nor `pageBase` changed) left the
+  // viewer at the PREVIOUS item's zoomed-in crop. Section 14 is explicit
+  // that no evidence means "show the drawing normally", not whatever the
+  // last item happened to leave the scale at.
+  useEffect(() => {
+    if (status !== "ready") return;
+    if (boxes.length) fitEvidence(); else fitPage();
+  }, [status, boxes, fitEvidence, fitPage]);
 
   // Overlay rects for the current page.
   const overlayRects = useMemo(() => {
@@ -251,9 +268,10 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
 
   // WHAT/WHERE — the current page's own printed identity, independent of any
   // claim selection. Kept separate from `contextBanner` (WHY), which is about
-  // the selected claim's evidence, not the sheet itself. Only meaningful once
-  // a document has loaded (page/numPages), so it's rendered in the ready-state
-  // branch only, below.
+  // the selected claim's evidence, not the sheet itself. Folded into the SAME
+  // compact row as the zoom/page toolbar (Section 1: one small metadata
+  // line, not a document-name heading of its own) — the caller's own top bar
+  // already names the document, so this only adds the page identity.
   const currentPageTitle = useMemo(() => resolvePageTitle(pageTitles, page), [pageTitles, page]);
   const sheetIdentity = <SheetIdentity title={currentPageTitle} page={page} numPages={numPages} />;
 
@@ -276,7 +294,7 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
 
   return (
     <Shell
-      name={documentName}
+      identity={sheetIdentity}
       toolbar={
         <div className="flex items-center gap-1">
           <IconBtn title="Zoom out" onClick={() => setScale((s) => Math.max(0.1, s - 0.25))}><ZoomOut className="w-4 h-4" /></IconBtn>
@@ -291,17 +309,18 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
         </div>
       }
     >
-      {sheetIdentity}
       {contextBanner}
       {/* w-full max-w-full min-w-0: self-constrain to the available width
           regardless of embedding context, so overflow-auto actually scrolls
           an oversized canvas internally instead of the canvas's intrinsic
           size pulling this container (and its ancestors) wider than the
           viewport — see the min-w-0 note on the caller's Card. */}
-      {/* The drawing is the hero, not a fixed-height panel among several —
-          most of the viewport on a phone, a comfortable fixed height on
-          desktop where the decision panel sits beside it. */}
-      <div ref={containerRef} className="relative overflow-auto border rounded bg-neutral-100 w-full max-w-full min-w-0 h-[58vh] min-h-[320px] max-h-[640px] lg:h-[520px] lg:max-h-none">
+      {/* No visible border/card framing around the canvas — it's a canvas,
+          not a bounded "document preview" box. On desktop this fills
+          whatever the flex parent (Shell, h-full) leaves after the compact
+          identity/toolbar row above; on mobile it keeps its own viewport-
+          relative height since there's no fixed-height ancestor to fill. */}
+      <div ref={containerRef} className="relative overflow-auto w-full max-w-full min-w-0 h-[60vh] min-h-[360px] max-h-[72vh] lg:h-auto lg:flex-1 lg:min-h-0 lg:max-h-none">
         {status === "loading" && <div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>}
         {status === "error" && (
           <div className="absolute inset-0 flex items-center justify-center p-4">
@@ -313,15 +332,33 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
         )}
         <div className="relative inline-block" data-testid="evidence-overlays">
           <canvas ref={canvasRef} className="block" />
+          {/* The first box is the SELECTED element — it must read as an
+              object the reviewer picked on the drawing, not one of several
+              generic highlight rectangles. A heavier solid border + a
+              filled label chip (vs. the thin dashed treatment for any other
+              boxes on the same page) is the entire visual difference; no
+              geometry is invented — same rects transformBoxes already
+              computed from the analysis's real evidence coordinates. */}
           {overlayRects.map((r, i) => {
             const box = boxes[i];
             const claim = box?.claim ?? "general";
             const claimIndicator = selectedClaim ? `${claim.slice(0, 3).toUpperCase()}${i + 1}` : `E${i + 1}`;
+            const primary = i === 0;
             return (
               <div key={i}
-                className={`absolute pointer-events-none ${i === 0 ? "border-2 border-amber-500 bg-amber-400/25" : "border-2 border-dashed border-amber-500/80 bg-amber-400/10"}`}
+                className={cn(
+                  "absolute pointer-events-none",
+                  primary
+                    ? "border-[3px] border-amber-500 bg-amber-400/20 shadow-[0_0_0_4px_rgba(245,158,11,0.15)]"
+                    : "border-2 border-dashed border-amber-500/70 bg-amber-400/10",
+                )}
                 style={{ left: r.left, top: r.top, width: r.width, height: r.height }}>
-                <span className="absolute -top-4 left-0 text-[10px] font-medium text-amber-700 bg-white/70 px-0.5 rounded">{box?.label ?? claimIndicator}</span>
+                <span className={cn(
+                  "absolute -top-6 left-0 whitespace-nowrap rounded font-semibold",
+                  primary ? "text-[11px] px-1.5 py-0.5 bg-amber-500 text-white shadow-sm" : "text-[10px] px-1 py-0.5 bg-white/75 text-amber-700",
+                )}>
+                  {box?.label ?? claimIndicator}
+                </span>
               </div>
             );
           })}
@@ -360,9 +397,10 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
 // invents a title — falls back to the bare position when none is known.
 function SheetIdentity({ title, page, numPages }: { title: string | null; page: number; numPages: number }) {
   return (
-    <div className="text-xs">
-      {title && <div className="font-medium">{title}</div>}
-      <div className="text-muted-foreground">{sheetPositionLabel(page, numPages)}</div>
+    <div className="flex items-center gap-1.5 text-xs text-muted-foreground min-w-0">
+      {title && <span className="font-medium text-foreground truncate max-w-[12rem]">{title}</span>}
+      {title && <span aria-hidden="true">·</span>}
+      <span className="shrink-0">{sheetPositionLabel(page, numPages)}</span>
     </div>
   );
 }
@@ -379,27 +417,40 @@ function EvidenceContextBanner({ selectedClaim, selectedClaimValue, evidence, do
 }) {
   if (!selectedClaim) {
     return (
-      <div className="rounded border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+      <p className="shrink-0 text-[11px] text-muted-foreground">
         Select an Evidence link to inspect the drawing source.
-      </div>
+      </p>
     );
   }
   const sourceLabel = evidence?.label ?? documentName ?? null;
+  // One quiet inline row, not a bordered/backgrounded box — the highlighted
+  // element on the canvas itself and the inspector's own evidence link
+  // already carry this information; this is a compact confirmation, not the
+  // primary place a reviewer reads it. Each field stays its own element
+  // (unchanged) so `getByText("Claim:").parentElement` etc. still resolves.
   return (
-    <div className="rounded border bg-muted/40 px-3 py-2 text-xs space-y-0.5">
-      <div><span className="font-medium">Claim:</span> {claimLabel(selectedClaim)}</div>
-      {selectedClaimValue != null && <div><span className="font-medium">Value:</span> {selectedClaimValue}</div>}
-      <div><span className="font-medium">Evidence source:</span> {sourceLabel ?? "unavailable"}</div>
-      {evidence?.page != null && <div><span className="font-medium">Page:</span> {evidence.page}</div>}
+    <div className="shrink-0 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+      <span><span className="font-medium text-foreground">Claim:</span> {claimLabel(selectedClaim)}</span>
+      {selectedClaimValue != null && <span><span className="font-medium text-foreground">Value:</span> {selectedClaimValue}</span>}
+      <span><span className="font-medium text-foreground">Evidence source:</span> {sourceLabel ?? "unavailable"}</span>
+      {evidence?.page != null && <span><span className="font-medium text-foreground">Page:</span> {evidence.page}</span>}
     </div>
   );
 }
 
-function Shell({ name, toolbar, children }: { name?: string | null; toolbar?: React.ReactNode; children: React.ReactNode }) {
+// h-full + flex-col so the canvas child (given `lg:flex-1 lg:min-h-0`) can
+// absorb all height left over after this compact identity/toolbar row — the
+// caller's outer workspace container is the one with the real fixed height
+// (lg:h-[calc(100vh-172px)]); this just passes it down. `identity` (the
+// page's own WHAT/WHERE, folded into this same row per Section 1) takes
+// priority over the older plain `name` heading, which fallback states
+// (no toolbar, no page loaded yet) still use since they have no page
+// identity to show instead.
+function Shell({ name, identity, toolbar, children }: { name?: string | null; identity?: React.ReactNode; toolbar?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-sm font-medium truncate max-w-[16rem]">{name ?? "Drawing"}</span>
+    <div className="h-full flex flex-col gap-1.5">
+      <div className="flex items-center gap-2 flex-wrap shrink-0">
+        {identity ?? <span className="text-xs text-muted-foreground truncate max-w-[16rem]">{name ?? "Drawing"}</span>}
         <div className="ml-auto">{toolbar}</div>
       </div>
       {children}
