@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useParams, Link } from "react-router-dom";
+import { NavLink, Outlet, useParams, Link, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -22,17 +22,40 @@ const SECONDARY_TABS = [
   { to: "activity", label: "Activity", icon: Activity },
 ];
 
+// Review is a focused drawing-inspection mode, not another project tab: the
+// breadcrumb/title/tab chrome below would only compete with the canvas for
+// space and attention, and BoqReviewWorkstation already renders its own
+// compact back+position bar — so quieting this here never leaves the user
+// without a way out, just stops duplicating chrome above it. Detected by
+// the URL shape only; routing itself, and every other project page, are
+// untouched.
+const REVIEW_MODE_RE = /\/boqs\/[^/]+\/review\/?$/;
+
 export default function ProjectLayout() {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
+  const isReviewMode = REVIEW_MODE_RE.test(location.pathname);
   const { data: project } = useQuery({
     queryKey: ["project-header", id],
-    enabled: !!id,
+    enabled: !!id && !isReviewMode,
     queryFn: async () => {
       const { data } = await supabase.from("projects")
         .select("id, name, client_name, location, project_type, status").eq("id", id!).single();
       return data as { id: string; name: string; client_name: string | null; location: string | null; project_type: string | null; status: string } | null;
     },
   });
+
+  if (isReviewMode) {
+    // No max-w-6xl/padding cap either — the drawing canvas should use the
+    // full remaining viewport, not the same centered reading-width column
+    // Overview/Documents/BOQs use. BoqReviewWorkstation supplies its own
+    // padding.
+    return (
+      <div className="min-w-0">
+        <Outlet />
+      </div>
+    );
+  }
 
   return (
     <div className="min-w-0">

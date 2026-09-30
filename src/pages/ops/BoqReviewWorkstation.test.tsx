@@ -121,7 +121,7 @@ describe("ItemPanel — claim selection", () => {
     // location are collapsed under "More details" by default (demo-clarity pass) —
     // opening it reveals the other three, still backed by the same evidence data.
     expect(screen.getAllByText(/^Evidence ·/)).toHaveLength(1);
-    fireEvent.click(screen.getByText("More details"));
+    fireEvent.click(screen.getByText("Details"));
     const links = screen.getAllByText(/^Evidence ·/);
     expect(links).toHaveLength(4);
 
@@ -131,7 +131,7 @@ describe("ItemPanel — claim selection", () => {
 
   it("shows the evidence source and page in the link text", () => {
     render(<ItemPanel {...itemPanelProps(vi.fn())} />);
-    fireEvent.click(screen.getByText("More details"));
+    fireEvent.click(screen.getByText("Details"));
     // Quantity, dimension, and specification all share the same schedule-row region.
     expect(screen.getAllByText("Evidence · Synthetic schedule row · p.999")).toHaveLength(3);
     expect(screen.getByText("Evidence · Synthetic location note · p.998")).toBeInTheDocument();
@@ -143,7 +143,7 @@ describe("ItemPanel — claim selection", () => {
       ai: { ...w1Item.ai, source: { document: "test-drawing.pdf", evidence: [] } },
     };
     render(<ItemPanel {...itemPanelProps(vi.fn())} item={bare} />);
-    fireEvent.click(screen.getByText("More details"));
+    fireEvent.click(screen.getByText("Details"));
     expect(screen.queryByText(/^Evidence ·/)).toBeNull();
     expect(screen.getAllByText("No evidence attached")).toHaveLength(4);
   });
@@ -157,6 +157,10 @@ describe("ItemPanel — AI vs reviewer separation (P0-4)", () => {
     // review" as part of the AI-vs-human visual language pass.
     const edited: StoredReviewItem = { ...w1Item, reviewStatus: "EDITED", reviewer: { quantity: 9 } };
     render(<ItemPanel {...itemPanelProps(vi.fn())} item={edited} />);
+    // AiStateBadge("ai") now lives inside "Details" (canvas-first pass) —
+    // "Your review" stays in the primary flow since it only ever appears
+    // once a correction exists, which is itself decision-relevant.
+    fireEvent.click(screen.getByText("Details"));
     expect(screen.getByText("AI extracted")).toBeInTheDocument();
     expect(screen.getByText("Your review")).toBeInTheDocument();
   });
@@ -164,8 +168,9 @@ describe("ItemPanel — AI vs reviewer separation (P0-4)", () => {
   it("never implies a high AI confidence should be auto-accepted", () => {
     render(<ItemPanel {...itemPanelProps(vi.fn())} />);
     // Moved from a permanent caveat sentence to a hover affordance next to
-    // Confidence (demo-clarity pass) — same explanation, no longer standing
-    // chrome on every item.
+    // Confidence, itself now inside "Details" (canvas-first pass) — same
+    // explanation, no longer standing chrome on every item.
+    fireEvent.click(screen.getByText("Details"));
     expect(screen.getByTitle(/not a substitute for checking the evidence/i)).toBeInTheDocument();
   });
 
@@ -279,7 +284,7 @@ describe("ItemPanel + ResolvedEvidenceViewer — end-to-end claim selection", ()
 
     // Dimension/Specification/Location sit behind "More details" by default
     // (demo-clarity pass) — open it to reach Specification's evidence link.
-    fireEvent.click(screen.getByText("More details"));
+    fireEvent.click(screen.getByText("Details"));
 
     // AI-result field order is Quantity, Dimension, Specification, Location —
     // the 3rd evidence link is Specification.
@@ -627,6 +632,8 @@ describe("ItemPanel — 'Review required' risk banner (item 8)", () => {
   it("color-codes the AI status and Confidence fields for risky values", () => {
     const item: StoredReviewItem = { ...w1Item, ai: { ...w1Item.ai, aiStatus: "INFERRED", confidence: 0.3 } };
     render(<ItemPanel {...itemPanelProps(vi.fn())} item={item} />);
+    // AI status/Confidence now live inside "Details" (canvas-first pass).
+    fireEvent.click(screen.getByText("Details"));
     expect(screen.getByText("INFERRED").className).toMatch(/amber/);
     expect(screen.getByText("30%").className).toMatch(/rose/);
   });

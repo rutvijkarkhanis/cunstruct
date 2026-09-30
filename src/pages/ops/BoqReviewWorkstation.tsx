@@ -481,28 +481,42 @@ export default function BoqReviewWorkstation() {
       {!current ? (
         <Card><CardContent className="p-8 text-center text-muted-foreground">Nothing in this filter. Switch to “all”.</CardContent></Card>
       ) : (
-        // The drawing IS the workspace — it takes essentially all the space
-        // on desktop, with only a narrow fixed-width decision panel beside
-        // it (never a peer-sized "PDF card" vs. "form card" split). Stacked
-        // on mobile, drawing first, decision panel directly beneath it.
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_336px] gap-3 items-start">
-          <ResolvedEvidenceViewer item={current} drawings={drawings} resolvedDocumentId={resolvedDocumentId} selectedClaim={selectedClaim} />
-          <ItemPanel
-            key={current.id}
-            item={current}
-            index={visible.indexOf(current)}
-            count={visible.length}
-            onVerify={() => applyDecision("VERIFIED")}
-            onEdit={(reviewer) => applyDecision("EDITED", { reviewer })}
-            onFlag={(flagReason, note) => applyDecision("FLAGGED", { flagReason, note })}
-            onPending={() => applyDecision("MARKED_PENDING")}
-            onPrev={() => go(-1)}
-            onNext={() => go(1)}
-            keyboardEnabled
-            onSelectClaim={setSelectedClaim}
-            drawings={drawings}
-            resolvedDocumentId={resolvedDocumentId}
-          />
+        // THE CANVAS IS THE PRODUCT — on desktop the drawing fills the whole
+        // workspace; the inspector is a small floating card attached to it
+        // (bottom-right), not a second dashboard column of comparable
+        // weight. On mobile there's no room to float anything over the
+        // drawing, so the inspector sits directly below it in normal flow —
+        // but still frameless/edge-to-edge, never a second bordered "card"
+        // stacked under the first. ONE ItemPanel instance either way
+        // (responsive classes on its wrapper only) — a duplicated mobile/
+        // desktop pair would break every exact-name button query in its tests.
+        // ProjectLayout strips its breadcrumb/title/tabs entirely in Review
+        // mode (see its REVIEW_MODE_RE branch) and OpsLayout has no desktop
+        // top bar at all — so the only chrome above this workspace on
+        // desktop is this page's own compact top bar + padding, not the
+        // project header this buffer used to have to clear.
+        <div className="relative lg:h-[calc(100vh-100px)] lg:min-h-[460px]">
+          <div className="lg:absolute lg:inset-0 lg:h-full">
+            <ResolvedEvidenceViewer item={current} drawings={drawings} resolvedDocumentId={resolvedDocumentId} selectedClaim={selectedClaim} />
+          </div>
+          <div className="mt-3 lg:mt-0 lg:absolute lg:bottom-3 lg:right-3 lg:w-[336px] lg:max-h-[calc(100%-1.5rem)] lg:overflow-y-auto lg:rounded-lg lg:border lg:bg-background lg:shadow-xl lg:p-3">
+            <ItemPanel
+              key={current.id}
+              item={current}
+              index={visible.indexOf(current)}
+              count={visible.length}
+              onVerify={() => applyDecision("VERIFIED")}
+              onEdit={(reviewer) => applyDecision("EDITED", { reviewer })}
+              onFlag={(flagReason, note) => applyDecision("FLAGGED", { flagReason, note })}
+              onPending={() => applyDecision("MARKED_PENDING")}
+              onPrev={() => go(-1)}
+              onNext={() => go(1)}
+              keyboardEnabled
+              onSelectClaim={setSelectedClaim}
+              drawings={drawings}
+              resolvedDocumentId={resolvedDocumentId}
+            />
+          </div>
         </div>
       )}
 
@@ -992,15 +1006,13 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
   const effLocation = reviewer && "location" in reviewer ? reviewer.location : ai.location;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2.5">
       {/* The selected element's identity — a small eyebrow, not a form-row
-          label, so it reads as "which object on the drawing am I looking
-          at" rather than a database field. AiStateBadge + StatusBadge stay
-          tiny and secondary; they're provenance, not the headline. */}
-      <div className="flex items-center gap-1.5 flex-wrap">
-        <AiStateBadge state="ai" />
-        <StatusBadge status={item.reviewStatus} />
-      </div>
+          label or a row of provenance badges: the reviewer is already inside
+          the Review workflow and knows this is the AI's proposed measurement
+          (Section 7) — AiStateBadge/StatusBadge/AI status/Confidence/Source
+          moved into Details below, alongside dimension/specification/
+          location, instead of standing chrome above the hero number. */}
       <div>
         <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground truncate">
           {ai.key}{ai.key !== ai.item ? ` · ${ai.item}` : ""}
@@ -1009,10 +1021,12 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
         {item.duplicateOf && <div className="text-xs text-rose-700 mt-0.5">Possible duplicate of {item.duplicateOf}</div>}
       </div>
 
-      {/* Review-required banner — concise and factual: what's true about this
-          item, never a bare warning icon with no explanation. */}
+      {/* Review-required indicator — a quiet colored line, not a bordered/
+          backgrounded banner box, but still the one piece of risk signal
+          that stays in the primary flow (it's decision-relevant, not
+          decorative metadata, and gates Verify below). */}
       {reasons.length > 0 && (
-        <div className="flex items-start gap-1.5 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+        <div className="flex items-start gap-1.5 text-xs text-amber-800">
           <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
           <span><span className="font-medium">Review required</span> — {reasons.join(" · ")}</span>
         </div>
@@ -1023,17 +1037,6 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
           with. The evidence link directly beneath it is how "does this
           look right?" actually gets checked, not a caveat. */}
       <ClaimField claim="quantity" value={formatClaimValue(ai, "quantity")} evidence={claimEvidence.quantity} onSelectClaim={handleSelectClaim} emphasize />
-
-      <div className="flex flex-wrap items-start gap-x-5 gap-y-1.5 text-xs border-t pt-2">
-        <Field label="AI status" value={ai.aiStatus} tone={ai.aiStatus === "PENDING" ? "danger" : ai.aiStatus === "INFERRED" ? "warning" : undefined} />
-        <Field
-          label="Confidence"
-          value={ai.confidence == null ? "—" : `${Math.round(ai.confidence * 100)}%`}
-          tone={ai.confidence != null && ai.confidence <= LOW_CONFIDENCE ? "danger" : undefined}
-          hint="A high AI confidence is not a substitute for checking the evidence — verify before accepting."
-        />
-        <Field label="Source" value={ai.source?.document ? `${ai.source.document}${ai.source.page != null ? ` — Page ${ai.source.page}` : ""}` : "—"} />
-      </div>
 
       {ai.candidates && ai.candidates.length > 1 && (
         <div className="text-xs bg-amber-50 border border-amber-200 rounded p-2 space-y-1">
@@ -1063,13 +1066,29 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
 
       <div>
         <button type="button" className="text-xs font-medium flex items-center gap-1 text-muted-foreground" onClick={() => setMoreDetails((m) => !m)}>
-          More details {moreDetails ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          Details {moreDetails ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
         </button>
         {moreDetails && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm mt-1.5">
-            <ClaimField claim="dimension" value={formatClaimValue(ai, "dimension")} evidence={claimEvidence.dimension} onSelectClaim={handleSelectClaim} />
-            <ClaimField claim="specification" value={formatClaimValue(ai, "specification")} evidence={claimEvidence.specification} onSelectClaim={handleSelectClaim} />
-            <ClaimField claim="location" value={formatClaimValue(ai, "location")} evidence={claimEvidence.location} onSelectClaim={handleSelectClaim} />
+          <div className="mt-1.5 space-y-2">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <AiStateBadge state="ai" />
+              <StatusBadge status={item.reviewStatus} />
+            </div>
+            <div className="flex flex-wrap items-start gap-x-5 gap-y-1.5 text-xs">
+              <Field label="AI status" value={ai.aiStatus} tone={ai.aiStatus === "PENDING" ? "danger" : ai.aiStatus === "INFERRED" ? "warning" : undefined} />
+              <Field
+                label="Confidence"
+                value={ai.confidence == null ? "—" : `${Math.round(ai.confidence * 100)}%`}
+                tone={ai.confidence != null && ai.confidence <= LOW_CONFIDENCE ? "danger" : undefined}
+                hint="A high AI confidence is not a substitute for checking the evidence — verify before accepting."
+              />
+              <Field label="Source" value={ai.source?.document ? `${ai.source.document}${ai.source.page != null ? ` — Page ${ai.source.page}` : ""}` : "—"} />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+              <ClaimField claim="dimension" value={formatClaimValue(ai, "dimension")} evidence={claimEvidence.dimension} onSelectClaim={handleSelectClaim} />
+              <ClaimField claim="specification" value={formatClaimValue(ai, "specification")} evidence={claimEvidence.specification} onSelectClaim={handleSelectClaim} />
+              <ClaimField claim="location" value={formatClaimValue(ai, "location")} evidence={claimEvidence.location} onSelectClaim={handleSelectClaim} />
+            </div>
           </div>
         )}
       </div>
@@ -1159,45 +1178,35 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
         </>
       )}
 
-      {/* Actions — three decisions, not four equal buttons: Verify accepts the
-          AI quantity as-is (primary), Edit corrects it (secondary but still
-          prominent), Flag says don't trust it yet (tertiary/exception). Mark
-          Pending stays a plain quiet option alongside Flag — same semantics
-          and handlers as before, only the framing text is new. */}
+      {/* Actions — Verify/Edit as the primary pair (accept vs. correct),
+          Flag/Mark Pending as a smaller secondary row underneath (exception
+          paths, not equal-weight peers of Verify) — matches the target
+          inspector composition: measurement, decision, done. */}
       {!editing && !flagging && (
         <p className="text-sm font-medium">Does this look right?</p>
       )}
       {!editing && !flagging && (
-        <div className="sticky bottom-0 bg-background border-t grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-start pt-2">
-          {/* Spans, not divs, wrap each button+caption pair — a test asserts
-              the Verify button's closest("div") is THIS sticky row, so the
-              caption can't sit inside a new intervening div. */}
-          <span className="inline-flex flex-col items-stretch sm:items-start">
-            <Button className="w-full sm:w-auto" onClick={onVerify} disabled={verifyDisabled} title={verifyDisabledReason}><Check className="w-4 h-4 mr-1" /> Verify</Button>
-            <span className="hidden sm:inline text-[10px] text-muted-foreground mt-0.5">Accept the AI quantity</span>
-          </span>
-          <span className="inline-flex flex-col items-stretch sm:items-start">
-            <Button className="w-full sm:w-auto" variant="outline" onClick={() => setEditing(true)}><Pencil className="w-4 h-4 mr-1" /> Edit</Button>
-            <span className="hidden sm:inline text-[10px] text-muted-foreground mt-0.5">Correct the AI quantity</span>
-          </span>
-          <span className="inline-flex flex-col items-stretch sm:items-start">
-            <Button className="w-full sm:w-auto" size="sm" variant="ghost" onClick={() => setFlagging(true)}><Flag className="w-4 h-4 mr-1" /> Flag</Button>
-            <span className="hidden sm:inline text-[10px] text-muted-foreground mt-0.5">Don't trust this quantity yet</span>
-          </span>
-          <Button className="w-full sm:w-auto" size="sm" variant="ghost" onClick={onPending}><Clock className="w-4 h-4 mr-1" /> Mark Pending</Button>
+        // Verify's nearest `div` ancestor must itself carry `sticky`/
+        // `bottom-0` (an existing test checks exactly that) — so Flag/Mark
+        // Pending sit in a separate, non-sticky sibling below rather than
+        // nested a div deeper inside this one.
+        <div className="sticky bottom-0 bg-background border-t pt-2 grid grid-cols-2 gap-2">
+          <Button onClick={onVerify} disabled={verifyDisabled} title={verifyDisabledReason}><Check className="w-4 h-4 mr-1" /> Verify</Button>
+          <Button variant="outline" onClick={() => setEditing(true)}><Pencil className="w-4 h-4 mr-1" /> Edit</Button>
+        </div>
+      )}
+      {!editing && !flagging && (
+        <div className="flex items-center gap-3">
+          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-muted-foreground" onClick={() => setFlagging(true)}><Flag className="w-3.5 h-3.5 mr-1" /> Flag</Button>
+          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-muted-foreground" onClick={onPending}><Clock className="w-3.5 h-3.5 mr-1" /> Mark Pending</Button>
         </div>
       )}
 
-      {/* Desktop/tablet: today's even Previous/Next pair, unchanged. Mobile:
-          one obvious continuation action ("Next quantity →") instead of two
-          equal-weight buttons — Previous stays reachable as a small icon-only
-          affordance rather than competing for the primary action. Same
-          onPrev/onNext handlers either way — presentation only. */}
-      <div className="hidden sm:flex items-center justify-between pt-1">
-        <Button size="sm" variant="ghost" onClick={onPrev}><ChevronLeft className="w-4 h-4 mr-1" /> Previous</Button>
-        <Button size="sm" variant="ghost" onClick={onNext}>Next <ChevronRight className="w-4 h-4 ml-1" /></Button>
-      </div>
-      <div className="flex sm:hidden items-center gap-2 pt-1">
+      {/* Next is the one obvious continuation action; Previous stays
+          reachable as a small icon-only affordance beside it rather than
+          competing for primary attention — one composition on every
+          breakpoint, not a separate desktop Prev/Next pair. */}
+      <div className="flex items-center gap-2 pt-1">
         <Button size="sm" variant="ghost" onClick={onPrev} aria-label="Previous quantity"><ChevronLeft className="w-4 h-4" /></Button>
         <Button onClick={onNext} className="flex-1">Next quantity <ChevronRight className="w-4 h-4 ml-1" /></Button>
       </div>
@@ -1259,7 +1268,7 @@ export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, sel
   // half of this fix.
   if (resolved?.filePath) {
     return (
-      <div className="min-w-0">
+      <div className="min-w-0 lg:h-full">
         <PdfEvidenceViewer
           fileUrl={signed}
           source={item.ai.source}
