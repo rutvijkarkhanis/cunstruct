@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,16 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// Review is a focused drawing-inspection mode (Section 3 of the visual
+// acceptance review): the global Ops sidebar has no equivalent in the
+// reference product, and — unlike every other /ops page — Review already
+// supplies its own way out (the page's own "Back to BOQ" button), so hiding
+// this sidebar there never strands the reviewer without navigation. Scoped
+// to this one route shape only; every other /ops/* page (Overview, Projects,
+// Documents, BOQs, Procurement, Activity, ...) is completely untouched. Same
+// detection ProjectLayout already uses for its own Review-mode chrome.
+const REVIEW_MODE_RE = /\/boqs\/[^/]+\/review\/?$/;
+
 const NAV = [
   { to: "/ops", end: true, label: "Overview", icon: LayoutDashboard },
   { to: "/ops/projects", label: "Projects", icon: Building2 },
@@ -39,6 +49,8 @@ const NAV = [
 export default function OpsLayout() {
   const { user, loading, isStaff, signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isReviewMode = REVIEW_MODE_RE.test(location.pathname);
   const [navOpen, setNavOpen] = useState(false); // mobile drawer
 
   const { data: pendingCount } = useQuery({
@@ -70,6 +82,18 @@ export default function OpsLayout() {
           </p>
           <Button variant="outline" onClick={signOut}>Sign out</Button>
         </div>
+      </div>
+    );
+  }
+
+  if (isReviewMode) {
+    // No global sidebar, no mobile hamburger bar — the Review workspace gets
+    // the full application width, matching the reference's own composition
+    // (Category/Type rail + drawing + inspector, nothing else competing for
+    // space). BoqReviewWorkstation supplies its own back/exit control.
+    return (
+      <div className="min-h-screen bg-background">
+        <Outlet />
       </div>
     );
   }

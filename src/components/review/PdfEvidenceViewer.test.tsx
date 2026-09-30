@@ -402,3 +402,68 @@ describe("PdfEvidenceViewer — sheet identity (page title)", () => {
     expect(await screen.findByText("Sheet 5 of 9")).toBeInTheDocument();
   });
 });
+
+// ── Marker mode (Category/Type/Instance annotation layer) ──────────────────────
+import type { DrawingMarker } from "@/lib/review/drawingMarkers";
+
+const markersFixture: DrawingMarker[] = [
+  { id: "m-primary", reviewItemId: "item-1", category: "Windows", kind: "instance", box: { bbox: [10, 10, 60, 60], page: 3 }, page: 3, label: "W1 #1", emphasis: "primary" },
+  { id: "m-secondary", reviewItemId: "item-1", category: "Windows", kind: "instance", box: { bbox: [100, 100, 150, 150], page: 3 }, page: 3, label: "W1 #2", emphasis: "secondary" },
+  { id: "m-muted", reviewItemId: "item-2", category: "Doors", kind: "evidence", box: { bbox: [200, 200, 250, 250], page: 5 }, page: 5, label: "D1", emphasis: "muted" },
+];
+
+describe("PdfEvidenceViewer — marker mode (Category/Type/Instance annotation layer)", () => {
+  it("navigates to the primary marker's page automatically", async () => {
+    render(<PdfEvidenceViewer fileUrl="https://signed.example/drawing.pdf" source={source} markers={markersFixture} />);
+    expect(await screen.findByText(`3 / ${NUM_PAGES}`)).toBeInTheDocument();
+  });
+
+  it("renders only the markers on the current page, with a distinct label per marker", async () => {
+    render(<PdfEvidenceViewer fileUrl="https://signed.example/drawing.pdf" source={source} markers={markersFixture} />);
+    const box = await overlays();
+    expect(await box.findByText("W1 #1")).toBeInTheDocument();
+    expect(box.getByText("W1 #2")).toBeInTheDocument();
+    expect(box.queryByText("D1")).toBeNull(); // on page 5, not the page-3 view we're on
+  });
+
+  it("suppresses the old per-item evidence overlay while a (non-empty) marker set is active", async () => {
+    // `source` has page-5 general evidence — would normally render as an
+    // amber evidence box — but marker mode must own the canvas exclusively.
+    render(<PdfEvidenceViewer fileUrl="https://signed.example/drawing.pdf" source={source} markers={[]} />);
+    const box = await screen.findByTestId("evidence-overlays");
+    expect(within(box).queryByText("W1 plan view")).toBeNull();
+  });
+
+  it("clicking a marker calls onSelectMarker with its id", async () => {
+    const onSelectMarker = vi.fn();
+    render(<PdfEvidenceViewer fileUrl="https://signed.example/drawing.pdf" source={source} markers={markersFixture} onSelectMarker={onSelectMarker} />);
+    const box = await overlays();
+    fireEvent.click(await box.findByText("W1 #1"));
+    expect(onSelectMarker).toHaveBeenCalledWith("m-primary");
+  });
+
+  it("a selected claim takes precedence over marker mode — the old evidence overlay renders instead", async () => {
+    render(<PdfEvidenceViewer fileUrl="https://signed.example/drawing.pdf" source={source} markers={markersFixture} selectedClaim="quantity" selectedClaimValue="7 nos" />);
+    // Claim navigation (existing behavior) takes the viewer to page 8, not
+    // marker page 3 — proving markers were NOT the active mode here.
+    expect(await screen.findByText(`8 / ${NUM_PAGES}`)).toBeInTheDocument();
+    const box = await overlays();
+    expect(box.queryByText("W1 #1")).toBeNull();
+  });
+
+  it("shows an honest empty state when the marker set is genuinely empty", async () => {
+    render(<PdfEvidenceViewer fileUrl="https://signed.example/drawing.pdf" source={source} markers={[]} />);
+    expect(await screen.findByText(/No detection markings or evidence available/)).toBeInTheDocument();
+  });
+
+  it("shows a distinct 'on another page' state when markers exist but none are on the current page", async () => {
+    // Only page-5 markers — the viewer lands there via the primary/first-marker
+    // navigation, so page the current page never actually goes empty here;
+    // instead verify by supplying page-3-only markers, then paging forward.
+    render(<PdfEvidenceViewer fileUrl="https://signed.example/drawing.pdf" source={source} markers={markersFixture} />);
+    await screen.findByText(`3 / ${NUM_PAGES}`);
+    fireEvent.click(screen.getByTitle("Next page")); // 3 -> 4, no markers there
+    expect(await screen.findByText(`4 / ${NUM_PAGES}`)).toBeInTheDocument();
+    expect(await screen.findByText(/markings are on another page/)).toBeInTheDocument();
+  });
+});

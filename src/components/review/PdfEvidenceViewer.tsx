@@ -13,10 +13,11 @@ import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min?url";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ZoomIn, ZoomOut, Maximize, Crosshair, ChevronLeft, ChevronRight, FileWarning, Loader2 } from "lucide-react";
-import { resolvePageSpace, transformBoxes, fitToEvidence, getEvidenceForClaim, detectPageSizeMismatch } from "@/lib/review/evidenceCoords";
+import { resolvePageSpace, transformBoxes, fitToEvidence, getEvidenceForClaim, detectPageSizeMismatch, type Rect } from "@/lib/review/evidenceCoords";
 import { claimLabel, sheetPositionLabel } from "@/lib/review/evidenceDisplay";
 import { resolvePageTitle } from "@/lib/review/documentResolve";
 import type { AnalysisSource, EvidenceBox, ClaimType } from "@/lib/review/analysisSchemaV1";
+import type { DrawingMarker } from "@/lib/review/drawingMarkers";
 
 // Bundle the worker with Vite (kept off the main thread; no CDN dependency).
 // The ?url import tells Vite to bundle the worker and return its URL as a string.
@@ -38,11 +39,34 @@ interface Props {
    *  document_revision.page_titles. Optional; a page with no entry falls back
    *  to a bare "Sheet N of M" — never an invented title. */
   pageTitles?: Record<string, string> | null;
+  /**
+   * The Category/Type/Instance annotation layer (Section 3 of the
+   * reference-adoption plan) — ADDITIVE and fully backward compatible: when
+   * omitted (undefined), every existing behavior below is unchanged. When
+   * present (even as an empty array), this component switches into "marker
+   * mode" for this render: the old per-item `source.evidence` overlay and its
+   * page/fit logic are suppressed in favor of these real, already-resolved
+   * markers (see drawingMarkers.ts — never fabricated) — UNLESS `selectedClaim`
+   * is also set, in which case a reviewer clicked a specific claim's evidence
+   * link in the inspector and that takes precedence, exactly as before.
+   */
+  markers?: DrawingMarker[];
+  onSelectMarker?: (id: string) => void;
+  /** What to show in the top context row while in marker mode, e.g. "Windows
+   *  — 2 types" or "W1 — 3 instances". Optional; marker mode shows nothing
+   *  in that row rather than inventing a caption when omitted. */
+  markerContextLabel?: string | null;
 }
 
 type Size = { width: number; height: number };
 
-export default function PdfEvidenceViewer({ fileUrl, source, documentName, unavailableReason, selectedClaim, selectedClaimValue, pageTitles }: Props) {
+export default function PdfEvidenceViewer({ fileUrl, source, documentName, unavailableReason, selectedClaim, selectedClaimValue, pageTitles, markers, onSelectMarker, markerContextLabel }: Props) {
+  // Marker mode is signaled by PRESENCE of `markers` (even []), not its
+  // length — an empty marker set for the current selection (e.g. a category
+  // with no real evidence at all) must still suppress the old per-item
+  // overlay, not silently fall back to it. A selected claim always wins:
+  // the reviewer explicitly asked to inspect one specific claim's evidence.
+  const markerModeActive = markers !== undefined && !selectedClaim;
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -61,13 +85,14 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
   // A box with no resolvable page (neither its own `page` nor `source.page`) is
   // excluded here rather than assumed to be on whatever page is showing.
   const boxes: EvidenceBox[] = useMemo(() => {
+    if (markerModeActive) return []; // markers own the canvas in this mode
     let filtered = (source?.evidence ?? []).filter((b) => {
       const resolvedPage = b.page ?? source?.page;
       return resolvedPage != null && resolvedPage === page;
     });
     if (selectedClaim) filtered = getEvidenceForClaim(filtered, selectedClaim);
     return filtered;
-  }, [source, page, selectedClaim]);
+  }, [source, page, selectedClaim, markerModeActive]);
 
   // Navigate to the correct page whenever the item OR the selected claim
   // changes — computed from BOTH current values together, in one effect, so
@@ -81,6 +106,7 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
   // both values every render) correctly named the new page — production bug,
   // reproduced by the "source changes, same claim stays selected" test below.
   useEffect(() => {
+    if (markerModeActive) return; // the marker-navigation effect below owns paging in this mode
     if (selectedClaim) {
       // Resolved from the FULL evidence array, not the current page's boxes,
       // so this works even when the viewer isn't already on the right page.
@@ -91,7 +117,18 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
       return;
     }
     setPage(source?.page ?? 1);
-  }, [source, selectedClaim]);
+  }, [source, selectedClaim, markerModeActive]);
+
+  // Marker-mode page navigation: jump to wherever the primary (focused)
+  // marker lives, else the first marker in the set — so selecting a type or
+  // instance actually moves the drawing to it, not just highlights whatever
+  // page happens to already be open.
+  useEffect(() => {
+    if (!markerModeActive) return;
+    const primary = markers!.find((m) => m.emphasis === "primary");
+    const target = primary ?? markers![0];
+    if (target) setPage(target.page);
+  }, [markers, markerModeActive]);
 
   // Load the document when the signed URL changes.
   useEffect(() => {
@@ -224,9 +261,64 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
   // that no evidence means "show the drawing normally", not whatever the
   // last item happened to leave the scale at.
   useEffect(() => {
-    if (status !== "ready") return;
+    if (status !== "ready" || markerModeActive) return;
     if (boxes.length) fitEvidence(); else fitPage();
-  }, [status, boxes, fitEvidence, fitPage]);
+  }, [status, boxes, fitEvidence, fitPage, markerModeActive]);
+
+  // Markers actually on the current page — resolved the same way `boxes`
+  // resolves a page above (marker.page was already computed by
+  // drawingMarkers.ts using the exact same box.page ?? source.page rule).
+  const markersOnPage = useMemo(
+    () => (markerModeActive ? (markers ?? []).filter((m) => m.page === page) : []),
+    [markers, markerModeActive, page],
+  );
+
+  // Fit to the primary (focused) marker when one exists, else to the whole
+  // visible marker set for this page, else the page-wide baseline — mirrors
+  // fitEvidence's own centering approach but keyed on real marker geometry.
+  // Assumes one coordinate space per page (every marker on a page comes from
+  // the same document/PDF, so the first marker's declared pageSize — if any —
+  // is authoritative for all of them here).
+  const fitMarkers = useCallback(() => {
+    const c = containerRef.current;
+    if (!c || !pageBase) { return; }
+    const primary = markersOnPage.find((m) => m.emphasis === "primary");
+    const focusSet = primary ? [primary] : markersOnPage;
+    if (!focusSet.length) { fitPage(); return; }
+    const space = resolvePageSpace({ pageSize: focusSet[0].pageSize }, pageBase);
+    if (!space) { fitPage(); return; }
+    const fit = fitToEvidence(focusSet.map((m) => m.box), space, pageBase, c.clientWidth, { maxScale: 4 });
+    if (!fit) { fitPage(); return; }
+    setScale(fit.scale);
+    setTimeout(() => {
+      const rendered: Size = { width: pageBase.width * fit.scale, height: pageBase.height * fit.scale };
+      const rects = transformBoxes(focusSet.map((m) => m.box), space, rendered);
+      if (!rects.length) return;
+      const cx = rects.reduce((m, r) => m + r.left + r.width / 2, 0) / rects.length;
+      const cy = rects.reduce((m, r) => m + r.top + r.height / 2, 0) / rects.length;
+      c.scrollLeft = cx - c.clientWidth * 0.38;
+      c.scrollTop = cy - c.clientHeight * 0.38;
+    }, 30);
+  }, [markersOnPage, pageBase, fitPage]);
+
+  useEffect(() => {
+    if (status !== "ready" || !markerModeActive) return;
+    fitMarkers();
+  }, [status, markerModeActive, fitMarkers]);
+
+  // Marker rects for the current page — same transformBoxes math as
+  // overlayRects below, just resolved per-marker (a marker can in principle
+  // declare its own pageSize, mirroring resolvePageSpace's override rule).
+  const markerRects = useMemo(() => {
+    if (!markerModeActive || !pageBase) return [];
+    const rendered: Size = { width: pageBase.width * scale, height: pageBase.height * scale };
+    return markersOnPage.map((m) => {
+      const space = resolvePageSpace({ pageSize: m.pageSize }, pageBase);
+      if (!space) return null;
+      const rect = transformBoxes([m.box], space, rendered)[0];
+      return rect ? { marker: m, rect } : null;
+    }).filter((x): x is { marker: DrawingMarker; rect: Rect } => x != null);
+  }, [markerModeActive, markersOnPage, pageBase, scale]);
 
   // Overlay rects for the current page.
   const overlayRects = useMemo(() => {
@@ -257,7 +349,9 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
     };
   }, [source, selectedClaim]);
 
-  const contextBanner = (
+  const contextBanner = markerModeActive ? (
+    <p className="shrink-0 text-[11px] text-muted-foreground truncate">{markerContextLabel ?? ""}</p>
+  ) : (
     <EvidenceContextBanner
       selectedClaim={selectedClaim}
       selectedClaimValue={selectedClaimValue}
@@ -301,7 +395,11 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
           <span className="text-xs tabular-nums w-10 text-center">{Math.round(scale * 100)}%</span>
           <IconBtn title="Zoom in" onClick={() => setScale((s) => Math.min(8, s + 0.25))}><ZoomIn className="w-4 h-4" /></IconBtn>
           <IconBtn title="Fit page" onClick={fitPage}><Maximize className="w-4 h-4" /></IconBtn>
-          <IconBtn title="Fit to evidence" onClick={fitEvidence} disabled={!boxes.length}><Crosshair className="w-4 h-4" /></IconBtn>
+          <IconBtn
+            title={markerModeActive ? "Fit to selection" : "Fit to evidence"}
+            onClick={markerModeActive ? fitMarkers : fitEvidence}
+            disabled={markerModeActive ? !markersOnPage.length : !boxes.length}
+          ><Crosshair className="w-4 h-4" /></IconBtn>
           <span className="mx-1 w-px h-5 bg-border" />
           <IconBtn title="Previous page" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}><ChevronLeft className="w-4 h-4" /></IconBtn>
           <span className="text-xs tabular-nums">{page} / {numPages}</span>
@@ -362,15 +460,79 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
               </div>
             );
           })}
+          {/* Detection/instance markers (Section 3 of the reference-adoption
+              plan) — a DIFFERENT hue (blue) from evidence (amber) on purpose:
+              evidence ("this supports the claim") and a detection/instance
+              marking ("this is the physical element") are different concepts
+              (Section 11) that happen to share a coordinate system; the color
+              makes that distinction visible, not just documented in a
+              comment. Clickable (unlike the decorative evidence boxes above)
+              so selecting an instance on the CANVAS works too, not only from
+              the inspector's list. */}
+          {/* Three-tier figure-ground hierarchy (visual acceptance review,
+              correction 1/2): detections read as PAINTED ONTO the drawing —
+              solid borders and clearly-visible fill at every tier, never a
+              faint hairline — with each tier a genuinely distinct treatment,
+              not merely a darker shade of the last:
+                primary   — the one selected instance. A different HUE
+                            (rose, not a darker blue) so it visually pops the
+                            way the reference's red selected state does —
+                            "selected instance ≠ selected type."
+                secondary — every other instance of the selected type, or
+                            every type in a selected category: still bold and
+                            solid, just clearly one step down from primary.
+                muted     — everything else on screen in this selection (the
+                            "All categories" baseline, or a category's/type's
+                            unfocused siblings): quieter than secondary, but
+                            still immediately readable as "detected" at a
+                            glance — never the near-invisible hairline this
+                            used to be. */}
+          {markerRects.map(({ marker, rect }) => (
+            <button
+              key={marker.id}
+              type="button"
+              onClick={() => onSelectMarker?.(marker.id)}
+              className={cn(
+                "absolute text-left border-solid transition-colors",
+                marker.emphasis === "primary"
+                  ? "border-[3px] border-rose-600 bg-rose-500/35 shadow-[0_0_0_5px_rgba(225,29,72,0.18)] z-10"
+                  : marker.emphasis === "secondary"
+                    ? "border-2 border-blue-600 bg-blue-500/25 hover:bg-blue-500/35"
+                    : "border-[1.5px] border-blue-500/60 bg-blue-400/15 hover:bg-blue-400/25",
+              )}
+              style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
+              title={marker.differsFromType ? `${marker.label} — differs from type` : marker.label}
+            >
+              {marker.emphasis !== "muted" && (
+                <span className={cn(
+                  "absolute -top-6 left-0 whitespace-nowrap rounded font-semibold pointer-events-none",
+                  marker.emphasis === "primary"
+                    ? "text-[11px] px-1.5 py-0.5 bg-rose-600 text-white shadow-sm"
+                    : "text-[10px] px-1 py-0.5 bg-blue-600 text-white shadow-sm",
+                )}>
+                  {marker.label}{marker.differsFromType ? " · differs" : ""}
+                </span>
+              )}
+            </button>
+          ))}
         </div>
       </div>
+      {/* Marker-mode fallback — honest "nothing here" rather than reusing the
+          per-claim evidence copy below, which doesn't apply in this mode. */}
+      {markerModeActive && markersOnPage.length === 0 && (
+        <p className="text-[11px] text-muted-foreground">
+          {(markers ?? []).length === 0
+            ? "No detection markings or evidence available for this selection."
+            : "This selection's markings are on another page — use the page controls."}
+        </p>
+      )}
       {/* Claim-aware fallback (Section 9): distinguishes "this claim genuinely
           has no evidence anywhere" (a truthful, non-fabricated statement) from
           "it has evidence, just not on the page currently showing" — the
           latter would be misleading if reported the same way once evidence
           can be filtered to a single claim by default. Never invents a page
           or a location either way. */}
-      {(() => {
+      {!markerModeActive && (() => {
         const claimEvidenceAnyPage = selectedClaim ? getEvidenceForClaim(source?.evidence ?? [], selectedClaim) : (source?.evidence ?? []);
         if (claimEvidenceAnyPage.length === 0) {
           return (

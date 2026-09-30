@@ -70,12 +70,9 @@ beforeEach(() => { saveReviewDecision.mockClear(); });
 describe("clicking Verify after a prior Edit preserves the reviewer's correction", () => {
   it("saveReviewDecision is called with the EXISTING reviewer value, not null", async () => {
     renderPage();
-    // The fixture item is already EDITED, which the default "needs review"
-    // filter excludes — switch to "all" to bring it into view, same as a
-    // reviewer would to find an item they already corrected. Filters now
-    // live inside the element-navigator popover, so open it first.
-    (await screen.findByLabelText("Element list and filters")).click();
-    (await screen.findByText("all")).click();
+    // Navigation is unfiltered (the "needs review only" toggle only affects
+    // what's SHOWN in the element navigator, never which item is current) —
+    // the single fixture item is reachable directly, no filter switch needed.
     const verifyBtn = await screen.findByText("Verify", { exact: true });
     await waitFor(() => expect(verifyBtn.closest("button")).not.toBeDisabled());
     verifyBtn.click();
@@ -90,8 +87,6 @@ describe("clicking Verify after a prior Edit preserves the reviewer's correction
 describe("clicking Flag or Mark Pending after a prior Edit also preserves the reviewer's correction", () => {
   it("Mark Pending carries the reviewer value forward", async () => {
     renderPage();
-    (await screen.findByLabelText("Element list and filters")).click();
-    (await screen.findByText("all")).click();
     const pendingBtn = await screen.findByText("Mark Pending", { exact: false });
     pendingBtn.click();
 
