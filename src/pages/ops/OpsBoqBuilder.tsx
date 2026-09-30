@@ -139,6 +139,12 @@ export default function OpsBoqBuilder() {
   const [showJson, setShowJson] = useState(false);
   const [showAudit, setShowAudit] = useState(false);
   const [jsonText, setJsonText] = useState("");
+  // Abstract/Letterhead/session-ledger are real editing tools an estimator
+  // needs, but they're document-configuration detail, not the pipeline's
+  // output — collapsed by default so the generated-output framing and the
+  // table lead the first viewport (Section 2). No functionality removed,
+  // only its default visibility.
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [view, setView] = useState<"lines" | "make" | "materials">("lines");
   const [targetMargin, setTargetMargin] = useState(15);
   // Present mode: strip every operator-only element so the screen can be turned
@@ -165,7 +171,6 @@ export default function OpsBoqBuilder() {
   const [changes, setChanges] = useState<EstimateChange[]>([]);
   const [cursor, setCursor] = useState(0);
   const [firstTotal, setFirstTotal] = useState<number | null>(null);
-  const [showLedger, setShowLedger] = useState(true);
   const seqRef = useRef(0);
 
   const fetchLinesNow = async (): Promise<BoqLine[]> => (id ? selectBoqLines(id) : []);
@@ -558,6 +563,11 @@ export default function OpsBoqBuilder() {
           <Button size="sm" variant="secondary" onClick={exitPresent}>Exit client view</Button>
         </div>
       )}
+      {/* Slim identity row — always present (present-mode included). The grand
+          total lives HERE except in the one state where it's more truthfully
+          told as part of the output hero below (a fresh Apply this session);
+          duplicating the same number in two places would undercut the hero
+          rather than support it. */}
       <div className="flex items-center gap-2">
         <Button variant="ghost" size="sm" onClick={() => navigate(-1)}><ArrowLeft className="h-4 w-4" /></Button>
         <div className="flex-1">
@@ -579,51 +589,74 @@ export default function OpsBoqBuilder() {
           title="Show a clean, client-facing view (or press P; Esc to exit)">
           {present ? <><Eye className="h-4 w-4 mr-2" />Exit client view</> : <><Presentation className="h-4 w-4 mr-2" />Show to client</>}
         </Button>
-        {/* Scope-first valuation: the headline number can never read as the whole
-            project cost — its discipline and exclusions sit right on it. */}
-        <div className="text-right min-w-[11rem]">
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            {disciplineByKey(boq.discipline).name} works
+        {(present || justAppliedCount === 0) && (
+          // Scope-first valuation: the headline number can never read as the whole
+          // project cost — its discipline and exclusions sit right on it.
+          <div className="text-right min-w-[11rem]">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              {disciplineByKey(boq.discipline).name} works
+            </div>
+            <div className="text-2xl md:text-3xl font-semibold tabular-nums leading-tight">{inr(displayGrand)}</div>
+            {(() => {
+              const fl = floorsLabel(project?.floors ?? (Number((boq.spec as Spec)?._floors) || null));
+              const tier = TIER_LABEL[String((boq.spec as Spec)?.quality_tier ?? "standard")] ?? null;
+              const bits = [builtUp ? `${builtUp.toLocaleString("en-IN")} sqft` : null, fl, tier].filter(Boolean);
+              return bits.length ? <div className="text-[11px] text-muted-foreground">{bits.join(" · ")}</div> : null;
+            })()}
+            <div className="text-[11px] text-amber-600 dark:text-amber-500">{scopeLine(boq.discipline)}</div>
+            {!present && changes.length > 0 && firstTotal != null && Math.abs(netDelta) >= 1 && (
+              <div className={cn("text-[11px] font-medium", netDelta > 0 ? "text-amber-600 dark:text-amber-500" : "text-emerald-600 dark:text-emerald-400")}>
+                {netDelta > 0 ? "+" : "−"}{inr(Math.abs(netDelta))} since starting
+              </div>
+            )}
+            {!present && make.hasCost && (
+              <div className={cn("text-[11px] font-medium", make.marginPct >= targetMargin ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-500")}>
+                make {inr(make.make)} · {make.marginPct.toFixed(1)}%
+              </div>
+            )}
           </div>
-          <div className="text-2xl md:text-3xl font-semibold tabular-nums leading-tight">{inr(displayGrand)}</div>
-          {(() => {
-            const fl = floorsLabel(project?.floors ?? (Number((boq.spec as Spec)?._floors) || null));
-            const tier = TIER_LABEL[String((boq.spec as Spec)?.quality_tier ?? "standard")] ?? null;
-            const bits = [builtUp ? `${builtUp.toLocaleString("en-IN")} sqft` : null, fl, tier].filter(Boolean);
-            return bits.length ? <div className="text-[11px] text-muted-foreground">{bits.join(" · ")}</div> : null;
-          })()}
-          <div className="text-[11px] text-amber-600 dark:text-amber-500">{scopeLine(boq.discipline)}</div>
-          {!present && changes.length > 0 && firstTotal != null && Math.abs(netDelta) >= 1 && (
-            <div className={cn("text-[11px] font-medium", netDelta > 0 ? "text-amber-600 dark:text-amber-500" : "text-emerald-600 dark:text-emerald-400")}>
-              {netDelta > 0 ? "+" : "−"}{inr(Math.abs(netDelta))} since starting
-            </div>
-          )}
-          {!present && make.hasCost && (
-            <div className={cn("text-[11px] font-medium", make.marginPct >= targetMargin ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-500")}>
-              make {inr(make.make)} · {make.marginPct.toFixed(1)}%
-            </div>
-          )}
-        </div>
+        )}
       </div>
 
-      {/* The pipeline's culmination, stated plainly before the table below it
-          gets into editing/pricing detail (Section 11) — every number here
-          is one Apply already returned (appliedCount/unresolvedCount) or a
-          count the Review Workstation derived from the same real review
-          state (correctedCount); nothing invented for this banner. */}
+      {/* OUTPUT HERO — the primary above-the-fold framing (Section 1). Every
+          figure here is exactly what Apply already returned this session
+          (appliedCount/unresolvedCount) or what the Review Workstation
+          derived from the same real review state (correctedCount) — nothing
+          invented. This can only be shown truthfully for the session that
+          just applied; there is no durable per-line "came from AI" column
+          (boq_line.external_key/source are also written by manual/JSON
+          paths), so this hero never renders on a later revisit/refresh —
+          see the neutral strip below for that case instead of a false claim. */}
       {!present && justAppliedCount > 0 && (
-        <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2.5 space-y-1">
-          <div className="flex items-center gap-2">
-            <AiStateBadge state="applied" />
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-primary">BOQ generated from review</span>
+        <div className="rounded-lg border-2 border-primary/25 bg-primary/5 p-4 md:p-5 space-y-4">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <AiStateBadge state="applied" label="Applied to BOQ" />
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-primary">BOQ generated from review</span>
+            </div>
+            <span className="text-xs text-muted-foreground">
+              Review → Apply → <b className="text-foreground">BOQ</b> → Export
+            </span>
           </div>
-          <p className="text-sm">
-            <b className="text-foreground">{justAppliedCount}</b> quantit{justAppliedCount === 1 ? "y" : "ies"} applied
-            {justAppliedCorrectedCount > 0 && <> · <b className="text-foreground">{justAppliedCorrectedCount}</b> corrected by you</>}
-            {justAppliedUnresolvedCount > 0 && (
-              <span className="text-amber-700 dark:text-amber-500"> · {justAppliedUnresolvedCount} unresolved</span>
-            )}
-          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <HeroStat label="Applied" value={String(justAppliedCount)} />
+            <HeroStat label="Corrected by you" value={justAppliedCorrectedCount > 0 ? String(justAppliedCorrectedCount) : "—"} />
+            <HeroStat label="Unresolved" value={justAppliedUnresolvedCount > 0 ? String(justAppliedUnresolvedCount) : "0"} tone={justAppliedUnresolvedCount > 0 ? "warning" : undefined} />
+            <HeroStat label={`${disciplineByKey(boq.discipline).name} total`} value={inr(displayGrand)} />
+          </div>
+        </div>
+      )}
+
+      {/* Neutral pipeline context — shown instead of the hero whenever this
+          screen has no fresh, truthful "just applied" state to report (a
+          normal load, a refresh, or a BOQ never built via review). Names the
+          same pipeline without claiming a provenance this render can't back. */}
+      {!present && justAppliedCount === 0 && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+          <span>Drawing → Generate → Review → Apply → <b className="text-foreground">BOQ</b> → Export</span>
+          <Button variant="link" size="sm" className="ml-auto h-auto p-0 text-xs" onClick={() => navigate("review")}>
+            Review Analysis →
+          </Button>
         </div>
       )}
 
@@ -705,75 +738,11 @@ export default function OpsBoqBuilder() {
           </Button>
         </div>
       </div>
-
-      {changes.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2 flex-row items-center justify-between gap-2">
-            <button className="text-left min-w-0" onClick={() => setShowLedger((s) => !s)}>
-              <CardTitle className="text-base flex items-center gap-2">
-                <ChevronDown className={cn("h-4 w-4 transition-transform", !showLedger && "-rotate-90")} />
-                Changes this session
-              </CardTitle>
-              <p className="text-xs text-muted-foreground ml-6">
-                {cursor} change{cursor === 1 ? "" : "s"}
-                {firstTotal != null && Math.abs(netDelta) >= 1 ? ` · net ${netDelta > 0 ? "+" : "−"}${inr(Math.abs(netDelta))}` : ""}
-              </p>
-            </button>
-            <div className="flex gap-2 shrink-0">
-              <Button size="sm" variant="outline" onClick={undo} disabled={cursor === 0 || busy}>Undo</Button>
-              <Button size="sm" variant="outline" onClick={redo} disabled={cursor >= changes.length || busy}>Redo</Button>
-            </div>
-          </CardHeader>
-          {showLedger && (
-            <CardContent className="space-y-0.5">
-              {changes.map((c, i) => {
-                const undone = i >= cursor;
-                return (
-                  <div key={c.id} className={cn("grid grid-cols-[1.5rem_1fr_auto] items-baseline gap-2 text-sm py-0.5", undone && "opacity-40")}>
-                    <span className="text-xs text-muted-foreground tabular-nums">{i + 1}.</span>
-                    <span className="min-w-0">
-                      <span className="font-medium">{c.label}</span>
-                      {c.detail ? <span className="text-muted-foreground"> · {c.detail}</span> : null}
-                    </span>
-                    <span className={cn("tabular-nums text-right", c.delta > 0 ? "text-amber-600 dark:text-amber-500" : c.delta < 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground")}>
-                      {c.delta === 0 ? "—" : `${c.delta > 0 ? "+" : "−"}${inr(Math.abs(c.delta))}`}
-                    </span>
-                  </div>
-                );
-              })}
-            </CardContent>
-          )}
-        </Card>
+      {/* Export as the pipeline's final step (Section 5) — a plain caption,
+          not a new control; the button above is unchanged. */}
+      {lines.length > 0 && (
+        <p className="text-xs text-muted-foreground -mt-2">Export is the final step — hand this BOQ to your team as PDF or Excel.</p>
       )}
-
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md bg-muted/40 px-3 py-2 text-sm">
-        <span className="text-muted-foreground font-medium">Abstract</span>
-        {([
-          ["Cost index", "_cost_index_pct", commercials.costIndexPct],
-          ["Contingency", "_contingency_pct", commercials.contingencyPct],
-          ["Overhead", "_overhead_pct", commercials.overheadPct],
-          ["Cess", "_cess_pct", commercials.cessPct],
-          ["GST", "_gst_pct", commercials.gstPct],
-        ] as const).map(([label, key, val]) => (
-          <label key={key} className="flex items-center gap-1">{label}
-            <Input type="number" className="h-7 w-14" defaultValue={val}
-              onBlur={(e) => { const v = Number(e.target.value); if (v !== val) saveCommercials({ [key]: v }); }} />
-            <span className="text-muted-foreground">%</span>
-          </label>
-        ))}
-        <span className="ml-auto text-muted-foreground">
-          Grand total <b className="text-foreground tabular-nums">{inr(commercials.grandTotal)}</b>
-        </span>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md bg-muted/40 px-3 py-2 text-sm">
-        <span className="text-muted-foreground font-medium">Letterhead</span>
-        <Input className="h-7 w-52" defaultValue={firmName ?? ""} placeholder="Your firm name (e.g. The Grid Architects)"
-          onBlur={(e) => saveCommercials({ _firm_name: e.target.value.trim() })} />
-        <Input className="h-7 w-64" defaultValue={firmTagline ?? ""} placeholder="Tagline (e.g. architects & interior designers)"
-          onBlur={(e) => saveCommercials({ _firm_tagline: e.target.value.trim() })} />
-        <span className="text-xs text-muted-foreground">Appears on the exported BOQ instead of Cunstruct</span>
-      </div>
       </>)}
 
       {!present && showDocs && boq.project_id && (
@@ -944,7 +913,20 @@ export default function OpsBoqBuilder() {
           No items yet — add an item from the DSR, add a blank line, run Review Analysis on a project drawing, add lines from a JSON evaluation, or import a BOQ from the project's BOQs tab.
         </CardContent></Card>
       ) : (
-        bySubhead.map(({ no, name, rows, subtotal }) => (
+        <>
+          {/* Reframes the table itself as the pipeline's output rather than a
+              bare editable grid (Section 3) — text only, same truthfulness
+              rule as the hero above: "Reviewed quantities" only when this
+              session's Apply actually produced these lines. */}
+          {!present && (
+            <div className="flex items-baseline justify-between gap-2 px-1">
+              <h2 className="text-sm font-semibold">{justAppliedCount > 0 ? "Reviewed quantities" : "BOQ lines"}</h2>
+              {justAppliedCount > 0 && (
+                <span className="text-xs text-muted-foreground">Grouped by work section · lines marked "Applied to BOQ" came from your review</span>
+              )}
+            </div>
+          )}
+          {bySubhead.map(({ no, name, rows, subtotal }) => (
           <Card key={name}>
             <CardHeader className="pb-2 flex-row items-center justify-between">
               <CardTitle className="text-base">
@@ -1062,8 +1044,105 @@ export default function OpsBoqBuilder() {
               })}
             </CardContent>
           </Card>
-        ))
+        ))}
+        </>
       )}
+
+      {/* ADVANCED SETTINGS — commercials (Abstract) + letterhead + the session
+          change ledger. Real editing tools, deliberately collapsed by default
+          (Section 2): document-configuration detail, not the pipeline's
+          output, so it sits after the table rather than dominating the first
+          viewport. Nothing here changed except position/default visibility —
+          same inputs, same handlers, same saveCommercials/undo/redo calls. */}
+      {!present && (
+        <Card>
+          <CardHeader className="pb-2">
+            <button className="flex items-center gap-2 text-left" onClick={() => setAdvancedOpen((s) => !s)}>
+              <ChevronDown className={cn("h-4 w-4 transition-transform text-muted-foreground", !advancedOpen && "-rotate-90")} />
+              <CardTitle className="text-sm">Advanced settings</CardTitle>
+              <span className="text-xs text-muted-foreground">Commercials, letterhead{changes.length > 0 ? `, ${cursor} change${cursor === 1 ? "" : "s"} this session` : ""}</span>
+            </button>
+          </CardHeader>
+          {advancedOpen && (
+            <CardContent className="space-y-3">
+              {changes.length > 0 && (
+                <div className="rounded-md border">
+                  <div className="flex items-center justify-between gap-2 px-3 py-2 border-b">
+                    <div>
+                      <div className="text-sm font-medium">Changes this session</div>
+                      <p className="text-xs text-muted-foreground">
+                        {cursor} change{cursor === 1 ? "" : "s"}
+                        {firstTotal != null && Math.abs(netDelta) >= 1 ? ` · net ${netDelta > 0 ? "+" : "−"}${inr(Math.abs(netDelta))}` : ""}
+                      </p>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <Button size="sm" variant="outline" onClick={undo} disabled={cursor === 0 || busy}>Undo</Button>
+                      <Button size="sm" variant="outline" onClick={redo} disabled={cursor >= changes.length || busy}>Redo</Button>
+                    </div>
+                  </div>
+                  <div className="px-3 py-2 space-y-0.5">
+                    {changes.map((c, i) => {
+                      const undone = i >= cursor;
+                      return (
+                        <div key={c.id} className={cn("grid grid-cols-[1.5rem_1fr_auto] items-baseline gap-2 text-sm py-0.5", undone && "opacity-40")}>
+                          <span className="text-xs text-muted-foreground tabular-nums">{i + 1}.</span>
+                          <span className="min-w-0">
+                            <span className="font-medium">{c.label}</span>
+                            {c.detail ? <span className="text-muted-foreground"> · {c.detail}</span> : null}
+                          </span>
+                          <span className={cn("tabular-nums text-right", c.delta > 0 ? "text-amber-600 dark:text-amber-500" : c.delta < 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground")}>
+                            {c.delta === 0 ? "—" : `${c.delta > 0 ? "+" : "−"}${inr(Math.abs(c.delta))}`}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md bg-muted/40 px-3 py-2 text-sm">
+                <span className="text-muted-foreground font-medium">Abstract</span>
+                {([
+                  ["Cost index", "_cost_index_pct", commercials.costIndexPct],
+                  ["Contingency", "_contingency_pct", commercials.contingencyPct],
+                  ["Overhead", "_overhead_pct", commercials.overheadPct],
+                  ["Cess", "_cess_pct", commercials.cessPct],
+                  ["GST", "_gst_pct", commercials.gstPct],
+                ] as const).map(([label, key, val]) => (
+                  <label key={key} className="flex items-center gap-1">{label}
+                    <Input type="number" className="h-7 w-14" defaultValue={val}
+                      onBlur={(e) => { const v = Number(e.target.value); if (v !== val) saveCommercials({ [key]: v }); }} />
+                    <span className="text-muted-foreground">%</span>
+                  </label>
+                ))}
+                <span className="ml-auto text-muted-foreground">
+                  Grand total <b className="text-foreground tabular-nums">{inr(commercials.grandTotal)}</b>
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md bg-muted/40 px-3 py-2 text-sm">
+                <span className="text-muted-foreground font-medium">Letterhead</span>
+                <Input className="h-7 w-52" defaultValue={firmName ?? ""} placeholder="Your firm name (e.g. The Grid Architects)"
+                  onBlur={(e) => saveCommercials({ _firm_name: e.target.value.trim() })} />
+                <Input className="h-7 w-64" defaultValue={firmTagline ?? ""} placeholder="Tagline (e.g. architects & interior designers)"
+                  onBlur={(e) => saveCommercials({ _firm_tagline: e.target.value.trim() })} />
+                <span className="text-xs text-muted-foreground">Appears on the exported BOQ instead of Cunstruct</span>
+              </div>
+            </CardContent>
+          )}
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// Small stat tile for the output hero — presentational only, same pattern as
+// the "Stat" helper already used elsewhere in the review UI.
+function HeroStat({ label, value, tone }: { label: string; value: string; tone?: "warning" }) {
+  return (
+    <div className="rounded-md bg-background/60 border border-primary/10 p-2.5">
+      <div className={cn("text-lg font-semibold tabular-nums", tone === "warning" && "text-amber-700 dark:text-amber-500")}>{value}</div>
+      <div className="text-[11px] text-muted-foreground">{label}</div>
     </div>
   );
 }
