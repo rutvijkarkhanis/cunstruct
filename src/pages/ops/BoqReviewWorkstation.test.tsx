@@ -14,7 +14,7 @@
 // `selectedClaim`, and the claim-filtering it drives still applies correctly to
 // the verified page-5 bbox.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ItemPanel, ResolvedEvidenceViewer, ApplyToBoqDialog } from "./BoqReviewWorkstation";
@@ -22,7 +22,7 @@ import type { ApplyCandidate } from "@/lib/review/applyReview";
 import type { StoredReviewItem } from "@/lib/review/reviewStore";
 import type { StoredDrawing } from "@/lib/review/documentResolve";
 import type { ClaimType } from "@/lib/review/analysisSchemaV1";
-import { getEvidenceForClaim } from "@/lib/review/evidenceCoords";
+import { getEvidenceForClaim, defaultEvidenceClaim } from "@/lib/review/evidenceCoords";
 
 // jsdom has no ResizeObserver; the coordinate-plot fallback (EvidenceViewer)
 // uses one to size itself. Only exercised by the re-link-reactivity tests
@@ -117,7 +117,11 @@ describe("ItemPanel — claim selection", () => {
     const onSelectClaim = vi.fn();
     render(<ItemPanel {...itemPanelProps(onSelectClaim)} />);
 
-    // Quantity, Dimension, Specification, Location all have evidence in the fixture.
+    // Quantity's own evidence link is visible immediately; dimension/specification/
+    // location are collapsed under "More details" by default (demo-clarity pass) —
+    // opening it reveals the other three, still backed by the same evidence data.
+    expect(screen.getAllByText(/^Evidence ·/)).toHaveLength(1);
+    fireEvent.click(screen.getByText("More details"));
     const links = screen.getAllByText(/^Evidence ·/);
     expect(links).toHaveLength(4);
 
@@ -127,6 +131,7 @@ describe("ItemPanel — claim selection", () => {
 
   it("shows the evidence source and page in the link text", () => {
     render(<ItemPanel {...itemPanelProps(vi.fn())} />);
+    fireEvent.click(screen.getByText("More details"));
     // Quantity, dimension, and specification all share the same schedule-row region.
     expect(screen.getAllByText("Evidence · Synthetic schedule row · p.999")).toHaveLength(3);
     expect(screen.getByText("Evidence · Synthetic location note · p.998")).toBeInTheDocument();
@@ -138,21 +143,30 @@ describe("ItemPanel — claim selection", () => {
       ai: { ...w1Item.ai, source: { document: "test-drawing.pdf", evidence: [] } },
     };
     render(<ItemPanel {...itemPanelProps(vi.fn())} item={bare} />);
+    fireEvent.click(screen.getByText("More details"));
     expect(screen.queryByText(/^Evidence ·/)).toBeNull();
     expect(screen.getAllByText("No evidence attached")).toHaveLength(4);
   });
 });
 
 describe("ItemPanel — AI vs reviewer separation (P0-4)", () => {
-  it("renders distinct AI result and Reviewer result sections", () => {
-    render(<ItemPanel {...itemPanelProps(vi.fn())} />);
-    expect(screen.getByText("AI result")).toBeInTheDocument();
-    expect(screen.getByText("Reviewer result")).toBeInTheDocument();
+  it("renders distinct AI extracted and Your review sections", () => {
+    // The "Your review" box only renders once a reviewer value actually
+    // exists (demo-clarity pass) — an edited item is what makes it appear.
+    // "AI result"/"Reviewer result" were renamed to "AI extracted"/"Your
+    // review" as part of the AI-vs-human visual language pass.
+    const edited: StoredReviewItem = { ...w1Item, reviewStatus: "EDITED", reviewer: { quantity: 9 } };
+    render(<ItemPanel {...itemPanelProps(vi.fn())} item={edited} />);
+    expect(screen.getByText("AI extracted")).toBeInTheDocument();
+    expect(screen.getByText("Your review")).toBeInTheDocument();
   });
 
   it("never implies a high AI confidence should be auto-accepted", () => {
     render(<ItemPanel {...itemPanelProps(vi.fn())} />);
-    expect(screen.getByText(/not a substitute for checking the evidence/i)).toBeInTheDocument();
+    // Moved from a permanent caveat sentence to a hover affordance next to
+    // Confidence (demo-clarity pass) — same explanation, no longer standing
+    // chrome on every item.
+    expect(screen.getByTitle(/not a substitute for checking the evidence/i)).toBeInTheDocument();
   });
 
   it("keeps the AI's immutable quantity and the reviewer's edited quantity visibly separate", () => {
@@ -165,8 +179,8 @@ describe("ItemPanel — AI vs reviewer separation (P0-4)", () => {
 
     // AI's own value (immutable, from ai.quantity) is untouched.
     expect(screen.getByTitle("7 nos")).toBeInTheDocument();
-    // Reviewer's override appears separately, under "Reviewer qty".
-    const reviewerQtyLabel = screen.getByText("Reviewer qty");
+    // Reviewer's override appears separately, under "Your quantity".
+    const reviewerQtyLabel = screen.getByText("Your quantity");
     expect(reviewerQtyLabel.parentElement).toHaveTextContent("9");
   });
 });
@@ -263,6 +277,10 @@ describe("ItemPanel + ResolvedEvidenceViewer — end-to-end claim selection", ()
     // Before any click: verified page-5 box plus all synthetic boxes are present (unfiltered).
     expect((await screen.findAllByTestId("evidence-box"))).toHaveLength(5);
 
+    // Dimension/Specification/Location sit behind "More details" by default
+    // (demo-clarity pass) — open it to reach Specification's evidence link.
+    fireEvent.click(screen.getByText("More details"));
+
     // AI-result field order is Quantity, Dimension, Specification, Location —
     // the 3rd evidence link is Specification.
     const specButton = screen.getAllByText(/^Evidence ·/)[2];
@@ -271,6 +289,63 @@ describe("ItemPanel + ResolvedEvidenceViewer — end-to-end claim selection", ()
     const boxes = await screen.findAllByTestId("evidence-box");
     expect(boxes).toHaveLength(1);
     expect(boxes[0].textContent).toBe(JSON.stringify([50, 100, 450, 130]));
+  });
+});
+
+// A second fixture with NO quantity-tagged evidence — only "general" — the
+// common real-world/legacy shape, and the graceful-fallback case: selecting
+// this item must never fabricate a quantity focus it has no evidence for.
+const noQuantityEvidenceItem: StoredReviewItem = {
+  id: "item-2",
+  reviewStatus: "PENDING_REVIEW",
+  ai: {
+    key: "W2",
+    item: "W2 — Ground Floor Opening",
+    quantity: 3,
+    unit: "nos",
+    confidence: 0.8,
+    aiStatus: "MEASURED",
+    source: {
+      documentId: "doc-1",
+      document: "test-drawing.pdf",
+      page: 6,
+      evidence: [{ page: 6, bbox: [10, 10, 20, 20], claim: "general", label: "W2 plan view" }],
+    },
+  },
+};
+
+describe("Spatial review — selecting an item focuses the drawing on its quantity evidence", () => {
+  // Mirrors exactly what BoqReviewWorkstation's own effect does: recompute
+  // the default claim from defaultEvidenceClaim() whenever the current
+  // item's id changes — the production code under test, not a re-implementation.
+  function Harness({ item }: { item: StoredReviewItem }) {
+    const [selectedClaim, setSelectedClaim] = useState<ClaimType | null>(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useEffect(() => { setSelectedClaim(defaultEvidenceClaim(item.ai.source)); }, [item.id]);
+    return <ResolvedEvidenceViewer item={item} drawings={drawings} resolvedDocumentId={null} selectedClaim={selectedClaim} />;
+  }
+
+  it("defaults to the quantity claim's evidence when the item has one, without any click", async () => {
+    render(<Harness item={w1Item} />);
+    const viewer = await screen.findByTestId("pdf-viewer");
+    expect(viewer.getAttribute("data-selected-claim")).toBe("quantity");
+    // Only the quantity-tagged box (of the 5 total on this item) is shown.
+    expect(await screen.findAllByTestId("evidence-box")).toHaveLength(1);
+  });
+
+  it("falls back to showing all evidence, unfiltered, when the item has no quantity-tagged evidence", async () => {
+    render(<Harness item={noQuantityEvidenceItem} />);
+    const viewer = await screen.findByTestId("pdf-viewer");
+    expect(viewer.getAttribute("data-selected-claim")).toBe("");
+    expect(await screen.findAllByTestId("evidence-box")).toHaveLength(1); // the one "general" box
+  });
+
+  it("selecting a different item updates the evidence target (stays synchronized)", async () => {
+    const { rerender } = render(<Harness item={w1Item} />);
+    expect((await screen.findByTestId("pdf-viewer")).getAttribute("data-selected-claim")).toBe("quantity");
+
+    rerender(<Harness item={noQuantityEvidenceItem} />);
+    expect((await screen.findByTestId("pdf-viewer")).getAttribute("data-selected-claim")).toBe("");
   });
 });
 

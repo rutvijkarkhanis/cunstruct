@@ -1,14 +1,19 @@
 import { useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import DrawingThumbnail from "@/components/review/DrawingThumbnail";
+import PdfEvidenceViewer from "@/components/review/PdfEvidenceViewer";
 import { toast } from "sonner";
-import { Plus, FileText, ChevronDown, ChevronRight, CheckCircle2, Link2, Upload, Trash2, FolderPlus, FolderOpen, Folder as FolderIcon } from "lucide-react";
+import { Plus, FileText, ChevronDown, ChevronRight, CheckCircle2, Link2, Upload, Trash2, FolderPlus, FolderOpen, Folder as FolderIcon, Sparkles, MoreVertical, ArrowRight } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { DOC_TYPES, DISCIPLINES, type ProjectDocument, type DocumentRevision, type DocumentFolder } from "@/lib/projectDocs";
 import { validateDrawingFile, buildDrawingPath, uploadDrawing, deleteDrawing, signedDrawingUrl } from "@/lib/review/drawingStorage";
 import { buildFolderTree, folderBreadcrumb, parseRelativePath, looksLikePdf, type FolderNode } from "@/lib/documentFolders";
@@ -21,7 +26,27 @@ type FileWithRelativePath = File & { webkitRelativePath?: string };
 
 export default function ProjectDocuments() {
   const { id: projectId } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const qc = useQueryClient();
+
+  // Routes "Generate BOQ from this drawing" into the EXISTING Review Analysis
+  // flow rather than duplicating any generation logic here — Documents never
+  // calls the AI itself. A document isn't tied to one BOQ (a project can have
+  // several), so this only knows where to send the user: straight to the one
+  // BOQ's review screen when unambiguous, otherwise to BOQs to pick/create one.
+  const { data: boqIds } = useQuery({
+    queryKey: ["project-boq-ids", projectId],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const { data } = await supabase.from("boq").select("id").eq("project_id", projectId!);
+      return (data ?? []).map((b) => (b as { id: string }).id);
+    },
+  });
+  const goGenerateFrom = (docName: string) => {
+    if (boqIds?.length === 1) { navigate(`../boqs/${boqIds[0]}/review`); return; }
+    if (!boqIds?.length) toast.info(`Create a BOQ first, then use Review Analysis to generate quantities from "${docName}".`);
+    navigate("../boqs");
+  };
 
   const { data: folders } = useQuery({
     queryKey: ["document-folders", projectId],
@@ -68,7 +93,58 @@ export default function ProjectDocuments() {
     },
   });
 
+  // Which documents Cunstruct has already produced a completed analysis for —
+  // real data (a SUCCEEDED analysis_run_source row), never inferred/guessed.
+  // Drives the card's primary CTA ("Generate quantities" vs "Review
+  // quantities") so it reflects what's actually true, not a fixed label.
+  const { data: analysedDocIds } = useQuery({
+    queryKey: ["document-analysed-ids", projectId, ids.join(",")],
+    enabled: ids.length > 0,
+    queryFn: async () => {
+      const { data } = await supabase.from("analysis_run_source")
+        .select("document_id").eq("status", "SUCCEEDED").in("document_id", ids);
+      return new Set((data ?? []).map((r) => (r as { document_id: string | null }).document_id).filter(Boolean) as string[]);
+    },
+  });
+
+  // How many quantities the most recent analysis run found for each document —
+  // real, existing data (analysis_run.item_count), read fresh here only for
+  // display; never a fabricated "N quantities ready" figure. `order("created_at")`
+  // ascending + last-write-wins below keeps each document's LATEST run's count.
+  const { data: docQuantityCounts } = useQuery({
+    queryKey: ["document-quantity-counts", projectId, ids.join(",")],
+    enabled: ids.length > 0,
+    queryFn: async () => {
+      const { data } = await supabase.from("analysis_run")
+        .select("resolved_document_id, item_count, created_at").in("resolved_document_id", ids).order("created_at");
+      const out: Record<string, number> = {};
+      for (const r of (data ?? []) as { resolved_document_id: string | null; item_count: number | null }[]) {
+        if (r.resolved_document_id) out[r.resolved_document_id] = r.item_count ?? 0;
+      }
+      return out;
+    },
+  });
+
   const revsFor = (docId: string) => (revs ?? []).filter((r) => r.document_id === docId);
+
+  // In-app drawing preview (Section 4) — replaces window.open() for the
+  // primary "look at this drawing" action. Signed URLs are still fetched
+  // fresh, never cached/stored, via the existing signedDrawingUrl(); this
+  // just renders the result inside Cunstruct instead of a new browser tab.
+  // The per-revision "Open" links deeper in the expanded revision list are
+  // untouched — this only replaces the card's own primary preview action.
+  const [previewing, setPreviewing] = useState<{ name: string; url: string } | null>(null);
+  const [previewLoadingFor, setPreviewLoadingFor] = useState<string | null>(null);
+  const previewDrawing = async (revId: string, path: string, name: string) => {
+    setPreviewLoadingFor(revId);
+    try {
+      const url = await signedDrawingUrl(path);
+      if (!url) { toast.error("Could not open this drawing. It may be missing or you may not have access."); return; }
+      setPreviewing({ name, url });
+    } finally {
+      setPreviewLoadingFor(null);
+    }
+  };
 
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: ["document-folders", projectId] });
@@ -345,37 +421,103 @@ export default function ProjectDocuments() {
     const rs = revsFor(d.id);
     const current = rs.find((r) => r.id === d.current_revision_id);
     const open = expandedDocs[d.id];
+    const isDrawing = !!current?.file_path;
+    const analysed = analysedDocIds?.has(d.id) ?? false;
+    const quantityCount = current ? docQuantityCounts?.[d.id] : undefined;
     return (
-      <Card key={d.id}>
-        <CardContent className="p-3">
-          <div className="flex items-center gap-3">
-            <button className="text-muted-foreground" onClick={() => setExpandedDocs((e) => ({ ...e, [d.id]: !e[d.id] }))} aria-label="Toggle revisions">
-              {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-            </button>
-            <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-            <div className="min-w-0 flex-1">
-              {breadcrumb.length > 0 && (
-                <div className="text-[11px] text-muted-foreground truncate" data-testid="doc-breadcrumb">
-                  {breadcrumb.join(" / ")}
-                </div>
-              )}
-              <div className="font-medium truncate">{d.name}</div>
-              <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-2">
-                {d.doc_type && <Badge variant="outline">{d.doc_type}</Badge>}
-                {d.discipline && <span>{d.discipline}</span>}
-                <span>· {current ? `Current: ${current.label}` : "No current revision"}</span>
-                <span>· added {d.created_at ? new Date(d.created_at).toLocaleString() : "—"}</span>
-                <span className="inline-flex items-center gap-1"><Link2 className="h-3 w-3" />{linkCounts?.[d.id] ?? 0} BOQ{(linkCounts?.[d.id] ?? 0) === 1 ? "" : "s"}</span>
+      <Card key={d.id} className="overflow-hidden">
+        {/* THE DRAWING IS THE CARD — a large, real first-page preview leads,
+            not a filename row with an icon. Tapping it opens the in-app
+            preview; non-drawings (no uploaded file yet) keep a plain, honest
+            placeholder slot — there is nothing real to render a thumbnail
+            from. This is a drawing gallery, not a file manager. */}
+        {isDrawing ? (
+          <DrawingThumbnail
+            revisionId={current!.id}
+            filePath={current!.file_path!}
+            renderSize={640}
+            className="w-full h-44 sm:h-52 rounded-none border-0 border-b"
+            onClick={() => previewDrawing(current!.id, current!.file_path!, d.name)}
+          />
+        ) : (
+          <div className="h-20 w-full bg-muted text-muted-foreground flex items-center justify-center border-b">
+            <FileText className="h-6 w-6" />
+          </div>
+        )}
+        <CardContent className="p-3 space-y-2.5">
+          {breadcrumb.length > 0 && (
+            <div className="text-[11px] text-muted-foreground truncate" data-testid="doc-breadcrumb">
+              {breadcrumb.join(" / ")}
+            </div>
+          )}
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="font-semibold truncate">{d.name}</div>
+              {/* Restrained caption — discipline · revision · truthful
+                  analysis state, never more than one line of chrome under
+                  the drawing itself. Real quantity count when a run exists
+                  for this document; otherwise a plain, honest status. */}
+              <div className="text-xs text-muted-foreground truncate">
+                {[d.discipline, current?.label].filter(Boolean).join(" · ")}
+                {isDrawing && (
+                  <span className={cn(analysed && "text-emerald-600 dark:text-emerald-400")}>
+                    {(d.discipline || current?.label) ? " · " : ""}
+                    {analysed
+                      ? (quantityCount != null ? `${quantityCount} quantit${quantityCount === 1 ? "y" : "ies"} ready` : "Analysed")
+                      : "Not analysed yet"}
+                  </span>
+                )}
               </div>
             </div>
-            <Badge variant="outline" className="shrink-0">{d.status}</Badge>
-            <Button size="sm" variant="outline" onClick={() => { setRevFor(revFor === d.id ? null : d.id); setRevLabel(""); setRevUrl(""); }}>
-              <Plus className="h-3.5 w-3.5 mr-1" />Revision
-            </Button>
-            <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" title="Delete document" onClick={() => deleteDocument(d)}>
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
+            <div className="flex items-center gap-0.5 shrink-0">
+              {/* A direct, always-present affordance (not tucked in a menu) —
+                  expanding details/revisions is browsing this drawing, not an
+                  admin action. */}
+              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setExpandedDocs((e) => ({ ...e, [d.id]: !e[d.id] }))} aria-label="Toggle revisions">
+                {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              </Button>
+              {/* Secondary/admin actions behind one small menu — add a
+                  revision, delete. Never four equal-weight buttons beside
+                  the primary action below. */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0" aria-label="Document actions"><MoreVertical className="h-4 w-4" /></Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => { setRevFor(revFor === d.id ? null : d.id); setRevLabel(""); setRevUrl(""); }}>
+                    <Plus className="h-4 w-4 mr-2" />Add revision
+                  </DropdownMenuItem>
+                  <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => deleteDocument(d)}>
+                    <Trash2 className="h-4 w-4 mr-2" />Delete document
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
+
+          {/* ONE dominant primary action — the whole point of uploading a
+              drawing. Label/icon reflect REAL per-document analysis state
+              (analysedDocIds, above), never a fixed string. */}
+          {isDrawing && (
+            <Button className="w-full" onClick={() => goGenerateFrom(d.name)}>
+              {analysed
+                ? <>Review quantities <ArrowRight className="h-4 w-4 ml-1.5" /></>
+                : <>Generate quantities <ArrowRight className="h-4 w-4 ml-1.5" /></>}
+            </Button>
+          )}
+          {!isDrawing && (
+            <Button size="sm" variant="outline" onClick={() => { setRevFor(revFor === d.id ? null : d.id); setRevLabel(""); setRevUrl(""); }}>
+              <Plus className="h-3.5 w-3.5 mr-1" />Add a revision
+            </Button>
+          )}
+
+          {open && d.doc_type && (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <Badge variant="outline">{d.doc_type}</Badge>
+              <span>added {d.created_at ? new Date(d.created_at).toLocaleString() : "—"}</span>
+              <span className="inline-flex items-center gap-1"><Link2 className="h-3 w-3" />{linkCounts?.[d.id] ?? 0} BOQ{(linkCounts?.[d.id] ?? 0) === 1 ? "" : "s"}</span>
+            </div>
+          )}
 
           {open && projectId && (
             <DocumentLocationExtraction
@@ -549,7 +691,24 @@ export default function ProjectDocuments() {
       )}
 
       {isEmpty && (
-        <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">No documents yet. Add a folder or upload the project's drawings and documents here.</CardContent></Card>
+        <Card><CardContent className="p-10 text-center space-y-3">
+          <div className="mx-auto h-12 w-12 rounded-full bg-primary/10 text-primary flex items-center justify-center">
+            <Sparkles className="h-6 w-6" />
+          </div>
+          <div>
+            <div className="font-semibold text-sm">Start with a drawing</div>
+            <p className="text-sm text-muted-foreground mt-1 max-w-sm mx-auto">
+              Upload your architectural or construction PDF and Cunstruct will extract measurable quantities for review.
+            </p>
+          </div>
+          <Button asChild disabled={uploading}>
+            <label className="cursor-pointer">
+              <Upload className="h-4 w-4 mr-2" />{uploading ? "Uploading…" : "Upload drawing"}
+              <input type="file" accept="application/pdf,.pdf" className="hidden" disabled={uploading}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadPdf(f); e.currentTarget.value = ""; }} />
+            </label>
+          </Button>
+        </CardContent></Card>
       )}
 
       <div className="space-y-3">
@@ -568,6 +727,35 @@ export default function ProjectDocuments() {
           </div>
         )}
       </div>
+
+      {/* In-app drawing preview — keeps the user inside Cunstruct instead of a
+          new browser tab or a raw iframe (mobile browsers frequently fail to
+          render a PDF inline in an iframe at all). Reuses PdfEvidenceViewer —
+          the SAME pdf.js rendering/zoom/pan/page-nav infrastructure Review
+          already uses — with no evidence and no claim selection, since this
+          is a plain "look at the drawing" context, not a review context.
+          PdfEvidenceViewer itself is untouched except for the mobile
+          fit-to-page fix, which benefits this preview too. */}
+      <Dialog open={!!previewing} onOpenChange={(o) => { if (!o) setPreviewing(null); }}>
+        {/* min-w-0: DialogContent is `display:grid` with an auto-sized implicit
+            track — without this, the PDF canvas's own intrinsic width (its
+            native page size before the fit-to-page effect can shrink it) pulls
+            this grid item, and so the whole dialog, wider than the viewport on
+            a phone. Same fix, same cause, as ResolvedEvidenceViewer's Card on
+            the Review split view (see its own min-w-0 comment). */}
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto min-w-0">
+          <DialogHeader className="sr-only"><DialogTitle>{previewing?.name ?? "Drawing preview"}</DialogTitle></DialogHeader>
+          {previewing && (
+            <div className="min-w-0">
+              <PdfEvidenceViewer
+                fileUrl={previewing.url}
+                source={{ document: previewing.name, evidence: [] }}
+                documentName={previewing.name}
+              />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

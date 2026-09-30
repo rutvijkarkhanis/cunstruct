@@ -122,6 +122,29 @@ export function fetchModelConfig(): Promise<ModelConfigResponse> {
   return invoke<ModelConfigResponse>({ action: "model_config" });
 }
 
+/**
+ * Translates a raw generate-analysis failure — a server error string from
+ * `GenerateResponse.error`, or a thrown network/transport exception's message —
+ * into one of three short, actionable messages a first-time contractor can act
+ * on without knowing what OpenAI, a JSON schema, or an HTTP status code is.
+ * Presentation only: the raw value itself is never altered or discarded here —
+ * callers (AiApiPanel.tsx) still log it for developers before showing this in
+ * its place, and nothing server-side changes what it returns or persists.
+ */
+export function friendlyGenerateError(raw: string | undefined | null): string {
+  const msg = raw ?? "";
+  // The edge function's own validation-failure text embeds parseAnalysisV1's
+  // exact wording — checked before the generic "failed validation" case below
+  // so a genuinely empty result reads as empty, not as a garbled response.
+  if (/"?items"?\s*array is empty|no valid items found/i.test(msg)) {
+    return "No BOQ quantities were found in these drawings. Try another drawing or run the analysis again.";
+  }
+  if (/failed validation|invalid json|expected an .?items.? array/i.test(msg)) {
+    return "The analysis result couldn't be processed. Please try again.";
+  }
+  return "Analysis couldn't be completed. Please try again.";
+}
+
 /** Presentation-only gate — see docs/ai-analysis-pipeline.md. The real
  *  enforcement is the server's own admin check (a caller who isn't admin
  *  simply never receives a `preflight.internal` block, regardless of this

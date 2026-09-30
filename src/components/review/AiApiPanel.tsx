@@ -13,8 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
-import { fetchPreflight, generateAnalysis, showInternalAiControls, type PreflightFile } from "@/lib/ai/analysisClient";
+import { ChevronDown, ChevronUp, Loader2, Sparkles } from "lucide-react";
+import { fetchPreflight, friendlyGenerateError, generateAnalysis, showInternalAiControls, type PreflightFile } from "@/lib/ai/analysisClient";
 
 const UNFILED = "Unfiled";
 
@@ -59,7 +59,13 @@ export default function AiApiPanel({
   const generateMutation = useMutation({
     mutationFn: () => generateAnalysis({ projectId, boqId, forceReanalyse }),
     onSuccess: async (res) => {
-      if (!res.ok) { toast.error(res.error ?? "Analysis failed"); return; }
+      if (!res.ok) {
+        // Raw detail stays in the console for developers; the user only ever
+        // sees the translated, actionable version below.
+        if (res.error) console.error("[ai-analysis] generate failed:", res.error);
+        toast.error(friendlyGenerateError(res.error));
+        return;
+      }
       if (res.generated === 0) {
         toast.info(res.message ?? "Nothing new to analyse.");
         if (res.allAlreadyAnalysed && (res.latestRunId ?? data?.preflight?.latestRunId)) {
@@ -68,10 +74,15 @@ export default function AiApiPanel({
         return;
       }
       if (res.skipped?.length) res.skipped.forEach((s) => toast.warning(`${s.filename}: ${s.reason}`));
+      const n = res.itemCount ?? 0;
+      toast.success(`${n} quantit${n === 1 ? "y" : "ies"} extracted — ready for review.`);
       await onGenerated(res.runId!);
       qc.invalidateQueries({ queryKey: preflightKey });
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Analysis failed"),
+    onError: (e) => {
+      console.error("[ai-analysis] generate request failed:", e);
+      toast.error(friendlyGenerateError(e instanceof Error ? e.message : undefined));
+    },
   });
 
   if (isLoading) {
@@ -81,9 +92,33 @@ export default function AiApiPanel({
     return <div className="text-sm text-red-600">{data?.error ?? (error instanceof Error ? error.message : "Could not load AI analysis status.")}</div>;
   }
   const p = data.preflight;
+  // Lifted out of the button block below so the "which drawing(s)" framing
+  // above it can use the same booleans — no behavior change, just reused.
+  const nothingNew = p.newFilesCount === 0 && !forceReanalyse;
+  const canOpenExisting = nothingNew && !!p.latestRunId;
+  const generateDisabled = generateMutation.isPending || p.totalEligibleDrawingFiles === 0 || (nothingNew && !canOpenExisting);
 
   return (
     <div className="space-y-3">
+      {/* The core product moment, not a form: what's about to happen, in one
+          sentence, ahead of every supporting count/detail below it. */}
+      <div className="flex items-start gap-3 rounded-md border border-primary/20 bg-primary/5 p-3">
+        <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
+          <Sparkles className="h-4 w-4" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground">
+            {!nothingNew && p.willSendFiles.length > 0
+              ? <>Cunstruct will read {p.willSendFiles.length === 1 ? <b>{p.willSendFiles[0].filename}</b> : <b>{p.willSendFiles.length} drawings</b>} and propose BOQ quantities.</>
+              : canOpenExisting
+                ? "This drawing has already been analysed."
+                : "No new drawings to read yet."}
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Every proposed quantity stays a proposal until you verify, edit, or flag it in review — nothing here touches the BOQ directly.
+          </p>
+        </div>
+      </div>
       <div className="text-sm space-y-1">
         <div>{p.totalProjectFiles} file{p.totalProjectFiles === 1 ? "" : "s"} in this project · {p.alreadyAnalysedCount} already analysed · <b>{p.newFilesCount} new</b></div>
         {p.duplicateFilesSkipped > 0 && (
@@ -135,23 +170,19 @@ export default function AiApiPanel({
         </CardContent></Card>
       )}
 
-      {(() => {
-        const nothingNew = p.newFilesCount === 0 && !forceReanalyse;
-        const canOpenExisting = nothingNew && !!p.latestRunId;
-        const disabled = generateMutation.isPending || p.totalEligibleDrawingFiles === 0 || (nothingNew && !canOpenExisting);
-        return (
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              disabled={disabled}
-              onClick={() => (canOpenExisting ? onGenerated(p.latestRunId!) : generateMutation.mutate())}
-            >
-              {generateMutation.isPending ? "Generating…" : canOpenExisting ? "Open existing analysis" : "Generate analysis"}
-            </Button>
-            <span className="text-xs text-muted-foreground">Only new, not-yet-analysed files are sent.</span>
-          </div>
-        );
-      })()}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          disabled={generateDisabled}
+          onClick={() => (canOpenExisting ? onGenerated(p.latestRunId!) : generateMutation.mutate())}
+        >
+          {generateMutation.isPending && <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />}
+          {generateMutation.isPending ? "Generating…" : canOpenExisting ? "Open existing analysis" : "Generate quantities"}
+        </Button>
+        <span className="text-xs text-muted-foreground">
+          {generateMutation.isPending ? "This may take up to a minute." : "Only new, not-yet-analysed files are sent."}
+        </span>
+      </div>
     </div>
   );
 }

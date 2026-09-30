@@ -4,13 +4,20 @@ import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { ArrowLeft, LayoutDashboard, FileText, Calculator, PackageSearch, Activity } from "lucide-react";
 
-// The project sub-workspace shell: a header + tab nav (Overview / Documents / BOQs /
-// Procurement / Activity) with an <Outlet/> for the active section. The project — not
-// a BOQ or a PDF — is the parent workspace.
-const TABS = [
+// The project sub-workspace shell: a header + tab nav with an <Outlet/> for the
+// active section. The project — not a BOQ or a PDF — is the parent workspace.
+//
+// Tabs are grouped, not just listed: PRIMARY_TABS are the drawing → AI →
+// review → BOQ pipeline this product is actually about, and get the bold,
+// larger treatment. SECONDARY_TABS (Procurement, Activity) still route
+// exactly as before — nothing here changes what's reachable, only how loud
+// each destination is.
+const PRIMARY_TABS = [
   { to: "", end: true, label: "Overview", icon: LayoutDashboard },
   { to: "documents", label: "Documents", icon: FileText },
   { to: "boqs", label: "BOQs", icon: Calculator },
+];
+const SECONDARY_TABS = [
   { to: "procurement", label: "Procurement", icon: PackageSearch },
   { to: "activity", label: "Activity", icon: Activity },
 ];
@@ -40,22 +47,41 @@ export default function ProjectLayout() {
               {[project?.client_name, project?.location, project?.project_type].filter(Boolean).join(" · ")}
             </span>
           </div>
-          <nav className="mt-3 flex gap-1 overflow-x-auto">
-            {TABS.map((t) => (
+          <nav className="mt-3 flex items-baseline gap-1 overflow-x-auto">
+            {PRIMARY_TABS.map((t) => (
               <NavLink
                 key={t.to || "overview"}
                 to={t.to}
                 end={t.end}
                 className={({ isActive }) =>
                   cn(
-                    "inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded-t-md border-b-2 -mb-px whitespace-nowrap transition-colors",
+                    "inline-flex items-center gap-1.5 px-3 py-2.5 text-sm font-semibold rounded-t-md border-b-2 -mb-px whitespace-nowrap transition-colors",
                     isActive
-                      ? "border-primary text-primary font-medium"
+                      ? "border-primary text-primary"
                       : "border-transparent text-muted-foreground hover:text-foreground",
                   )
                 }
               >
                 <t.icon className="h-4 w-4" />{t.label}
+              </NavLink>
+            ))}
+            {/* Visual separator, not a route boundary — everything to its right
+                still works exactly as it did, just presented as secondary. */}
+            <span className="h-4 w-px bg-border mx-1.5 self-center" aria-hidden="true" />
+            {SECONDARY_TABS.map((t) => (
+              <NavLink
+                key={t.to}
+                to={t.to}
+                className={({ isActive }) =>
+                  cn(
+                    "inline-flex items-center gap-1.5 px-2.5 py-2 text-xs rounded-t-md border-b-2 -mb-px whitespace-nowrap transition-colors",
+                    isActive
+                      ? "border-primary/60 text-foreground"
+                      : "border-transparent text-muted-foreground/70 hover:text-muted-foreground",
+                  )
+                }
+              >
+                <t.icon className="h-3.5 w-3.5" />{t.label}
               </NavLink>
             ))}
           </nav>

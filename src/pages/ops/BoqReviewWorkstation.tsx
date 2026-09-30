@@ -16,16 +16,17 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Check, Pencil, Flag, Clock, ChevronLeft, ChevronRight, Upload, Cpu, FileText, ChevronDown, ChevronUp, AlertTriangle, Link2,
+  ArrowLeft, Check, Pencil, Flag, Clock, ChevronLeft, ChevronRight, Upload, Cpu, FileText, ChevronDown, ChevronUp, AlertTriangle, Link2, MoreHorizontal, Info,
 } from "lucide-react";
 import { parseAnalysisV1, type ClaimType } from "@/lib/review/analysisSchemaV1";
 import {
   orderQueue, matchesFilter, reviewSummary, isCritical, criticalReasons, effectiveQuantity, diffItem, quantityDelta, LOW_CONFIDENCE,
   type ReviewFilter, type ReviewStatus, type FlagReason, type ReviewerValues,
 } from "@/lib/review/reviewQueue";
-import { transformBoxes, unionBox, hasPlaceableEvidence } from "@/lib/review/evidenceCoords";
+import { transformBoxes, unionBox, hasPlaceableEvidence, defaultEvidenceClaim } from "@/lib/review/evidenceCoords";
 import { claimLabel, formatClaimValue, summarizeClaimEvidence, type EvidenceSummary } from "@/lib/review/evidenceDisplay";
 import { defaultInputMode, isProviderConfigured, PROVIDERS, type InputMode } from "@/lib/review/analysisProviders";
 import { createAnalysisRun, loadReviewItems, latestRunForBoq, saveReviewDecision, updateResolvedDocument, type StoredReviewItem } from "@/lib/review/reviewStore";
@@ -38,6 +39,8 @@ import { signedDrawingUrl, loadProjectDrawings } from "@/lib/review/drawingStora
 import PdfEvidenceViewer from "@/components/review/PdfEvidenceViewer";
 import DocumentSelector from "@/components/review/DocumentSelector";
 import AiApiPanel from "@/components/review/AiApiPanel";
+import AiStateBadge from "@/components/review/AiStateBadge";
+import ReviewQueue from "@/components/review/ReviewQueue";
 
 const FLAG_REASONS: { key: FlagReason; label: string }[] = [
   { key: "DRAWING_UNCLEAR", label: "Drawing unclear" },
@@ -50,7 +53,12 @@ const FLAG_REASONS: { key: FlagReason; label: string }[] = [
   { key: "OTHER", label: "Other" },
 ];
 
-const FILTERS: ReviewFilter[] = ["ALL", "NEEDS_REVIEW", "CRITICAL", "PENDING", "VERIFIED", "EDITED", "FLAGGED"];
+// Default-visible filters — the two a first-time reviewer actually needs.
+// The rest live behind the "More filters" menu so the row before the first
+// item doesn't compete with it. No semantics change — every filter still
+// works exactly as before via matchesFilter().
+const PRIMARY_FILTERS: ReviewFilter[] = ["NEEDS_REVIEW", "ALL"];
+const MORE_FILTERS: ReviewFilter[] = ["CRITICAL", "PENDING", "VERIFIED", "EDITED", "FLAGGED"];
 
 export default function BoqReviewWorkstation() {
   const { id: routeId, boqId: routeBoqId } = useParams<{ id?: string; boqId?: string }>();
@@ -127,6 +135,7 @@ export default function BoqReviewWorkstation() {
   const [relinking, setRelinking] = useState(false);
   const [selectedApplyIds, setSelectedApplyIds] = useState<Set<string>>(new Set());
   const [selectedClaim, setSelectedClaim] = useState<ClaimType | null>(null);
+  const [showStatsBreakdown, setShowStatsBreakdown] = useState(false);
 
   // Load the latest run for this BOQ, if any.
   useEffect(() => {
@@ -152,6 +161,34 @@ export default function BoqReviewWorkstation() {
   const visible = useMemo(() => ordered.filter((it) => matchesFilter(it, filter)), [ordered, filter]);
   const summary = useMemo(() => reviewSummary(items), [items]);
   const current = visible[Math.min(cursor, Math.max(0, visible.length - 1))];
+
+  // The current item's resolved drawing name — same resolution ResolvedEvidenceViewer
+  // uses, surfaced here too for the compact "GROUND FLOOR PLAN" context bar
+  // (drawing-intelligence-workstation framing). Real, already-loaded data only;
+  // never a guess when nothing resolves.
+  const currentDocumentName = useMemo(() => {
+    if (!current) return null;
+    const resolved = resolveItemDrawing(current.ai.source, drawings, resolvedDocumentId);
+    const stored = resolved ? drawings.find((d) => d.documentId === resolved.documentId) : undefined;
+    return stored?.name || current.ai.source?.document || null;
+  }, [current, drawings, resolvedDocumentId]);
+
+  // Compact queue rows for ReviewQueue — presentational only, derived from
+  // the exact same ordered/filtered list the main panel already uses.
+  const queueRows = useMemo(
+    () => visible.map((it) => ({
+      id: it.id,
+      label: it.ai.key || it.ai.item,
+      quantity: `${effectiveQuantity(it) ?? "—"}${it.ai.unit ? ` ${it.ai.unit}` : ""}`,
+      status: it.reviewStatus,
+      critical: isCritical(it),
+    })),
+    [visible],
+  );
+  const selectQueueItem = useCallback((id: string) => {
+    const idx = visible.findIndex((it) => it.id === id);
+    if (idx >= 0) setCursor(idx);
+  }, [visible]);
 
   // Apply-to-BOQ: pure classification, recomputed against the CURRENT BOQ lines
   // every render — never automatic, only acted on when the reviewer confirms.
@@ -195,7 +232,47 @@ export default function BoqReviewWorkstation() {
   const applyMut = useMutation({
     mutationFn: () => applyReviewPlan({ boqId, candidates: applyPlan, selectedIds: selectedApplyIds }),
     onSuccess: (res) => {
-      toast.success(`Applied ${res.appliedCount} to the BOQ` + (res.unresolvedCount ? ` · ${res.unresolvedCount} unresolved` : ""));
+      // Honest, best-effort provenance for the BOQ screen: only existing lines
+      // this exact call is known to have modified — matchedLineId comes from
+      // the pure classification computed before the call, and any review item
+      // this same result reports conflicted is excluded (it was never
+      // written). A NEW_LINE's real id is never returned to the client (see
+      // applyReview.ts's ApplyResult, untouched here), so a newly-created
+      // line is correctly left unmarked rather than guessed at.
+      const appliedCandidates = applyPlan.filter((c) =>
+        (c.classification === "APPLY" || c.classification === "NEW_LINE")
+        && selectedApplyIds.has(c.reviewItemId)
+        && !res.conflictedReviewItemIds.includes(c.reviewItemId),
+      );
+      const justAppliedLineIds = appliedCandidates
+        .filter((c) => c.classification === "APPLY" && c.matchedLineId)
+        .map((c) => c.matchedLineId!);
+      // How many of what was just applied came from an EDITED review item —
+      // real, derived from the same items[] this run of the reviewer state
+      // machine already has, not a fabricated figure. Carried through
+      // navigation state the same way appliedCount/unresolvedCount already are.
+      const correctedCount = appliedCandidates.filter((c) =>
+        items.find((it) => it.id === c.reviewItemId)?.reviewStatus === "EDITED",
+      ).length;
+      toast.success(`Applied ${res.appliedCount} to the BOQ` + (res.unresolvedCount ? ` · ${res.unresolvedCount} unresolved` : ""), {
+        action: {
+          label: "View updated BOQ",
+          // appliedCount/unresolvedCount are the exact counts ApplyResult
+          // already returns — carried through so the BOQ screen can show a
+          // truthful "just applied" banner even when no individual line can
+          // be marked (every NEW_LINE candidate; see justAppliedLineIds above).
+          onClick: () => navigate(`../boqs/${boqId}`, {
+            state: {
+              justAppliedLineIds, appliedCount: res.appliedCount, unresolvedCount: res.unresolvedCount, correctedCount,
+              // Real, already-computed review-session totals (same `summary`
+              // this screen already renders) — carried through so the BOQ
+              // payoff screen can show Reviewed/Verified alongside
+              // Applied/Corrected without inventing a new figure.
+              reviewedCount: summary.total - summary.remaining, verifiedCount: summary.verified,
+            },
+          }),
+        },
+      });
       qc.invalidateQueries({ queryKey: ["rw-lines", boqId] });
       qc.invalidateQueries({ queryKey: ["boq-lines", boqId] });
       setShowApplyModal(false);
@@ -203,8 +280,17 @@ export default function BoqReviewWorkstation() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to apply to the BOQ"),
   });
 
-  // Clear selectedClaim when item changes
-  useEffect(() => { setSelectedClaim(null); }, [current?.id]);
+  // Default the drawing's focus to the AI quantity's own evidence whenever a
+  // NEW item becomes current (the spatial-review entry point: "select Column
+  // — 12 nos → drawing focuses on the relevant evidence"). Falls back to null
+  // (show all of this item's evidence, unfiltered — today's exact prior
+  // behavior) when the analysis has no quantity-tagged evidence for it —
+  // never fabricates a focus the data doesn't support. Depends only on
+  // current?.id, not `current` itself, so an in-place update to the SAME item
+  // (e.g. after Verify) never resets the reviewer's own claim selection —
+  // only navigating to a genuinely different item does.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setSelectedClaim(defaultEvidenceClaim(current?.ai.source)); }, [current?.id]);
 
   const go = useCallback((delta: number) => {
     setCursor((c) => Math.max(0, Math.min(visible.length - 1, c + delta)));
@@ -257,41 +343,120 @@ export default function BoqReviewWorkstation() {
 
   return (
     <div className="p-4 space-y-3">
-      {/* Header + summary */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <Button variant="ghost" size="sm" onClick={() => navigate(`../boqs/${boqId}`)}><ArrowLeft className="w-4 h-4 mr-1" /> BOQ</Button>
-        <h2 className="font-semibold">BOQ Review</h2>
-        <span className="text-sm text-muted-foreground">{boq?.name}</span>
-        {runCreatedAt && <span className="text-xs text-muted-foreground">run {new Date(runCreatedAt).toLocaleString()}</span>}
-        <DrawingLinkButton status={linkStatus} onClick={() => setShowRelinkModal(true)} className="ml-auto" />
-        <Button variant="outline" size="sm" onClick={openApplyModal}>
-          Apply to BOQ{applyableCandidates.length > 0 ? ` (${applyableCandidates.length})` : ""}
+      {/* Compact drawing-intelligence context bar — the document name and the
+          reviewer's position in the queue lead, not "BOQ Review" chrome.
+          Collapses further on mobile (icon-only back, no boq.name/reviewed%)
+          so nothing stands between opening this screen and seeing the
+          drawing itself. Single elements throughout (never a duplicated
+          mobile/desktop pair) — only their inner text/size responds to the
+          breakpoint, so every existing exact-name button query still matches
+          exactly one element. */}
+      <div className="flex items-start sm:items-center gap-2 sm:gap-3 flex-wrap">
+        <Button variant="ghost" size="sm" onClick={() => navigate(`../boqs/${boqId}`)} aria-label="Back to BOQ">
+          <ArrowLeft className="w-4 h-4 sm:mr-1" /><span className="hidden sm:inline">BOQ</span>
         </Button>
-        <Button variant="outline" size="sm" onClick={() => setShowImportModal(true)}>Import New Analysis</Button>
-        <span className="ml-auto text-sm text-muted-foreground">{summary.total - summary.remaining} / {summary.total} reviewed · {summary.completionPct}%</span>
+        <div className="min-w-0">
+          <h2 className="font-semibold text-sm sm:text-base leading-tight truncate max-w-[11rem] sm:max-w-none">
+            {currentDocumentName ?? "BOQ Review"}
+          </h2>
+          <p className="text-xs text-muted-foreground truncate">
+            {current ? `Quantity ${visible.indexOf(current) + 1} of ${summary.total}` : `${summary.total} quantities`}
+            <span className="hidden sm:inline"> · {boq?.name}</span>
+          </p>
+        </div>
+        {/* Only surface the drawing-link affordance by default when it needs
+            attention — a healthy "linked" state is still reachable from the
+            overflow menu below, just not competing for space when nothing's wrong. */}
+        {linkStatus !== "linked" && <DrawingLinkButton status={linkStatus} onClick={() => setShowRelinkModal(true)} className="hidden sm:inline-flex" />}
+        {/* Filled/primary once there's something ready — this is the
+            culminating action of the whole review pass, not a peer of the
+            other outline buttons on this row. */}
+        <Button variant={applyableCandidates.length > 0 ? "default" : "outline"} size="sm" onClick={openApplyModal} className="ml-auto">
+          <span className="sm:hidden">Apply{applyableCandidates.length > 0 ? ` (${applyableCandidates.length})` : ""}</span>
+          <span className="hidden sm:inline">Apply to BOQ{applyableCandidates.length > 0 ? ` (${applyableCandidates.length})` : ""}</span>
+        </Button>
+        <span className="hidden sm:inline text-sm text-muted-foreground">{summary.total - summary.remaining} / {summary.total} reviewed · {summary.completionPct}%</span>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" aria-label="More options"><MoreHorizontal className="w-4 h-4" /></Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {runCreatedAt && (
+              <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                Run {new Date(runCreatedAt).toLocaleString()}
+              </DropdownMenuLabel>
+            )}
+            {linkStatus === "linked" && (
+              <DropdownMenuItem onClick={() => setShowRelinkModal(true)}>
+                <Link2 className="w-4 h-4 mr-2" />Re-link drawing
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem onClick={() => setShowImportModal(true)}>
+              <Upload className="w-4 h-4 mr-2" />Import New Analysis
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
-        <Stat label="Total" value={summary.total} />
-        <Stat label="Verified" value={summary.verified} cls="text-green-700" />
-        <Stat label="Edited" value={summary.edited} cls="text-blue-700" />
-        <Stat label="Flagged" value={summary.flagged} cls="text-amber-700" />
-        <Stat label="Pending" value={summary.markedPending} cls="text-purple-700" />
-        <Stat label="Remaining" value={summary.remaining} cls="text-muted-foreground" />
+
+      {/* Stats breakdown: desktop-only standing chrome — on mobile the compact
+          context bar above and the queue control below already carry the
+          position/progress signal a reviewer needs at a glance. */}
+      <div className="hidden sm:flex items-center gap-4 text-sm">
+        <span className="text-muted-foreground">Remaining <b className="text-foreground">{summary.remaining}</b></span>
+        {summary.flagged > 0 && <span className="text-amber-700">Flagged <b>{summary.flagged}</b></span>}
+        <button onClick={() => setShowStatsBreakdown((s) => !s)} className="text-xs text-primary hover:underline ml-auto">
+          {showStatsBreakdown ? "Hide breakdown" : "Show breakdown"}
+        </button>
       </div>
+      {showStatsBreakdown && (
+        <div className="hidden sm:grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
+          <Stat label="Total" value={summary.total} />
+          <Stat label="Verified" value={summary.verified} cls="text-green-700" />
+          <Stat label="Edited" value={summary.edited} cls="text-blue-700" />
+          <Stat label="Flagged" value={summary.flagged} cls="text-amber-700" />
+          <Stat label="Pending" value={summary.markedPending} cls="text-purple-700" />
+          <Stat label="Remaining" value={summary.remaining} cls="text-muted-foreground" />
+        </div>
+      )}
+
+      {/* Filters: Needs review + All by default; the rest behind "more filters" —
+          same matchesFilter() semantics, just less to scan before the first item. */}
       <div className="flex items-center gap-1.5 flex-wrap">
-        {FILTERS.map((f) => (
+        {PRIMARY_FILTERS.map((f) => (
           <button key={f} onClick={() => { setFilter(f); setCursor(0); }}
             className={`text-xs px-2 py-1 rounded border ${filter === f ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
             {f.replace("_", " ").toLowerCase()}
           </button>
         ))}
-        <span className="ml-auto text-xs text-muted-foreground">Keys: V verify · E edit · F flag · P pending · ← → move</span>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className={`text-xs px-2 py-1 rounded border inline-flex items-center gap-1 ${MORE_FILTERS.includes(filter) ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
+              {MORE_FILTERS.includes(filter) ? filter.replace("_", " ").toLowerCase() : "more filters"}<ChevronDown className="w-3 h-3" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            {MORE_FILTERS.map((f) => (
+              <DropdownMenuItem key={f} onClick={() => { setFilter(f); setCursor(0); }}>
+                {f.replace("_", " ").toLowerCase()}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
+
+      {visible.length > 0 && (
+        <ReviewQueue rows={queueRows} currentId={current?.id} onSelect={selectQueueItem} reviewedCount={summary.total - summary.remaining} totalCount={summary.total} />
+      )}
 
       {!current ? (
         <Card><CardContent className="p-8 text-center text-muted-foreground">Nothing in this filter. Switch to “all”.</CardContent></Card>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        // Drawing evidence leads (LEFT/MAIN on desktop, first when stacked on
+        // mobile); the AI quantity + decision panel follows (RIGHT/PANEL on
+        // desktop, second on mobile) — the drawing is what a reviewer is
+        // actually here to check, so it gets the wider, primary position.
+        <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-3">
+          <ResolvedEvidenceViewer item={current} drawings={drawings} resolvedDocumentId={resolvedDocumentId} selectedClaim={selectedClaim} />
           <ItemPanel
             key={current.id}
             item={current}
@@ -308,7 +473,6 @@ export default function BoqReviewWorkstation() {
             drawings={drawings}
             resolvedDocumentId={resolvedDocumentId}
           />
-          <ResolvedEvidenceViewer item={current} drawings={drawings} resolvedDocumentId={resolvedDocumentId} selectedClaim={selectedClaim} />
         </div>
       )}
 
@@ -334,10 +498,19 @@ export default function BoqReviewWorkstation() {
         </DialogContent>
       </Dialog>
 
-      {/* Apply reviewed changes to the BOQ — explicit confirmation, exact diff */}
+      {/* Apply reviewed changes to the BOQ — explicit confirmation, exact diff.
+          The checkpoint framing (REVIEW COMPLETE — N/M/K) uses summary and
+          applyableCandidates, both already computed above from real review
+          state; nothing here is a new number. */}
       <Dialog open={showApplyModal} onOpenChange={setShowApplyModal}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          <h2 className="font-semibold">Apply reviewed changes to BOQ</h2>
+          <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 -mt-1">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-primary">Review complete</div>
+            <p className="text-sm mt-0.5">
+              <b>{summary.total - summary.remaining}</b> reviewed · <b>{summary.edited}</b> corrected · <b>{applyableCandidates.length}</b> ready to enter the BOQ
+            </p>
+          </div>
+          <h2 className="font-semibold">Apply reviewed quantities</h2>
           <p className="text-xs text-muted-foreground -mt-2">
             Only verified/edited items that differ from the current BOQ are applied. Flagged and unreviewed items are never touched.
           </p>
@@ -685,8 +858,14 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
   // (uncontrolled) quantity input remounts and picks up the new defaultValue —
   // it never remounts on ordinary typing.
   const [candidateNonce, setCandidateNonce] = useState(0);
+  // Dimension/specification/location are collapsed by default — criticalReasons()
+  // never names one of these three as the reason an item needs review, so there is
+  // no case where forcing one open-by-default is currently warranted; an actual
+  // reviewer edit to one of them still surfaces immediately via the AI-vs-reviewer
+  // diff box below, without needing this section open.
+  const [moreDetails, setMoreDetails] = useState(false);
 
-  useEffect(() => { setEditing(false); setFlagging(false); setWhy(false); setDraft({}); setEvidenceViewed(false); }, [item.id]);
+  useEffect(() => { setEditing(false); setFlagging(false); setWhy(false); setDraft({}); setEvidenceViewed(false); setMoreDetails(false); }, [item.id]);
 
   // Stages a candidate's value into the draft and opens the Edit form — never
   // saves anything itself. The reviewer still must click Save correction (and
@@ -806,14 +985,8 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
   return (
     <Card><CardContent className="p-4 space-y-3">
       <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>Item {index + 1} of {count}</span>
+        <span className="hidden sm:inline">Item {index + 1} of {count}</span>
         <StatusBadge status={item.reviewStatus} />
-      </div>
-
-      <div>
-        <div className="text-lg font-semibold">{ai.key}{ai.key !== ai.item ? ` · ${ai.item}` : ""}</div>
-        {ai.description && <div className="text-sm text-muted-foreground">{ai.description}</div>}
-        {item.duplicateOf && <div className="text-xs text-rose-700 mt-0.5">Possible duplicate of {item.duplicateOf}</div>}
       </div>
 
       {/* Review-required banner — concise and factual: what's true about this
@@ -825,58 +998,88 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
         </div>
       )}
 
-      {/* AI result — what the AI extracted, and why (evidence). Never implies
-          the reviewer should accept it without checking. */}
-      <div className="rounded border p-2 space-y-2">
-        <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">AI result</div>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-          <ClaimField claim="quantity" value={formatClaimValue(ai, "quantity")} evidence={claimEvidence.quantity} onSelectClaim={handleSelectClaim} />
-          <ClaimField claim="dimension" value={formatClaimValue(ai, "dimension")} evidence={claimEvidence.dimension} onSelectClaim={handleSelectClaim} />
-          <ClaimField claim="specification" value={formatClaimValue(ai, "specification")} evidence={claimEvidence.specification} onSelectClaim={handleSelectClaim} />
-          <ClaimField claim="location" value={formatClaimValue(ai, "location")} evidence={claimEvidence.location} onSelectClaim={handleSelectClaim} />
+      {/* AI MEASUREMENT — the number a reviewer is actually here to decide on
+          leads, at reading-dominant size, not one field among many in a form
+          (drawing-intelligence-workstation framing). Never implies the
+          reviewer should accept it without checking — the evidence link
+          right under the number is how that check happens. No box/border:
+          open, editorial spacing instead of a bordered "form field" look. */}
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-2">
+          <AiStateBadge state="ai" />
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">AI measurement</span>
         </div>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm pt-1 border-t">
-          <Field label="AI status" value={ai.aiStatus} tone={ai.aiStatus === "PENDING" ? "danger" : ai.aiStatus === "INFERRED" ? "warning" : undefined} />
-          <Field label="Confidence" value={ai.confidence == null ? "—" : `${Math.round(ai.confidence * 100)}%`} tone={ai.confidence != null && ai.confidence <= LOW_CONFIDENCE ? "danger" : undefined} />
-          <Field label="Source" value={ai.source?.document ? `${ai.source.document}${ai.source.page != null ? ` — Page ${ai.source.page}` : ""}` : "—"} />
-        </div>
-        {ai.candidates && ai.candidates.length > 1 && (
-          <div className="text-xs bg-amber-50 border border-amber-200 rounded p-2 space-y-1">
-            <div className="flex items-center gap-1.5 font-medium text-amber-800">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-              Conflicting sources — {ai.candidates.length} candidate values found
-            </div>
-            {ai.candidates.map((c, i) => (
-              <div key={i} className="flex items-center justify-between gap-2 pl-5">
-                <span className="font-medium">{c.value}{c.unit ? ` ${c.unit}` : ""}</span>
-                <span className="text-muted-foreground text-right flex-1 truncate">
-                  {c.basis}
-                  {c.source?.document ? ` — ${c.source.document}${c.source.page != null ? ` p.${c.source.page}` : ""}` : ""}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => stageCandidateValue(c.value)}
-                  className="text-[10px] text-amber-700 hover:text-amber-900 underline shrink-0"
-                >
-                  Use this value
-                </button>
-              </div>
-            ))}
-            <p className="text-[10px] text-muted-foreground pl-5">No value has been chosen — pick one via Edit before verifying.</p>
-          </div>
-        )}
-        <p className="text-[10px] text-muted-foreground">A high AI confidence is not a substitute for checking the evidence — verify before accepting.</p>
+        <div className="text-sm font-medium text-foreground truncate">{ai.key}{ai.key !== ai.item ? ` · ${ai.item}` : ""}</div>
+        {ai.description && <div className="text-xs text-muted-foreground">{ai.description}</div>}
+        {item.duplicateOf && <div className="text-xs text-rose-700">Possible duplicate of {item.duplicateOf}</div>}
+        <ClaimField claim="quantity" value={formatClaimValue(ai, "quantity")} evidence={claimEvidence.quantity} onSelectClaim={handleSelectClaim} emphasize />
       </div>
 
-      {/* Reviewer result — separate from the AI's own (immutable) values above.
-          Status badge is already shown in the header above; this section adds
-          the reviewer's own value once one exists. */}
-      <div className="rounded border p-2 space-y-2">
-        <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Reviewer result</div>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-          <Field label="Reviewer qty" value={item.reviewer && "quantity" in item.reviewer ? `${eff ?? "—"} ${delta ? `(${delta})` : ""}` : "—"} />
-        </div>
+      <div className="flex flex-wrap items-start gap-x-5 gap-y-1.5 text-xs border-t pt-2">
+        <Field label="AI status" value={ai.aiStatus} tone={ai.aiStatus === "PENDING" ? "danger" : ai.aiStatus === "INFERRED" ? "warning" : undefined} />
+        <Field
+          label="Confidence"
+          value={ai.confidence == null ? "—" : `${Math.round(ai.confidence * 100)}%`}
+          tone={ai.confidence != null && ai.confidence <= LOW_CONFIDENCE ? "danger" : undefined}
+          hint="A high AI confidence is not a substitute for checking the evidence — verify before accepting."
+        />
+        <Field label="Source" value={ai.source?.document ? `${ai.source.document}${ai.source.page != null ? ` — Page ${ai.source.page}` : ""}` : "—"} />
       </div>
+
+      {ai.candidates && ai.candidates.length > 1 && (
+        <div className="text-xs bg-amber-50 border border-amber-200 rounded p-2 space-y-1">
+          <div className="flex items-center gap-1.5 font-medium text-amber-800">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+            Conflicting sources — {ai.candidates.length} candidate values found
+          </div>
+          {ai.candidates.map((c, i) => (
+            <div key={i} className="flex items-center justify-between gap-2 pl-5">
+              <span className="font-medium">{c.value}{c.unit ? ` ${c.unit}` : ""}</span>
+              <span className="text-muted-foreground text-right flex-1 truncate">
+                {c.basis}
+                {c.source?.document ? ` — ${c.source.document}${c.source.page != null ? ` p.${c.source.page}` : ""}` : ""}
+              </span>
+              <button
+                type="button"
+                onClick={() => stageCandidateValue(c.value)}
+                className="text-[10px] text-amber-700 hover:text-amber-900 underline shrink-0"
+              >
+                Use this value
+              </button>
+            </div>
+          ))}
+          <p className="text-[10px] text-muted-foreground pl-5">No value has been chosen — pick one via Edit before verifying.</p>
+        </div>
+      )}
+
+      <div>
+        <button type="button" className="text-xs font-medium flex items-center gap-1 text-muted-foreground" onClick={() => setMoreDetails((m) => !m)}>
+          More details {moreDetails ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        </button>
+        {moreDetails && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm mt-1.5">
+            <ClaimField claim="dimension" value={formatClaimValue(ai, "dimension")} evidence={claimEvidence.dimension} onSelectClaim={handleSelectClaim} />
+            <ClaimField claim="specification" value={formatClaimValue(ai, "specification")} evidence={claimEvidence.specification} onSelectClaim={handleSelectClaim} />
+            <ClaimField claim="location" value={formatClaimValue(ai, "location")} evidence={claimEvidence.location} onSelectClaim={handleSelectClaim} />
+          </div>
+        )}
+      </div>
+
+      {/* Your review — only once a reviewer value actually exists; an empty
+          box before any correction is noise, not information. Deliberately
+          plain (no AI badge) so the AI-extracted vs. human-reviewed contrast
+          in the two boxes' treatment IS the hierarchy signal. */}
+      {item.reviewer && "quantity" in item.reviewer && (
+        <div className="rounded border border-blue-500/30 p-2 space-y-2">
+          <div className="flex items-center gap-2">
+            <AiStateBadge state="human" />
+            <div className="text-[10px] font-semibold text-foreground uppercase tracking-wide">Your review</div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-sm">
+            <Field label="Your quantity" value={`${eff ?? "—"} ${delta ? `(${delta})` : ""}`} />
+          </div>
+        </div>
+      )}
 
       {/* Why this quantity? */}
       <div>
@@ -922,9 +1125,10 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
             </div>
             <LabeledInput label="Notes" defaultValue={reviewer?.notes ?? ""} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
           </div>
-          <div className="sticky bottom-0 bg-background border-t pt-2 flex gap-2">
+          <div className="sticky bottom-0 bg-background border-t pt-2 flex flex-wrap items-center gap-2">
             <Button size="sm" onClick={() => onEdit(pruneDraft(draft))} disabled={Object.keys(pruneDraft(draft)).length === 0}>Save correction</Button>
             <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
+            <p className="w-full text-xs text-muted-foreground">Saved corrections are applied to the BOQ when you click Apply to BOQ.</p>
           </div>
         </>
       )}
@@ -946,19 +1150,47 @@ export function ItemPanel({ item, index, count, onVerify, onEdit, onFlag, onPend
         </>
       )}
 
-      {/* Actions */}
+      {/* Actions — three decisions, not four equal buttons: Verify accepts the
+          AI quantity as-is (primary), Edit corrects it (secondary but still
+          prominent), Flag says don't trust it yet (tertiary/exception). Mark
+          Pending stays a plain quiet option alongside Flag — same semantics
+          and handlers as before, only the framing text is new. */}
       {!editing && !flagging && (
-        <div className="sticky bottom-0 bg-background border-t flex flex-wrap gap-2 pt-2">
-          <Button size="sm" onClick={onVerify} disabled={verifyDisabled} title={verifyDisabledReason}><Check className="w-4 h-4 mr-1" /> Verify</Button>
-          <Button size="sm" variant="outline" onClick={() => setEditing(true)}><Pencil className="w-4 h-4 mr-1" /> Edit</Button>
-          <Button size="sm" variant="outline" onClick={() => setFlagging(true)}><Flag className="w-4 h-4 mr-1" /> Flag</Button>
-          <Button size="sm" variant="outline" onClick={onPending}><Clock className="w-4 h-4 mr-1" /> Mark Pending</Button>
+        <p className="text-sm font-medium">Does this look right?</p>
+      )}
+      {!editing && !flagging && (
+        <div className="sticky bottom-0 bg-background border-t grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-start pt-2">
+          {/* Spans, not divs, wrap each button+caption pair — a test asserts
+              the Verify button's closest("div") is THIS sticky row, so the
+              caption can't sit inside a new intervening div. */}
+          <span className="inline-flex flex-col items-stretch sm:items-start">
+            <Button className="w-full sm:w-auto" onClick={onVerify} disabled={verifyDisabled} title={verifyDisabledReason}><Check className="w-4 h-4 mr-1" /> Verify</Button>
+            <span className="hidden sm:inline text-[10px] text-muted-foreground mt-0.5">Accept the AI quantity</span>
+          </span>
+          <span className="inline-flex flex-col items-stretch sm:items-start">
+            <Button className="w-full sm:w-auto" variant="outline" onClick={() => setEditing(true)}><Pencil className="w-4 h-4 mr-1" /> Edit</Button>
+            <span className="hidden sm:inline text-[10px] text-muted-foreground mt-0.5">Correct the AI quantity</span>
+          </span>
+          <span className="inline-flex flex-col items-stretch sm:items-start">
+            <Button className="w-full sm:w-auto" size="sm" variant="ghost" onClick={() => setFlagging(true)}><Flag className="w-4 h-4 mr-1" /> Flag</Button>
+            <span className="hidden sm:inline text-[10px] text-muted-foreground mt-0.5">Don't trust this quantity yet</span>
+          </span>
+          <Button className="w-full sm:w-auto" size="sm" variant="ghost" onClick={onPending}><Clock className="w-4 h-4 mr-1" /> Mark Pending</Button>
         </div>
       )}
 
-      <div className="flex items-center justify-between pt-1">
+      {/* Desktop/tablet: today's even Previous/Next pair, unchanged. Mobile:
+          one obvious continuation action ("Next quantity →") instead of two
+          equal-weight buttons — Previous stays reachable as a small icon-only
+          affordance rather than competing for the primary action. Same
+          onPrev/onNext handlers either way — presentation only. */}
+      <div className="hidden sm:flex items-center justify-between pt-1">
         <Button size="sm" variant="ghost" onClick={onPrev}><ChevronLeft className="w-4 h-4 mr-1" /> Previous</Button>
         <Button size="sm" variant="ghost" onClick={onNext}>Next <ChevronRight className="w-4 h-4 ml-1" /></Button>
+      </div>
+      <div className="flex sm:hidden items-center gap-2 pt-1">
+        <Button size="sm" variant="ghost" onClick={onPrev} aria-label="Previous quantity"><ChevronLeft className="w-4 h-4" /></Button>
+        <Button onClick={onNext} className="flex-1">Next quantity <ChevronRight className="w-4 h-4 ml-1" /></Button>
       </div>
     </CardContent></Card>
   );
@@ -1016,7 +1248,17 @@ export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, sel
   // half of this fix.
   if (resolved?.filePath) {
     return (
-      <Card className="min-w-0"><CardContent className="p-4">
+      // border-primary/30 matches the AI-extracted box's accent language on
+      // the right — a restrained visual grouping, not a new color, so "AI
+      // extracted quantity" and "evidence from the drawing" read as one
+      // connected concept. PdfEvidenceViewer itself is untouched.
+      <Card className="min-w-0 border-primary/30"><CardContent className="p-4 space-y-2">
+        {/* Narrates the one relationship this whole split view exists to
+            show — the quantity on the left came from THIS drawing, not
+            nowhere. Static, factual, uses only already-resolved data. */}
+        <p className="text-xs text-muted-foreground">
+          Evidence from <span className="text-foreground font-medium">{documentName}</span> — the source of the AI-extracted quantity.
+        </p>
         <PdfEvidenceViewer
           fileUrl={signed}
           source={item.ai.source}
@@ -1104,11 +1346,18 @@ function EvidenceViewer({ item }: { item: StoredReviewItem }) {
 function Stat({ label, value, cls = "" }: { label: string; value: number; cls?: string }) {
   return <div className="rounded border p-2"><div className={`text-lg font-bold ${cls}`}>{value}</div><div className="text-[11px] text-muted-foreground">{label}</div></div>;
 }
-function Field({ label, value, tone }: { label: string; value: string; tone?: "warning" | "danger" }) {
+// `hint`, when given, replaces a permanently-visible caveat sentence with a
+// small info affordance (native title — same hover pattern already used for
+// `value` below) — the explanation is still one hover away, but it no longer
+// stands in the default flow of every single item.
+function Field({ label, value, tone, hint }: { label: string; value: string; tone?: "warning" | "danger"; hint?: string }) {
   const toneCls = tone === "danger" ? "text-rose-700 font-medium" : tone === "warning" ? "text-amber-700 font-medium" : "";
   return (
     <div>
-      <div className="text-[11px] text-muted-foreground">{label}</div>
+      <div className="text-[11px] text-muted-foreground flex items-center gap-1">
+        {label}
+        {hint && <Info className="w-3 h-3 text-muted-foreground/70 shrink-0" title={hint} />}
+      </div>
       <div className={`truncate ${toneCls}`} title={value}>{value}</div>
     </div>
   );
@@ -1116,13 +1365,16 @@ function Field({ label, value, tone }: { label: string; value: string; tone?: "w
 // A claim's AI value plus its evidence state (P0-3/P0-5): clickable when
 // evidence exists (navigates the viewer to it), plain muted text otherwise —
 // never implying a link that isn't actually backed by evidence data.
-function ClaimField({ claim, value, evidence, onSelectClaim }: {
-  claim: ClaimType; value: string; evidence: EvidenceSummary; onSelectClaim: (claim: ClaimType) => void;
+// `emphasize` renders the value at reading-dominant size — used for quantity,
+// the one field a reviewer is actually here to check, versus the equal-weight
+// treatment every claim used to get.
+function ClaimField({ claim, value, evidence, onSelectClaim, emphasize }: {
+  claim: ClaimType; value: string; evidence: EvidenceSummary; onSelectClaim: (claim: ClaimType) => void; emphasize?: boolean;
 }) {
   return (
     <div>
       <div className="text-[11px] text-muted-foreground">{claimLabel(claim)}</div>
-      <div className="truncate" title={value}>{value}</div>
+      <div className={emphasize ? "truncate text-lg font-semibold" : "truncate"} title={value}>{value}</div>
       {evidence.hasEvidence ? (
         <button onClick={() => onSelectClaim(claim)} className="text-[10px] text-amber-600 hover:text-amber-700 font-medium text-left truncate block max-w-full" title={evidence.text}>
           {evidence.text}

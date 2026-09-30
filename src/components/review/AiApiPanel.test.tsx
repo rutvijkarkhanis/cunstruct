@@ -88,7 +88,7 @@ describe("AiApiPanel — normal user view", () => {
     vi.mocked(analysisClient.generateAnalysis).mockResolvedValue({ ok: true, generated: 3, runId: "run-new", itemCount: 12 });
     const { onGenerated } = renderPanel();
     await screen.findByText(/5 files in this project/);
-    fireEvent.click(screen.getByText("Generate analysis"));
+    fireEvent.click(screen.getByText("Generate quantities"));
     await waitFor(() => expect(onGenerated).toHaveBeenCalledWith("run-new"));
   });
 
@@ -113,7 +113,7 @@ describe("AiApiPanel — normal user view", () => {
     });
     renderPanel();
     await screen.findByText(/0 new/);
-    expect(screen.getByText("Generate analysis").closest("button")).toBeDisabled();
+    expect(screen.getByText("Generate quantities").closest("button")).toBeDisabled();
   });
 
   it("shows a duplicate-files note when the server reports duplicates", async () => {
@@ -192,7 +192,7 @@ describe("AiApiPanel — internal admin controls", () => {
     renderPanel();
     await screen.findByText(/Internal \(admin\)/);
 
-    fireEvent.click(screen.getByText("Generate analysis"));
+    fireEvent.click(screen.getByText("Generate quantities"));
 
     await waitFor(() => expect(analysisClient.generateAnalysis).toHaveBeenCalledWith({
       projectId: "proj-1", boqId: "boq-1", forceReanalyse: false,

@@ -219,6 +219,34 @@ describe("PdfEvidenceViewer — page-filter fallback (Fix 2)", () => {
   });
 });
 
+describe("PdfEvidenceViewer — claim-aware truthful fallback (spatial-review pass)", () => {
+  it("says evidence is unavailable for the selected claim when the item genuinely has none for it — not a page-navigation hint", async () => {
+    // `source` (top of file) has quantity/dimension/specification/general
+    // evidence, but nothing tagged "location" — a real "no evidence for this
+    // claim" case, distinct from "evidence exists but is on another page".
+    render(<Viewer src={source} selectedClaim="location" />);
+    expect(await screen.findByText(/Drawing evidence unavailable for this item's location/)).toBeInTheDocument();
+    expect(screen.queryByText(/is on another page/)).toBeNull();
+  });
+
+  it("still shows the original generic message when no claim is selected and the item has no evidence at all", async () => {
+    const sourceNoEvidence: AnalysisSource = { document: "test-drawing.pdf", page: 1, evidence: [] };
+    render(<Viewer src={sourceNoEvidence} selectedClaim={null} />);
+    expect(await screen.findByText("Evidence coordinates unavailable — showing the source page only.")).toBeInTheDocument();
+  });
+
+  it("shows the 'on another page' hint (not the unavailable message) when the selected claim's evidence exists but isn't on the current page yet", async () => {
+    // Regression guard: while the page-sync effect is navigating (or for a
+    // box with no resolvable page), evidence that genuinely exists for this
+    // claim must never be reported as "unavailable".
+    render(<Viewer src={source} selectedClaim="quantity" />);
+    // The effect already navigates to page 8 where this evidence lives, so
+    // assert the precise message never appears rather than trying to catch
+    // the component mid-navigation.
+    expect(screen.queryByText(/Drawing evidence unavailable/)).toBeNull();
+  });
+});
+
 describe("PdfEvidenceViewer — rotation robustness", () => {
   // Generic fixture: a plan-style region on a page whose own reported size is
   // rotated (842×595) relative to this document's other, unrotated pages

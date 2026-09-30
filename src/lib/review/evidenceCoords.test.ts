@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { transformBox, transformBoxes, unionBox, fitToEvidence, hasPlaceableEvidence, detectPageSizeMismatch } from "./evidenceCoords";
+import { transformBox, transformBoxes, unionBox, fitToEvidence, hasPlaceableEvidence, detectPageSizeMismatch, defaultEvidenceClaim } from "./evidenceCoords";
 import type { EvidenceBox } from "./analysisSchemaV1";
 
 const box = (b: [number, number, number, number]): EvidenceBox => ({ bbox: b });
@@ -122,6 +122,24 @@ describe("hasPlaceableEvidence", () => {
     expect(hasPlaceableEvidence({ evidence: [box([0, 0, 1, 1])] })).toBe(true);
     expect(hasPlaceableEvidence({ evidence: [] })).toBe(false);
     expect(hasPlaceableEvidence(undefined)).toBe(false);
+  });
+});
+
+describe("defaultEvidenceClaim — spatial-review entry point (select item → focus its quantity evidence)", () => {
+  it("defaults to 'quantity' when the item's evidence is tagged for it", () => {
+    const source = { evidence: [box([1, 2, 3, 4])].map((b) => ({ ...b, claim: "quantity" as const })) };
+    expect(defaultEvidenceClaim(source)).toBe("quantity");
+  });
+
+  it("falls back to null (show all evidence, unfiltered) when no evidence is tagged 'quantity'", () => {
+    // The common real-world case: untagged evidence defaults to "general", not "quantity".
+    expect(defaultEvidenceClaim({ evidence: [box([1, 2, 3, 4])] })).toBeNull();
+    expect(defaultEvidenceClaim({ evidence: [{ ...box([1, 2, 3, 4]), claim: "dimension" }] })).toBeNull();
+  });
+
+  it("falls back to null (never fabricates a focus) when there is no evidence at all", () => {
+    expect(defaultEvidenceClaim({ evidence: [] })).toBeNull();
+    expect(defaultEvidenceClaim(undefined)).toBeNull();
   });
 });
 

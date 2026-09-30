@@ -1,11 +1,12 @@
 import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import ProjectWorkflow from "@/components/ops/ProjectWorkflow";
 import { FileText, Calculator, PackageSearch, Layers } from "lucide-react";
 
-// Project overview — a light dashboard of the project's shape (documents, scopes,
-// BOQs). Phase 2: counts + quick links. Richer coverage metrics come in Phase 4.
+// Project overview — the workflow (DRAWING → AI → REVIEW → BOQ → EXPORT) is the
+// first meaningful thing a new user sees here. The counts below it are a light
+// secondary summary of the project's shape, not the headline.
 export default function ProjectOverview() {
   const { id } = useParams<{ id: string }>();
 
@@ -35,32 +36,28 @@ export default function ProjectOverview() {
   ];
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {cards.map((c) => (
-          <Link key={c.label} to={c.to}>
-            <Card className="hover:border-primary/50 transition-colors">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">{c.label}</span>
-                  <c.icon className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="mt-2 text-2xl font-bold tabular-nums">{c.value}</div>
-                <div className="text-xs text-muted-foreground">{c.sub}</div>
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
-      </div>
+    <div className="space-y-5">
+      <ProjectWorkflow hasDocuments={(data?.documents ?? 0) > 0} />
 
-      <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-base">Getting started</CardTitle></CardHeader>
-        <CardContent className="text-sm text-muted-foreground space-y-1">
-          <p>1. Add the project drawings and documents in <Link to="documents" className="text-primary hover:underline">Documents</Link>.</p>
-          <p>2. Define the BOQ structure in <Link to="boqs" className="text-primary hover:underline">BOQs</Link> — one scope can have several BOQs (e.g. Floor 2 → Architectural, Electrical, Plumbing).</p>
-          <p>3. Open a BOQ to quantify, price and generate its outputs.</p>
-        </CardContent>
-      </Card>
+      {/* Secondary — a light shape-of-the-project summary, deliberately quieter
+          (smaller type, muted rule) than the workflow above it. */}
+      <div>
+        <div className="text-xs font-medium text-muted-foreground mb-2">At a glance</div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          {cards.map((c) => (
+            <Link key={c.label} to={c.to} className="rounded-md border px-3 py-2 hover:border-primary/40 transition-colors">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">{c.label}</span>
+                <c.icon className="h-3.5 w-3.5 text-muted-foreground" />
+              </div>
+              <div className="mt-0.5 flex items-baseline gap-1.5">
+                <span className="text-lg font-semibold tabular-nums">{c.value}</span>
+                <span className="text-[11px] text-muted-foreground">{c.sub}</span>
+              </div>
+            </Link>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

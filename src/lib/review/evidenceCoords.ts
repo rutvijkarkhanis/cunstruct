@@ -7,7 +7,7 @@
 // browser pixels. If no page size or no boxes are available, callers fall back to
 // a plain page reference — nothing is fabricated here.
 
-import type { EvidenceBox } from "./analysisSchemaV1";
+import type { AnalysisSource, ClaimType, EvidenceBox } from "./analysisSchemaV1";
 
 export interface Size { width: number; height: number }
 export interface Rect { left: number; top: number; width: number; height: number }
@@ -159,4 +159,18 @@ export function getEvidenceForClaim(boxes: EvidenceBox[], claimType: string): Ev
 /** Check if evidence exists for a specific claim. */
 export function hasEvidenceForClaim(boxes: EvidenceBox[], claimType: string): boolean {
   return boxes.some((b) => (b.claim ?? "general") === claimType);
+}
+
+/**
+ * Which claim's evidence a review item's drawing view should default to when
+ * the item is first selected — the spatial-review entry point. "quantity" is
+ * the field a reviewer is actually deciding on (Verify/Edit/Flag), so it's
+ * shown first when the analysis actually tagged evidence for it. When it
+ * didn't (most existing/legacy analyses don't tag `claim` at all — it
+ * defaults to "general"), returns null so the caller falls back to the
+ * existing untargeted behavior: show all of this item's evidence, unfiltered.
+ * Never guesses a claim that isn't backed by real evidence data.
+ */
+export function defaultEvidenceClaim(source: Pick<AnalysisSource, "evidence"> | undefined): ClaimType | null {
+  return hasEvidenceForClaim(source?.evidence ?? [], "quantity") ? "quantity" : null;
 }
