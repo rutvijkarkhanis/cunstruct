@@ -32,6 +32,25 @@ export function transformBoxes(boxes: EvidenceBox[], pageSize: Size, renderedSiz
   return boxes.map((b) => transformBox(b, pageSize, renderedSize)).filter((r): r is Rect => r != null);
 }
 
+/**
+ * Transform an arbitrary list of page-space points to rendered CSS pixels —
+ * the generalization `transformBox`'s corner-scaling needs to also place a
+ * polygon/polyline/path (DrawingGeometry's `points`, from drawingGeometry.ts)
+ * on screen. SAME convention, SAME math as `transformBox` (independent
+ * scale-only mapping per axis; no rotation here — a DrawingGeometry's points
+ * are already in the as-displayed page space, exactly like EvidenceBox.bbox
+ * is) — just generalized from 2 corners to N points. `transformBox` itself is
+ * NOT rewritten to delegate here, so its existing behavior (and every
+ * existing caller's output) is untouched byte-for-byte.
+ * Returns null for the same degenerate-input reasons transformBox does.
+ */
+export function transformPoints(points: [number, number][], pageSize: Size, renderedSize: Size): [number, number][] | null {
+  if (!pageSize.width || !pageSize.height || !renderedSize.width || !renderedSize.height) return null;
+  const sx = renderedSize.width / pageSize.width;
+  const sy = renderedSize.height / pageSize.height;
+  return points.map(([x, y]) => [x * sx, y * sy]);
+}
+
 /** Union bbox over several boxes, in PAGE space. Null when there are no boxes. */
 export function unionBox(boxes: EvidenceBox[]): [number, number, number, number] | null {
   if (!boxes.length) return null;

@@ -1,9 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { markersForAll, markersForCategory, markersForType, markersForInstance } from "./drawingMarkers";
+import { markersForAll, markersForCategory, markersForType, markersForInstance, withPdfGeometry } from "./drawingMarkers";
 import { groupByCategory } from "./typeGrouping";
 import type { StoredReviewItem } from "./reviewStore";
 import type { LocationObservation } from "./locationObservations";
 import { instancesForType } from "./typeInstances";
+import type { DrawingGeometry } from "./drawingGeometry";
 
 function item(overrides: Partial<StoredReviewItem["ai"]> & { key: string; item: string }): StoredReviewItem {
   return { id: overrides.key, reviewStatus: "PENDING_REVIEW", ai: { quantity: 1, confidence: 0.9, aiStatus: "MEASURED", ...overrides } };
@@ -116,5 +117,57 @@ describe("marker labels", () => {
     const multi = instancesForType({ key: "W1" }, [obs({ id: "o1", mark: "W1" }), obs({ id: "o2", mark: "W1" })]);
     const labels = markersForType(w1, "Windows", multi).map((m) => m.label).sort();
     expect(labels).toEqual(["W1 #1", "W1 #2"]);
+  });
+});
+
+function pdfPolygon(bbox: [number, number, number, number], page = 1): DrawingGeometry {
+  return {
+    type: "polygon", page,
+    points: [[bbox[0], bbox[1]], [bbox[2], bbox[1]], [bbox[2], bbox[3]], [bbox[0], bbox[3]]],
+    bbox, source: "PDF", confidenceTier: "deterministic",
+  };
+}
+
+describe("withPdfGeometry — additive geometry upgrade", () => {
+  it("is a no-op when no PDF shapes are supplied — box-only behavior unchanged", () => {
+    const markers = markersForAll(groups, new Map());
+    const upgraded = withPdfGeometry(markers, new Map());
+    expect(upgraded).toEqual(markers);
+  });
+
+  it("attaches real geometry to the one marker whose box matches a real PDF shape, leaving others untouched", () => {
+    const markers = markersForAll(groups, new Map());
+    // W1's evidence box is [1,1,2,2] (see the `w1` fixture above) — give it a
+    // matching PDF polygon; W2/D1 have no matching shape on this page.
+    const shapesByPage = new Map([[1, [pdfPolygon([1, 1, 2, 2])]]]);
+    const upgraded = withPdfGeometry(markers, shapesByPage);
+
+    const w1Marker = upgraded.find((m) => m.reviewItemId === "W1")!;
+    expect(w1Marker.geometry).toBeDefined();
+    expect(w1Marker.geometry!.type).toBe("polygon");
+    expect(w1Marker.geometry!.source).toBe("HYBRID");
+    expect(w1Marker.box).toEqual({ bbox: [1, 1, 2, 2], page: 1, claim: "quantity" }); // box untouched
+
+    const w2Marker = upgraded.find((m) => m.reviewItemId === "W2")!;
+    expect(w2Marker.geometry).toBeUndefined(); // no matching shape — unchanged
+    const d1Marker = upgraded.find((m) => m.reviewItemId === "D1")!;
+    expect(d1Marker.geometry).toBeUndefined();
+  });
+
+  it("never upgrades an ambiguous match (two shapes overlapping one box) — box fallback preserved", () => {
+    const markers = markersForAll(groups, new Map());
+    const shapesByPage = new Map([[1, [pdfPolygon([1, 1, 2, 2]), pdfPolygon([1.05, 1.05, 2.05, 2.05])]]]);
+    const upgraded = withPdfGeometry(markers, shapesByPage);
+    const w1Marker = upgraded.find((m) => m.reviewItemId === "W1")!;
+    expect(w1Marker.geometry).toBeUndefined();
+  });
+
+  it("upgrades an instance marker (LOCATION origin) the same way as an evidence marker", () => {
+    const instances = instancesForType({ key: "W1" }, [obs({ id: "o1", mark: "W1" })]); // evidence bbox [0,0,10,10] per the `obs` fixture
+    const markers = markersForType(w1, "Windows", instances);
+    const shapesByPage = new Map([[1, [pdfPolygon([0, 0, 10, 10])]]]);
+    const upgraded = withPdfGeometry(markers, shapesByPage);
+    expect(upgraded[0].kind).toBe("instance");
+    expect(upgraded[0].geometry?.source).toBe("HYBRID");
   });
 });

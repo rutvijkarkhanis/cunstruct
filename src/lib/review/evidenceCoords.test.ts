@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { transformBox, transformBoxes, unionBox, fitToEvidence, hasPlaceableEvidence, detectPageSizeMismatch, defaultEvidenceClaim } from "./evidenceCoords";
+import { transformBox, transformBoxes, transformPoints, unionBox, fitToEvidence, hasPlaceableEvidence, detectPageSizeMismatch, defaultEvidenceClaim } from "./evidenceCoords";
 import type { EvidenceBox } from "./analysisSchemaV1";
 
 const box = (b: [number, number, number, number]): EvidenceBox => ({ bbox: b });
@@ -173,5 +173,72 @@ describe("REGRESSION: Srikakulam W1 opening evidence overlay positioning", () =>
 
     // At 1:1, output should match input coordinates
     expect(result).toEqual({ left: 354, top: 133, width: 6, height: 40 });
+  });
+});
+
+describe("transformPoints — generalized page-space → rendered-pixel mapping (polygon/polyline/path geometry)", () => {
+  // DrawingGeometry's points are already in the SAME as-displayed, top-left,
+  // y-down page space transformBox's bboxes use (pdfGeometry.ts does the
+  // raw-PDF-space → page-space conversion upstream, via pdf.js's own
+  // rotation-aware viewport — this module never sees raw PDF space). So
+  // "Y-axis inversion" and "rotation" here are about verifying that a
+  // caller supplying an already-rotated pageSize gets consistently scaled
+  // output, not about this module doing any flipping itself — it has no Y
+  // axis to invert; that's pdfGeometry.ts's job, covered by its own tests.
+
+  it("scales an arbitrary polygon's points uniformly, same math as transformBox", () => {
+    const polygon: [number, number][] = [[100, 400], [140, 400], [150, 440], [120, 470], [90, 440]];
+    const result = transformPoints(polygon, { width: 500, height: 500 }, { width: 1000, height: 1000 }); // 2x scale
+    expect(result).toEqual([[200, 800], [280, 800], [300, 880], [240, 940], [180, 880]]);
+  });
+
+  it("applies independent X/Y scale factors (non-uniform rendered size)", () => {
+    // 2x on X, 0.5x on Y — proves each axis is scaled independently, which
+    // is what a Y-flipped-then-scaled page's as-displayed size requires.
+    const line: [number, number][] = [[10, 20], [30, 40]];
+    const result = transformPoints(line, { width: 100, height: 100 }, { width: 200, height: 50 });
+    expect(result).toEqual([[20, 10], [60, 20]]);
+  });
+
+  it("handles a 2-point open line exactly like a degenerate polyline", () => {
+    const result = transformPoints([[0, 0], [50, 50]], { width: 100, height: 100 }, { width: 50, height: 50 });
+    expect(result).toEqual([[0, 0], [25, 25]]);
+  });
+
+  it("handles a multi-segment open polyline (not closed, no implied final edge)", () => {
+    const polyline: [number, number][] = [[350, 700], [400, 650], [450, 700], [500, 650]];
+    const result = transformPoints(polyline, { width: 612, height: 792 }, { width: 612, height: 792 }); // 1:1
+    expect(result).toEqual(polyline);
+  });
+
+  it("matches transformBox exactly when given a bbox's two corner points", () => {
+    const bbox: [number, number, number, number] = [354, 133, 360, 173];
+    const pageSize = { width: 595, height: 842 };
+    const renderedSize = { width: 297, height: 421 };
+    const asRect = transformBox({ bbox }, pageSize, renderedSize)!;
+    const asPoints = transformPoints([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], pageSize, renderedSize)!;
+    expect(asPoints[0]).toEqual([asRect.left, asRect.top]);
+    expect(asPoints[1][0]).toBeCloseTo(asRect.left + asRect.width, 10);
+    expect(asPoints[1][1]).toBeCloseTo(asRect.top + asRect.height, 10);
+  });
+
+  it("supports a rotated page's as-displayed size (width/height swapped) consistently", () => {
+    // A page rotated 90° is 792 wide x 612 tall as displayed (see
+    // pdfGeometry.test.ts's rotated-90.pdf fixture) — this only verifies
+    // transformPoints scales correctly against THAT pageSize, not that it
+    // performs the rotation itself.
+    const rotatedPageSize = { width: 792, height: 612 };
+    const points: [number, number][] = [[600, 100], [640, 180]];
+    const result = transformPoints(points, rotatedPageSize, rotatedPageSize); // 1:1
+    expect(result).toEqual(points);
+  });
+
+  it("returns null for a degenerate page/rendered size — never fabricates a position", () => {
+    expect(transformPoints([[0, 0], [1, 1]], { width: 0, height: 0 }, { width: 100, height: 100 })).toBeNull();
+    expect(transformPoints([[0, 0], [1, 1]], { width: 100, height: 100 }, { width: 0, height: 0 })).toBeNull();
+  });
+
+  it("returns an empty array (not null) for an empty point list on valid sizes", () => {
+    expect(transformPoints([], { width: 100, height: 100 }, { width: 50, height: 50 })).toEqual([]);
   });
 });

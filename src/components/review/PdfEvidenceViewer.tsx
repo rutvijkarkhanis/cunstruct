@@ -13,11 +13,14 @@ import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min?url";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ZoomIn, ZoomOut, Maximize, Crosshair, ChevronLeft, ChevronRight, FileWarning, Loader2 } from "lucide-react";
-import { resolvePageSpace, transformBoxes, fitToEvidence, getEvidenceForClaim, detectPageSizeMismatch, type Rect } from "@/lib/review/evidenceCoords";
+import { resolvePageSpace, transformBoxes, transformPoints, fitToEvidence, getEvidenceForClaim, detectPageSizeMismatch, type Rect } from "@/lib/review/evidenceCoords";
 import { claimLabel, sheetPositionLabel } from "@/lib/review/evidenceDisplay";
 import { resolvePageTitle } from "@/lib/review/documentResolve";
 import type { AnalysisSource, EvidenceBox, ClaimType } from "@/lib/review/analysisSchemaV1";
 import type { DrawingMarker } from "@/lib/review/drawingMarkers";
+import { withPdfGeometry } from "@/lib/review/drawingMarkers";
+import { extractPageGeometry } from "@/lib/review/pdfGeometry";
+import type { DrawingGeometry } from "@/lib/review/drawingGeometry";
 
 // Bundle the worker with Vite (kept off the main thread; no CDN dependency).
 // The ?url import tells Vite to bundle the worker and return its URL as a string.
@@ -60,6 +63,16 @@ interface Props {
 
 type Size = { width: number; height: number };
 
+// A "rectangle"-type geometry is, by definition (drawingGeometry.ts), always
+// axis-aligned — visually and positionally identical to rendering its own
+// bbox. Rather than teach the renderer two ways to draw the same axis-
+// aligned box, only genuinely RICHER shapes (a real curve, a multi-point
+// outline, an open line, a bare point) get the new SVG overlay; bbox/
+// rectangle/no-geometry markers keep using the existing, unmodified button
+// rendering — "never convert a bbox into a fake polygon" cuts both ways: a
+// real rectangle doesn't need to stop being drawn as a rectangle either.
+const RICH_GEOMETRY_TYPES = new Set(["point", "line", "polyline", "polygon", "path"]);
+
 export default function PdfEvidenceViewer({ fileUrl, source, documentName, unavailableReason, selectedClaim, selectedClaimValue, pageTitles, markers, onSelectMarker, markerContextLabel }: Props) {
   // Marker mode is signaled by PRESENCE of `markers` (even []), not its
   // length — an empty marker set for the current selection (e.g. a category
@@ -80,6 +93,17 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
   const [pageBase, setPageBase] = useState<Size | null>(null); // page size at scale 1
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
+
+  // Real PDF vector geometry (Layer A — pdfGeometry.ts), extracted AT MOST
+  // ONCE per page per document load and cached here, never re-parsed on a
+  // zoom/scale change (performance requirement: heavy extraction stays out
+  // of the render path). A ref (not state) holds the actual cache so adding
+  // a page's shapes doesn't itself trigger a React update; `geometryTick`
+  // is bumped purely to force a re-render that re-reads the ref. Only ever
+  // populated in marker mode — the older per-claim evidence view never
+  // needs or reads this.
+  const pdfGeometryCacheRef = useRef<Map<number, DrawingGeometry[]>>(new Map());
+  const [geometryTick, setGeometryTick] = useState(0);
 
   // Evidence boxes on the CURRENT page (per-box page overrides the item page).
   // A box with no resolvable page (neither its own `page` nor `source.page`) is
@@ -132,6 +156,9 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
 
   // Load the document when the signed URL changes.
   useEffect(() => {
+    // A new document invalidates every previously extracted page's geometry.
+    pdfGeometryCacheRef.current = new Map();
+    setGeometryTick((t) => t + 1);
     if (!fileUrl) { docRef.current = null; setStatus("idle"); setErrorDetail(null); return; }
     let cancelled = false;
     setStatus("loading");
@@ -153,6 +180,35 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
     });
     return () => { cancelled = true; try { task.destroy?.(); } catch { /* noop */ } };
   }, [fileUrl]);
+
+  // Extract real PDF vector geometry (Layer A) for the CURRENT page, at
+  // most once — never re-run for a page already in the cache, including
+  // across zoom/scale changes. Only runs in marker mode: the older
+  // per-claim evidence view has no use for it and never pays this cost.
+  // Extraction failing for one page (e.g. a corrupt content stream) is
+  // cached as an honest empty result rather than retried every render.
+  useEffect(() => {
+    if (!markerModeActive || status !== "ready") return;
+    if (pdfGeometryCacheRef.current.has(page)) return;
+    const doc = docRef.current;
+    if (!doc) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const pdfPage = await doc.getPage(page);
+        const extraction = await extractPageGeometry(pdfPage, page);
+        if (cancelled) return;
+        pdfGeometryCacheRef.current.set(page, extraction.shapes);
+      } catch (err) {
+        if (cancelled) return;
+        console.error("[PdfEvidenceViewer] PDF geometry extraction failed:", err instanceof Error ? err.message : err);
+        pdfGeometryCacheRef.current.set(page, []); // honest "nothing available" — never fabricated, never retried
+      } finally {
+        if (!cancelled) setGeometryTick((t) => t + 1);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [markerModeActive, status, page]);
 
   // Render the current page at the current scale.
   const renderPage = useCallback(async () => {
@@ -268,10 +324,22 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
   // Markers actually on the current page — resolved the same way `boxes`
   // resolves a page above (marker.page was already computed by
   // drawingMarkers.ts using the exact same box.page ?? source.page rule).
-  const markersOnPage = useMemo(
-    () => (markerModeActive ? (markers ?? []).filter((m) => m.page === page) : []),
-    [markers, markerModeActive, page],
-  );
+  // Additively upgraded with real PDF geometry (Layer A + Layer C — see
+  // withPdfGeometry) wherever a deterministic match exists for this page;
+  // a marker with no match is returned byte-identical to before, `box`
+  // intact, `geometry` simply absent.
+  const markersOnPage = useMemo(() => {
+    if (!markerModeActive) return [];
+    const onPage = (markers ?? []).filter((m) => m.page === page);
+    return withPdfGeometry(onPage, pdfGeometryCacheRef.current);
+    // geometryTick intentionally listed below: it forces this memo to
+    // re-run and re-read pdfGeometryCacheRef (a mutable ref, not state) once
+    // a page's geometry extraction resolves. ESLint can't see that the ref
+    // read depends on it, so it flags the dependency as "unnecessary" —
+    // removing it would silently stop markers from ever picking up
+    // extracted geometry after the first render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [markers, markerModeActive, page, geometryTick]);
 
   // Fit to the primary (focused) marker when one exists, else to the whole
   // visible marker set for this page, else the page-wide baseline — mirrors
@@ -309,15 +377,45 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
   // Marker rects for the current page — same transformBoxes math as
   // overlayRects below, just resolved per-marker (a marker can in principle
   // declare its own pageSize, mirroring resolvePageSpace's override rule).
+  // Only markers WITHOUT a richer geometry render here (see
+  // RICH_GEOMETRY_TYPES above) — this is the exact same rendering every
+  // marker used before this task; nothing about it changed.
   const markerRects = useMemo(() => {
     if (!markerModeActive || !pageBase) return [];
     const rendered: Size = { width: pageBase.width * scale, height: pageBase.height * scale };
-    return markersOnPage.map((m) => {
-      const space = resolvePageSpace({ pageSize: m.pageSize }, pageBase);
-      if (!space) return null;
-      const rect = transformBoxes([m.box], space, rendered)[0];
-      return rect ? { marker: m, rect } : null;
-    }).filter((x): x is { marker: DrawingMarker; rect: Rect } => x != null);
+    return markersOnPage
+      .filter((m) => !m.geometry || !RICH_GEOMETRY_TYPES.has(m.geometry.type))
+      .map((m) => {
+        const space = resolvePageSpace({ pageSize: m.pageSize }, pageBase);
+        if (!space) return null;
+        const rect = transformBoxes([m.box], space, rendered)[0];
+        return rect ? { marker: m, rect } : null;
+      }).filter((x): x is { marker: DrawingMarker; rect: Rect } => x != null);
+  }, [markerModeActive, markersOnPage, pageBase, scale]);
+
+  // Richer-geometry markers for the current page — real polygon/path/
+  // polyline/line/point shapes, rendered via the SVG overlay below. Reuses
+  // the SAME page-space -> rendered-pixel convention as markerRects
+  // (resolvePageSpace + the new transformPoints, the direct generalization
+  // of transformBoxes to an arbitrary point list) — no second coordinate
+  // system. A marker whose geometry can't be placed (unresolvable page
+  // space) is dropped here exactly as an unplaceable bbox is dropped above,
+  // never guessed.
+  const richGeometryMarkers = useMemo(() => {
+    if (!markerModeActive || !pageBase) return [];
+    const rendered: Size = { width: pageBase.width * scale, height: pageBase.height * scale };
+    return markersOnPage
+      .filter((m) => m.geometry && RICH_GEOMETRY_TYPES.has(m.geometry.type))
+      .map((m) => {
+        const geometry = m.geometry!;
+        const space = resolvePageSpace({ pageSize: geometry.pageSize ?? m.pageSize }, pageBase);
+        if (!space) return null;
+        const screenPoints = transformPoints(geometry.points, space, rendered);
+        const labelRect = transformBoxes([{ bbox: geometry.bbox }], space, rendered)[0];
+        if (!screenPoints || !labelRect) return null;
+        return { marker: m, geometry, screenPoints, labelRect };
+      })
+      .filter((x): x is { marker: DrawingMarker; geometry: DrawingGeometry; screenPoints: [number, number][]; labelRect: Rect } => x != null);
   }, [markerModeActive, markersOnPage, pageBase, scale]);
 
   // Overlay rects for the current page.
@@ -515,6 +613,74 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
               )}
             </button>
           ))}
+          {/* Richer-geometry overlay (point/line/polyline/polygon/path) —
+              REAL shapes from Layer A (pdfGeometry.ts) + Layer C
+              (geometryFusion.ts), never a fabricated polygon drawn from a
+              bbox. Same three-tier emphasis language as the button markers
+              above (primary=rose/selected, secondary=bold blue, muted=
+              quieter blue) so a reviewer reads them as the same kind of
+              thing, just a more precise outline. Selection is keyed on
+              `marker.id` exactly like the buttons — identical click
+              behavior regardless of which representation drew the shape. */}
+          {richGeometryMarkers.length > 0 && pageBase && (
+            <svg
+              className="absolute inset-0 overflow-visible"
+              width={pageBase.width * scale}
+              height={pageBase.height * scale}
+              style={{ pointerEvents: "none" }}
+            >
+              {richGeometryMarkers.map(({ marker, geometry, screenPoints }) => {
+                const emphasisClass =
+                  marker.emphasis === "primary"
+                    ? "stroke-rose-600 fill-rose-500/35"
+                    : marker.emphasis === "secondary"
+                      ? "stroke-blue-600 fill-blue-500/25"
+                      : "stroke-blue-500/60 fill-blue-400/15";
+                const strokeWidth = marker.emphasis === "primary" ? 3 : marker.emphasis === "secondary" ? 2 : 1.5;
+                // `key` is passed directly on each element below, never via
+                // this spread object — React requires it outside any spread.
+                const common = {
+                  className: cn(emphasisClass, "cursor-pointer transition-colors"),
+                  style: { pointerEvents: "auto" as const, strokeWidth },
+                  onClick: () => onSelectMarker?.(marker.id),
+                };
+                if (geometry.type === "polygon") {
+                  return <polygon key={marker.id} {...common} points={pointsToSvg(screenPoints)} />;
+                }
+                if (geometry.type === "polyline" || geometry.type === "line") {
+                  return <polyline key={marker.id} {...common} className={cn(common.className, "!fill-none")} points={pointsToSvg(screenPoints)} />;
+                }
+                if (geometry.type === "path") {
+                  return <path key={marker.id} {...common} className={cn(common.className, "!fill-none")} d={buildPathD(screenPoints)} />;
+                }
+                if (geometry.type === "point" && screenPoints[0]) {
+                  const [cx, cy] = screenPoints[0];
+                  return <circle key={marker.id} {...common} cx={cx} cy={cy} r={5} />;
+                }
+                return null;
+              })}
+            </svg>
+          )}
+          {/* Labels for richer-geometry markers — same chip styling as the
+              button markers' labels, positioned from the geometry's own
+              bbox (always present) so label placement stays consistent
+              regardless of how many vertices the real shape has. */}
+          {richGeometryMarkers.map(({ marker, labelRect }) => (
+            marker.emphasis !== "muted" ? (
+              <span
+                key={`${marker.id}-label`}
+                className={cn(
+                  "absolute -top-6 left-0 whitespace-nowrap rounded font-semibold pointer-events-none",
+                  marker.emphasis === "primary"
+                    ? "text-[11px] px-1.5 py-0.5 bg-rose-600 text-white shadow-sm"
+                    : "text-[10px] px-1 py-0.5 bg-blue-600 text-white shadow-sm",
+                )}
+                style={{ left: labelRect.left, top: labelRect.top }}
+              >
+                {marker.label}{marker.differsFromType ? " · differs" : ""}
+              </span>
+            ) : null
+          ))}
         </div>
       </div>
       {/* Marker-mode fallback — honest "nothing here" rather than reusing the
@@ -629,4 +795,27 @@ function Fallback({ icon: Icon, text }: { icon: React.ComponentType<{ className?
 }
 function IconBtn({ title, onClick, disabled, children }: { title: string; onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
   return <Button variant="ghost" size="icon" className="h-7 w-7" title={title} onClick={onClick} disabled={disabled}>{children}</Button>;
+}
+
+// SVG <polygon>/<polyline> "points" attribute format: "x1,y1 x2,y2 ...".
+function pointsToSvg(points: [number, number][]): string {
+  return points.map(([x, y]) => `${x},${y}`).join(" ");
+}
+
+// Builds an SVG path `d` string from a DrawingGeometry "path"'s flattened
+// point layout (see drawingGeometry.ts): [start, c1, c2, end, c1, c2, end, ...]
+// — one "M" to the start, then one cubic "C" per (c1, c2, end) triple. A
+// point list too short to form a real curve (shouldn't occur — pdfGeometry.ts
+// only ever emits "path" for an actual curveTo) returns just the move, never
+// a guessed curve.
+function buildPathD(points: [number, number][]): string {
+  if (points.length === 0) return "";
+  let d = `M ${points[0][0]} ${points[0][1]}`;
+  for (let i = 1; i + 2 <= points.length - 1; i += 3) {
+    const [c1x, c1y] = points[i];
+    const [c2x, c2y] = points[i + 1];
+    const [ex, ey] = points[i + 2];
+    d += ` C ${c1x} ${c1y} ${c2x} ${c2y} ${ex} ${ey}`;
+  }
+  return d;
 }
