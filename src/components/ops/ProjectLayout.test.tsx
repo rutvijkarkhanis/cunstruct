@@ -140,3 +140,26 @@ describe("Stage C1 — navigation no longer recreates the old dashboard tab bar"
     expect(screen.queryByRole("link", { name: /Activity/ })).not.toBeInTheDocument();
   });
 });
+
+describe("Stage C5B — OpsBoqBuilder is the dedicated full-screen BOQ editing mode", () => {
+  it("suppresses the project-level nav chrome on the bare BOQ editor route (full-bleed, same as Workspace and Review)", async () => {
+    renderProjectRoutes("/ops/projects/proj-1/boqs/boq-1");
+    await screen.findByTestId("boq-builder-stub");
+    expect(screen.queryByRole("link", { name: /Workspace/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Activity/ })).not.toBeInTheDocument();
+  });
+
+  it("does NOT suppress chrome for the separate /boqs/manage admin surface", async () => {
+    renderProjectRoutes("/ops/projects/proj-1/boqs/manage");
+    await screen.findByTestId("boqs-manage-stub");
+    expect(screen.getByRole("link", { name: /Workspace/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Activity/ })).toBeInTheDocument();
+  });
+
+  it("still suppresses chrome for the BOQ review route (already full-bleed, unaffected)", async () => {
+    renderProjectRoutes("/ops/projects/proj-1/boqs/boq-1/review");
+    await screen.findByTestId("review-stub");
+    expect(screen.queryByRole("link", { name: /Workspace/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Activity/ })).not.toBeInTheDocument();
+  });
+});

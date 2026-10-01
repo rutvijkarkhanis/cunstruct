@@ -12,6 +12,7 @@ import BoqDocumentsPanel from "@/components/ops/BoqDocumentsPanel";
 import BoqAuditReview from "@/components/ops/BoqAuditReview";
 import AiStateBadge from "@/components/review/AiStateBadge";
 import { type Spec, type SpecValue } from "@/lib/boqSpec";
+import { workspaceUrl } from "@/lib/review/workspaceState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -621,7 +622,16 @@ export default function OpsBoqBuilder() {
           leaving the back arrow floating mid-row instead of beside the
           title's first line. */}
       <div className="flex items-start gap-2">
-        <Button variant="ghost" size="sm" onClick={() => navigate(-1)}><ArrowLeft className="h-4 w-4" /></Button>
+        {/* Back to the Workspace BOQ context for this exact BOQ — not
+            navigate(-1), which only works when history actually contains a
+            prior page (never true for a cold/bookmarked visit) and could
+            otherwise land anywhere. Standalone BOQs (no project_id, reached
+            via the legacy /ops/boq/:id route) have no Workspace to return
+            to, so they keep the old history-back behavior. */}
+        <Button variant="ghost" size="sm" aria-label="Back to Workspace"
+          onClick={() => (boq.project_id ? navigate(workspaceUrl(boq.project_id, { mode: "boq", boq: id })) : navigate(-1))}>
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
         <div className="flex-1">
           <h1 className="text-lg font-semibold">{boq.name}</h1>
           <p className="text-sm text-muted-foreground flex items-center gap-1.5 flex-wrap">

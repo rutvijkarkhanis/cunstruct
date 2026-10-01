@@ -49,13 +49,22 @@ const REVIEW_MODE_RE = /\/boqs\/[^/]+\/review\/?$/;
 // this component's own tab chrome stay exactly as they are.
 const WORKSPACE_MODE_RE = /\/workspace\/?$/;
 
+// Phase 11 Stage C5B: OpsBoqBuilder becomes the dedicated full-screen BOQ
+// editing mode, using this same URL-shape mechanism — the route, component,
+// and editing/persistence logic are all unchanged; only the surrounding
+// chrome steps aside, exactly as it already does for Workspace and Review.
+// `/boqs/manage` (the separate advanced-admin surface) and
+// `/boqs/:boqId/review` (already matched by REVIEW_MODE_RE) are excluded —
+// only the bare `/boqs/:boqId` editor route is full-bleed.
+const BOQ_EDITOR_MODE_RE = /\/boqs\/(?!manage\/?$)[^/]+\/?$/;
+
 export default function ProjectLayout() {
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
-  const isReviewMode = REVIEW_MODE_RE.test(location.pathname) || WORKSPACE_MODE_RE.test(location.pathname);
+  const isFullBleed = REVIEW_MODE_RE.test(location.pathname) || WORKSPACE_MODE_RE.test(location.pathname) || BOQ_EDITOR_MODE_RE.test(location.pathname);
   const { data: project } = useQuery({
     queryKey: ["project-header", id],
-    enabled: !!id && !isReviewMode,
+    enabled: !!id && !isFullBleed,
     queryFn: async () => {
       const { data } = await supabase.from("projects")
         .select("id, name, client_name, location, project_type, status").eq("id", id!).single();
@@ -63,10 +72,11 @@ export default function ProjectLayout() {
     },
   });
 
-  if (isReviewMode) {
+  if (isFullBleed) {
     // No max-w-6xl/padding cap either — the drawing canvas should use the
     // full remaining viewport, not the same centered reading-width column
-    // Documents/BOQs use. BoqReviewWorkstation supplies its own padding.
+    // Documents/BOQs use. BoqReviewWorkstation/OpsBoqBuilder supply their
+    // own padding.
     return (
       <div className="min-w-0">
         <Outlet />
