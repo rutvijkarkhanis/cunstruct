@@ -31,10 +31,18 @@ const SECONDARY_TABS = [
 // untouched.
 const REVIEW_MODE_RE = /\/boqs\/[^/]+\/review\/?$/;
 
+// Phase 11 Stage B: the unified workspace is the same kind of full-bleed,
+// canvas-first surface Review already is — it supplies its own compact
+// header (ProjectWorkspace's own) and, in mode=review, embeds the exact
+// same BoqReviewWorkstation this chrome already steps aside for. Same
+// reasoning, same scope: URL-shape detection only, every other route and
+// this component's own tab chrome stay exactly as they are.
+const WORKSPACE_MODE_RE = /\/workspace\/?$/;
+
 export default function ProjectLayout() {
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
-  const isReviewMode = REVIEW_MODE_RE.test(location.pathname);
+  const isReviewMode = REVIEW_MODE_RE.test(location.pathname) || WORKSPACE_MODE_RE.test(location.pathname);
   const { data: project } = useQuery({
     queryKey: ["project-header", id],
     enabled: !!id && !isReviewMode,

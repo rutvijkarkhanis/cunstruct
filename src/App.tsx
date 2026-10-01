@@ -37,6 +37,7 @@ const ProjectOverview = lazy(() => import("./pages/ops/ProjectOverview.tsx"));
 const ProjectDocuments = lazy(() => import("./pages/ops/ProjectDocuments.tsx"));
 const ProjectBoqs = lazy(() => import("./pages/ops/ProjectBoqs.tsx"));
 const ProjectProcurement = lazy(() => import("./pages/ops/ProjectProcurement.tsx"));
+const ProjectWorkspace = lazy(() => import("./pages/ops/ProjectWorkspace.tsx"));
 const OpsStages = lazy(() => import("./pages/ops/OpsStages.tsx"));
 const OpsMappings = lazy(() => import("./pages/ops/OpsMappings.tsx"));
 const OpsForecasts = lazy(() => import("./pages/ops/OpsForecasts.tsx"));
@@ -138,6 +139,7 @@ function AppRoutes() {
           <Route path="boqs/:boqId/review" element={<BoqReviewWorkstation />} />
           <Route path="procurement" element={<ProjectProcurement />} />
           <Route path="activity" element={<OpsProjectDetail />} />
+          <Route path="workspace" element={<ProjectWorkspace />} />
         </Route>
         <Route path="stages" element={<OpsStages />} />
         <Route path="mappings" element={<OpsMappings />} />

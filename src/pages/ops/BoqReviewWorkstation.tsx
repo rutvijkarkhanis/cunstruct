@@ -57,9 +57,20 @@ const FLAG_REASONS: { key: FlagReason; label: string }[] = [
   { key: "OTHER", label: "Other" },
 ];
 
-export default function BoqReviewWorkstation() {
+/**
+ * `boqId` is optional and additive — every existing caller renders this as a
+ * plain `<Route element>` and relies entirely on `useParams` (`/ops/boq/:id`
+ * or `/ops/projects/:id/boqs/:boqId/review`), exactly as before. The prop
+ * exists ONLY so ProjectWorkspace (Stage B) can embed this exact, unmodified
+ * component for `mode=review` without a matching path segment to read a
+ * route param from — it is never the only mechanism, and relative
+ * navigation (`navigate("../boqs/${boqId}")`) below is unaffected: the
+ * workspace route is a sibling of `boqs/:boqId/review` under the same
+ * ProjectLayout, so "up one route level" resolves identically either way.
+ */
+export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?: string } = {}) {
   const { id: routeId, boqId: routeBoqId } = useParams<{ id?: string; boqId?: string }>();
-  const boqId = routeBoqId ?? routeId!;
+  const boqId = injectedBoqId ?? routeBoqId ?? routeId!;
   const navigate = useNavigate();
   const qc = useQueryClient();
 
