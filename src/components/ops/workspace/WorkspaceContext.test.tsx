@@ -61,18 +61,17 @@ describe("WorkspaceContext — mode=drawing (home)", () => {
   });
 });
 
-describe("WorkspaceContext — mode=boq", () => {
+describe("WorkspaceContext — mode=boq (Stage C3: real selector/creator, not a rebuilt editor)", () => {
   it("shows a lightweight summary computed from real boq_line rows, not the full editor", async () => {
     renderPanel("boq");
     expect(await screen.findByText("Ground Floor BOQ")).toBeInTheDocument();
-    expect(await screen.findByText("2")).toBeInTheDocument(); // total lines
     // base total = 10*100 (included) ; the excluded line (5*50) must NOT be counted
-    expect(await screen.findByText("₹1,000")).toBeInTheDocument();
+    expect(await screen.findByText(/2 lines · ₹1,000 base \(excl\. markup\)/)).toBeInTheDocument();
   });
 
   it("links to the existing full BOQ editor rather than rebuilding it", async () => {
     renderPanel("boq");
-    const link = await screen.findByText("Open full BOQ editor");
+    const link = await screen.findByText("Open BOQ");
     expect(link.closest("a")).toHaveAttribute("href", "/ops/projects/proj-1/boqs/boq-1");
   });
 });
