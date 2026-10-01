@@ -402,13 +402,17 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
   // Click-to-Identify's click handler. Only active when identifyModeActive
   // is true (see Props doc) — when it isn't, this never runs and nothing
   // about existing click/marker behavior changes. Guards against firing for
-  // a click that BUBBLED from a marker button/SVG shape (e.target !==
-  // e.currentTarget) so an existing marker's own onClick still works
-  // exactly as before, even while identify mode is on — only a genuine
-  // click on empty canvas starts an identify request.
+  // a click that BUBBLED from a marker button (the only clickable overlay —
+  // evidence/highlight rects are pointer-events-none) so an existing
+  // marker's own onClick still works exactly as before, even while identify
+  // mode is on. The drawing itself is a <canvas> filling this container, so
+  // a real click on it targets the canvas, not this div — accepting
+  // e.target === canvasRef.current here (in addition to the container
+  // itself) is what makes a genuine click on the drawing fire at all; only
+  // a marker <button> (a distinct element) still falls through to bail.
   const handleIdentifyClick = useCallback((e: MouseEvent<HTMLDivElement>) => {
     if (!identifyModeActive || !onIdentifyPoint) return;
-    if (e.target !== e.currentTarget) return;
+    if (e.target !== e.currentTarget && e.target !== canvasRef.current) return;
     if (!pageBase) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const screenPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
