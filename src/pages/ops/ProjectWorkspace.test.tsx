@@ -113,3 +113,11 @@ describe("ProjectWorkspace — entering a context mode from the panel", () => {
     expect(await screen.findByTestId("embedded-review")).toHaveTextContent("Review for boq-1");
   });
 });
+
+describe("Stage C1 — Workspace's own back link no longer points at the (now self-redirecting) project root", () => {
+  it("links back to the projects list, not /ops/projects/:id", async () => {
+    renderWorkspace("/ops/projects/proj-1/workspace");
+    const backLink = first(await screen.findAllByLabelText("Back to projects"));
+    expect(backLink).toHaveAttribute("href", "/ops/projects");
+  });
+});
