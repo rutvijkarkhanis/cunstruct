@@ -32,6 +32,11 @@ import { cn } from "@/lib/utils";
 // detection ProjectLayout already uses for its own Review-mode chrome.
 const REVIEW_MODE_RE = /\/boqs\/[^/]+\/review\/?$/;
 
+// Phase 11 Stage B: the unified workspace route gets the same full-width,
+// no-global-sidebar treatment as Review — it supplies its own compact
+// header and, same as Review, is never the user's only way out.
+const WORKSPACE_MODE_RE = /\/workspace\/?$/;
+
 const NAV = [
   { to: "/ops", end: true, label: "Overview", icon: LayoutDashboard },
   { to: "/ops/projects", label: "Projects", icon: Building2 },
@@ -50,7 +55,7 @@ export default function OpsLayout() {
   const { user, loading, isStaff, signOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const isReviewMode = REVIEW_MODE_RE.test(location.pathname);
+  const isReviewMode = REVIEW_MODE_RE.test(location.pathname) || WORKSPACE_MODE_RE.test(location.pathname);
   const [navOpen, setNavOpen] = useState(false); // mobile drawer
 
   const { data: pendingCount } = useQuery({
