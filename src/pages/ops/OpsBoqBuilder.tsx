@@ -601,6 +601,41 @@ export default function OpsBoqBuilder() {
     </>
   );
 
+  // Stage C6: the Grand Total/scope/margin figures, shared verbatim between
+  // the desktop header (right-aligned, beside the title) and the stacked
+  // mobile/tablet header below it (left-aligned, full width) — one source
+  // for these numbers, two presentations. Below `lg` the desktop row has no
+  // room for this block (it was clipping the total, the sqft/floors line,
+  // the scope disclaimer, and the margin line at every width from 320 to
+  // 768px — see the Stage C6 responsive audit), so it moves to its own
+  // stacked block instead of squeezing into the title row.
+  const TotalSummary = ({ align }: { align: "left" | "right" }) => (
+    <div className={align === "right" ? "text-right min-w-[11rem]" : "text-left"}>
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+        {disciplineByKey(boq.discipline).name} works
+      </div>
+      <div className="text-2xl md:text-3xl font-semibold tabular-nums leading-tight">{inr(displayGrand)}</div>
+      {(() => {
+        const fl = floorsLabel(project?.floors ?? (Number((boq.spec as Spec)?._floors) || null));
+        const tier = TIER_LABEL[String((boq.spec as Spec)?.quality_tier ?? "standard")] ?? null;
+        const bits = [builtUp ? `${builtUp.toLocaleString("en-IN")} sqft` : null, fl, tier].filter(Boolean);
+        return bits.length ? <div className="text-[11px] text-muted-foreground">{bits.join(" · ")}</div> : null;
+      })()}
+      <div className="text-[11px] text-amber-600 dark:text-amber-500">{scopeLine(boq.discipline)}</div>
+      {!present && changes.length > 0 && firstTotal != null && Math.abs(netDelta) >= 1 && (
+        <div className={cn("text-[11px] font-medium", netDelta > 0 ? "text-amber-600 dark:text-amber-500" : "text-emerald-600 dark:text-emerald-400")}>
+          {netDelta > 0 ? "+" : "−"}{inr(Math.abs(netDelta))} since starting
+        </div>
+      )}
+      {!present && make.hasCost && (
+        <div className={cn("text-[11px] font-medium", make.marginPct >= targetMargin ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-500")}>
+          make {inr(make.make)} · {make.marginPct.toFixed(1)}%
+        </div>
+      )}
+    </div>
+  );
+  const showTotalSummary = present || justAppliedCount === 0;
+
   return (
     <div className={cn("max-w-5xl mx-auto p-4 md:p-6 space-y-4", present && "pt-16")}>
       {present && (
@@ -647,37 +682,37 @@ export default function OpsBoqBuilder() {
             </p>
           )}
         </div>
-        <Button variant={present ? "default" : "outline"} size="sm" onClick={() => (present ? exitPresent() : enterPresent())}
+        {/* Desktop/tablet (lg+): Show-to-client and the Grand Total summary
+            sit inline, right-aligned, beside the title — the original
+            single-row layout, unchanged. Below lg this sibling is hidden
+            entirely (zero width) and the stacked block below takes over —
+            see Stage C6: this inline row has no room below 1024px and was
+            clipping the Grand Total, the sqft/floors line, the scope
+            disclaimer, and the margin line at every phone/tablet width
+            tested (320–768px). */}
+        <div className="hidden lg:flex items-start gap-2">
+          <Button variant={present ? "default" : "outline"} size="sm" onClick={() => (present ? exitPresent() : enterPresent())}
+            title="Show a clean, client-facing view (or press P; Esc to exit)">
+            {present ? <><Eye className="h-4 w-4 mr-2" />Exit client view</> : <><Presentation className="h-4 w-4 mr-2" />Show to client</>}
+          </Button>
+          {showTotalSummary && <TotalSummary align="right" />}
+        </div>
+      </div>
+
+      {/* Mobile/tablet (<lg): the same Grand Total/scope/margin figures and
+          the same Show-to-client action as the row above — nothing new is
+          computed or shown, only the arrangement changes to a stacked,
+          full-width layout that actually fits. */}
+      {showTotalSummary && (
+        <div className="lg:hidden">
+          <TotalSummary align="left" />
+        </div>
+      )}
+      <div className="lg:hidden">
+        <Button className="w-full" variant={present ? "default" : "outline"} size="sm" onClick={() => (present ? exitPresent() : enterPresent())}
           title="Show a clean, client-facing view (or press P; Esc to exit)">
           {present ? <><Eye className="h-4 w-4 mr-2" />Exit client view</> : <><Presentation className="h-4 w-4 mr-2" />Show to client</>}
         </Button>
-        {(present || justAppliedCount === 0) && (
-          // Scope-first valuation: the headline number can never read as the whole
-          // project cost — its discipline and exclusions sit right on it.
-          <div className="text-right min-w-[11rem]">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              {disciplineByKey(boq.discipline).name} works
-            </div>
-            <div className="text-2xl md:text-3xl font-semibold tabular-nums leading-tight">{inr(displayGrand)}</div>
-            {(() => {
-              const fl = floorsLabel(project?.floors ?? (Number((boq.spec as Spec)?._floors) || null));
-              const tier = TIER_LABEL[String((boq.spec as Spec)?.quality_tier ?? "standard")] ?? null;
-              const bits = [builtUp ? `${builtUp.toLocaleString("en-IN")} sqft` : null, fl, tier].filter(Boolean);
-              return bits.length ? <div className="text-[11px] text-muted-foreground">{bits.join(" · ")}</div> : null;
-            })()}
-            <div className="text-[11px] text-amber-600 dark:text-amber-500">{scopeLine(boq.discipline)}</div>
-            {!present && changes.length > 0 && firstTotal != null && Math.abs(netDelta) >= 1 && (
-              <div className={cn("text-[11px] font-medium", netDelta > 0 ? "text-amber-600 dark:text-amber-500" : "text-emerald-600 dark:text-emerald-400")}>
-                {netDelta > 0 ? "+" : "−"}{inr(Math.abs(netDelta))} since starting
-              </div>
-            )}
-            {!present && make.hasCost && (
-              <div className={cn("text-[11px] font-medium", make.marginPct >= targetMargin ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-500")}>
-                make {inr(make.make)} · {make.marginPct.toFixed(1)}%
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {/* OUTPUT HERO — the primary above-the-fold framing (Section 1). Every
@@ -952,15 +987,38 @@ export default function OpsBoqBuilder() {
                     const mpct = lq > 0 ? (lm / lq) * 100 : 0;
                     const below = l.cost != null && mpct < targetMargin;
                     return (
-                      <div key={l.id} className="grid grid-cols-[1fr_4.5rem_4.5rem_5rem_auto] items-center gap-2 py-1 border-b last:border-0 text-sm">
-                        <span className="truncate text-[13px]"><span className="text-muted-foreground mr-1 font-mono text-[11px]">{itemNo}</span>{l.description}</span>
-                        <Input type="number" className="h-8" placeholder="cost" defaultValue={l.cost ?? ""}
-                          onBlur={(e) => { const v = e.target.value === "" ? null : Number(e.target.value); if (v !== l.cost) updateLine(l.id, { cost: v }); }} />
-                        <span className="text-xs text-muted-foreground text-right tabular-nums">@{inr(rate)}</span>
-                        <span className="text-right tabular-nums">{l.cost != null ? inr(lm) : "—"}</span>
-                        <span className={cn("text-right tabular-nums text-xs w-12", below ? "text-amber-600 dark:text-amber-500 font-medium" : "text-muted-foreground")}>
-                          {l.cost != null ? `${mpct.toFixed(0)}%` : "—"}
-                        </span>
+                      <div key={l.id} className="py-1 border-b last:border-0 text-sm">
+                        {/* Desktop/tablet (lg+): the original dense single-
+                            row grid, unchanged. */}
+                        <div className="hidden lg:grid grid-cols-[1fr_4.5rem_4.5rem_5rem_auto] items-center gap-2">
+                          <span className="truncate text-[13px]"><span className="text-muted-foreground mr-1 font-mono text-[11px]">{itemNo}</span>{l.description}</span>
+                          <Input type="number" className="h-8" placeholder="cost" defaultValue={l.cost ?? ""}
+                            onBlur={(e) => { const v = e.target.value === "" ? null : Number(e.target.value); if (v !== l.cost) updateLine(l.id, { cost: v }); }} />
+                          <span className="text-xs text-muted-foreground text-right tabular-nums">@{inr(rate)}</span>
+                          <span className="text-right tabular-nums">{l.cost != null ? inr(lm) : "—"}</span>
+                          <span className={cn("text-right tabular-nums text-xs w-12", below ? "text-amber-600 dark:text-amber-500 font-medium" : "text-muted-foreground")}>
+                            {l.cost != null ? `${mpct.toFixed(0)}%` : "—"}
+                          </span>
+                        </div>
+                        {/* Mobile/tablet (<lg): description gets its own
+                            full-width line so the line stays identifiable
+                            (Stage C6 audit: four competing fixed-width
+                            columns were squeezing it to near-nothing), cost
+                            input and its margin figures move to a second row
+                            below — same Input, same onBlur handler, only the
+                            layout changes. */}
+                        <div className="lg:hidden space-y-1 py-1">
+                          <span className="text-[13px]"><span className="text-muted-foreground mr-1 font-mono text-[11px]">{itemNo}</span>{l.description}</span>
+                          <div className="flex items-center gap-2">
+                            <Input type="number" className="h-8 w-20 shrink-0" placeholder="cost" defaultValue={l.cost ?? ""}
+                              onBlur={(e) => { const v = e.target.value === "" ? null : Number(e.target.value); if (v !== l.cost) updateLine(l.id, { cost: v }); }} />
+                            <span className="text-xs text-muted-foreground tabular-nums shrink-0">@{inr(rate)}</span>
+                            <span className="ml-auto text-right tabular-nums shrink-0">{l.cost != null ? inr(lm) : "—"}</span>
+                            <span className={cn("text-right tabular-nums text-xs w-10 shrink-0", below ? "text-amber-600 dark:text-amber-500 font-medium" : "text-muted-foreground")}>
+                              {l.cost != null ? `${mpct.toFixed(0)}%` : "—"}
+                            </span>
+                          </div>
+                        </div>
                       </div>
                     );
                   })}
@@ -1077,15 +1135,37 @@ export default function OpsBoqBuilder() {
                 // Present: a clean, contractor-facing row — item · qty · unit · rate · amount.
                 if (present) {
                   return (
-                    <div key={l.id} className="grid grid-cols-[1fr_4.5rem_3rem_5.5rem_6rem] items-start gap-x-3 py-1.5 border-b last:border-0">
-                      <div className="min-w-0">
-                        <span className="text-[11px] font-mono text-muted-foreground mr-1">{itemNo}</span>
-                        <span className="text-[13px] leading-snug text-foreground/90">{l.description}</span>
+                    <div key={l.id} className="py-1.5 border-b last:border-0">
+                      {/* Desktop/tablet (lg+): the original dense 5-column
+                          row, unchanged. */}
+                      <div className="hidden lg:grid grid-cols-[1fr_4.5rem_3rem_5.5rem_6rem] items-start gap-x-3">
+                        <div className="min-w-0">
+                          <span className="text-[11px] font-mono text-muted-foreground mr-1">{itemNo}</span>
+                          <span className="text-[13px] leading-snug text-foreground/90">{l.description}</span>
+                        </div>
+                        <span className="text-sm tabular-nums text-right">{qtyTxt}</span>
+                        <span className="text-xs text-muted-foreground">{l.unit}</span>
+                        <span className="text-sm tabular-nums text-right">{rate != null ? inr(rate) : "—"}</span>
+                        <span className="text-sm tabular-nums text-right font-medium">{rate != null ? inr(l.qty * rate) : "—"}</span>
                       </div>
-                      <span className="text-sm tabular-nums text-right">{qtyTxt}</span>
-                      <span className="text-xs text-muted-foreground">{l.unit}</span>
-                      <span className="text-sm tabular-nums text-right">{rate != null ? inr(rate) : "—"}</span>
-                      <span className="text-sm tabular-nums text-right font-medium">{rate != null ? inr(l.qty * rate) : "—"}</span>
+                      {/* Mobile/tablet (<lg): stacked — description gets its
+                          own full-width line, qty/unit/rate/amount fold into
+                          one summary line below (the same pattern the
+                          editable Lines tab already uses for this). This
+                          view had no mobile layout at all before Stage C6:
+                          qty/rate/amount were pushed off-screen with no way
+                          to reach them, on the one screen meant to be shown
+                          to a client on whatever device they're holding. */}
+                      <div className="lg:hidden">
+                        <div className="min-w-0">
+                          <span className="text-[11px] font-mono text-muted-foreground mr-1">{itemNo}</span>
+                          <span className="text-[13px] leading-snug text-foreground/90">{l.description}</span>
+                        </div>
+                        <div className="text-[11px] text-muted-foreground mt-0.5 flex items-center justify-between gap-2">
+                          <span>{qtyTxt} {l.unit}{rate != null ? ` · ${inr(rate)}/${l.unit}` : ""}</span>
+                          <span className="font-medium text-foreground shrink-0">{rate != null ? inr(l.qty * rate) : "—"}</span>
+                        </div>
+                      </div>
                     </div>
                   );
                 }
