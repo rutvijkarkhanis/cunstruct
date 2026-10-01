@@ -32,9 +32,11 @@ import { DEFAULT_MODEL, SUPPORTED_MODELS, actualCostUsd, estimateCostRange, reso
 import { computePreflight, resolveRequestedToSend, type EligibleFile, type LedgerRow } from "../_shared/preflight.ts";
 import { parseAnalysisV1, buildReviewItems } from "../_shared/analysisValidation.ts";
 import { generateAnalysisViaOpenAI } from "../_shared/openaiClient.ts";
-import { CUNSTRUCT_ANALYSIS_JSON_SCHEMA, CUNSTRUCT_OBSERVATION_JSON_SCHEMA } from "../_shared/openaiSchema.ts";
+import { CUNSTRUCT_ANALYSIS_JSON_SCHEMA, CUNSTRUCT_OBSERVATION_JSON_SCHEMA, CUNSTRUCT_IDENTIFY_JSON_SCHEMA } from "../_shared/openaiSchema.ts";
 import { canSendToProvider } from "../../../src/lib/security/dataClassification.ts";
 import { buildAnalysisPrompt, buildObservationPrompt } from "../../../src/lib/review/analysisPrompt.ts";
+import { buildIdentifyPrompt } from "../../../src/lib/review/identifyPrompt.ts";
+import { parseIdentifyResultV1 } from "../../../src/lib/review/identifySchemaV1.ts";
 import { folderBreadcrumb } from "../_shared/folderContext.ts";
 import { buildStaleReclaimFilter } from "../_shared/claiming.ts";
 import { parseObservationsV1 } from "../_shared/observationValidation.ts";
@@ -63,7 +65,7 @@ function json(body: unknown, status = 200) {
 }
 
 const BodySchema = z.object({
-  action: z.enum(["preflight", "generate", "model_config"]),
+  action: z.enum(["preflight", "generate", "model_config", "identify"]),
   projectId: z.string().uuid().optional(),
   boqId: z.string().uuid().nullable().optional(),
   documentIds: z.array(z.string().uuid()).optional(),
@@ -75,6 +77,13 @@ const BodySchema = z.object({
   // below, which is also the single source of truth ANALYSIS_MODES itself
   // lives in (contract.ts), so this schema never drifts from it.
   mode: z.string().optional(),
+  // Click-to-Identify only (action === "identify") — additive, optional,
+  // ignored by every other action. A single document+page+point, never a
+  // whole-project batch like generate's documentIds.
+  documentId: z.string().uuid().optional(),
+  page: z.number().int().positive().optional(),
+  point: z.object({ x: z.number(), y: z.number() }).optional(),
+  nearbyText: z.array(z.string()).max(12).optional(),
 });
 
 interface ProjectRow {
@@ -164,6 +173,38 @@ async function loadEligibleFiles(supabase: SupabaseClient, projectId: string): P
     });
   }
   return { totalProjectFiles: (docs ?? []).length, eligible };
+}
+
+/** Resolve + download ONE document's current revision file, for the
+ *  Click-to-Identify action — deliberately NOT loadEligibleFiles (that
+ *  function does project-wide content-hashing/dedup for the batch BOQ/
+ *  LOCATION claim machinery, none of which an on-demand single-point
+ *  request needs). Throws a plain Error with a user-safe message on any
+ *  failure — the caller maps it to a JSON error response. */
+async function loadSingleDocumentFile(
+  supabase: SupabaseClient, projectId: string, documentId: string,
+): Promise<{ filename: string; bytes: Uint8Array }> {
+  const { data: doc, error: docErr } = await supabase
+    .from("project_document")
+    .select("id, name, current_revision_id, project_id")
+    .eq("id", documentId)
+    .eq("project_id", projectId)
+    .maybeSingle();
+  if (docErr) throw new Error(docErr.message);
+  if (!doc || !doc.current_revision_id) throw new Error("Document not found in this project.");
+
+  const { data: rev, error: revErr } = await supabase
+    .from("document_revision")
+    .select("id, file_path, original_filename")
+    .eq("id", doc.current_revision_id)
+    .maybeSingle();
+  if (revErr) throw new Error(revErr.message);
+  if (!rev || !rev.file_path) throw new Error("No drawing file is stored for this document.");
+
+  const { data: blob, error: dlErr } = await supabase.storage.from(DRAWINGS_BUCKET).download(rev.file_path);
+  if (dlErr || !blob) throw new Error("Failed to download the drawing file.");
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  return { filename: rev.original_filename ?? doc.name, bytes };
 }
 
 async function loadLedger(
@@ -258,6 +299,45 @@ Deno.serve(async (req) => {
   const isAdmin = await isAdminCaller(supabase, user.id);
   const model = resolveModel(input.model, isAdmin);
   const forceReanalyse = isAdmin && !!input.forceReanalyse;
+
+  // ── action === "identify" (Click-to-Identify) — a single, on-demand,
+  // EPHEMERAL per-point request. Deliberately bypasses the whole claiming/
+  // ledger/preflight/mode machinery below (that exists to make whole-
+  // document BOQ/LOCATION batches idempotent across re-analysis; identify is
+  // not a batch, is never re-run automatically, and is never persisted —
+  // see the Click-to-Identify investigation report, decision 9: ephemeral
+  // unless persistence is demonstrably required, which it isn't here). Never
+  // writes to analysis_run/analysis_review_item/analysis_observation, never
+  // creates or edits a BOQ line, never fabricates a candidate. ─────────────
+  if (input.action === "identify") {
+    if (!OPENAI_API_KEY) return json({ ok: false, error: "AI generation is not configured on the server." }, 500);
+    if (!input.documentId) return json({ ok: false, error: "documentId is required" }, 400);
+    if (!input.page) return json({ ok: false, error: "page is required" }, 400);
+    if (!input.point) return json({ ok: false, error: "point is required" }, 400);
+
+    let file: { filename: string; bytes: Uint8Array };
+    try {
+      file = await loadSingleDocumentFile(supabase, input.projectId, input.documentId);
+    } catch (e) {
+      return json({ ok: false, error: e instanceof Error ? e.message : "Failed to load the drawing file" }, 404);
+    }
+
+    const identifyPromptText = buildIdentifyPrompt({ page: input.page, point: input.point, nearbyText: input.nearbyText ?? [] });
+    let identifyOpenAiResult;
+    try {
+      identifyOpenAiResult = await generateAnalysisViaOpenAI(OPENAI_API_KEY, model.id, identifyPromptText, [file], CUNSTRUCT_IDENTIFY_JSON_SCHEMA);
+    } catch (e) {
+      return json({ ok: false, error: e instanceof Error ? e.message : "OpenAI request failed" }, 502);
+    }
+
+    const parsedIdentify = parseIdentifyResultV1(identifyOpenAiResult.rawJson, { page: input.page, x: input.point.x, y: input.point.y });
+    if (!parsedIdentify.ok || !parsedIdentify.result) {
+      return json({ ok: false, error: "OpenAI response failed validation: " + (parsedIdentify.error ?? "unknown error") }, 502);
+    }
+
+    // No DB write — see the comment above this branch.
+    return json({ ok: true, result: parsedIdentify.result, warnings: parsedIdentify.warnings });
+  }
 
   // Omitted mode -> DEFAULT_ANALYSIS_MODE ("BOQ"), the exact backward-
   // compatibility rule: every existing caller that never sends `mode` behaves

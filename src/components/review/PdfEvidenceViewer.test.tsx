@@ -10,9 +10,10 @@
 // pdf.js itself.
 
 import { vi, describe, it, expect, beforeAll } from "vitest";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { render, screen, fireEvent, within, waitFor } from "@testing-library/react";
 import PdfEvidenceViewer from "./PdfEvidenceViewer";
 import type { AnalysisSource, ClaimType } from "@/lib/review/analysisSchemaV1";
+import type { DrawingMarker } from "@/lib/review/drawingMarkers";
 
 vi.mock("pdfjs-dist/build/pdf.worker.min?url", () => ({ default: "worker-url" }));
 
@@ -473,5 +474,76 @@ describe("PdfEvidenceViewer — marker mode (Category/Type/Instance annotation l
     fireEvent.click(screen.getByTitle("Next page")); // 3 -> 4, no markers there
     expect(await screen.findByText(`4 / ${NUM_PAGES}`)).toBeInTheDocument();
     expect(await screen.findByText(/markings are on another page/)).toBeInTheDocument();
+  });
+});
+
+describe("PdfEvidenceViewer — Click-to-Identify", () => {
+  it("does nothing on click when identifyModeActive is not set — zero behavior change for every existing caller", async () => {
+    const onIdentifyPoint = vi.fn();
+    render(<PdfEvidenceViewer fileUrl="https://signed.example/drawing.pdf" source={source} onIdentifyPoint={onIdentifyPoint} />);
+    const overlay = await screen.findByTestId("evidence-overlays");
+    fireEvent.click(overlay, { clientX: 50, clientY: 50 });
+    expect(onIdentifyPoint).not.toHaveBeenCalled();
+  });
+
+  it("reports a page-space point when identifyModeActive and the click lands on empty canvas", async () => {
+    const onIdentifyPoint = vi.fn();
+    render(<PdfEvidenceViewer fileUrl="https://signed.example/drawing.pdf" source={source} identifyModeActive onIdentifyPoint={onIdentifyPoint} />);
+    await screen.findByText(`5 / ${NUM_PAGES}`); // source.page default — confirms rendering has settled
+    const overlay = await screen.findByTestId("evidence-overlays");
+    fireEvent.click(overlay, { clientX: 50, clientY: 50 });
+    await waitFor(() => expect(onIdentifyPoint).toHaveBeenCalled());
+    const [args] = onIdentifyPoint.mock.calls[0];
+    expect(args.page).toBe(5);
+    expect(typeof args.point.x).toBe("number");
+    expect(typeof args.point.y).toBe("number");
+    // The mocked pdf.js page has no text content — an honest empty list,
+    // never fabricated nearby text.
+    expect(args.nearbyText).toEqual([]);
+  });
+
+  it("does not fire identify when the click bubbled from an existing marker — marker-click behavior is unaffected", async () => {
+    const onIdentifyPoint = vi.fn();
+    const onSelectMarker = vi.fn();
+    const markers: DrawingMarker[] = [{
+      id: "m1", reviewItemId: "i1", category: "Windows", kind: "instance",
+      box: { bbox: [10, 10, 50, 50], page: 5 }, page: 5, label: "W1", emphasis: "primary",
+    }];
+    render(
+      <PdfEvidenceViewer
+        fileUrl="https://signed.example/drawing.pdf" source={source} markers={markers} onSelectMarker={onSelectMarker}
+        identifyModeActive onIdentifyPoint={onIdentifyPoint}
+      />,
+    );
+    const markerBtn = await screen.findByTitle("W1");
+    fireEvent.click(markerBtn);
+    expect(onSelectMarker).toHaveBeenCalledWith("m1");
+    expect(onIdentifyPoint).not.toHaveBeenCalled();
+  });
+
+  it("renders a click-point highlight on the current page when identifyHighlight is set", async () => {
+    render(
+      <PdfEvidenceViewer
+        fileUrl="https://signed.example/drawing.pdf" source={source}
+        identifyHighlight={{ point: { page: 5, x: 100, y: 100 }, evidence: [{ bbox: [90, 90, 110, 110], page: 5 }] }}
+      />,
+    );
+    await screen.findByText(`5 / ${NUM_PAGES}`);
+    const overlay = await screen.findByTestId("evidence-overlays");
+    // The highlight dot has no accessible text; assert via its distinct
+    // violet styling instead of a role/text query.
+    expect(overlay.querySelector(".border-violet-600")).not.toBeNull();
+  });
+
+  it("does not render an identify highlight for a different page than the one currently shown", async () => {
+    render(
+      <PdfEvidenceViewer
+        fileUrl="https://signed.example/drawing.pdf" source={source}
+        identifyHighlight={{ point: { page: 2, x: 100, y: 100 } }}
+      />,
+    );
+    await screen.findByText(`5 / ${NUM_PAGES}`); // still on page 5 — highlight is for page 2
+    const overlay = await screen.findByTestId("evidence-overlays");
+    expect(overlay.querySelector(".border-violet-600")).toBeNull();
   });
 });
