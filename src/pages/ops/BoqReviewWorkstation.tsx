@@ -47,6 +47,7 @@ import AiApiPanel from "@/components/review/AiApiPanel";
 import AiStateBadge from "@/components/review/AiStateBadge";
 import IdentifyResultPanel from "@/components/review/IdentifyResultPanel";
 import FindSimilarResultPanel, { type FindSimilarMatchState } from "@/components/review/FindSimilarResultPanel";
+import { enrichMatchesWithLocation } from "@/lib/review/findSimilarLocationEnrichment";
 import { identifyAtPoint } from "@/lib/ai/identifyClient";
 import { findSimilar } from "@/lib/ai/findSimilarClient";
 import type { IdentificationCandidateV1 } from "@/lib/review/identifySchemaV1";
@@ -241,46 +242,6 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
     }
   }, [boq?.project_id]);
 
-  // Find Similar — builds DIRECTLY on the confirmed candidate (never an
-  // unconfirmed guess): label is the reviewer's own confirmed label (which
-  // may differ from the AI's original if they used Change), description/
-  // evidence come from the original candidate the confirmation applies to.
-  // Reuses findSimilarClient.ts verbatim — no edge-function logic duplicated
-  // here. Never creates a BOQ item, a quantity, or any persisted row;
-  // Confirm/Reject on an individual match (wired below) are local state
-  // only, same ephemeral discipline as identify's own Confirm/Change/Dismiss.
-  const handleFindSimilar = useCallback(async () => {
-    if (!identifyConfirmed || !identifyDocumentId || !boq?.project_id) return;
-    const candidate = identifyCandidates[identifyConfirmed.index];
-    if (!candidate) return;
-
-    setFindSimilarActive(true);
-    setFindSimilarStatus("loading");
-    setFindSimilarError(null);
-    setFindSimilarMatches([]);
-    try {
-      const res = await findSimilar({
-        projectId: boq.project_id,
-        documentId: identifyDocumentId,
-        reference: {
-          label: identifyConfirmed.label,
-          ...(candidate.description ? { description: candidate.description } : {}),
-          evidence: candidate.evidence,
-        },
-      });
-      if (!res.ok || !res.result) {
-        setFindSimilarStatus("error");
-        setFindSimilarError(res.error ?? "Couldn't search the document. Please try again.");
-        return;
-      }
-      setFindSimilarMatches(res.result.matches.map((m, i) => ({ ...m, id: `similar-${i}`, status: "pending" as const })));
-      setFindSimilarStatus("success");
-    } catch (e) {
-      setFindSimilarStatus("error");
-      setFindSimilarError(e instanceof Error ? e.message : "Couldn't search the document. Please try again.");
-    }
-  }, [identifyConfirmed, identifyCandidates, identifyDocumentId, boq?.project_id]);
-
   // Load the latest run for this BOQ, if any.
   useEffect(() => {
     let alive = true;
@@ -398,6 +359,56 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
       return Object.fromEntries(entries);
     },
   });
+
+  // Find Similar — builds DIRECTLY on the confirmed candidate (never an
+  // unconfirmed guess): label is the reviewer's own confirmed label (which
+  // may differ from the AI's original if they used Change), description/
+  // evidence come from the original candidate the confirmation applies to.
+  // Reuses findSimilarClient.ts verbatim — no edge-function logic duplicated
+  // here. Never creates a BOQ item, a quantity, or any persisted row;
+  // Confirm/Reject on an individual match (wired below) are local state
+  // only, same ephemeral discipline as identify's own Confirm/Change/Dismiss.
+  // Declared here (after observationsByDoc) rather than alongside the rest
+  // of the identify state above, since its LOCATION enrichment step (M5)
+  // reads that query's result.
+  const handleFindSimilar = useCallback(async () => {
+    if (!identifyConfirmed || !identifyDocumentId || !boq?.project_id) return;
+    const candidate = identifyCandidates[identifyConfirmed.index];
+    if (!candidate) return;
+
+    setFindSimilarActive(true);
+    setFindSimilarStatus("loading");
+    setFindSimilarError(null);
+    setFindSimilarMatches([]);
+    try {
+      const res = await findSimilar({
+        projectId: boq.project_id,
+        documentId: identifyDocumentId,
+        reference: {
+          label: identifyConfirmed.label,
+          ...(candidate.description ? { description: candidate.description } : {}),
+          evidence: candidate.evidence,
+        },
+      });
+      if (!res.ok || !res.result) {
+        setFindSimilarStatus("error");
+        setFindSimilarError(res.error ?? "Couldn't search the document. Please try again.");
+        return;
+      }
+      // LOCATION enrichment (M5) — purely informational, never a
+      // prerequisite: reuses the SAME observationsByDoc data already
+      // fetched reviewer-accessibly for the existing instance-display
+      // feature (no new network call), and never adds, removes, or
+      // reorders a match — see findSimilarLocationEnrichment.ts.
+      const locationObservations = identifyDocumentId ? (observationsByDoc[identifyDocumentId] ?? []) : [];
+      const enrichment = enrichMatchesWithLocation(res.result.matches, locationObservations);
+      setFindSimilarMatches(res.result.matches.map((m, i) => ({ ...m, id: `similar-${i}`, status: "pending" as const, location: enrichment[i] })));
+      setFindSimilarStatus("success");
+    } catch (e) {
+      setFindSimilarStatus("error");
+      setFindSimilarError(e instanceof Error ? e.message : "Couldn't search the document. Please try again.");
+    }
+  }, [identifyConfirmed, identifyCandidates, identifyDocumentId, boq?.project_id, observationsByDoc]);
 
   const instancesByItemId = useMemo(() => {
     const map = new Map<string, TypeInstance[]>();

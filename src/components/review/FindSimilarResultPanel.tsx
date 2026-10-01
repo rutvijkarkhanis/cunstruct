@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, Check, X, Layers } from "lucide-react";
 import AiStateBadge from "@/components/review/AiStateBadge";
 import type { SimilarMatchV1 } from "@/lib/review/findSimilarSchemaV1";
+import type { LocationEnrichment } from "@/lib/review/findSimilarLocationEnrichment";
 
 /** A server-reported match plus purely local confirmation state — the
  *  server's own SimilarMatchV1 is never mutated or re-shaped, only
@@ -31,6 +32,11 @@ export interface FindSimilarMatchState extends SimilarMatchV1 {
    *  correlation. */
   id: string;
   status: "pending" | "confirmed" | "rejected";
+  /** Optional LOCATION enrichment (M5) — purely informational, computed
+   *  once when the result arrives; never changes which matches exist or
+   *  how many there are. Absent (or null) is the normal case and renders
+   *  nothing extra — the same as before this existed. */
+  location?: LocationEnrichment | null;
 }
 
 export interface FindSimilarResultPanelProps {
@@ -84,6 +90,11 @@ export default function FindSimilarResultPanel({ status, error, matches, onConfi
             </div>
             <div className="text-sm font-medium">{m.label}</div>
             {m.description && <p className="text-xs text-muted-foreground">{m.description}</p>}
+            {m.location && (
+              <p className="text-[10px] text-muted-foreground">
+                Matches recorded mark "{m.location.mark}"{m.location.count > 1 ? ` (${m.location.count} known instances)` : ""}
+              </p>
+            )}
 
             {m.status === "confirmed" ? (
               <div className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400 font-medium">

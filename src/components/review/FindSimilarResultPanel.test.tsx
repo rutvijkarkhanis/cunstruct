@@ -94,4 +94,34 @@ describe("FindSimilarResultPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Exit" }));
     expect(onExit).toHaveBeenCalled();
   });
+
+  it("shows a LOCATION enrichment annotation inline on a match when present (M5), never as a separate section", () => {
+    render(
+      <FindSimilarResultPanel
+        status="success" error={null}
+        matches={[{ ...MATCH_A, location: { mark: "D1", count: 1 } }, MATCH_B]}
+        onConfirm={vi.fn()} onReject={vi.fn()} onExit={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/Matches recorded mark "D1"/)).toBeInTheDocument();
+    // MATCH_B has no enrichment — no annotation line for it, and nothing
+    // global/new was added (no heading, no extra section).
+    expect(screen.queryByText(/Location/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the known-instance count only when there is more than one, never inventing a number", () => {
+    render(
+      <FindSimilarResultPanel
+        status="success" error={null}
+        matches={[{ ...MATCH_A, location: { mark: "D1", count: 3 } }]}
+        onConfirm={vi.fn()} onReject={vi.fn()} onExit={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/3 known instances/)).toBeInTheDocument();
+  });
+
+  it("renders no enrichment annotation when location is absent or null", () => {
+    render(<FindSimilarResultPanel status="success" error={null} matches={[MATCH_A]} onConfirm={vi.fn()} onReject={vi.fn()} onExit={vi.fn()} />);
+    expect(screen.queryByText(/Matches recorded mark/)).not.toBeInTheDocument();
+  });
 });
