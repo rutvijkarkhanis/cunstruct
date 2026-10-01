@@ -1,72 +1,75 @@
-// SOURCES RAIL — Phase 11 Stage B. Reuses the EXISTING project_document /
-// document_revision data model verbatim (the same tables ProjectDocuments.tsx
-// already owns) — this component only READS and groups them for selection;
-// all upload/rename/delete/folder CRUD stays on the existing Documents page,
-// reached here through a single "Manage" link rather than being rebuilt.
+// SOURCES RAIL — Phase 11 Stage B/C2. Reuses the EXISTING project_document /
+// document_revision data model, now through the SAME shared
+// useDocumentManagement hook the Documents page and the source-management
+// drawer both consume — never a second, independent read path for the same
+// data. The drawer (opened via "+ Add source") carries the actual
+// upload/folder/delete/revision CRUD; this rail only reads and selects.
 //
 // Compact, Phase-9/10-styled list (border-l accent on the active row, same
 // convention as BoqReviewWorkstation's type/category rows) — not a card grid,
 // not a dashboard table.
 
-import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
-import { FileText, Settings, Upload } from "lucide-react";
+import { FileText, Plus, Settings, Upload } from "lucide-react";
 import { groupSourcesByDiscipline, type SourceDocument } from "@/lib/review/workspaceSources";
+import { useDocumentManagement } from "@/hooks/useDocumentManagement";
 
 export interface WorkspaceSourcesProps {
   projectId: string;
   activeDocumentId: string | null;
   onSelectDocument: (documentId: string) => void;
+  onManageSources: () => void;
 }
 
-export default function WorkspaceSources({ projectId, activeDocumentId, onSelectDocument }: WorkspaceSourcesProps) {
-  const { data: documents, isLoading } = useQuery({
-    queryKey: ["workspace-sources", projectId],
-    enabled: !!projectId,
-    queryFn: async (): Promise<SourceDocument[]> => {
-      const { data: docs } = await supabase.from("project_document")
-        .select("id, name, doc_type, discipline, status, current_revision_id")
-        .eq("project_id", projectId).order("created_at");
-      // Resolve each document's CURRENT revision's page count, if any —
-      // never a different/older revision, matching the same current-
-      // revision convention ProjectDocuments.tsx and drawingStorage.ts use.
-      const revIds = (docs ?? []).map((d) => d.current_revision_id).filter((x): x is string => !!x);
-      const { data: currentRevs } = revIds.length
-        ? await supabase.from("document_revision").select("id, page_count").in("id", revIds)
-        : { data: [] as { id: string; page_count: number | null }[] };
-      const pageCountByRevId = new Map((currentRevs ?? []).map((r) => [r.id, r.page_count]));
-      return (docs ?? []).map((d) => ({
-        id: d.id as string,
-        name: d.name as string,
-        docType: (d.doc_type as string | null) ?? null,
-        discipline: (d.discipline as string | null) ?? null,
-        status: (d.status as string) ?? "uploaded",
-        pageCount: d.current_revision_id ? pageCountByRevId.get(d.current_revision_id as string) ?? null : null,
-      }));
-    },
-  });
+export default function WorkspaceSources({ projectId, activeDocumentId, onSelectDocument, onManageSources }: WorkspaceSourcesProps) {
+  const dm = useDocumentManagement(projectId);
+  const isLoading = dm.docs === undefined;
 
-  const groups = groupSourcesByDiscipline(documents ?? []);
+  // Resolve each document's CURRENT revision's page count, if any — never a
+  // different/older revision, matching the same current-revision convention
+  // ProjectDocuments.tsx and drawingStorage.ts use.
+  const sourceDocuments: SourceDocument[] = (dm.docs ?? []).map((d) => {
+    const current = dm.revsFor(d.id).find((r) => r.id === d.current_revision_id);
+    return {
+      id: d.id,
+      name: d.name,
+      docType: d.doc_type,
+      discipline: d.discipline,
+      status: d.status ?? "uploaded",
+      pageCount: current?.page_count ?? null,
+    };
+  });
+  const groups = groupSourcesByDiscipline(sourceDocuments);
   const manageHref = `/ops/projects/${projectId}/documents`;
 
   return (
     <div className="flex flex-col w-full h-full min-h-0 border-r bg-card">
-      <div className="px-3 py-2.5 border-b flex items-center justify-between shrink-0">
+      <div className="px-3 py-2.5 border-b flex items-center justify-between shrink-0 gap-1">
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Sources</span>
-        <Link to={manageHref} className="text-muted-foreground hover:text-foreground transition-colors" title="Manage documents" aria-label="Manage documents">
-          <Settings className="w-3.5 h-3.5" />
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onManageSources}
+            className="text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1 text-xs font-medium"
+            title="Add source"
+            aria-label="Add source"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add source
+          </button>
+          <Link to={manageHref} className="text-muted-foreground hover:text-foreground transition-colors" title="Open full Documents page" aria-label="Open full Documents page">
+            <Settings className="w-3.5 h-3.5" />
+          </Link>
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto p-2 space-y-3 min-h-0">
         {isLoading && <div className="text-xs text-muted-foreground px-1 py-1">Loading…</div>}
         {!isLoading && groups.length === 0 && (
           <div className="text-xs text-muted-foreground px-1 py-2 space-y-2">
             <p>No drawings uploaded yet.</p>
-            <Link to={manageHref} className="inline-flex items-center gap-1 text-primary hover:underline">
+            <button type="button" onClick={onManageSources} className="inline-flex items-center gap-1 text-primary hover:underline">
               <Upload className="w-3 h-3" /> Upload a drawing
-            </Link>
+            </button>
           </div>
         )}
         {groups.map((g) => (
