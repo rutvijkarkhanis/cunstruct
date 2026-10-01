@@ -12,7 +12,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Check, Pencil, X, Crosshair } from "lucide-react";
+import { Loader2, Check, Pencil, X, Crosshair, Search } from "lucide-react";
 import AiStateBadge from "@/components/review/AiStateBadge";
 import type { IdentificationCandidateV1 } from "@/lib/review/identifySchemaV1";
 
@@ -33,10 +33,16 @@ export interface IdentifyResultPanelProps {
   onDismiss: () => void;
   /** Leaves Identify mode entirely, restoring the normal inspector. */
   onExit: () => void;
+  /** Search the rest of the document for other occurrences of the confirmed
+   *  candidate's element type. Optional and additive — omitted, the
+   *  confirmed state renders exactly as it did before this existed. Only
+   *  ever shown once a candidate is confirmed: Find Similar builds on a
+   *  confirmed identification, never an unconfirmed guess. */
+  onFindSimilar?: () => void;
 }
 
 export default function IdentifyResultPanel({
-  loading, error, hasPoint, candidates, confirmed, onConfirm, onChangeLabel, onDismiss, onExit,
+  loading, error, hasPoint, candidates, confirmed, onConfirm, onChangeLabel, onDismiss, onExit, onFindSimilar,
 }: IdentifyResultPanelProps) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -100,8 +106,15 @@ export default function IdentifyResultPanel({
             {c.description && !isEditing && <p className="text-xs text-muted-foreground">{c.description}</p>}
 
             {isConfirmed ? (
-              <div className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400 font-medium">
-                <Check className="w-3.5 h-3.5" /> Confirmed as "{confirmed.label}"
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400 font-medium">
+                  <Check className="w-3.5 h-3.5" /> Confirmed as "{confirmed.label}"
+                </div>
+                {onFindSimilar && (
+                  <Button size="sm" variant="outline" className="h-7 gap-1" onClick={onFindSimilar}>
+                    <Search className="w-3.5 h-3.5" /> Find Similar
+                  </Button>
+                )}
               </div>
             ) : !isEditing && (
               <div className="flex items-center gap-1.5">

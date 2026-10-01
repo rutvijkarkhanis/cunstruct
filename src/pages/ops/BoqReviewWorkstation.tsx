@@ -46,7 +46,9 @@ import DocumentSelector from "@/components/review/DocumentSelector";
 import AiApiPanel from "@/components/review/AiApiPanel";
 import AiStateBadge from "@/components/review/AiStateBadge";
 import IdentifyResultPanel from "@/components/review/IdentifyResultPanel";
+import FindSimilarResultPanel, { type FindSimilarMatchState } from "@/components/review/FindSimilarResultPanel";
 import { identifyAtPoint } from "@/lib/ai/identifyClient";
+import { findSimilar } from "@/lib/ai/findSimilarClient";
 import type { IdentificationCandidateV1 } from "@/lib/review/identifySchemaV1";
 
 const FLAG_REASONS: { key: FlagReason; label: string }[] = [
@@ -175,17 +177,40 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
   // new click or on exiting the mode.
   const [identifyModeActive, setIdentifyModeActive] = useState(false);
   const [identifyPoint, setIdentifyPoint] = useState<{ page: number; x: number; y: number } | null>(null);
+  // The exact document the current identify click/candidate resolved
+  // against — stored at click time (not re-derived from `current` later)
+  // so Find Similar always searches the SAME document the confirmed
+  // candidate actually came from, even if the reviewer navigates to a
+  // different item while Identify mode is still active.
+  const [identifyDocumentId, setIdentifyDocumentId] = useState<string | null>(null);
   const [identifyLoading, setIdentifyLoading] = useState(false);
   const [identifyError, setIdentifyError] = useState<string | null>(null);
   const [identifyCandidates, setIdentifyCandidates] = useState<IdentificationCandidateV1[]>([]);
   const [identifyConfirmed, setIdentifyConfirmed] = useState<{ index: number; label: string } | null>(null);
 
+  // Find Similar — built directly on a CONFIRMED identification; see
+  // handleFindSimilar below. Equally ephemeral: nothing here is persisted,
+  // and it resets alongside the identify state above on every new click or
+  // on exiting Identify mode entirely (see exitIdentifyMode/handleIdentifyPoint).
+  const [findSimilarActive, setFindSimilarActive] = useState(false);
+  const [findSimilarStatus, setFindSimilarStatus] = useState<"loading" | "success" | "error">("loading");
+  const [findSimilarError, setFindSimilarError] = useState<string | null>(null);
+  const [findSimilarMatches, setFindSimilarMatches] = useState<FindSimilarMatchState[]>([]);
+
+  const resetFindSimilar = () => {
+    setFindSimilarActive(false);
+    setFindSimilarError(null);
+    setFindSimilarMatches([]);
+  };
+
   const exitIdentifyMode = () => {
     setIdentifyModeActive(false);
     setIdentifyPoint(null);
+    setIdentifyDocumentId(null);
     setIdentifyError(null);
     setIdentifyCandidates([]);
     setIdentifyConfirmed(null);
+    resetFindSimilar();
   };
 
   const handleIdentifyPoint = useCallback(async (args: { page: number; point: { x: number; y: number }; nearbyText: string[]; documentId: string | null }) => {
@@ -194,10 +219,12 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
       return;
     }
     setIdentifyPoint({ page: args.page, x: args.point.x, y: args.point.y });
+    setIdentifyDocumentId(args.documentId);
     setIdentifyConfirmed(null);
     setIdentifyCandidates([]);
     setIdentifyError(null);
     setIdentifyLoading(true);
+    resetFindSimilar();
     try {
       const res = await identifyAtPoint({
         projectId: boq.project_id, documentId: args.documentId, page: args.page, point: args.point, nearbyText: args.nearbyText,
@@ -213,6 +240,46 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
       setIdentifyLoading(false);
     }
   }, [boq?.project_id]);
+
+  // Find Similar — builds DIRECTLY on the confirmed candidate (never an
+  // unconfirmed guess): label is the reviewer's own confirmed label (which
+  // may differ from the AI's original if they used Change), description/
+  // evidence come from the original candidate the confirmation applies to.
+  // Reuses findSimilarClient.ts verbatim — no edge-function logic duplicated
+  // here. Never creates a BOQ item, a quantity, or any persisted row;
+  // Confirm/Reject on an individual match (wired below) are local state
+  // only, same ephemeral discipline as identify's own Confirm/Change/Dismiss.
+  const handleFindSimilar = useCallback(async () => {
+    if (!identifyConfirmed || !identifyDocumentId || !boq?.project_id) return;
+    const candidate = identifyCandidates[identifyConfirmed.index];
+    if (!candidate) return;
+
+    setFindSimilarActive(true);
+    setFindSimilarStatus("loading");
+    setFindSimilarError(null);
+    setFindSimilarMatches([]);
+    try {
+      const res = await findSimilar({
+        projectId: boq.project_id,
+        documentId: identifyDocumentId,
+        reference: {
+          label: identifyConfirmed.label,
+          ...(candidate.description ? { description: candidate.description } : {}),
+          evidence: candidate.evidence,
+        },
+      });
+      if (!res.ok || !res.result) {
+        setFindSimilarStatus("error");
+        setFindSimilarError(res.error ?? "Couldn't search the document. Please try again.");
+        return;
+      }
+      setFindSimilarMatches(res.result.matches.map((m, i) => ({ ...m, id: `similar-${i}`, status: "pending" as const })));
+      setFindSimilarStatus("success");
+    } catch (e) {
+      setFindSimilarStatus("error");
+      setFindSimilarError(e instanceof Error ? e.message : "Couldn't search the document. Please try again.");
+    }
+  }, [identifyConfirmed, identifyCandidates, identifyDocumentId, boq?.project_id]);
 
   // Load the latest run for this BOQ, if any.
   useEffect(() => {
@@ -692,6 +759,7 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
                 identifyModeActive={identifyModeActive}
                 onIdentifyPoint={handleIdentifyPoint}
                 identifyHighlight={identifyPoint ? { point: identifyPoint, evidence: identifyCandidates[0]?.evidence } : null}
+                similarMatches={findSimilarActive ? findSimilarMatches : null}
                 onSelectMarker={(id) => {
                   const marker = drawingMarkers.find((m) => m.id === id);
                   if (!marker) return;
@@ -719,17 +787,29 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
                 pair would break every exact-name button query in its tests. */}
             <div className="mt-3 lg:mt-0 lg:w-80 lg:shrink-0 lg:h-full lg:overflow-y-auto lg:rounded-lg lg:border lg:bg-card lg:p-3">
               {identifyModeActive ? (
-                <IdentifyResultPanel
-                  loading={identifyLoading}
-                  error={identifyError}
-                  hasPoint={identifyPoint != null}
-                  candidates={identifyCandidates}
-                  confirmed={identifyConfirmed}
-                  onConfirm={(_candidate, index) => setIdentifyConfirmed({ index, label: identifyCandidates[index].label })}
-                  onChangeLabel={(_candidate, index, newLabel) => setIdentifyConfirmed({ index, label: newLabel })}
-                  onDismiss={() => { setIdentifyPoint(null); setIdentifyCandidates([]); setIdentifyError(null); setIdentifyConfirmed(null); }}
-                  onExit={exitIdentifyMode}
-                />
+                findSimilarActive ? (
+                  <FindSimilarResultPanel
+                    status={findSimilarStatus}
+                    error={findSimilarError}
+                    matches={findSimilarMatches}
+                    onConfirm={(_match, index) => setFindSimilarMatches((prev) => prev.map((m, i) => (i === index ? { ...m, status: "confirmed" } : m)))}
+                    onReject={(_match, index) => setFindSimilarMatches((prev) => prev.map((m, i) => (i === index ? { ...m, status: "rejected" } : m)))}
+                    onExit={exitIdentifyMode}
+                  />
+                ) : (
+                  <IdentifyResultPanel
+                    loading={identifyLoading}
+                    error={identifyError}
+                    hasPoint={identifyPoint != null}
+                    candidates={identifyCandidates}
+                    confirmed={identifyConfirmed}
+                    onConfirm={(_candidate, index) => setIdentifyConfirmed({ index, label: identifyCandidates[index].label })}
+                    onChangeLabel={(_candidate, index, newLabel) => setIdentifyConfirmed({ index, label: newLabel })}
+                    onDismiss={() => { setIdentifyPoint(null); setIdentifyCandidates([]); setIdentifyError(null); setIdentifyConfirmed(null); resetFindSimilar(); }}
+                    onExit={exitIdentifyMode}
+                    onFindSimilar={handleFindSimilar}
+                  />
+                )
               ) : (
                 <ItemPanel
                   key={current.id}
@@ -1707,7 +1787,7 @@ export function ItemPanel({
 }
 
 // ── Right panel: resolve the real drawing, else fall back to the coord plot ────
-export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, selectedClaim, markers, onSelectMarker, markerContextLabel, identifyModeActive, onIdentifyPoint, identifyHighlight }: {
+export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, selectedClaim, markers, onSelectMarker, markerContextLabel, identifyModeActive, onIdentifyPoint, identifyHighlight, similarMatches }: {
   item: StoredReviewItem; drawings: StoredDrawing[]; resolvedDocumentId?: string | null; selectedClaim?: ClaimType | null;
   markers?: DrawingMarker[]; onSelectMarker?: (id: string) => void; markerContextLabel?: string | null;
   /** Click-to-Identify (additive, backward compatible — see PdfEvidenceViewer's
@@ -1718,6 +1798,12 @@ export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, sel
   identifyModeActive?: boolean;
   onIdentifyPoint?: (args: { page: number; point: { x: number; y: number }; nearbyText: string[]; documentId: string | null }) => void;
   identifyHighlight?: { point: { page: number; x: number; y: number }; evidence?: EvidenceBox[] } | null;
+  /** Find Similar (additive, backward compatible — see PdfEvidenceViewer's
+   *  own prop doc). Passed straight through; unlike `onIdentifyPoint` there
+   *  is no documentId to fill in here since matches already carry their own
+   *  per-box page, not a document reference this component would need to
+   *  resolve. */
+  similarMatches?: { id: string; evidence: EvidenceBox[]; status: "pending" | "confirmed" | "rejected" }[] | null;
 }) {
   const resolved = useMemo(
     () => resolveItemDrawing(item.ai.source, drawings, resolvedDocumentId),
@@ -1786,6 +1872,7 @@ export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, sel
           identifyModeActive={identifyModeActive}
           onIdentifyPoint={onIdentifyPoint ? (args) => onIdentifyPoint({ ...args, documentId: resolved.documentId ?? null }) : undefined}
           identifyHighlight={identifyHighlight}
+          similarMatches={similarMatches}
         />
       </div>
     );

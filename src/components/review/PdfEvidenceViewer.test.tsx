@@ -547,3 +547,74 @@ describe("PdfEvidenceViewer — Click-to-Identify", () => {
     expect(overlay.querySelector(".border-violet-600")).toBeNull();
   });
 });
+
+describe("PdfEvidenceViewer — Find Similar matches", () => {
+  it("renders a pending match (cyan) on its own page, and does not render a match whose evidence is on a different page", async () => {
+    render(
+      <PdfEvidenceViewer
+        fileUrl="https://signed.example/drawing.pdf" source={source}
+        similarMatches={[
+          { id: "m1", status: "pending", evidence: [{ bbox: [10, 10, 20, 20], page: 5 }] },
+          { id: "m2", status: "pending", evidence: [{ bbox: [30, 30, 40, 40], page: 2 }] },
+        ]}
+      />,
+    );
+    await screen.findByText(`5 / ${NUM_PAGES}`);
+    const overlay = await screen.findByTestId("evidence-overlays");
+    // Only m1 (page 5, the page currently shown) renders — m2's box (page 2)
+    // doesn't appear until the reviewer navigates there with the existing
+    // page controls; nothing here auto-navigates.
+    expect(overlay.querySelectorAll(".border-cyan-600")).toHaveLength(1);
+  });
+
+  it("two matches on the same page remain two independent boxes, never collapsed into one", async () => {
+    render(
+      <PdfEvidenceViewer
+        fileUrl="https://signed.example/drawing.pdf" source={source}
+        similarMatches={[
+          { id: "m1", status: "pending", evidence: [{ bbox: [10, 10, 20, 20], page: 5 }] },
+          { id: "m2", status: "pending", evidence: [{ bbox: [50, 50, 60, 60], page: 5 }] },
+        ]}
+      />,
+    );
+    await screen.findByText(`5 / ${NUM_PAGES}`);
+    const overlay = await screen.findByTestId("evidence-overlays");
+    expect(overlay.querySelectorAll(".border-cyan-600")).toHaveLength(2);
+  });
+
+  it("recolors a match emerald once confirmed, and muted/dashed once rejected — a per-match status change doesn't affect the others", async () => {
+    const { rerender } = render(
+      <PdfEvidenceViewer
+        fileUrl="https://signed.example/drawing.pdf" source={source}
+        similarMatches={[
+          { id: "m1", status: "pending", evidence: [{ bbox: [10, 10, 20, 20], page: 5 }] },
+          { id: "m2", status: "pending", evidence: [{ bbox: [50, 50, 60, 60], page: 5 }] },
+        ]}
+      />,
+    );
+    await screen.findByText(`5 / ${NUM_PAGES}`);
+    let overlay = await screen.findByTestId("evidence-overlays");
+    expect(overlay.querySelectorAll(".border-cyan-600")).toHaveLength(2);
+
+    rerender(
+      <PdfEvidenceViewer
+        fileUrl="https://signed.example/drawing.pdf" source={source}
+        similarMatches={[
+          { id: "m1", status: "confirmed", evidence: [{ bbox: [10, 10, 20, 20], page: 5 }] },
+          { id: "m2", status: "rejected", evidence: [{ bbox: [50, 50, 60, 60], page: 5 }] },
+        ]}
+      />,
+    );
+    overlay = await screen.findByTestId("evidence-overlays");
+    expect(overlay.querySelectorAll(".border-emerald-600")).toHaveLength(1);
+    expect(overlay.querySelectorAll(".border-dashed")).toHaveLength(1);
+    expect(overlay.querySelectorAll(".border-cyan-600")).toHaveLength(0);
+  });
+
+  it("renders nothing for an empty similarMatches array — zero behavior change", async () => {
+    render(<PdfEvidenceViewer fileUrl="https://signed.example/drawing.pdf" source={source} similarMatches={[]} />);
+    await screen.findByText(`5 / ${NUM_PAGES}`);
+    const overlay = await screen.findByTestId("evidence-overlays");
+    expect(overlay.querySelectorAll(".border-cyan-600, .border-emerald-600")).toHaveLength(0);
+  });
+});
