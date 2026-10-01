@@ -12,9 +12,15 @@
 // what genuinely needs to be shared BETWEEN contexts: which document, which
 // page, which mode, which BOQ.
 
-export type WorkspaceMode = "drawing" | "review" | "boq" | "materials" | "procurement";
+// "documents" (Stage C4) is a one-shot entry trigger, not a sustained
+// context like review/boq/materials/procurement: it exists purely so
+// /documents can redirect here with a recognizable, parseable mode, and
+// ProjectWorkspace opens the existing source-management drawer and
+// immediately normalizes the URL back to "drawing" — never a second
+// Documents page, never a lasting URL state.
+export type WorkspaceMode = "drawing" | "documents" | "review" | "boq" | "materials" | "procurement";
 
-export const WORKSPACE_MODES: readonly WorkspaceMode[] = ["drawing", "review", "boq", "materials", "procurement"];
+export const WORKSPACE_MODES: readonly WorkspaceMode[] = ["drawing", "documents", "review", "boq", "materials", "procurement"];
 
 export function isWorkspaceMode(value: string | null | undefined): value is WorkspaceMode {
   return !!value && (WORKSPACE_MODES as readonly string[]).includes(value);

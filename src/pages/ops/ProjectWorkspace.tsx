@@ -31,6 +31,11 @@ export default function ProjectWorkspace() {
   const [searchParams, setSearchParams] = useSearchParams();
   const state = parseWorkspaceQuery(searchParams);
 
+  const updateQuery = (patch: Partial<ReturnType<typeof parseWorkspaceQuery>>) => {
+    const next = { ...state, ...patch };
+    setSearchParams(buildWorkspaceQuery(next), { replace: true });
+  };
+
   const { data: project } = useQuery({
     queryKey: ["workspace-project", projectId],
     enabled: !!projectId,
@@ -49,7 +54,11 @@ export default function ProjectWorkspace() {
   // context no longer requires an existing BOQ — must land on Context, not
   // be forced back to Sources just because nothing is open in the canvas.
   // "drawing" mode keeps its original document-driven behavior untouched.
-  const initialMobilePanel = state.mode !== "drawing" ? "context" : state.document ? "canvas" : "sources";
+  //
+  // Stage C4: mode="documents" (the /documents redirect's landing state)
+  // opens the Sources drawer rather than the Context panel — once the
+  // drawer closes, Sources (not Context) is the natural pane underneath.
+  const initialMobilePanel = state.mode === "documents" ? "sources" : state.mode !== "drawing" ? "context" : state.document ? "canvas" : "sources";
   const [mobilePanel, setMobilePanel] = useState<"sources" | "canvas" | "context">(initialMobilePanel);
   useEffect(() => {
     if (state.mode === "drawing" && !state.document) setMobilePanel("sources");
@@ -58,12 +67,21 @@ export default function ProjectWorkspace() {
   // Source-management drawer — local UI state only, never part of the URL.
   // Opening/closing it must never disturb ?document=&page=&mode=&boq=, so the
   // drawing underneath is exactly as the user left it when the drawer closes.
-  const [sourceManagerOpen, setSourceManagerOpen] = useState(false);
-
-  const updateQuery = (patch: Partial<ReturnType<typeof parseWorkspaceQuery>>) => {
-    const next = { ...state, ...patch };
-    setSearchParams(buildWorkspaceQuery(next), { replace: true });
-  };
+  //
+  // Stage C4: mode="documents" is how the old /documents route now redirects
+  // here (?mode=documents). It isn't a sustained contextual mode like
+  // boq/materials/procurement — it's a one-shot trigger that opens this same
+  // drawer, then the URL immediately normalizes back to the default
+  // ("drawing") so reloading/sharing the link doesn't re-trigger it and the
+  // URL honestly reflects that the drawer is just local UI state.
+  const [sourceManagerOpen, setSourceManagerOpen] = useState(state.mode === "documents");
+  useEffect(() => {
+    if (state.mode === "documents") {
+      setSourceManagerOpen(true);
+      updateQuery({ mode: "drawing" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.mode]);
 
   const onSelectDocument = (documentId: string) => {
     updateQuery({ document: documentId, page: null });
@@ -124,7 +142,7 @@ export default function ProjectWorkspace() {
         <WorkspaceCanvas documentId={state.document} page={state.page} />
         <div className="w-72 shrink-0 min-h-0">
           <WorkspaceContext
-            mode={state.mode === "review" ? "drawing" : state.mode}
+            mode={state.mode === "review" || state.mode === "documents" ? "drawing" : state.mode}
             projectId={projectId}
             activeDocumentId={state.document}
             activeBoqId={state.boq}
@@ -165,7 +183,7 @@ export default function ProjectWorkspace() {
               </Button>
             </div>
             <WorkspaceContext
-              mode={state.mode === "review" ? "drawing" : state.mode}
+              mode={state.mode === "review" || state.mode === "documents" ? "drawing" : state.mode}
               projectId={projectId}
               activeDocumentId={state.document}
               activeBoqId={state.boq}

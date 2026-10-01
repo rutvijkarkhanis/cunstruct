@@ -91,6 +91,13 @@ export default function WorkspaceBoqPanel({ projectId, activeBoqId, onEnterMode 
         />
       )}
 
+      {/* Stage C4: rename/reorder/delete/share-as-PDF/import/generate-from-
+          JSON/move-into-project never moved into this compact panel — they
+          stay on the dedicated management page, always one link away. */}
+      <Link to={`/ops/projects/${projectId}/boqs/manage`} className="text-[11px] text-muted-foreground hover:text-foreground inline-block">
+        Manage all BOQs (rename, reorder, import, share…)
+      </Link>
+
       <CreateBoqDialog
         open={createOpen}
         onOpenChange={setCreateOpen}

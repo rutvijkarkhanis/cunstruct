@@ -161,3 +161,13 @@ describe("WorkspaceBoqPanel — creating a BOQ", () => {
     await waitFor(() => expect(onEnterMode).toHaveBeenCalledWith("boq", "new-boq-id"));
   });
 });
+
+describe("WorkspaceBoqPanel — Stage C4: advanced management stays reachable", () => {
+  beforeEach(() => { boqs = []; Object.keys(inserted).forEach((k) => delete inserted[k]); });
+
+  it("links to the dedicated management page for rename/reorder/delete/share/import/move — capabilities this compact panel never took on", async () => {
+    renderPanel(null);
+    const link = await screen.findByText(/Manage all BOQs/);
+    expect(link.closest("a")).toHaveAttribute("href", "/ops/projects/proj-1/boqs/manage");
+  });
+});

@@ -69,10 +69,10 @@ describe("WorkspaceSources", () => {
     expect(otherRow.className).not.toContain("font-semibold");
   });
 
-  it("exposes a link to the existing Documents page as a rollback path, alongside the new drawer", async () => {
+  it("Stage C4 — no longer links out to a separate Documents page (that route now redirects back into this same drawer)", async () => {
     renderRail(null);
-    const manageLink = await screen.findByLabelText("Open full Documents page");
-    expect(manageLink).toHaveAttribute("href", "/ops/projects/proj-1/documents");
+    await screen.findByText("Ground Floor Plan");
+    expect(screen.queryByLabelText("Open full Documents page")).not.toBeInTheDocument();
   });
 
   it("Stage C2 — clicking '+ Add source' opens the source-management drawer rather than navigating away", async () => {
