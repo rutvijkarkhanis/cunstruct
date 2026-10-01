@@ -20,9 +20,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
-  ArrowLeft, Check, Pencil, Flag, Clock, ChevronLeft, ChevronRight, Upload, Cpu, FileText, ChevronDown, ChevronUp, AlertTriangle, Link2, MoreHorizontal, Info, X,
+  ArrowLeft, Check, Pencil, Flag, Clock, ChevronLeft, ChevronRight, Upload, Cpu, FileText, ChevronDown, ChevronUp, AlertTriangle, Link2, MoreHorizontal, Info, X, Crosshair,
 } from "lucide-react";
-import { parseAnalysisV1, type ClaimType } from "@/lib/review/analysisSchemaV1";
+import { parseAnalysisV1, type ClaimType, type EvidenceBox } from "@/lib/review/analysisSchemaV1";
 import {
   orderQueue, reviewSummary, isCritical, criticalReasons, effectiveQuantity, diffItem, quantityDelta, LOW_CONFIDENCE,
   type ReviewStatus, type FlagReason, type ReviewerValues, type ReviewSummary,
@@ -45,6 +45,9 @@ import PdfEvidenceViewer from "@/components/review/PdfEvidenceViewer";
 import DocumentSelector from "@/components/review/DocumentSelector";
 import AiApiPanel from "@/components/review/AiApiPanel";
 import AiStateBadge from "@/components/review/AiStateBadge";
+import IdentifyResultPanel from "@/components/review/IdentifyResultPanel";
+import { identifyAtPoint } from "@/lib/ai/identifyClient";
+import type { IdentificationCandidateV1 } from "@/lib/review/identifySchemaV1";
 
 const FLAG_REASONS: { key: FlagReason; label: string }[] = [
   { key: "DRAWING_UNCLEAR", label: "Drawing unclear" },
@@ -163,6 +166,53 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
   // within whichever of these is active, rather than being a fourth mode.
   const [drawingMode, setDrawingMode] = useState<"type" | "category" | "all">("type");
   const [selectedCategory, setSelectedCategory] = useState<ElementCategory | null>(null);
+
+  // Click-to-Identify — fully isolated from the state above: it never
+  // changes drawingMode/selectedCategory/focusedInstanceId/cursor, and
+  // leaving it restores whatever those already were. Ephemeral by design
+  // (see the Click-to-Identify investigation report, decision 9): nothing
+  // here is persisted; `identifyResult`/`identifyConfirmed` reset on every
+  // new click or on exiting the mode.
+  const [identifyModeActive, setIdentifyModeActive] = useState(false);
+  const [identifyPoint, setIdentifyPoint] = useState<{ page: number; x: number; y: number } | null>(null);
+  const [identifyLoading, setIdentifyLoading] = useState(false);
+  const [identifyError, setIdentifyError] = useState<string | null>(null);
+  const [identifyCandidates, setIdentifyCandidates] = useState<IdentificationCandidateV1[]>([]);
+  const [identifyConfirmed, setIdentifyConfirmed] = useState<{ index: number; label: string } | null>(null);
+
+  const exitIdentifyMode = () => {
+    setIdentifyModeActive(false);
+    setIdentifyPoint(null);
+    setIdentifyError(null);
+    setIdentifyCandidates([]);
+    setIdentifyConfirmed(null);
+  };
+
+  const handleIdentifyPoint = useCallback(async (args: { page: number; point: { x: number; y: number }; nearbyText: string[]; documentId: string | null }) => {
+    if (!args.documentId || !boq?.project_id) {
+      setIdentifyError("This drawing isn't linked to a stored document yet, so it can't be identified.");
+      return;
+    }
+    setIdentifyPoint({ page: args.page, x: args.point.x, y: args.point.y });
+    setIdentifyConfirmed(null);
+    setIdentifyCandidates([]);
+    setIdentifyError(null);
+    setIdentifyLoading(true);
+    try {
+      const res = await identifyAtPoint({
+        projectId: boq.project_id, documentId: args.documentId, page: args.page, point: args.point, nearbyText: args.nearbyText,
+      });
+      if (!res.ok || !res.result) {
+        setIdentifyError(res.error ?? "Couldn't identify this point. Please try again.");
+        return;
+      }
+      setIdentifyCandidates(res.result.candidates);
+    } catch (e) {
+      setIdentifyError(e instanceof Error ? e.message : "Couldn't identify this point. Please try again.");
+    } finally {
+      setIdentifyLoading(false);
+    }
+  }, [boq?.project_id]);
 
   // Load the latest run for this BOQ, if any.
   useEffect(() => {
@@ -529,6 +579,15 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
         </button>
 
         <div className="ml-auto flex items-center gap-1">
+          {/* Click-to-Identify — a toggle, not a navigation action; entering/
+              exiting never disturbs drawingMode/selectedCategory/cursor. */}
+          <Button
+            variant={identifyModeActive ? "default" : "ghost"} size="sm" className="h-8 gap-1.5"
+            onClick={() => (identifyModeActive ? exitIdentifyMode() : setIdentifyModeActive(true))}
+            title="Click a point on the drawing to identify what's there"
+          >
+            <Crosshair className="w-4 h-4" /><span className="hidden sm:inline">Identify</span>
+          </Button>
           {/* Apply is the completion action, not a peer of the other controls
               on this bar — quiet text while items remain, a real primary
               button once the review pass is actually done (Section 13). */}
@@ -630,6 +689,9 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
                 selectedClaim={selectedClaim}
                 markers={drawingMarkers}
                 markerContextLabel={markerContextLabel}
+                identifyModeActive={identifyModeActive}
+                onIdentifyPoint={handleIdentifyPoint}
+                identifyHighlight={identifyPoint ? { point: identifyPoint, evidence: identifyCandidates[0]?.evidence } : null}
                 onSelectMarker={(id) => {
                   const marker = drawingMarkers.find((m) => m.id === id);
                   if (!marker) return;
@@ -656,26 +718,40 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
                 classes on its wrapper only) — a duplicated mobile/desktop
                 pair would break every exact-name button query in its tests. */}
             <div className="mt-3 lg:mt-0 lg:w-80 lg:shrink-0 lg:h-full lg:overflow-y-auto lg:rounded-lg lg:border lg:bg-card lg:p-3">
-              <ItemPanel
-                key={current.id}
-                item={current}
-                index={ordered.indexOf(current)}
-                count={ordered.length}
-                category={categoryGroups.find((g) => g.types.some((t) => t.reviewItem.id === current.id))?.category ?? "Other"}
-                instances={currentInstances}
-                focusedInstanceId={focusedInstanceId}
-                onFocusInstance={(id) => { setFocusedInstanceId(id); setSelectedClaim(null); }}
-                onVerify={() => applyDecision("VERIFIED")}
-                onEdit={(reviewer) => applyDecision("EDITED", { reviewer })}
-                onFlag={(flagReason, note) => applyDecision("FLAGGED", { flagReason, note })}
-                onPending={() => applyDecision("MARKED_PENDING")}
-                onPrev={() => go(-1)}
-                onNext={() => go(1)}
-                keyboardEnabled
-                onSelectClaim={(c) => { setSelectedClaim(c); setFocusedInstanceId(null); }}
-                drawings={drawings}
-                resolvedDocumentId={resolvedDocumentId}
-              />
+              {identifyModeActive ? (
+                <IdentifyResultPanel
+                  loading={identifyLoading}
+                  error={identifyError}
+                  hasPoint={identifyPoint != null}
+                  candidates={identifyCandidates}
+                  confirmed={identifyConfirmed}
+                  onConfirm={(_candidate, index) => setIdentifyConfirmed({ index, label: identifyCandidates[index].label })}
+                  onChangeLabel={(_candidate, index, newLabel) => setIdentifyConfirmed({ index, label: newLabel })}
+                  onDismiss={() => { setIdentifyPoint(null); setIdentifyCandidates([]); setIdentifyError(null); setIdentifyConfirmed(null); }}
+                  onExit={exitIdentifyMode}
+                />
+              ) : (
+                <ItemPanel
+                  key={current.id}
+                  item={current}
+                  index={ordered.indexOf(current)}
+                  count={ordered.length}
+                  category={categoryGroups.find((g) => g.types.some((t) => t.reviewItem.id === current.id))?.category ?? "Other"}
+                  instances={currentInstances}
+                  focusedInstanceId={focusedInstanceId}
+                  onFocusInstance={(id) => { setFocusedInstanceId(id); setSelectedClaim(null); }}
+                  onVerify={() => applyDecision("VERIFIED")}
+                  onEdit={(reviewer) => applyDecision("EDITED", { reviewer })}
+                  onFlag={(flagReason, note) => applyDecision("FLAGGED", { flagReason, note })}
+                  onPending={() => applyDecision("MARKED_PENDING")}
+                  onPrev={() => go(-1)}
+                  onNext={() => go(1)}
+                  keyboardEnabled
+                  onSelectClaim={(c) => { setSelectedClaim(c); setFocusedInstanceId(null); }}
+                  drawings={drawings}
+                  resolvedDocumentId={resolvedDocumentId}
+                />
+              )}
             </div>
           </>
         )}
@@ -1631,9 +1707,17 @@ export function ItemPanel({
 }
 
 // ── Right panel: resolve the real drawing, else fall back to the coord plot ────
-export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, selectedClaim, markers, onSelectMarker, markerContextLabel }: {
+export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, selectedClaim, markers, onSelectMarker, markerContextLabel, identifyModeActive, onIdentifyPoint, identifyHighlight }: {
   item: StoredReviewItem; drawings: StoredDrawing[]; resolvedDocumentId?: string | null; selectedClaim?: ClaimType | null;
   markers?: DrawingMarker[]; onSelectMarker?: (id: string) => void; markerContextLabel?: string | null;
+  /** Click-to-Identify (additive, backward compatible — see PdfEvidenceViewer's
+   *  own prop doc). `onIdentifyPoint` here omits `documentId`; this component
+   *  fills it in from its own already-resolved drawing before calling the
+   *  caller's handler, since the caller only knows the review item, not which
+   *  real document that item's source actually resolved to. */
+  identifyModeActive?: boolean;
+  onIdentifyPoint?: (args: { page: number; point: { x: number; y: number }; nearbyText: string[]; documentId: string | null }) => void;
+  identifyHighlight?: { point: { page: number; x: number; y: number }; evidence?: EvidenceBox[] } | null;
 }) {
   const resolved = useMemo(
     () => resolveItemDrawing(item.ai.source, drawings, resolvedDocumentId),
@@ -1699,6 +1783,9 @@ export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, sel
           markers={markers}
           onSelectMarker={onSelectMarker}
           markerContextLabel={markerContextLabel}
+          identifyModeActive={identifyModeActive}
+          onIdentifyPoint={onIdentifyPoint ? (args) => onIdentifyPoint({ ...args, documentId: resolved.documentId ?? null }) : undefined}
+          identifyHighlight={identifyHighlight}
         />
       </div>
     );

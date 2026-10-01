@@ -7,20 +7,21 @@
 // Graceful states for loading, error, "no file", and "no coordinates" — nothing
 // is fabricated.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min?url";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ZoomIn, ZoomOut, Maximize, Crosshair, ChevronLeft, ChevronRight, FileWarning, Loader2 } from "lucide-react";
-import { resolvePageSpace, transformBoxes, transformPoints, fitToEvidence, getEvidenceForClaim, detectPageSizeMismatch, type Rect } from "@/lib/review/evidenceCoords";
+import { resolvePageSpace, transformBoxes, transformPoints, screenPointToPageSpace, fitToEvidence, getEvidenceForClaim, detectPageSizeMismatch, type Rect } from "@/lib/review/evidenceCoords";
 import { claimLabel, sheetPositionLabel } from "@/lib/review/evidenceDisplay";
 import { resolvePageTitle } from "@/lib/review/documentResolve";
 import type { AnalysisSource, EvidenceBox, ClaimType } from "@/lib/review/analysisSchemaV1";
 import type { DrawingMarker } from "@/lib/review/drawingMarkers";
 import { withPdfGeometry } from "@/lib/review/drawingMarkers";
-import { extractPageGeometry } from "@/lib/review/pdfGeometry";
+import { extractPageGeometry, type ExtractedTextRun } from "@/lib/review/pdfGeometry";
 import type { DrawingGeometry } from "@/lib/review/drawingGeometry";
+import { findNearbyContext } from "@/lib/review/nearbyGeometryContext";
 
 // Bundle the worker with Vite (kept off the main thread; no CDN dependency).
 // The ?url import tells Vite to bundle the worker and return its URL as a string.
@@ -59,6 +60,22 @@ interface Props {
    *  — 2 types" or "W1 — 3 instances". Optional; marker mode shows nothing
    *  in that row rather than inventing a caption when omitted. */
   markerContextLabel?: string | null;
+  /**
+   * Click-to-Identify (additive, fully backward compatible — omitted or
+   * false means zero behavior change from before this feature existed).
+   * When true, a click on empty canvas (not on an existing marker/overlay)
+   * reports its page-space coordinate via onIdentifyPoint instead of doing
+   * nothing. Existing marker-click behavior (onSelectMarker) is unaffected
+   * either way — a click that lands on a marker element still only fires
+   * that marker's own handler.
+   */
+  identifyModeActive?: boolean;
+  onIdentifyPoint?: (args: { page: number; point: { x: number; y: number }; nearbyText: string[] }) => void;
+  /** The current identify candidate/click to highlight, or null for none.
+   *  Rendered as a small dot at the click plus (if evidence is present) a
+   *  highlighted box — a visually distinct color from evidence (amber) and
+   *  markers (blue/rose) so it reads as its own kind of thing. */
+  identifyHighlight?: { point: { page: number; x: number; y: number }; evidence?: EvidenceBox[] } | null;
 }
 
 type Size = { width: number; height: number };
@@ -73,7 +90,7 @@ type Size = { width: number; height: number };
 // real rectangle doesn't need to stop being drawn as a rectangle either.
 const RICH_GEOMETRY_TYPES = new Set(["point", "line", "polyline", "polygon", "path"]);
 
-export default function PdfEvidenceViewer({ fileUrl, source, documentName, unavailableReason, selectedClaim, selectedClaimValue, pageTitles, markers, onSelectMarker, markerContextLabel }: Props) {
+export default function PdfEvidenceViewer({ fileUrl, source, documentName, unavailableReason, selectedClaim, selectedClaimValue, pageTitles, markers, onSelectMarker, markerContextLabel, identifyModeActive, onIdentifyPoint, identifyHighlight }: Props) {
   // Marker mode is signaled by PRESENCE of `markers` (even []), not its
   // length — an empty marker set for the current selection (e.g. a category
   // with no real evidence at all) must still suppress the old per-item
@@ -104,6 +121,13 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
   // needs or reads this.
   const pdfGeometryCacheRef = useRef<Map<number, DrawingGeometry[]>>(new Map());
   const [geometryTick, setGeometryTick] = useState(0);
+
+  // Click-to-Identify's own, SEPARATE text-run cache — independent of
+  // pdfGeometryCacheRef above (which only ever stores `.shapes` and only in
+  // marker mode). Populated lazily, on demand, the first time a click needs
+  // nearby text for a given page — never proactively, so identify mode adds
+  // no extraction cost when it's never used.
+  const identifyTextCacheRef = useRef<Map<number, ExtractedTextRun[]>>(new Map());
 
   // Evidence boxes on the CURRENT page (per-box page overrides the item page).
   // A box with no resolvable page (neither its own `page` nor `source.page`) is
@@ -158,6 +182,7 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
   useEffect(() => {
     // A new document invalidates every previously extracted page's geometry.
     pdfGeometryCacheRef.current = new Map();
+    identifyTextCacheRef.current = new Map();
     setGeometryTick((t) => t + 1);
     if (!fileUrl) { docRef.current = null; setStatus("idle"); setErrorDetail(null); return; }
     let cancelled = false;
@@ -374,6 +399,43 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
     fitMarkers();
   }, [status, markerModeActive, fitMarkers]);
 
+  // Click-to-Identify's click handler. Only active when identifyModeActive
+  // is true (see Props doc) — when it isn't, this never runs and nothing
+  // about existing click/marker behavior changes. Guards against firing for
+  // a click that BUBBLED from a marker button/SVG shape (e.target !==
+  // e.currentTarget) so an existing marker's own onClick still works
+  // exactly as before, even while identify mode is on — only a genuine
+  // click on empty canvas starts an identify request.
+  const handleIdentifyClick = useCallback((e: MouseEvent<HTMLDivElement>) => {
+    if (!identifyModeActive || !onIdentifyPoint) return;
+    if (e.target !== e.currentTarget) return;
+    if (!pageBase) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const screenPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const space = resolvePageSpace(source, pageBase);
+    if (!space) return;
+    const renderedSize: Size = { width: pageBase.width * scale, height: pageBase.height * scale };
+    const pagePoint = screenPointToPageSpace(screenPoint, space, renderedSize);
+    if (!pagePoint) return;
+
+    const clickedPage = page;
+    const doc = docRef.current;
+    const withNearbyText = (nearbyText: string[]) => onIdentifyPoint({ page: clickedPage, point: pagePoint, nearbyText });
+    const cachedRuns = identifyTextCacheRef.current.get(clickedPage);
+    if (cachedRuns) { withNearbyText(findNearbyContext(pagePoint, cachedRuns).nearbyText); return; }
+    if (!doc) { withNearbyText([]); return; }
+    // Extraction is async; the request must never block on it failing —
+    // same "honest empty result, never retried as an error" rule
+    // pdfGeometryCacheRef's own extraction effect follows.
+    doc.getPage(clickedPage)
+      .then((pdfPage) => extractPageGeometry(pdfPage, clickedPage))
+      .then((extraction) => {
+        identifyTextCacheRef.current.set(clickedPage, extraction.textRuns);
+        withNearbyText(findNearbyContext(pagePoint, extraction.textRuns).nearbyText);
+      })
+      .catch(() => withNearbyText([]));
+  }, [identifyModeActive, onIdentifyPoint, pageBase, source, scale, page]);
+
   // Marker rects for the current page — same transformBoxes math as
   // overlayRects below, just resolved per-marker (a marker can in principle
   // declare its own pageSize, mirroring resolvePageSpace's override rule).
@@ -526,8 +588,40 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
             </div>
           </div>
         )}
-        <div className="relative inline-block" data-testid="evidence-overlays">
+        <div
+          className={cn("relative inline-block", identifyModeActive && "cursor-crosshair")}
+          data-testid="evidence-overlays"
+          onClick={identifyModeActive ? handleIdentifyClick : undefined}
+        >
           <canvas ref={canvasRef} className="block" />
+          {/* Click-to-Identify highlight — the click point (always) plus any
+              evidence box the AI returned (when present), in a color
+              distinct from evidence (amber) and markers (blue/rose) so it
+              reads as its own kind of thing, not a fabricated marker. */}
+          {identifyHighlight && identifyHighlight.point.page === page && pageBase && (() => {
+            const space = resolvePageSpace(source, pageBase);
+            if (!space) return null;
+            const renderedSize: Size = { width: pageBase.width * scale, height: pageBase.height * scale };
+            const [screenPt] = transformPoints([[identifyHighlight.point.x, identifyHighlight.point.y]], space, renderedSize) ?? [];
+            const evRects = identifyHighlight.evidence?.length ? transformBoxes(identifyHighlight.evidence, space, renderedSize) : [];
+            return (
+              <>
+                {screenPt && (
+                  <div
+                    className="absolute w-3 h-3 -ml-1.5 -mt-1.5 rounded-full border-2 border-violet-600 bg-violet-500/60 pointer-events-none z-20"
+                    style={{ left: screenPt[0], top: screenPt[1] }}
+                  />
+                )}
+                {evRects.map((r, i) => (
+                  <div
+                    key={i}
+                    className="absolute pointer-events-none border-[3px] border-violet-600 bg-violet-500/20 shadow-[0_0_0_4px_rgba(124,58,237,0.15)]"
+                    style={{ left: r.left, top: r.top, width: r.width, height: r.height }}
+                  />
+                ))}
+              </>
+            );
+          })()}
           {/* The first box is the SELECTED element — it must read as an
               object the reviewer picked on the drawing, not one of several
               generic highlight rectangles. A heavier solid border + a

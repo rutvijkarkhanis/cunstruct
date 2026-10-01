@@ -142,3 +142,34 @@ export const CUNSTRUCT_OBSERVATION_JSON_SCHEMA = {
     required: ["schema_version", "observations"],
   },
 };
+
+// ── Click-to-Identify (new) — a single clicked point's identification,
+// never a BOQ item and never a LOCATION observation. Reuses evidenceBoxSchema
+// verbatim (same evidence/coordinate contract as every other mode — never a
+// second evidence schema). Deliberately has no quantity/unit/status field at
+// all: identification is not estimation.
+const identifyCandidateSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    label: { type: "string" },
+    description: { type: ["string", "null"] },
+    confidence: { type: ["number", "null"] },
+    evidence: { type: "array", items: evidenceBoxSchema },
+  },
+  required: ["label", "description", "confidence", "evidence"],
+};
+
+export const CUNSTRUCT_IDENTIFY_JSON_SCHEMA = {
+  name: "cunstruct_identify_v1",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      schema_version: { type: "string" },
+      candidates: { type: "array", items: identifyCandidateSchema },
+    },
+    required: ["schema_version", "candidates"],
+  },
+};

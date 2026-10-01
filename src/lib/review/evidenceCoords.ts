@@ -170,6 +170,28 @@ export function detectPageSizeMismatch(declared: Size | undefined | null, actual
   return null;
 }
 
+/**
+ * Click-to-Identify's inverse of transformPoints/transformBox: a point in
+ * rendered CSS pixels (e.g. a click's position relative to the SAME
+ * container element transformBoxes/transformPoints already position their
+ * output against — see PdfEvidenceViewer's overlay container) → the
+ * page-space coordinate it corresponds to. Same convention, same math, just
+ * solved for the other variable — THE single inverse transform in the app;
+ * a caller must reuse this rather than reimplementing the scale arithmetic
+ * itself (no parallel coordinate model). Returns null for the same
+ * degenerate-input reasons transformBox does.
+ */
+export function screenPointToPageSpace(
+  screenPoint: { x: number; y: number },
+  pageSize: Size,
+  renderedSize: Size,
+): { x: number; y: number } | null {
+  if (!pageSize.width || !pageSize.height || !renderedSize.width || !renderedSize.height) return null;
+  const sx = renderedSize.width / pageSize.width;
+  const sy = renderedSize.height / pageSize.height;
+  return { x: screenPoint.x / sx, y: screenPoint.y / sy };
+}
+
 /** Get evidence boxes for a specific claim. Evidence without a claim is treated as "general". */
 export function getEvidenceForClaim(boxes: EvidenceBox[], claimType: string): EvidenceBox[] {
   return boxes.filter((b) => (b.claim ?? "general") === claimType);

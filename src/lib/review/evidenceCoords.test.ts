@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { transformBox, transformBoxes, transformPoints, unionBox, fitToEvidence, hasPlaceableEvidence, detectPageSizeMismatch, defaultEvidenceClaim } from "./evidenceCoords";
+import { transformBox, transformBoxes, transformPoints, unionBox, fitToEvidence, hasPlaceableEvidence, detectPageSizeMismatch, defaultEvidenceClaim, screenPointToPageSpace } from "./evidenceCoords";
 import type { EvidenceBox } from "./analysisSchemaV1";
 
 const box = (b: [number, number, number, number]): EvidenceBox => ({ bbox: b });
@@ -22,6 +22,27 @@ describe("transformBoxes", () => {
     expect(rects).toHaveLength(2);
     expect(rects[0]).toEqual({ left: 0, top: 0, width: 200, height: 200 });
     expect(rects[1]).toEqual({ left: 200, top: 200, width: 200, height: 200 });
+  });
+});
+
+describe("screenPointToPageSpace — Click-to-Identify's inverse of transformBox/transformPoints", () => {
+  it("is the exact inverse of the forward transform (round-trips a point)", () => {
+    const pageSize = { width: 2000, height: 1000 };
+    const renderedSize = { width: 1000, height: 500 };
+    const [screenPt] = transformPoints([[200, 100]], pageSize, renderedSize)!;
+    const back = screenPointToPageSpace({ x: screenPt[0], y: screenPt[1] }, pageSize, renderedSize);
+    expect(back).toEqual({ x: 200, y: 100 });
+  });
+
+  it("returns null for a degenerate page/rendered size (never guesses)", () => {
+    expect(screenPointToPageSpace({ x: 10, y: 10 }, { width: 0, height: 0 }, { width: 100, height: 100 })).toBeNull();
+  });
+
+  it("accounts for the current zoom scale", () => {
+    const pageSize = { width: 1000, height: 1000 };
+    // Rendered at 2x zoom.
+    const renderedSize = { width: 2000, height: 2000 };
+    expect(screenPointToPageSpace({ x: 400, y: 600 }, pageSize, renderedSize)).toEqual({ x: 200, y: 300 });
   });
 });
 
