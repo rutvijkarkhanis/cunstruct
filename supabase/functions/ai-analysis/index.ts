@@ -32,11 +32,12 @@ import { DEFAULT_MODEL, SUPPORTED_MODELS, actualCostUsd, estimateCostRange, reso
 import { computePreflight, resolveRequestedToSend, type EligibleFile, type LedgerRow } from "../_shared/preflight.ts";
 import { parseAnalysisV1, buildReviewItems } from "../_shared/analysisValidation.ts";
 import { generateAnalysisViaOpenAI } from "../_shared/openaiClient.ts";
-import { CUNSTRUCT_ANALYSIS_JSON_SCHEMA, CUNSTRUCT_OBSERVATION_JSON_SCHEMA, CUNSTRUCT_IDENTIFY_JSON_SCHEMA } from "../_shared/openaiSchema.ts";
+import { CUNSTRUCT_ANALYSIS_JSON_SCHEMA, CUNSTRUCT_OBSERVATION_JSON_SCHEMA, CUNSTRUCT_IDENTIFY_JSON_SCHEMA, CUNSTRUCT_FIND_SIMILAR_JSON_SCHEMA } from "../_shared/openaiSchema.ts";
 import { canSendToProvider } from "../../../src/lib/security/dataClassification.ts";
 import { buildAnalysisPrompt, buildObservationPrompt } from "../../../src/lib/review/analysisPrompt.ts";
 import { buildIdentifyPrompt } from "../../../src/lib/review/identifyPrompt.ts";
 import { parseIdentifyResultV1 } from "../../../src/lib/review/identifySchemaV1.ts";
+import { handleFindSimilar } from "./findSimilarHandler.ts";
 import { folderBreadcrumb } from "../_shared/folderContext.ts";
 import { buildStaleReclaimFilter } from "../_shared/claiming.ts";
 import { parseObservationsV1 } from "../_shared/observationValidation.ts";
@@ -65,7 +66,7 @@ function json(body: unknown, status = 200) {
 }
 
 const BodySchema = z.object({
-  action: z.enum(["preflight", "generate", "model_config", "identify"]),
+  action: z.enum(["preflight", "generate", "model_config", "identify", "find_similar"]),
   projectId: z.string().uuid().optional(),
   boqId: z.string().uuid().nullable().optional(),
   documentIds: z.array(z.string().uuid()).optional(),
@@ -84,6 +85,20 @@ const BodySchema = z.object({
   page: z.number().int().positive().optional(),
   point: z.object({ x: z.number(), y: z.number() }).optional(),
   nearbyText: z.array(z.string()).max(12).optional(),
+  // Find Similar only (action === "find_similar") — additive, optional,
+  // ignored by every other action. The already-confirmed identification to
+  // search for more occurrences of; reuses `documentId` above (the same
+  // resolved document identify ran against) rather than a second field.
+  reference: z.object({
+    label: z.string().min(1),
+    description: z.string().optional(),
+    evidence: z.array(z.object({
+      bbox: z.tuple([z.number(), z.number(), z.number(), z.number()]),
+      page: z.number().int().positive().optional(),
+      label: z.string().optional(),
+      claim: z.enum(["general", "quantity", "dimension", "specification", "location"]).optional(),
+    })).default([]),
+  }).optional(),
 });
 
 interface ProjectRow {
@@ -337,6 +352,30 @@ Deno.serve(async (req) => {
 
     // No DB write — see the comment above this branch.
     return json({ ok: true, result: parsedIdentify.result, warnings: parsedIdentify.warnings });
+  }
+
+  // ── action === "find_similar" (Find Similar) — given an ALREADY-CONFIRMED
+  // identification, search the entire resolved document for other
+  // occurrences of the same element type. A single, on-demand, EPHEMERAL
+  // request — same discipline as "identify" immediately above: never writes
+  // to analysis_run/analysis_review_item/analysis_observation, never
+  // creates or edits a BOQ line, never fabricates a match or a location.
+  // Reviewer-accessible: deliberately reuses the SAME canSendToProvider/
+  // resolveModel path every other action above already went through —
+  // no additional isAdminCaller() gate, unlike model_config or the
+  // admin-only LOCATION extraction entry point. The actual logic lives in
+  // findSimilarHandler.ts (see its own header comment for why) — this
+  // branch is just auth/config plumbing + the injected real dependencies. ─
+  if (input.action === "find_similar") {
+    if (!OPENAI_API_KEY) return json({ ok: false, error: "AI generation is not configured on the server." }, 500);
+    const { status, body } = await handleFindSimilar(
+      { documentId: input.documentId, reference: input.reference },
+      {
+        loadDocumentFile: (documentId) => loadSingleDocumentFile(supabase, input.projectId, documentId),
+        callOpenAi: (promptText, files) => generateAnalysisViaOpenAI(OPENAI_API_KEY, model.id, promptText, files, CUNSTRUCT_FIND_SIMILAR_JSON_SCHEMA),
+      },
+    );
+    return json(body, status);
   }
 
   // Omitted mode -> DEFAULT_ANALYSIS_MODE ("BOQ"), the exact backward-
