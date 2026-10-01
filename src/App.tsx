@@ -33,7 +33,6 @@ const OpsDashboard = lazy(() => import("./pages/ops/OpsDashboard.tsx"));
 const OpsProjects = lazy(() => import("./pages/ops/OpsProjects.tsx"));
 const OpsProjectDetail = lazy(() => import("./pages/ops/OpsProjectDetail.tsx"));
 const ProjectLayout = lazy(() => import("./components/ops/ProjectLayout.tsx"));
-const ProjectDocuments = lazy(() => import("./pages/ops/ProjectDocuments.tsx"));
 const ProjectBoqs = lazy(() => import("./pages/ops/ProjectBoqs.tsx"));
 const ProjectProcurement = lazy(() => import("./pages/ops/ProjectProcurement.tsx"));
 const ProjectWorkspace = lazy(() => import("./pages/ops/ProjectWorkspace.tsx"));
@@ -131,13 +130,24 @@ function AppRoutes() {
         <Route index element={<OpsDashboard />} />
         <Route path="projects" element={<OpsProjects />} />
         <Route path="projects/:id" element={<ProjectLayout />}>
-          {/* Stage C1: the project root is now canonically the Workspace —
-              see ProjectLayout's own nav for why Overview no longer has a
-              tab. ProjectOverview.tsx itself is untouched on disk (a later
-              stage may remove it); this route simply stops pointing at it. */}
+          {/* Stage C1: the project root is canonically the Workspace. */}
           <Route index element={<Navigate to="workspace" replace />} />
-          <Route path="documents" element={<ProjectDocuments />} />
-          <Route path="boqs" element={<ProjectBoqs />} />
+          {/* Stage C4: Documents/BOQs are now Workspace contexts, with full
+              parity confirmed (C2/C3) — these routes redirect into the
+              Workspace rather than rendering a second, separate page. The
+              shared persistence layers (useDocumentManagement,
+              useBoqManagement) back both the old pages and Workspace; only
+              the page-specific presentation shells were ever obsolete.
+              Project id is preserved automatically (relative navigation). */}
+          <Route path="documents" element={<Navigate to="../workspace?mode=documents" replace />} />
+          <Route path="boqs" element={<Navigate to="../workspace?mode=boq" replace />} />
+          {/* ProjectBoqs.tsx still owns capabilities Workspace's compact BOQ
+              context never took on — rename, reorder, delete, share-as-PDF,
+              import, generate-from-JSON, move/re-parent a BOQ. Rather than
+              deleting those along with the redirect, its page shell moved
+              here as the secondary "advanced management" surface; Workspace's
+              BOQ panel links to it. */}
+          <Route path="boqs/manage" element={<ProjectBoqs />} />
           <Route path="boqs/:boqId" element={<OpsBoqBuilder />} />
           <Route path="boqs/:boqId/review" element={<BoqReviewWorkstation />} />
           <Route path="procurement" element={<ProjectProcurement />} />

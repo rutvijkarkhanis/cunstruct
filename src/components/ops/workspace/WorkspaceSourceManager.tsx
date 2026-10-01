@@ -13,7 +13,6 @@
 // drawing underneath is exactly as the user left it when they close it.
 
 import { useState } from "react";
-import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -22,7 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import {
   CheckCircle2, ChevronDown, ChevronRight, FileText, Folder as FolderIcon,
-  FolderOpen, FolderPlus, Plus, Settings, Trash2, Upload,
+  FolderOpen, FolderPlus, Plus, Trash2, Upload,
 } from "lucide-react";
 import { useDocumentManagement, type ProjectDocument, type FolderNode } from "@/hooks/useDocumentManagement";
 
@@ -230,15 +229,6 @@ export default function WorkspaceSourceManager({
               <div className="space-y-1.5">{dm.unfiledDocs.map((d) => documentRow(d))}</div>
             </div>
           )}
-        </div>
-
-        <div className="px-4 py-2.5 border-t">
-          <Link
-            to={`/ops/projects/${projectId}/documents`}
-            className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5"
-          >
-            <Settings className="w-3.5 h-3.5" />Open full Documents page
-          </Link>
         </div>
       </SheetContent>
     </Sheet>

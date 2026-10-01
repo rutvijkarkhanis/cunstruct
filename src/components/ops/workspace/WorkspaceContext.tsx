@@ -23,7 +23,7 @@ import type { WorkspaceMode } from "@/lib/review/workspaceState";
 import WorkspaceBoqPanel from "./WorkspaceBoqPanel";
 
 export interface WorkspaceContextProps {
-  mode: Exclude<WorkspaceMode, "review">;
+  mode: Exclude<WorkspaceMode, "review" | "documents">;
   projectId: string;
   activeDocumentId: string | null;
   activeBoqId: string | null;

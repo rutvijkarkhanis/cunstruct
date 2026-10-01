@@ -14,12 +14,17 @@ import { ArrowLeft, LayoutDashboard, Activity } from "lucide-react";
 // nothing there is drawing- or workspace-adjacent), so it stays its own
 // SECONDARY tab rather than folding into Workspace.
 //
-// Documents, BOQs (the list), and Procurement deliberately have NO tab here
-// anymore — this is not a deletion, their routes below are fully intact and
-// still load on direct/deep link (Workspace's own Sources rail and BOQ
-// context already link into "documents" and "boqs/:boqId"). Re-adding them
-// as tabs would recreate exactly the "row of equivalent dashboard tabs"
-// the Stage C investigation said not to rebuild.
+// Documents and BOQs (the list) deliberately have NO tab here anymore —
+// Stage C4 redirects both routes straight into Workspace (?mode=documents /
+// ?mode=boq), which now has full parity (C2/C3) for browsing, folders,
+// upload, revisions, selection, BOQ selection and creation. ProjectBoqs.tsx
+// still exists, but only as the secondary "boqs/manage" surface for the
+// capabilities Workspace's compact BOQ panel never took on (rename,
+// reorder, delete, share, import, generate-from-JSON, move) — linked from
+// that panel, not tabbed here. Procurement also has no tab (unchanged since
+// Stage C1); its route is still fully intact and reachable by direct/deep
+// link. Re-adding any of these as tabs would recreate exactly the "row of
+// equivalent dashboard tabs" the Stage C investigation said not to rebuild.
 const PRIMARY_TABS = [
   { to: "workspace", label: "Workspace", icon: LayoutDashboard },
 ];

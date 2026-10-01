@@ -108,9 +108,9 @@ describe("WorkspaceSourceManager", () => {
     );
   });
 
-  it("links out to the full Documents page as an always-available rollback path", async () => {
+  it("Stage C4 — no longer links out to a separate Documents page (that route now redirects back into this same drawer)", async () => {
     renderDrawer();
-    const link = await screen.findByText("Open full Documents page");
-    expect(link.closest("a")).toHaveAttribute("href", "/ops/projects/proj-1/documents");
+    await screen.findByText("Plan A");
+    expect(screen.queryByText("Open full Documents page")).not.toBeInTheDocument();
   });
 });

@@ -107,7 +107,7 @@ export default function ProjectBoqs() {
       const boqId = await createBoqShared({ name, description, scopeId, newScopeName, newScopeKind });
       if (!boqId) return;
       resetForm();
-      navigate(boqId);
+      navigate(`/ops/projects/${projectId}/boqs/${boqId}`);
     } finally { setBusy(false); }
   };
 
@@ -277,7 +277,7 @@ export default function ProjectBoqs() {
     qc.invalidateQueries({ queryKey: ["project-boqs", projectId] });
     qc.invalidateQueries({ queryKey: ["project-scopes", projectId] });
     resetForm();
-    navigate(boqId);
+    navigate(`/ops/projects/${projectId}/boqs/${boqId}`);
   };
 
   const onFile = (file: File | undefined) => {
@@ -638,7 +638,7 @@ export default function ProjectBoqs() {
                   </>
                 ) : (
                   <>
-                    <Button size="sm" onClick={() => navigate(b.id)}>Open</Button>
+                    <Button size="sm" onClick={() => navigate(`/ops/projects/${projectId}/boqs/${b.id}`)}>Open</Button>
                     <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => startEdit(b)} aria-label="Rename"><Pencil className="h-4 w-4" /></Button>
                     <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setConfirmDel(b.id)} aria-label="Delete"><Trash2 className="h-4 w-4" /></Button>
                   </>
