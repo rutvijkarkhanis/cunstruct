@@ -61,12 +61,23 @@ describe("WorkspaceContext — mode=drawing (home)", () => {
   });
 });
 
-describe("WorkspaceContext — mode=boq (Stage C3: real selector/creator, not a rebuilt editor)", () => {
+describe("WorkspaceContext — mode=boq (Stage C3/C5A: real selector/creator, not a rebuilt editor)", () => {
   it("shows a lightweight summary computed from real boq_line rows, not the full editor", async () => {
     renderPanel("boq");
     expect(await screen.findByText("Ground Floor BOQ")).toBeInTheDocument();
-    // base total = 10*100 (included) ; the excluded line (5*50) must NOT be counted
-    expect(await screen.findByText(/2 lines · ₹1,000 base \(excl\. markup\)/)).toBeInTheDocument();
+    expect(await screen.findByText("2 lines")).toBeInTheDocument();
+    // Subtotal = 10*100 (included); the excluded line (5*50) must NOT be
+    // counted. Grand Total applies the default commercial waterfall
+    // (contingency 3% + overhead 15% + cess 1% + GST 18%) via the SAME
+    // computeCommercials() OpsBoqBuilder itself uses — 1000 -> 1407 — never a
+    // second, competing calculation, and never mislabeled as each other.
+    expect(await screen.findByText("Subtotal")).toBeInTheDocument();
+    // "₹1,000" also appears in the line-item preview (line-1's own amount is
+    // coincidentally the same figure as the subtotal here) — assert presence
+    // via getAllByText rather than requiring a single match.
+    expect((await screen.findAllByText("₹1,000")).length).toBeGreaterThan(0);
+    expect(await screen.findByText("Grand Total")).toBeInTheDocument();
+    expect(await screen.findByText("₹1,407")).toBeInTheDocument();
   });
 
   it("links to the existing full BOQ editor rather than rebuilding it", async () => {

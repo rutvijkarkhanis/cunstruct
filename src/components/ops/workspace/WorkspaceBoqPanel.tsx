@@ -19,7 +19,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertTriangle, ClipboardCheck, ExternalLink, Plus } from "lucide-react";
 import { formatINR } from "@/lib/forecastEngine";
-import { useBoqManagement, NEW_SCOPE } from "@/hooks/useBoqManagement";
+import { computeCommercials, roundRupee } from "@/lib/boqDsrDocument";
+import AiStateBadge from "@/components/review/AiStateBadge";
+import { useBoqManagement, NEW_SCOPE, type BoqRow } from "@/hooks/useBoqManagement";
 import { SCOPE_KINDS } from "@/lib/projectDocs";
 import type { WorkspaceMode } from "@/lib/review/workspaceState";
 
@@ -76,8 +78,7 @@ export default function WorkspaceBoqPanel({ projectId, activeBoqId, onEnterMode 
       ) : resolvedBoqId && !showList ? (
         <ActiveBoqCard
           projectId={projectId}
-          boqId={resolvedBoqId}
-          name={boqs!.find((b) => b.id === resolvedBoqId)?.name ?? "BOQ"}
+          boq={boqs!.find((b) => b.id === resolvedBoqId)!}
           onReview={() => onEnterMode("review", resolvedBoqId)}
           onChange={() => setShowList(true)}
         />
@@ -120,31 +121,126 @@ function NoBoq({ onCreate }: { onCreate: () => void }) {
   );
 }
 
-/** The compact "which BOQ am I working with" card — a summary, never the
- *  full priced editor. Base total only (qty × rate), explicitly labeled as
- *  such since it doesn't apply the BOQ's markup/overhead spec the way
- *  OpsBoqBuilder's final total does. */
-function ActiveBoqCard({ projectId, boqId, name, onReview, onChange }: { projectId: string; boqId: string; name: string; onReview: () => void; onChange: () => void }) {
+interface WorkspaceBoqLine {
+  id: string; description: string | null; unit: string | null; qty: number;
+  dsr_rate: number | null; custom_rate: number | null; included: boolean;
+}
+/** The rate in effect and a line's amount — the SAME formula OpsBoqBuilder's
+ *  own (private, unexported) `effRate`/`lineAmount` use, reproduced here
+ *  rather than imported since OpsBoqBuilder.tsx is protected/untouched.
+ *  `roundRupee` itself IS the shared, exported primitive both sides call. */
+const effRate = (l: WorkspaceBoqLine) => l.custom_rate ?? l.dsr_rate;
+const lineAmount = (l: WorkspaceBoqLine) => roundRupee(l.qty * (effRate(l) ?? 0));
+
+const LINE_PREVIEW_CAP = 6;
+
+/** The compact "which BOQ am I working with" summary — a preview, never the
+ *  full priced editor. The Grand Total shown here is computed by the SAME
+ *  authoritative waterfall OpsBoqBuilder uses (computeCommercials, driven by
+ *  boq.spec's percentages) — never a second, competing calculation — and
+ *  Subtotal/Grand Total are always shown as distinct, clearly labeled
+ *  figures, never one standing in for the other. */
+function ActiveBoqCard({ projectId, boq, onReview, onChange }: { projectId: string; boq: BoqRow; onReview: () => void; onChange: () => void }) {
+  const boqId = boq.id;
   const { data: lines } = useQuery({
     queryKey: ["workspace-boq-lines", boqId],
     enabled: !!boqId,
     queryFn: async () => {
-      const { data } = await supabase.from("boq_line").select("qty, dsr_rate, custom_rate, included").eq("boq_id", boqId);
-      return data ?? [];
+      const { data } = await supabase.from("boq_line")
+        .select("id, description, unit, qty, dsr_rate, custom_rate, included").eq("boq_id", boqId).order("sort");
+      return (data ?? []) as WorkspaceBoqLine[];
     },
   });
+
+  // Which lines genuinely came from a Review → Apply action — the ONLY
+  // persisted, trustworthy signal: boq_line_change_log.review_item_id is
+  // written exclusively by applyReviewPlan (see applyReview.ts). A manually
+  // added or imported line never gets a row here, so it correctly shows no
+  // "Reviewed" badge — never a fabricated/inferred link.
+  const { data: reviewedLineIds } = useQuery({
+    queryKey: ["workspace-boq-reviewed-lines", boqId],
+    enabled: !!boqId,
+    queryFn: async () => {
+      const { data } = await supabase.from("boq_line_change_log")
+        .select("boq_line_id, review_item_id").eq("boq_id", boqId).not("review_item_id", "is", null);
+      return new Set((data ?? []).map((r) => r.boq_line_id as string | null).filter((id): id is string => !!id));
+    },
+  });
+
+  const lineCount = (lines ?? []).length;
   const includedLines = (lines ?? []).filter((l) => l.included);
-  const baseTotal = includedLines.reduce((sum, l) => sum + (l.qty ?? 0) * ((l.custom_rate ?? l.dsr_rate) ?? 0), 0);
+  const total = includedLines.reduce((sum, l) => sum + lineAmount(l), 0);
+  const spec = boq.spec ?? {};
+  const pct = (k: string, d: number) => Number(spec[k] ?? d);
+  const commercials = computeCommercials(total, {
+    costIndexPct: pct("_cost_index_pct", 0),
+    contingencyPct: pct("_contingency_pct", 3),
+    overheadPct: pct("_overhead_pct", 15),
+    cessPct: pct("_cess_pct", 1),
+    gstPct: pct("_gst_pct", 18),
+  });
+
+  const previewLines = (lines ?? []).slice(0, LINE_PREVIEW_CAP);
+  const remaining = lineCount - previewLines.length;
 
   return (
     <div className="space-y-3">
       <div>
         <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Active BOQ</div>
-        <div className="text-sm font-semibold">{name}</div>
-        <div className="text-[11px] text-muted-foreground">
-          {(lines ?? []).length} line{(lines ?? []).length === 1 ? "" : "s"} · {formatINR(baseTotal)} base (excl. markup)
-        </div>
+        <div className="text-sm font-semibold">{boq.name}</div>
+        <div className="text-[11px] text-muted-foreground">{lineCount} line{lineCount === 1 ? "" : "s"}</div>
       </div>
+
+      {lineCount === 0 ? (
+        <p className="text-xs text-muted-foreground">This BOQ has no line items yet.</p>
+      ) : (
+        <>
+          <div className="rounded border p-2 space-y-1">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Subtotal</span>
+              <span className="tabular-nums">{formatINR(commercials.works)}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm font-semibold">
+              <span>Grand Total</span>
+              <span className="tabular-nums">{formatINR(commercials.grandTotal)}</span>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            {previewLines.map((l) => {
+              const rate = effRate(l);
+              const reviewed = reviewedLineIds?.has(l.id) ?? false;
+              return (
+                <div key={l.id} className="flex items-start justify-between gap-2 text-[11px] border-b border-dashed pb-1.5 last:border-0 last:pb-0">
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <div className="truncate flex items-center gap-1.5">
+                      <span className="truncate">{l.description ?? "—"}</span>
+                      {reviewed && (
+                        <button
+                          type="button" onClick={onReview} className="shrink-0"
+                          aria-label="View in Review" title="Sourced from Review — view in Review"
+                        >
+                          <AiStateBadge state="applied" label="Reviewed" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="text-muted-foreground">
+                      {l.qty} {l.unit ?? ""}{rate != null ? ` · ${formatINR(rate)}` : ""}
+                    </div>
+                  </div>
+                  <div className="shrink-0 tabular-nums pt-px">{formatINR(lineAmount(l))}</div>
+                </div>
+              );
+            })}
+            {remaining > 0 && (
+              <p className="text-[11px] text-muted-foreground pt-0.5">
+                +{remaining} more line{remaining === 1 ? "" : "s"} — open the full BOQ to see all.
+              </p>
+            )}
+          </div>
+        </>
+      )}
+
       <div className="flex flex-col gap-1.5">
         <Button size="sm" variant="outline" className="justify-start gap-2" onClick={onReview}>
           <ClipboardCheck className="w-3.5 h-3.5" /> Review this BOQ's items
