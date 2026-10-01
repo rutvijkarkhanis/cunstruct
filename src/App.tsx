@@ -33,7 +33,6 @@ const OpsDashboard = lazy(() => import("./pages/ops/OpsDashboard.tsx"));
 const OpsProjects = lazy(() => import("./pages/ops/OpsProjects.tsx"));
 const OpsProjectDetail = lazy(() => import("./pages/ops/OpsProjectDetail.tsx"));
 const ProjectLayout = lazy(() => import("./components/ops/ProjectLayout.tsx"));
-const ProjectOverview = lazy(() => import("./pages/ops/ProjectOverview.tsx"));
 const ProjectDocuments = lazy(() => import("./pages/ops/ProjectDocuments.tsx"));
 const ProjectBoqs = lazy(() => import("./pages/ops/ProjectBoqs.tsx"));
 const ProjectProcurement = lazy(() => import("./pages/ops/ProjectProcurement.tsx"));
@@ -132,7 +131,11 @@ function AppRoutes() {
         <Route index element={<OpsDashboard />} />
         <Route path="projects" element={<OpsProjects />} />
         <Route path="projects/:id" element={<ProjectLayout />}>
-          <Route index element={<ProjectOverview />} />
+          {/* Stage C1: the project root is now canonically the Workspace —
+              see ProjectLayout's own nav for why Overview no longer has a
+              tab. ProjectOverview.tsx itself is untouched on disk (a later
+              stage may remove it); this route simply stops pointing at it. */}
+          <Route index element={<Navigate to="workspace" replace />} />
           <Route path="documents" element={<ProjectDocuments />} />
           <Route path="boqs" element={<ProjectBoqs />} />
           <Route path="boqs/:boqId" element={<OpsBoqBuilder />} />

@@ -75,7 +75,11 @@ export default function ProjectWorkspace() {
   return (
     <div className="flex flex-col h-[100dvh] lg:h-screen min-h-0 bg-background">
       <header className="shrink-0 flex items-center gap-2 px-3 py-2 border-b bg-card">
-        <Link to={`/ops/projects/${projectId}`} className="text-muted-foreground hover:text-foreground" aria-label="Back to project">
+        {/* Stage C1: Workspace IS the project home now (the bare project
+            root redirects here) — linking back to that root would just
+            redirect right back to this page. Projects is the real "up"
+            destination. */}
+        <Link to="/ops/projects" className="text-muted-foreground hover:text-foreground" aria-label="Back to projects">
           <ArrowLeft className="w-4 h-4" />
         </Link>
         <div className="min-w-0 flex items-baseline gap-1.5 text-sm">

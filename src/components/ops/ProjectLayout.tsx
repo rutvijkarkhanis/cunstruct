@@ -2,23 +2,28 @@ import { NavLink, Outlet, useParams, Link, useLocation } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
-import { ArrowLeft, LayoutDashboard, FileText, Calculator, PackageSearch, Activity } from "lucide-react";
+import { ArrowLeft, LayoutDashboard, Activity } from "lucide-react";
 
 // The project sub-workspace shell: a header + tab nav with an <Outlet/> for the
 // active section. The project — not a BOQ or a PDF — is the parent workspace.
 //
-// Tabs are grouped, not just listed: PRIMARY_TABS are the drawing → AI →
-// review → BOQ pipeline this product is actually about, and get the bold,
-// larger treatment. SECONDARY_TABS (Procurement, Activity) still route
-// exactly as before — nothing here changes what's reachable, only how loud
-// each destination is.
+// Stage C1: Workspace is the canonical project destination (the index route
+// now redirects there — see App.tsx), so it gets the one PRIMARY tab.
+// Activity owns a genuinely separate domain (stage timeline / material-
+// demand forecasting / accuracy — established in the Stage C investigation,
+// nothing there is drawing- or workspace-adjacent), so it stays its own
+// SECONDARY tab rather than folding into Workspace.
+//
+// Documents, BOQs (the list), and Procurement deliberately have NO tab here
+// anymore — this is not a deletion, their routes below are fully intact and
+// still load on direct/deep link (Workspace's own Sources rail and BOQ
+// context already link into "documents" and "boqs/:boqId"). Re-adding them
+// as tabs would recreate exactly the "row of equivalent dashboard tabs"
+// the Stage C investigation said not to rebuild.
 const PRIMARY_TABS = [
-  { to: "", end: true, label: "Overview", icon: LayoutDashboard },
-  { to: "documents", label: "Documents", icon: FileText },
-  { to: "boqs", label: "BOQs", icon: Calculator },
+  { to: "workspace", label: "Workspace", icon: LayoutDashboard },
 ];
 const SECONDARY_TABS = [
-  { to: "procurement", label: "Procurement", icon: PackageSearch },
   { to: "activity", label: "Activity", icon: Activity },
 ];
 
@@ -56,8 +61,7 @@ export default function ProjectLayout() {
   if (isReviewMode) {
     // No max-w-6xl/padding cap either — the drawing canvas should use the
     // full remaining viewport, not the same centered reading-width column
-    // Overview/Documents/BOQs use. BoqReviewWorkstation supplies its own
-    // padding.
+    // Documents/BOQs use. BoqReviewWorkstation supplies its own padding.
     return (
       <div className="min-w-0">
         <Outlet />
@@ -81,9 +85,8 @@ export default function ProjectLayout() {
           <nav className="mt-3 flex items-baseline gap-1 overflow-x-auto">
             {PRIMARY_TABS.map((t) => (
               <NavLink
-                key={t.to || "overview"}
+                key={t.to}
                 to={t.to}
-                end={t.end}
                 className={({ isActive }) =>
                   cn(
                     "inline-flex items-center gap-1.5 px-3 py-2.5 text-sm font-semibold rounded-t-md border-b-2 -mb-px whitespace-nowrap transition-colors",
