@@ -20,6 +20,8 @@ import type { StoredReviewItem } from "./reviewStore";
 import type { EvidenceBox, AnalysisSource } from "./analysisSchemaV1";
 import type { CategoryGroup, ElementCategory } from "./typeGrouping";
 import type { TypeInstance } from "./typeInstances";
+import type { DrawingGeometry } from "./drawingGeometry";
+import { fuseEvidenceGeometry } from "./geometryFusion";
 
 export type MarkerKind = "evidence" | "instance";
 export type MarkerEmphasis = "primary" | "secondary" | "muted";
@@ -51,6 +53,16 @@ export interface DrawingMarker {
    *  parent type's declared value (see typeInstances.ts). */
   differsFromType?: boolean;
   emphasis: MarkerEmphasis;
+  /**
+   * Real, richer document geometry for this exact marker — set ONLY when
+   * `withPdfGeometry` (below) found a real PDF vector shape whose bbox
+   * matches `box` deterministically (geometryFusion.ts's HYBRID case).
+   * `box` (above) is NEVER removed or altered when this is present — it
+   * stays the universal fallback every existing consumer already relies
+   * on. Absent (not a bbox-shaped placeholder) whenever no real shape
+   * match exists; nothing here ever fabricates a polygon from a box.
+   */
+  geometry?: DrawingGeometry;
 }
 
 function resolvedPage(box: EvidenceBox, source: AnalysisSource | undefined): number | null {
@@ -159,4 +171,37 @@ export function markersForInstance(
   item: StoredReviewItem, category: ElementCategory, instances: TypeInstance[], focusedObservationId: string,
 ): DrawingMarker[] {
   return markersForItem(item, category, instances, "secondary", focusedObservationId);
+}
+
+/**
+ * ADDITIVE geometry upgrade pass (the hybrid-geometry architecture) — takes
+ * markers already built by the functions above, exactly as before, and real
+ * PDF shapes already extracted per page (see pdfGeometry.ts; extraction
+ * itself happens upstream in the viewer, which owns the live PDF document —
+ * this module stays I/O-free), and returns the same markers with `geometry`
+ * additively attached wherever geometryFusion.ts found a real, deterministic
+ * match for that exact marker's `box`.
+ *
+ * PURE and SYNCHRONOUS: `pdfShapesByPage` is data the caller already
+ * extracted, not fetched or computed here. A marker with no shapes on its
+ * page, or no deterministic match (including an AMBIGUOUS match — more
+ * than one shape overlapping the same box), is returned completely
+ * unchanged: `box` is never removed, and nothing here invents a polygon
+ * from a bbox. `kind` maps directly to the same evidence/LOCATION
+ * provenance distinction the builders above already encode: an "evidence"
+ * marker's box is the AI item's own evidence (geometryFusion's
+ * EXISTING_EVIDENCE origin), an "instance" marker's box is a real LOCATION
+ * observation's own evidence (LOCATION origin) — never guessed from `kind`
+ * for any other purpose.
+ */
+export function withPdfGeometry(markers: DrawingMarker[], pdfShapesByPage: Map<number, DrawingGeometry[]>): DrawingMarker[] {
+  if (pdfShapesByPage.size === 0) return markers;
+  return markers.map((marker) => {
+    const shapes = pdfShapesByPage.get(marker.page);
+    if (!shapes || shapes.length === 0) return marker;
+    const origin = marker.kind === "instance" ? "LOCATION" : "EXISTING_EVIDENCE";
+    const result = fuseEvidenceGeometry(shapes, { page: marker.page, bbox: marker.box.bbox, pageSize: marker.pageSize }, origin);
+    if (result.case !== "HYBRID") return marker; // bbox fallback / ambiguous — unchanged
+    return { ...marker, geometry: result.geometry };
+  });
 }

@@ -28,6 +28,12 @@ const ROTATED_PAGE_SIZE = { width: 842, height: 595 };
 
 vi.mock("pdfjs-dist", () => ({
   GlobalWorkerOptions: {},
+  // Real numeric op codes don't matter here — pdfGeometry.ts only compares
+  // these constants against values it reads back out of the SAME mocked
+  // OPS object via getOperatorList below (which never emits a constructPath
+  // op), so geometry extraction always yields an honest "nothing here"
+  // (geometryAvailable: false) rather than throwing on a missing export.
+  OPS: { constructPath: 0, rectangle: 1, moveTo: 2, lineTo: 3, curveTo: 4, closePath: 5 },
   getDocument: () => ({
     promise: Promise.resolve({
       numPages: NUM_PAGES,
@@ -36,6 +42,8 @@ vi.mock("pdfjs-dist", () => ({
         return {
           getViewport: ({ scale }: { scale: number }) => ({ width: size.width * scale, height: size.height * scale }),
           render: () => ({ promise: Promise.resolve() }),
+          getOperatorList: async () => ({ fnArray: [], argsArray: [] }),
+          getTextContent: async () => ({ items: [] }),
         };
       },
     }),
