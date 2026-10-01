@@ -22,7 +22,15 @@ import { toast } from "sonner";
 import type { ProjectScope } from "@/lib/projectDocs";
 
 export type { ProjectScope };
-export interface BoqRow { id: string; name: string; description: string | null; scope_id: string | null; sort: number; status: string; }
+export interface BoqRow {
+  id: string; name: string; description: string | null; scope_id: string | null; sort: number; status: string;
+  /** Commercial waterfall inputs (cost index / contingency / overhead / cess /
+   *  GST percentages) — the SAME column OpsBoqBuilder reads/writes. Exposed
+   *  here so any consumer that needs the authoritative grand total (not just
+   *  a line-sum) can compute it via boqDsrDocument's computeCommercials()
+   *  instead of reimplementing the waterfall. */
+  spec: Record<string, unknown>;
+}
 
 /** Sentinel value for "create a new scope" in a scope <Select>, shared so
  *  both consumers recognize the same marker. */
@@ -56,7 +64,7 @@ export function useBoqManagement(projectId: string | undefined | null) {
     enabled: !!projectId,
     queryFn: async () => {
       const { data } = await supabase.from("boq")
-        .select("id, name, description, scope_id, sort, status").eq("project_id", projectId!)
+        .select("id, name, description, scope_id, sort, status, spec").eq("project_id", projectId!)
         .order("sort").order("created_at");
       return (data ?? []) as BoqRow[];
     },
