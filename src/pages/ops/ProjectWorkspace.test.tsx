@@ -114,6 +114,24 @@ describe("ProjectWorkspace — entering a context mode from the panel", () => {
   });
 });
 
+describe("Stage C3 — mobile drill-down lands on Context for a non-drawing mode, even with no document selected", () => {
+  it("a bare ?mode=boq deep link (e.g. 'Create BOQ' before any document exists) shows Context on mobile, not Sources", async () => {
+    renderWorkspace("/ops/projects/proj-1/workspace?mode=boq");
+    // Desktop always renders all three; on mobile this mode must ALSO show
+    // Context — so with nothing forcing it back to Sources, both instances
+    // of "context" (desktop + mobile) should be present, and "sources"
+    // only once (desktop).
+    expect((await screen.findAllByTestId("context")).length).toBe(2);
+    expect(screen.getAllByTestId("sources").length).toBe(1);
+  });
+
+  it("still defaults to Sources on mobile for the plain drawing mode with no document (unchanged)", async () => {
+    renderWorkspace("/ops/projects/proj-1/workspace");
+    expect((await screen.findAllByTestId("sources")).length).toBe(2);
+    expect(screen.getAllByTestId("context").length).toBe(1);
+  });
+});
+
 describe("Stage C1 — Workspace's own back link no longer points at the (now self-redirecting) project root", () => {
   it("links back to the projects list, not /ops/projects/:id", async () => {
     renderWorkspace("/ops/projects/proj-1/workspace");

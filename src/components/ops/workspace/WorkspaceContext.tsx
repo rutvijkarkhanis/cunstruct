@@ -17,9 +17,10 @@ import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { supabase as catalogSupabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { ClipboardCheck, Calculator, PackageSearch, Boxes, ExternalLink, FileText } from "lucide-react";
+import { ClipboardCheck, Calculator, PackageSearch, Boxes, FileText } from "lucide-react";
 import { formatINR } from "@/lib/forecastEngine";
 import type { WorkspaceMode } from "@/lib/review/workspaceState";
+import WorkspaceBoqPanel from "./WorkspaceBoqPanel";
 
 export interface WorkspaceContextProps {
   mode: Exclude<WorkspaceMode, "review">;
@@ -39,7 +40,7 @@ export default function WorkspaceContext({ mode, projectId, activeDocumentId, ac
       </div>
       <div className="flex-1 overflow-y-auto p-3 min-h-0">
         {mode === "drawing" && <DrawingHome projectId={projectId} activeDocumentId={activeDocumentId} onEnterMode={onEnterMode} />}
-        {mode === "boq" && <BoqSummary projectId={projectId} activeBoqId={activeBoqId} onEnterMode={onEnterMode} />}
+        {mode === "boq" && <WorkspaceBoqPanel projectId={projectId} activeBoqId={activeBoqId} onEnterMode={onEnterMode} />}
         {mode === "materials" && <MaterialsPanel projectId={projectId} activeBoqId={activeBoqId} />}
         {mode === "procurement" && <ProcurementPlaceholder />}
       </div>
@@ -102,7 +103,10 @@ function DrawingHome({ projectId, activeDocumentId, onEnterMode }: { projectId: 
         >
           <ClipboardCheck className="w-3.5 h-3.5" /> Review
         </Button>
-        <Button variant="outline" size="sm" className="w-full justify-start gap-2" disabled={!defaultBoq} onClick={() => defaultBoq && onEnterMode("boq", defaultBoq.id)}>
+        {/* Unlike Review/Materials, BOQ is always reachable — even with zero
+            BOQs yet, since WorkspaceBoqPanel itself shows the honest "no BOQ
+            yet, create one" state rather than needing an existing BOQ first. */}
+        <Button variant="outline" size="sm" className="w-full justify-start gap-2" onClick={() => onEnterMode("boq", defaultBoq?.id)}>
           <Calculator className="w-3.5 h-3.5" /> BOQ
         </Button>
         <Button variant="outline" size="sm" className="w-full justify-start gap-2" disabled={!defaultBoq} onClick={() => defaultBoq && onEnterMode("materials", defaultBoq.id)}>
@@ -113,58 +117,9 @@ function DrawingHome({ projectId, activeDocumentId, onEnterMode }: { projectId: 
         </Button>
         {!defaultBoq && (
           <p className="text-[11px] text-muted-foreground pt-1">
-            This project has no BOQ yet. <Link to={`/ops/projects/${projectId}/boqs`} className="text-primary hover:underline">Create one</Link> to unlock Review, BOQ, and Materials.
+            This project has no BOQ yet — open <b>BOQ</b> above to create one, which also unlocks Review and Materials.
           </p>
         )}
-      </div>
-    </div>
-  );
-}
-
-/** mode="boq" — a light summary, not a rebuilt editor. Reuses boq/boq_line
- *  exactly as OpsBoqBuilder does; "Open full BOQ" links to that existing,
- *  untouched page for actual editing. */
-function BoqSummary({ projectId, activeBoqId, onEnterMode }: { projectId: string; activeBoqId: string | null; onEnterMode: WorkspaceContextProps["onEnterMode"] }) {
-  const { data: boqs } = useProjectBoqs(projectId);
-  const boqId = activeBoqId ?? boqs?.[0]?.id ?? null;
-  const boq = boqs?.find((b) => b.id === boqId) ?? null;
-
-  const { data: lines } = useQuery({
-    queryKey: ["workspace-boq-lines", boqId],
-    enabled: !!boqId,
-    queryFn: async () => {
-      const { data } = await supabase.from("boq_line").select("qty, dsr_rate, custom_rate, included").eq("boq_id", boqId!);
-      return data ?? [];
-    },
-  });
-
-  if (!boqId) {
-    return <p className="text-xs text-muted-foreground">This project has no BOQ yet. <Link to={`/ops/projects/${projectId}/boqs`} className="text-primary hover:underline">Create one</Link>.</p>;
-  }
-
-  const includedLines = (lines ?? []).filter((l) => l.included);
-  // Base total only (qty × rate) — deliberately NOT the BOQ's final priced
-  // total, which also applies the spec's markup/overhead; showing that would
-  // overclaim precision this lightweight summary hasn't computed.
-  const baseTotal = includedLines.reduce((sum, l) => sum + (l.qty ?? 0) * ((l.custom_rate ?? l.dsr_rate) ?? 0), 0);
-
-  return (
-    <div className="space-y-3">
-      <div className="text-sm font-semibold">{boq?.name ?? "BOQ"}</div>
-      <div className="grid grid-cols-2 gap-2">
-        <Stat label="Lines" value={String((lines ?? []).length)} />
-        <Stat label="Included" value={String(includedLines.length)} />
-      </div>
-      <Stat label="Base total (excl. markup)" value={formatINR(baseTotal)} />
-      <div className="flex flex-col gap-1.5 pt-1">
-        <Button size="sm" variant="outline" className="justify-start gap-2" onClick={() => onEnterMode("review", boqId)}>
-          <ClipboardCheck className="w-3.5 h-3.5" /> Review this BOQ's items
-        </Button>
-        <Link to={`/ops/projects/${projectId}/boqs/${boqId}`}>
-          <Button size="sm" variant="default" className="w-full justify-start gap-2">
-            <ExternalLink className="w-3.5 h-3.5" /> Open full BOQ editor
-          </Button>
-        </Link>
       </div>
     </div>
   );
@@ -243,15 +198,6 @@ function ProcurementPlaceholder() {
       <p className="text-xs text-muted-foreground max-w-[220px] mx-auto">
         Procurement workflows are not connected to this project workspace yet.
       </p>
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded border px-2 py-1.5">
-      <div className="text-[10px] text-muted-foreground">{label}</div>
-      <div className="text-sm font-semibold tabular-nums">{value}</div>
     </div>
   );
 }

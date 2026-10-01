@@ -10,14 +10,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Plus, Upload, ChevronUp, ChevronDown, Trash2, Pencil, Check, X, Layers, FolderInput, Braces, FileText, GripVertical } from "lucide-react";
-import { SCOPE_KINDS, type ProjectScope } from "@/lib/projectDocs";
+import { SCOPE_KINDS } from "@/lib/projectDocs";
 import { parseBoqImport } from "@/lib/boqImport";
 import { parseBoqEvalJson, evalLinesToRows, pendingCount } from "@/lib/boqEvalJson";
 import { computeCommercials, roundRupee, openProjectQuote, type ProjectQuoteBoq, type QuoteSubHead } from "@/lib/boqDsrDocument";
+import { useBoqManagement, NEW_SCOPE, type BoqRow } from "@/hooks/useBoqManagement";
 
-interface BoqRow { id: string; name: string; description: string | null; scope_id: string | null; sort: number; status: string; }
 interface MovableBoq { id: string; name: string; project_id: string | null; scope_id: string | null; updated_at: string; }
-const NEW_SCOPE = "__new__";
 type Mode = null | "create" | "import" | "move" | "json" | "share";
 
 // Insert eval-derived boq_line rows, retrying without the optional columns
@@ -38,39 +37,7 @@ export default function ProjectBoqs() {
   const qc = useQueryClient();
   const { user } = useAuth();
 
-  const { data: scopes } = useQuery({
-    queryKey: ["project-scopes", projectId],
-    enabled: !!projectId,
-    queryFn: async () => {
-      const { data } = await supabase.from("project_scope")
-        .select("id, project_id, name, kind, sort, status").eq("project_id", projectId!).order("sort");
-      return (data ?? []) as ProjectScope[];
-    },
-  });
-
-  const { data: boqs } = useQuery({
-    queryKey: ["project-boqs", projectId],
-    enabled: !!projectId,
-    queryFn: async () => {
-      const { data } = await supabase.from("boq")
-        .select("id, name, description, scope_id, sort, status").eq("project_id", projectId!)
-        .order("sort").order("created_at");
-      return (data ?? []) as BoqRow[];
-    },
-  });
-
-  const { data: counts } = useQuery({
-    queryKey: ["project-boq-counts", projectId, (boqs ?? []).map((b) => b.id).join(",")],
-    enabled: !!boqs?.length,
-    queryFn: async () => {
-      const out: Record<string, number> = {};
-      await Promise.all((boqs ?? []).map(async (b) => {
-        const { count } = await supabase.from("boq_line").select("id", { count: "exact", head: true }).eq("boq_id", b.id);
-        out[b.id] = count ?? 0;
-      }));
-      return out;
-    },
-  });
+  const { scopes, boqs, counts, scopeName, createBoq: createBoqShared, resolveScopeId: resolveScopeIdShared } = useBoqManagement(projectId);
 
   const { data: project } = useQuery({
     queryKey: ["project-meta", projectId],
@@ -81,8 +48,6 @@ export default function ProjectBoqs() {
       return data as { name: string; client_name: string | null; location: string | null; project_type: string | null; floors: number | null; area_sqft: number | null } | null;
     },
   });
-
-  const scopeName = (sid: string | null) => scopes?.find((s) => s.id === sid)?.name ?? "—";
 
   // BOQs that can be moved into this project: standalone (no project) or under a
   // different project. Loaded only when the Move panel is open.
@@ -128,32 +93,21 @@ export default function ProjectBoqs() {
   const preview = useMemo(() => (mode === "import" && importText.trim() ? parseBoqImport(importText) : null), [mode, importText]);
   const jsonPreview = useMemo(() => (mode === "json" && jsonText.trim() ? parseBoqEvalJson(jsonText) : null), [mode, jsonText]);
 
-  // Resolve (creating if needed) the scope to use for a new BOQ.
-  const resolveScopeId = async (): Promise<string | null> => {
-    if (!scopeId) { toast.error("Select or create a scope"); return null; }
-    if (scopeId !== NEW_SCOPE) return scopeId;
-    if (!newScopeName.trim()) { toast.error("Enter the new scope name"); return null; }
-    const { data, error } = await supabase.from("project_scope")
-      .insert({ project_id: projectId, name: newScopeName.trim(), kind: newScopeKind, sort: scopes?.length ?? 0 })
-      .select("id").single();
-    if (error) { toast.error(error.message); return null; }
-    return (data as { id: string }).id;
-  };
+  // Resolve (creating if needed) the scope to use for a new BOQ — the one
+  // shared implementation (also used by Workspace's "Create BOQ" dialog).
+  const resolveScopeId = () => resolveScopeIdShared(scopeId, newScopeName, newScopeKind);
 
+  // Plain BOQ creation goes through the shared hook — the same persistence
+  // logic Workspace's "Create BOQ" dialog uses. Only the presentation-level
+  // follow-up (reset this page's form, navigate into the new BOQ) stays here.
   const createBoq = async () => {
-    if (!projectId) return;
     if (!name.trim()) return toast.error("Enter a BOQ name");
     setBusy(true);
     try {
-      const sid = await resolveScopeId();
-      if (!sid) return;
-      const { data, error } = await supabase.from("boq")
-        .insert({ project_id: projectId, name: name.trim(), description: description.trim() || null, scope_id: sid, sort: boqs?.length ?? 0, spec: {}, created_by: user?.id })
-        .select("id").single();
-      if (error) throw error;
-      finishAndOpen((data as { id: string }).id, "BOQ created");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to create BOQ");
+      const boqId = await createBoqShared({ name, description, scopeId, newScopeName, newScopeKind });
+      if (!boqId) return;
+      resetForm();
+      navigate(boqId);
     } finally { setBusy(false); }
   };
 

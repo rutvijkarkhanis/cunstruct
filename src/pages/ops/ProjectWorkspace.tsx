@@ -43,10 +43,17 @@ export default function ProjectWorkspace() {
   // Mobile-only drill-down panel — pure UI state, never persisted/shared:
   // which of the three panes is currently full-screen on a narrow viewport.
   // Desktop (lg+) ignores this and shows all three at once.
-  const [mobilePanel, setMobilePanel] = useState<"sources" | "canvas" | "context">(state.document ? "canvas" : "sources");
+  //
+  // Stage C3: a non-drawing mode (boq/materials/procurement) deep link —
+  // e.g. ?mode=boq with no document selected yet, a real case once BOQ
+  // context no longer requires an existing BOQ — must land on Context, not
+  // be forced back to Sources just because nothing is open in the canvas.
+  // "drawing" mode keeps its original document-driven behavior untouched.
+  const initialMobilePanel = state.mode !== "drawing" ? "context" : state.document ? "canvas" : "sources";
+  const [mobilePanel, setMobilePanel] = useState<"sources" | "canvas" | "context">(initialMobilePanel);
   useEffect(() => {
-    if (!state.document) setMobilePanel("sources");
-  }, [state.document]);
+    if (state.mode === "drawing" && !state.document) setMobilePanel("sources");
+  }, [state.document, state.mode]);
 
   // Source-management drawer — local UI state only, never part of the URL.
   // Opening/closing it must never disturb ?document=&page=&mode=&boq=, so the
