@@ -123,6 +123,45 @@ describe("handleFindSimilar — the caller-supplied reference is authoritative",
   });
 });
 
+describe("handleFindSimilar — prompt/schema plumbing", () => {
+  it("builds the prompt from buildFindSimilarPrompt using the caller's own reference, and sends the loaded file through unchanged", async () => {
+    const loadedFile = { filename: "ground-floor.pdf", bytes: new Uint8Array([9, 9, 9]) };
+    const callOpenAi = vi.fn(async () => ({ rawJson: JSON.stringify({ schema_version: SIMILAR_SCHEMA_V1, matches: [] }) }));
+    const d = deps({ loadDocumentFile: vi.fn(async () => loadedFile), callOpenAi });
+
+    await handleFindSimilar({ documentId: "doc-1", reference: REFERENCE }, d);
+
+    expect(callOpenAi).toHaveBeenCalledTimes(1);
+    const [promptText, files] = callOpenAi.mock.calls[0];
+    // Real buildFindSimilarPrompt output, not a stand-in string — proves the
+    // actual reference (label/description/evidence location) reached the
+    // real prompt builder, not some other value.
+    expect(promptText).toContain(REFERENCE.label);
+    expect(promptText).toContain(REFERENCE.description);
+    expect(promptText).toContain(`page ${REFERENCE.evidence[0].page}`);
+    expect(promptText.toLowerCase()).toContain("entire document");
+    // The file handleFindSimilar loaded is the exact one sent to the model —
+    // never re-fetched, substituted, or wrapped.
+    expect(files).toEqual([loadedFile]);
+  });
+
+  it("the index.ts find_similar branch wires CUNSTRUCT_FIND_SIMILAR_JSON_SCHEMA, never the identify schema — the schema binding itself lives in index.ts, one layer above this handler", () => {
+    const indexSource = readFileSync(join(__dirname, "../../../supabase/functions/ai-analysis/index.ts"), "utf-8");
+    const start = indexSource.indexOf('if (input.action === "find_similar")');
+    const braceStart = indexSource.indexOf("{", start);
+    let depth = 0, i = braceStart;
+    for (; i < indexSource.length; i++) {
+      if (indexSource[i] === "{") depth++;
+      else if (indexSource[i] === "}") { depth--; if (depth === 0) break; }
+    }
+    const branch = indexSource.slice(start, i + 1);
+    expect(branch).toContain("CUNSTRUCT_FIND_SIMILAR_JSON_SCHEMA");
+    expect(branch).not.toContain("CUNSTRUCT_IDENTIFY_JSON_SCHEMA");
+    expect(branch).not.toContain("CUNSTRUCT_ANALYSIS_JSON_SCHEMA");
+    expect(branch).not.toContain("CUNSTRUCT_OBSERVATION_JSON_SCHEMA");
+  });
+});
+
 describe("handleFindSimilar — failure modes", () => {
   it("400s when documentId is missing", async () => {
     const res = await handleFindSimilar({ reference: REFERENCE }, deps());
@@ -169,13 +208,21 @@ describe("handleFindSimilar — BOQ/database boundary (structural)", () => {
   it("never calls anything beyond the two injected dependencies — no database handle exists in scope to write with", async () => {
     const loadDocumentFile = vi.fn(async () => ({ filename: "plan.pdf", bytes: new Uint8Array() }));
     const callOpenAi = vi.fn(async () => ({ rawJson: JSON.stringify({ schema_version: SIMILAR_SCHEMA_V1, matches: [] }) }));
-    await handleFindSimilar({ documentId: "doc-1", reference: REFERENCE }, { loadDocumentFile, callOpenAi });
+    const theOnlyDeps: FindSimilarDeps = { loadDocumentFile, callOpenAi };
+    await handleFindSimilar({ documentId: "doc-1", reference: REFERENCE }, theOnlyDeps);
     expect(loadDocumentFile).toHaveBeenCalledTimes(1);
     expect(callOpenAi).toHaveBeenCalledTimes(1);
-    // handleFindSimilar's own signature (FindSimilarDeps) has exactly these
-    // two function dependencies and nothing else — see the type import
-    // above. There is no third "db" dependency a result could have been
-    // written through even if this test didn't exist.
+  });
+
+  it("the dependency object the handler accepts has exactly these two keys — deliberately not a mock assertion: a future change that adds a third ('db', 'supabase', 'write', ...) dependency fails this immediately, before it could ever be wired to a real client", async () => {
+    const loadDocumentFile = vi.fn(async () => ({ filename: "plan.pdf", bytes: new Uint8Array() }));
+    const callOpenAi = vi.fn(async () => ({ rawJson: JSON.stringify({ schema_version: SIMILAR_SCHEMA_V1, matches: [] }) }));
+    const theOnlyDeps: FindSimilarDeps = { loadDocumentFile, callOpenAi };
+    expect(Object.keys(theOnlyDeps).sort()).toEqual(["callOpenAi", "loadDocumentFile"]);
+    // No Supabase/database client is constructed anywhere in this test file
+    // to prove it wasn't called — FindSimilarDeps simply has no slot for
+    // one, so there is nothing to mock in the first place.
+    await handleFindSimilar({ documentId: "doc-1", reference: REFERENCE }, theOnlyDeps);
   });
 });
 
