@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, Menu, PanelRight, X } from "lucide-react";
 import BoqReviewWorkstation from "./BoqReviewWorkstation";
 import WorkspaceSources from "@/components/ops/workspace/WorkspaceSources";
+import WorkspaceSourceManager from "@/components/ops/workspace/WorkspaceSourceManager";
 import WorkspaceCanvas from "@/components/ops/workspace/WorkspaceCanvas";
 import WorkspaceContext from "@/components/ops/workspace/WorkspaceContext";
 import { parseWorkspaceQuery, buildWorkspaceQuery, type WorkspaceMode } from "@/lib/review/workspaceState";
@@ -46,6 +47,11 @@ export default function ProjectWorkspace() {
   useEffect(() => {
     if (!state.document) setMobilePanel("sources");
   }, [state.document]);
+
+  // Source-management drawer — local UI state only, never part of the URL.
+  // Opening/closing it must never disturb ?document=&page=&mode=&boq=, so the
+  // drawing underneath is exactly as the user left it when the drawer closes.
+  const [sourceManagerOpen, setSourceManagerOpen] = useState(false);
 
   const updateQuery = (patch: Partial<ReturnType<typeof parseWorkspaceQuery>>) => {
     const next = { ...state, ...patch };
@@ -101,7 +107,12 @@ export default function ProjectWorkspace() {
           of the width (Sources/Context are fixed, compact rails). */}
       <div className="hidden lg:flex flex-1 min-h-0">
         <div className="w-56 shrink-0 min-h-0">
-          <WorkspaceSources projectId={projectId} activeDocumentId={state.document} onSelectDocument={onSelectDocument} />
+          <WorkspaceSources
+            projectId={projectId}
+            activeDocumentId={state.document}
+            onSelectDocument={onSelectDocument}
+            onManageSources={() => setSourceManagerOpen(true)}
+          />
         </div>
         <WorkspaceCanvas documentId={state.document} page={state.page} />
         <div className="w-72 shrink-0 min-h-0">
@@ -123,6 +134,7 @@ export default function ProjectWorkspace() {
             projectId={projectId}
             activeDocumentId={state.document}
             onSelectDocument={(docId) => { onSelectDocument(docId); }}
+            onManageSources={() => setSourceManagerOpen(true)}
           />
         )}
         {mobilePanel === "canvas" && (
@@ -155,6 +167,14 @@ export default function ProjectWorkspace() {
           </div>
         )}
       </div>
+
+      <WorkspaceSourceManager
+        projectId={projectId}
+        open={sourceManagerOpen}
+        onOpenChange={setSourceManagerOpen}
+        activeDocumentId={state.document}
+        onSelectDocument={onSelectDocument}
+      />
     </div>
   );
 }

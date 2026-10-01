@@ -8,7 +8,7 @@ const DOCS = [
   { id: "doc-1", name: "Ground Floor Plan", doc_type: "Architectural", discipline: "Architectural", status: "uploaded", current_revision_id: "rev-1" },
   { id: "doc-2", name: "Structural Plan", doc_type: "Structural", discipline: "Structural", status: "uploaded", current_revision_id: null },
 ];
-const REVS = [{ id: "rev-1", page_count: 6 }];
+const REVS = [{ id: "rev-1", document_id: "doc-1", page_count: 6 }];
 
 vi.mock("@/integrations/supabase/client", () => {
   const chain = (getResult: () => { data: unknown; error: null }) => {
@@ -28,16 +28,21 @@ vi.mock("@/integrations/supabase/client", () => {
   };
 });
 
-function renderRail(activeDocumentId: string | null, onSelectDocument = vi.fn()) {
+function renderRail(activeDocumentId: string | null, onSelectDocument = vi.fn(), onManageSources = vi.fn()) {
   const qc = new QueryClient();
   render(
     <QueryClientProvider client={qc}>
       <MemoryRouter>
-        <WorkspaceSources projectId="proj-1" activeDocumentId={activeDocumentId} onSelectDocument={onSelectDocument} />
+        <WorkspaceSources
+          projectId="proj-1"
+          activeDocumentId={activeDocumentId}
+          onSelectDocument={onSelectDocument}
+          onManageSources={onManageSources}
+        />
       </MemoryRouter>
     </QueryClientProvider>,
   );
-  return onSelectDocument;
+  return { onSelectDocument, onManageSources };
 }
 
 describe("WorkspaceSources", () => {
@@ -50,7 +55,7 @@ describe("WorkspaceSources", () => {
   });
 
   it("calls onSelectDocument with the document's id when a row is clicked", async () => {
-    const onSelectDocument = renderRail(null);
+    const { onSelectDocument } = renderRail(null);
     const row = await screen.findByText("Ground Floor Plan");
     fireEvent.click(row);
     expect(onSelectDocument).toHaveBeenCalledWith("doc-1");
@@ -64,9 +69,15 @@ describe("WorkspaceSources", () => {
     expect(otherRow.className).not.toContain("font-semibold");
   });
 
-  it("exposes a link to the existing Documents page for upload/manage, rather than rebuilding CRUD", async () => {
+  it("exposes a link to the existing Documents page as a rollback path, alongside the new drawer", async () => {
     renderRail(null);
-    const manageLink = await screen.findByLabelText("Manage documents");
+    const manageLink = await screen.findByLabelText("Open full Documents page");
     expect(manageLink).toHaveAttribute("href", "/ops/projects/proj-1/documents");
+  });
+
+  it("Stage C2 — clicking '+ Add source' opens the source-management drawer rather than navigating away", async () => {
+    const { onManageSources } = renderRail(null);
+    fireEvent.click(await screen.findByRole("button", { name: /Add source/i }));
+    expect(onManageSources).toHaveBeenCalledTimes(1);
   });
 });
