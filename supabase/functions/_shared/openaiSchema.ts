@@ -173,3 +173,36 @@ export const CUNSTRUCT_IDENTIFY_JSON_SCHEMA = {
     required: ["schema_version", "candidates"],
   },
 };
+
+// ── Find Similar (new) — given an already-confirmed identification, other
+// occurrences of the same element type elsewhere in the document. Reuses
+// evidenceBoxSchema verbatim. Deliberately has no quantity/unit/status
+// field, same as identify: this is identification of occurrences, never
+// estimation. A "match" is shaped identically to an identify "candidate" —
+// one independent, confirmable finding — but the array is named `matches`
+// to keep the two contracts (and their JSON) visually distinct.
+const similarMatchSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    label: { type: "string" },
+    description: { type: ["string", "null"] },
+    confidence: { type: ["number", "null"] },
+    evidence: { type: "array", items: evidenceBoxSchema },
+  },
+  required: ["label", "description", "confidence", "evidence"],
+};
+
+export const CUNSTRUCT_FIND_SIMILAR_JSON_SCHEMA = {
+  name: "cunstruct_find_similar_v1",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      schema_version: { type: "string" },
+      matches: { type: "array", items: similarMatchSchema },
+    },
+    required: ["schema_version", "matches"],
+  },
+};
