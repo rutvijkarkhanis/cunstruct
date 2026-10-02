@@ -79,7 +79,13 @@ export interface ShareReadDeps {
   getDocumentForProject: (projectId: string, documentId: string) => Promise<{ name: string; filePath: string | null; pageTitles: Record<string, string> | null } | null>;
   createSignedUrl: (filePath: string) => Promise<string | null>;
   getBoqForProject: (projectId: string, boqId: string) => Promise<{ id: string; name: string; spec: CommercialSpec } | null>;
-  listBoqLines: (boqId: string) => Promise<ShareBoqLineRow[]>;
+  /** Takes projectId as well as boqId — NOT just for symmetry with
+   *  getBoqForProject, but so the real implementation (index.ts) can
+   *  independently re-verify the boq belongs to this project before
+   *  touching boq_line, rather than relying solely on handleBoqLines having
+   *  already checked via getBoqForProject moments earlier. Two independent
+   *  checks of the same invariant, not one check two call sites trust. */
+  listBoqLines: (projectId: string, boqId: string) => Promise<ShareBoqLineRow[]>;
 }
 
 export type ShareHandlerResult =
@@ -143,7 +149,11 @@ export async function handleBoqLines(
   const boq = await deps.getBoqForProject(input.projectId, input.boqId);
   if (!boq) return { status: 404, body: { ok: false, error: "BOQ not found in this project." } };
 
-  const rows = await deps.listBoqLines(input.boqId);
+  // Always passes input.projectId — the server-resolved project from the
+  // validated share-link record (see index.ts) — never anything client-
+  // supplied, and never a different value than the one getBoqForProject
+  // just checked above.
+  const rows = await deps.listBoqLines(input.projectId, input.boqId);
   const included = rows.filter((r) => r.included);
 
   // showPricing: false — these keys are genuinely absent from the response,

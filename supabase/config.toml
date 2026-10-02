@@ -16,3 +16,16 @@
 project_id = "dkgjsobfljqoggalivzt"
 
 [functions.ai-analysis]
+
+# workspace-share serves public, unauthenticated share-link requests (see
+# supabase/functions/workspace-share/index.ts) — its callers have no
+# Supabase session at all, so the platform's own JWT check must be disabled
+# for this function specifically. This does NOT weaken access control: the
+# handler performs its own authorization in its place — it hashes the
+# incoming share token, looks up the matching project_share_link row, and
+# rejects (generic 404) unless that row exists, is not revoked, and is not
+# past its expiry, before any project data is read. See that file's header
+# comment and supabase/functions/workspace-share/handler.ts's own doc
+# comment for the full design. No other function's configuration changes.
+[functions.workspace-share]
+verify_jwt = false

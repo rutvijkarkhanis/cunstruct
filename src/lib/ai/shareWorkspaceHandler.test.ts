@@ -100,6 +100,29 @@ describe("handleBoqLines", () => {
     expect(res.status).toBe(400);
   });
 
+  it("always re-verifies ownership with listBoqLines, passing the SAME projectId getBoqForProject was just checked against — never a different or client-suppliable value", async () => {
+    const listBoqLines = vi.fn(async () => LINES);
+    const d = deps({ listBoqLines });
+    await handleBoqLines({ projectId: "proj-1", boqId: "boq-1", showPricing: true }, d);
+    expect(listBoqLines).toHaveBeenCalledWith("proj-1", "boq-1");
+  });
+
+  it("defense-in-depth: even if getBoqForProject were ever wrong, listBoqLines's own independent project check (simulated here by it returning []) still prevents another project's lines from being returned — never substitutes a foreign BOQ's real rows", async () => {
+    // Simulates index.ts's real behavior for a mismatch: its listBoqLines
+    // independently re-queries `boq` scoped to (id, project_id) before ever
+    // touching boq_line, and returns [] when that second check fails — this
+    // mock stands in for that DB-level guard, which can't be exercised here
+    // without a real database (see the module's own getBoqLines comment).
+    const d = deps({ listBoqLines: vi.fn(async () => []) });
+    const res = await handleBoqLines({ projectId: "proj-1", boqId: "boq-1", showPricing: true }, d);
+    expect(res.status).toBe(200);
+    if (!res.body.ok) throw new Error("expected ok");
+    // Reported the same honest way as a genuinely empty BOQ — never an
+    // error that would hint a mismatch happened, and never another
+    // project's real line data.
+    expect(res.body.lines).toEqual([]);
+  });
+
   it("showPricing: false genuinely OMITS rate/amount/commercials keys, not just zeroes them", async () => {
     const d = deps({ listBoqLines: vi.fn(async () => LINES) });
     const res = await handleBoqLines({ projectId: "proj-1", boqId: "boq-1", showPricing: false }, d);
@@ -210,5 +233,53 @@ describe("workspace-share index.ts — the one permitted write is scoped and sin
     const match = INDEX_SRC.match(/\.update\(\{([^}]*)\}\)/);
     expect(match).not.toBeNull();
     expect(match![1]).toContain("last_accessed_at");
+  });
+});
+
+describe("supabase/config.toml — workspace-share is declared with verify_jwt disabled, nothing else touched", () => {
+  const CONFIG_SRC = readFileSync(join(__dirname, "../../../supabase/config.toml"), "utf8");
+
+  it("declares [functions.workspace-share] with verify_jwt = false", () => {
+    const match = CONFIG_SRC.match(/\[functions\.workspace-share\]([\s\S]*?)(?=\n\[|$)/);
+    expect(match).not.toBeNull();
+    expect(match![1]).toMatch(/verify_jwt\s*=\s*false/);
+  });
+
+  it("leaves [functions.ai-analysis] exactly as-is — no verify_jwt override added there", () => {
+    const match = CONFIG_SRC.match(/\[functions\.ai-analysis\]([\s\S]*?)(?=\n\[|$)/);
+    expect(match).not.toBeNull();
+    expect(match![1]).not.toMatch(/verify_jwt/);
+  });
+
+  it("declares no other function's verify_jwt setting — the change is scoped to workspace-share alone", () => {
+    const verifyJwtLines = [...CONFIG_SRC.matchAll(/verify_jwt\s*=\s*\w+/g)];
+    expect(verifyJwtLines).toHaveLength(1);
+  });
+
+  it("keeps the project_id setting untouched", () => {
+    expect(CONFIG_SRC).toContain('project_id = "dkgjsobfljqoggalivzt"');
+  });
+});
+
+describe("workspace-share index.ts — listBoqLines independently re-verifies project ownership in its own real DB query", () => {
+  // Confirms, at the source level, that the ACTUAL implementation (not just
+  // the mock used above) re-checks boq.project_id before ever touching
+  // boq_line — this is the real DB-level guard; the handler.ts-level tests
+  // above only prove handler.ts wires projectId through correctly, since a
+  // real database isn't available under Vitest.
+  const INDEX_SRC = readFileSync(join(__dirname, "../../../supabase/functions/workspace-share/index.ts"), "utf8");
+
+  it("listBoqLines queries boq scoped to BOTH id and project_id before reading boq_line", () => {
+    const fnMatch = INDEX_SRC.match(/async listBoqLines\(projectId, boqId\) \{([\s\S]*?)\n {4}\},/);
+    expect(fnMatch).not.toBeNull();
+    const body = fnMatch![1];
+    expect(body).toMatch(/from\("boq"\)/);
+    expect(body).toMatch(/\.eq\("id", boqId\)/);
+    expect(body).toMatch(/\.eq\("project_id", projectId\)/);
+    // The ownership check happens before the boq_line query, not after.
+    const boqCheckIdx = body.indexOf('from("boq")');
+    const boqLineQueryIdx = body.indexOf('from("boq_line")');
+    expect(boqCheckIdx).toBeGreaterThan(-1);
+    expect(boqLineQueryIdx).toBeGreaterThan(boqCheckIdx);
   });
 });

@@ -142,7 +142,17 @@ function buildDeps(): ShareReadDeps {
       return { id: data.id as string, name: data.name as string, spec: toCommercialSpec(data.spec as Record<string, unknown> | null) };
     },
 
-    async listBoqLines(boqId) {
+    // Independently re-verifies the boq belongs to projectId — a SECOND,
+    // separate check of the same invariant getBoqForProject already applied
+    // in handleBoqLines moments earlier (handler.ts never calls this
+    // without having checked first), so a future refactor that skipped or
+    // mis-ordered that first check still can't leak another project's BOQ
+    // lines through this path. A mismatch returns [] (handleBoqLines then
+    // reports it the same honest way as a genuinely empty BOQ — see its own
+    // "This BOQ has no line items yet." case), never another project's rows.
+    async listBoqLines(projectId, boqId) {
+      const { data: boq } = await admin.from("boq").select("id").eq("id", boqId).eq("project_id", projectId).maybeSingle();
+      if (!boq) return [];
       const { data } = await admin.from("boq_line")
         .select("id, description, unit, qty, included, section, sort, dsr_rate, custom_rate")
         .eq("boq_id", boqId).order("sort");

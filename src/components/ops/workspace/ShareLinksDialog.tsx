@@ -17,6 +17,27 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Share2, Copy, Trash2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useShareLinks } from "@/hooks/useShareLinks";
+import { formatDateShort } from "@/lib/forecastEngine";
+
+/** Today's date as a plain YYYY-MM-DD string, in the browser's own local
+ *  time zone — the same shape a native `<input type="date">` produces/
+ *  consumes, so a same-day comparison never trips on a UTC/local mismatch. */
+function todayDateString(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** An expiry date input ("" = no expiry) becomes end-of-that-day in the
+ *  browser's own local time zone — a link set to "expire today" stays
+ *  usable through the rest of today, never expiring the instant it's
+ *  created. Returns null for "" (indefinite) and for anything that doesn't
+ *  parse to a real date. */
+function expiryDateToIso(dateStr: string): string | null {
+  if (!dateStr) return null;
+  const d = new Date(`${dateStr}T23:59:59`);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
 
 export interface ShareLinksDialogProps {
   projectId: string;
@@ -32,17 +53,25 @@ export default function ShareLinksDialog({ projectId, open, onOpenChange }: Shar
   const { links, createLink, revokeLink } = useShareLinks(projectId);
   const [name, setName] = useState("");
   const [showPricing, setShowPricing] = useState(true);
+  // "" = no expiry (indefinite) — the existing default behavior, unchanged
+  // unless a staff member explicitly picks a date.
+  const [expiryDate, setExpiryDate] = useState("");
   const [creating, setCreating] = useState(false);
   const [justCreatedUrl, setJustCreatedUrl] = useState<string | null>(null);
 
   const onCreate = async () => {
     if (!name.trim()) { toast.error("Give this link a name"); return; }
+    if (expiryDate) {
+      if (Number.isNaN(new Date(expiryDate).getTime())) { toast.error("That expiry date isn't valid"); return; }
+      if (expiryDate < todayDateString()) { toast.error("Expiry date can't be in the past"); return; }
+    }
     setCreating(true);
-    const rawToken = await createLink({ name: name.trim(), showPricing });
+    const rawToken = await createLink({ name: name.trim(), showPricing, expiresAt: expiryDateToIso(expiryDate) });
     setCreating(false);
     if (rawToken) {
       setJustCreatedUrl(shareUrl(rawToken));
       setName("");
+      setExpiryDate("");
     }
   };
 
@@ -82,6 +111,13 @@ export default function ShareLinksDialog({ projectId, open, onOpenChange }: Shar
               <Label className="text-xs text-muted-foreground">Show BOQ pricing (rates, totals)</Label>
               <Switch checked={showPricing} onCheckedChange={setShowPricing} />
             </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Expires (optional — leave blank for no expiry)</Label>
+              <Input
+                type="date" value={expiryDate} min={todayDateString()}
+                onChange={(e) => setExpiryDate(e.target.value)} className="h-8 text-sm"
+              />
+            </div>
             <Button size="sm" className="gap-1.5 w-full" onClick={onCreate} disabled={creating}>
               <Plus className="w-3.5 h-3.5" /> {creating ? "Creating…" : "Create link"}
             </Button>
@@ -104,7 +140,11 @@ export default function ShareLinksDialog({ projectId, open, onOpenChange }: Shar
                       <div className="min-w-0">
                         <div className={inactive ? "truncate text-muted-foreground line-through" : "truncate"}>{l.name}</div>
                         <div className="text-[10px] text-muted-foreground">
-                          {revoked ? "Revoked" : expired ? "Expired" : l.show_pricing ? "Pricing visible" : "No pricing"}
+                          {revoked
+                            ? "Revoked"
+                            : expired
+                              ? `Expired ${formatDateShort(l.expires_at)}`
+                              : `${l.show_pricing ? "Pricing visible" : "No pricing"}${l.expires_at ? ` · Expires ${formatDateShort(l.expires_at)}` : " · No expiry"}`}
                         </div>
                       </div>
                       {!inactive && (
