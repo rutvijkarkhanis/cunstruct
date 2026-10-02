@@ -18,12 +18,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Menu, PanelRight, X } from "lucide-react";
+import { ArrowLeft, Menu, PanelRight, Share2, X } from "lucide-react";
 import BoqReviewWorkstation from "./BoqReviewWorkstation";
 import WorkspaceSources from "@/components/ops/workspace/WorkspaceSources";
 import WorkspaceSourceManager from "@/components/ops/workspace/WorkspaceSourceManager";
 import WorkspaceCanvas from "@/components/ops/workspace/WorkspaceCanvas";
 import WorkspaceContext from "@/components/ops/workspace/WorkspaceContext";
+import ShareLinksDialog from "@/components/ops/workspace/ShareLinksDialog";
 import { parseWorkspaceQuery, buildWorkspaceQuery, type WorkspaceMode } from "@/lib/review/workspaceState";
 
 export default function ProjectWorkspace() {
@@ -83,6 +84,8 @@ export default function ProjectWorkspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.mode]);
 
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+
   const onSelectDocument = (documentId: string) => {
     updateQuery({ document: documentId, page: null });
     setMobilePanel("canvas");
@@ -118,15 +121,22 @@ export default function ProjectWorkspace() {
           <span className="text-muted-foreground">/</span>
           <span className="text-muted-foreground truncate">Workspace</span>
         </div>
-        <div className="ml-auto flex items-center gap-1 lg:hidden">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setMobilePanel("sources")} aria-label="Sources" title="Sources">
-            <Menu className="w-4 h-4" />
+        <div className="ml-auto flex items-center gap-1">
+          <Button variant="outline" size="sm" className="h-7 gap-1.5 px-2" onClick={() => setShareDialogOpen(true)}>
+            <Share2 className="w-3.5 h-3.5" /> Share
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setMobilePanel("context")} aria-label="Context" title="Context">
-            <PanelRight className="w-4 h-4" />
-          </Button>
+          <div className="flex items-center gap-1 lg:hidden">
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setMobilePanel("sources")} aria-label="Sources" title="Sources">
+              <Menu className="w-4 h-4" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setMobilePanel("context")} aria-label="Context" title="Context">
+              <PanelRight className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
       </header>
+
+      <ShareLinksDialog projectId={projectId} open={shareDialogOpen} onOpenChange={setShareDialogOpen} />
 
       {/* Desktop — all three panes at once; the drawing gets the majority
           of the width (Sources/Context are fixed, compact rails). */}

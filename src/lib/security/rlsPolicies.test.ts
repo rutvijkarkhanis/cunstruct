@@ -20,6 +20,7 @@ const PROJECT_SCOPED_TABLES = [
   "projects", "project_scope", "project_document", "document_revision",
   "boq", "boq_line", "boq_document", "boq_audit_run", "boq_audit_finding",
   "ai_operation_log", "project_rooms", "forecasts", "order_items", "catalog_gaps",
+  "project_share_link",
 ];
 
 describe("RLS — every confidential table has row level security enabled", () => {
@@ -58,6 +59,7 @@ describe("RLS — owner access is scoped through project ownership", () => {
     ["project_document", /p\.id = project_document\.project_id and p\.owner_id = auth\.uid\(\)/],
     ["document_revision", /d\.id = document_revision\.document_id and p\.owner_id = auth\.uid\(\)/],
     ["ai_operation_log", /p\.id = ai_operation_log\.project_id and p\.owner_id = auth\.uid\(\)/],
+    ["project_share_link", /p\.id = project_share_link\.project_id and p\.owner_id = auth\.uid\(\)/],
   ];
 
   it.each(OWNER_GUARDS)("%s scopes owner access to the project owner", (_t, re) => {
@@ -65,7 +67,7 @@ describe("RLS — owner access is scoped through project ownership", () => {
   });
 
   it("staff management is is_staff-gated across the confidential tables", () => {
-    for (const t of ["boq_audit_run", "boq_audit_finding", "ai_operation_log", "project_document"]) {
+    for (const t of ["boq_audit_run", "boq_audit_finding", "ai_operation_log", "project_document", "project_share_link"]) {
       const re = new RegExp(`on public\\.${t} for all[\\s\\S]*?public\\.is_staff\\(auth\\.uid\\(\\)\\)`);
       expect(re.test(SQL)).toBe(true);
     }

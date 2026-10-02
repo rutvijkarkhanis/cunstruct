@@ -48,6 +48,9 @@ const OpsBoqList = lazy(() => import("./pages/ops/OpsBoqList.tsx"));
 const OpsBoqBuilder = lazy(() => import("./pages/ops/OpsBoqBuilder.tsx"));
 const BoqReviewWorkstation = lazy(() => import("./pages/ops/BoqReviewWorkstation.tsx"));
 
+// ── Public, unauthenticated share link (reachable on EITHER subdomain) ──────
+const PublicWorkspaceShare = lazy(() => import("./pages/PublicWorkspaceShare.tsx"));
+
 const PageLoader = () => (
   <div className="min-h-screen bg-background flex items-center justify-center">
     <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -102,6 +105,8 @@ function StorefrontRoutes() {
       <Route path="/kits" element={<Kits />} />
       <Route path="/privacy" element={<Privacy />} />
       <Route path="/auth" element={<Auth />} />
+      {/* Public share links work on either domain — never redirected. */}
+      <Route path="/share/:token" element={<PublicWorkspaceShare />} />
       {/* Projects module lives on the app subdomain — redirect there */}
       <Route path="/my-projects" element={<CrossDomainRedirect base={app} />} />
       <Route path="/my-projects/*" element={<CrossDomainRedirect base={app} />} />
@@ -122,6 +127,10 @@ function AppRoutes() {
       <Route path="/" element={<Navigate to="/my-projects" replace />} />
       <Route path="/privacy" element={<Privacy />} />
       <Route path="/auth" element={<Auth />} />
+      {/* Public, unauthenticated share link — a top-level route OUTSIDE
+          OpsLayout's <Route path="/ops" element={<OpsLayout />}> below, so it
+          never passes through OpsLayout's isStaff gate. */}
+      <Route path="/share/:token" element={<PublicWorkspaceShare />} />
       <Route path="/my-projects" element={<MyProjects />} />
       <Route path="/my-projects/:id" element={<MyProjectDetail />} />
       <Route path="/my-projects/:id/order" element={<MyProjectOrder />} />
