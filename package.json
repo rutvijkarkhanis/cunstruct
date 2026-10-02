@@ -13,6 +13,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "fill-descriptions": "node scripts/fill-product-descriptions.mjs",
     "fill-descriptions:dry": "DRY_RUN=1 node scripts/fill-product-descriptions.mjs",
     "audit-keywords": "node scripts/audit-category-keywords.mjs"
