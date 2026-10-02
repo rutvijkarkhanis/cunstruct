@@ -16,6 +16,7 @@ import {
   LOCATION_BENCHMARK_RUNS,
   SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928,
   SRIKAKULAM_SECOND_FLOOR_LOCATION_RUN,
+  SRIKAKULAM_THIRD_LOCATION_RUN_20260928,
   type ExpectedObservation,
   type LocationBenchmarkRun,
 } from "./srikakulamObservationBenchmark";
@@ -23,6 +24,7 @@ import type { ObservationV1 } from "./observationSchemaV1";
 
 const SRIKAKULAM_RUN = LOCATION_BENCHMARK_RUNS.find((r) => r.id === "srikakulam-apartment-20260928")!;
 const SECOND_FLOOR_RUN = LOCATION_BENCHMARK_RUNS.find((r) => r.id === "srikakulam-second-floor")!;
+const THIRD_RUN = LOCATION_BENCHMARK_RUNS.find((r) => r.id === "srikakulam-third-run-20260928")!;
 
 /** The real, audited 2026-09-28 production output — identical to the fixture
  *  already used in observationBenchmarkScorer.test.ts's dedicated describe
@@ -58,6 +60,28 @@ const SECOND_FLOOR_ACTUAL_RUN: ObservationV1[] = [
   // The ACTUAL misreport: material "Wood" — the confirmed gap this run exists
   // to represent. Dimension is correctly reported.
   { observationType: "opening", mark: "D1", scopeHint: "Second Floor", attributes: { dimension: "3'6\"x7'9\"", material: "Wood" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
+];
+
+/** The real, third production run's output — exactly the 5 observations
+ *  supplied, field-for-field, never reinterpreted. Notably, every mark/
+ *  scopeHint pair here uses a DIFFERENT convention than runs #1/#2: scopeHint
+ *  names the room/context a fixture belongs to ("Master Bedroom", "Dining
+ *  Room", "Building Lift"), not the floor ("First Floor"/"Second Floor") the
+ *  expected fixture above uses. The PRIMARY (mark, scopeHint) pass alone
+ *  finds zero matches because of this — exactly what motivated the
+ *  page-based fallback in observationBenchmarkScorer.ts. With the fallback,
+ *  3 of the 5 (Dining, Kitchen, Lift) match via (mark, page); W.R and Plasma
+ *  still don't, because no expected entry exists for either mark at all
+ *  (see the tests below). */
+const THIRD_RUN_ACTUAL: ObservationV1[] = [
+  { observationType: "room_or_space", mark: "W.R", scopeHint: "Master Bedroom", attributes: { dimension: "16'6\"x13'3\"" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+  { observationType: "room_or_space", mark: "Dining", scopeHint: "Dining Room", attributes: { dimension: "17'8\"x15'4\"" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+  { observationType: "room_or_space", mark: "Kitchen", scopeHint: "Kitchen", attributes: { dimension: "22'2\"x11'" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
+  // "Plasma TV Installation" is the source's own descriptive text — carried in
+  // locationText, the free-text field for exactly this, never fabricated into
+  // a dimension or specification the source didn't give it.
+  { observationType: "finish_or_material", mark: "Plasma", scopeHint: "Living Room", locationText: "Plasma TV Installation", attributes: {}, evidenceCompleteness: "LIMITED", source: { page: 1, evidence: [] } },
+  { observationType: "equipment", mark: "Lift", scopeHint: "Building Lift", attributes: { dimension: "7'x6'6\"" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
 ];
 
 // A second, SYNTHETIC run — a different (fictional) document, one audited
@@ -408,5 +432,134 @@ describe("scoreObservations — duplicate detection on the real runs", () => {
     expect(result.pageAccuracy).toBe(1);
     expect(result.falsePositiveCount).toBe(0);
     expect(result.distinctnessFailures).toEqual([]);
+  });
+});
+
+// ── The THIRD real production run — a separate 2-page Srikakulam drawing
+// (p.1 First Floor Plan, p.2 Second Floor Plan). Its 26 expected entries and
+// 5 actual observations use a genuinely different scopeHint convention than
+// runs #1/#2 (see THIRD_RUN_ACTUAL's own comment) — the tests below prove
+// that difference surfaces naturally through the EXISTING, unmodified
+// scorer, rather than being smoothed over or requiring a scorer change. ─────
+describe("scoreLocationBenchmark — the third real run is registered correctly", () => {
+  it("srikakulam-third-run-20260928 is in the registry", () => {
+    expect(THIRD_RUN).toBeDefined();
+    expect(THIRD_RUN.expectedObservations).toBe(SRIKAKULAM_THIRD_LOCATION_RUN_20260928);
+  });
+
+  it("has exactly 26 graded expected observations", () => {
+    expect(SRIKAKULAM_THIRD_LOCATION_RUN_20260928).toHaveLength(26);
+    expect(SRIKAKULAM_THIRD_LOCATION_RUN_20260928.filter((e) => e.graded === false)).toHaveLength(0);
+  });
+
+  it("every First Floor entry has expectedPage 1 and every Second Floor entry has expectedPage 2", () => {
+    const firstFloor = SRIKAKULAM_THIRD_LOCATION_RUN_20260928.filter((e) => e.scopeHint === "First Floor");
+    const secondFloor = SRIKAKULAM_THIRD_LOCATION_RUN_20260928.filter((e) => e.scopeHint === "Second Floor");
+    expect(firstFloor).toHaveLength(13);
+    expect(secondFloor).toHaveLength(13);
+    expect(firstFloor.every((e) => e.expectedPage === 1)).toBe(true);
+    expect(secondFloor.every((e) => e.expectedPage === 2)).toBe(true);
+  });
+
+  it("no other scopeHint value slipped in — every entry is First Floor or Second Floor", () => {
+    const scopeHints = new Set(SRIKAKULAM_THIRD_LOCATION_RUN_20260928.map((e) => e.scopeHint));
+    expect(scopeHints).toEqual(new Set(["First Floor", "Second Floor"]));
+  });
+});
+
+describe("scoreLocationBenchmark — scoring the supplied third-run actuals against the third-run fixture", () => {
+  const result = scoreObservations(THIRD_RUN.expectedObservations, THIRD_RUN_ACTUAL, THIRD_RUN.distinctnessPairs);
+
+  it("3 of 26 match via the page fallback — Dining (p.1), Kitchen (p.2), Lift (p.2); W.R and Plasma stay unmatched", () => {
+    // None of the 5 actuals share BOTH mark and scopeHint with an expected
+    // entry (the actual output's scopeHint names a room/context — "Dining
+    // Room", "Kitchen", "Building Lift" — never the floor the expected
+    // fixture uses), so the PRIMARY pass alone would find zero matches, same
+    // as before the fallback existed. The SECONDARY (mark, page) fallback
+    // then finds exactly 3: the First Floor Dining actual (page 1) claims
+    // thirdrun-firstfloor-dining-obs; the Second Floor Kitchen and Lift
+    // actuals (page 2) claim their Second Floor counterparts. W.R and Plasma
+    // have no expected entry at all (deliberately excluded), so no page can
+    // ever match them — they remain unmatched/false positives regardless.
+    expect(result.scopeRecall).toBeCloseTo(3 / 26);
+    expect(result.unmatchedExpectedIds).toHaveLength(23);
+    expect(result.unmatchedExpectedIds).not.toContain("thirdrun-firstfloor-dining-obs");
+    expect(result.unmatchedExpectedIds).not.toContain("thirdrun-secondfloor-kitchen-obs");
+    expect(result.unmatchedExpectedIds).not.toContain("thirdrun-secondfloor-lift-obs");
+    // The First Floor Lift and Second Floor Dining expectations are NOT
+    // satisfied — there is no actual observation on their own page for
+    // either, so the fallback correctly leaves them unmatched rather than
+    // guessing.
+    expect(result.unmatchedExpectedIds).toContain("thirdrun-firstfloor-lift-obs");
+    expect(result.unmatchedExpectedIds).toContain("thirdrun-secondfloor-dining-obs");
+  });
+
+  it("2 of the 5 actual observations remain false positives — W.R and Plasma, both deliberately excluded from the fixture", () => {
+    expect(result.falsePositiveCount).toBe(2);
+  });
+
+  it("observationTypeAccuracy is 2/3 — Lift's matched pair surfaces a real classification mismatch (actual equipment vs. this fixture's room_or_space)", () => {
+    // Not a benchmark bug: this fixture types Lift as room_or_space per
+    // explicit instruction (unlike runs #1/#2's equipment), so a genuinely
+    // matched Lift observation typed "equipment" by production shows up as a
+    // mismatch here — an honest, visible consequence of that fixture choice.
+    expect(result.observationTypeAccuracy).toBeCloseTo(2 / 3);
+  });
+
+  it("pageAccuracy is 1 for the 3 matched entries — tautological for fallback-matched pairs, since they were matched BECAUSE their page agreed", () => {
+    expect(result.pageAccuracy).toBe(1);
+  });
+
+  it("attributeAccuracy is 3/26 — only the 3 matched entries' dimensions enter the ratio, and all 3 are correct", () => {
+    expect(result.attributeAccuracy).toBeCloseTo(3 / 26);
+  });
+
+  it("zero duplicates — the 5 actuals have 5 distinct (type, mark, scopeHint) identities, unaffected by matching", () => {
+    expect(result.duplicateActualIds).toEqual([]);
+  });
+
+  it("no distinctness failures among the third run's own cross-floor pairs", () => {
+    expect(result.distinctnessFailures).toEqual([]);
+  });
+});
+
+describe("scoreLocationBenchmark — adding the third run left runs #1 and #2 exactly as they were", () => {
+  it("Rev A's score is unchanged", () => {
+    const result = scoreObservations(SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928, SRIKAKULAM_ACTUAL_RUN, SRIKAKULAM_RUN.distinctnessPairs);
+    expect(result.scopeRecall).toBe(1);
+    expect(result.observationTypeAccuracy).toBeCloseTo(8 / 9);
+    expect(result.attributeAccuracy).toBe(1);
+    expect(result.pageAccuracy).toBe(1);
+    expect(result.falsePositiveCount).toBe(0);
+    expect(result.duplicateActualIds).toEqual([]);
+  });
+
+  it("Second Floor's score is unchanged", () => {
+    const result = scoreObservations(SECOND_FLOOR_RUN.expectedObservations, SECOND_FLOOR_ACTUAL_RUN, SECOND_FLOOR_RUN.distinctnessPairs);
+    expect(result.scopeRecall).toBeCloseTo(8 / 19);
+    expect(result.attributeAccuracy).toBeCloseTo(9 / 18);
+    expect(result.pageAccuracy).toBe(1);
+    expect(result.falsePositiveCount).toBe(0);
+    expect(result.duplicateActualIds).toEqual([]);
+  });
+
+  it("all three runs score independently through the shared registry — no cross-run leakage", () => {
+    const report = scoreLocationBenchmark(
+      LOCATION_BENCHMARK_RUNS,
+      {
+        [SRIKAKULAM_RUN.id]: SRIKAKULAM_ACTUAL_RUN,
+        [SECOND_FLOOR_RUN.id]: SECOND_FLOOR_ACTUAL_RUN,
+        [THIRD_RUN.id]: THIRD_RUN_ACTUAL,
+      },
+    );
+    expect(report.results).toHaveLength(3);
+    const r1 = report.results.find((r) => r.runId === SRIKAKULAM_RUN.id)!;
+    const r2 = report.results.find((r) => r.runId === SECOND_FLOOR_RUN.id)!;
+    const r3 = report.results.find((r) => r.runId === THIRD_RUN.id)!;
+    expect(r1.scopeRecall).toBe(1);
+    expect(r2.scopeRecall).toBeCloseTo(8 / 19);
+    expect(r3.scopeRecall).toBeCloseTo(3 / 26);
+    expect(r1.falsePositiveCount + r2.falsePositiveCount + r3.falsePositiveCount).toBe(report.totalFalsePositives);
+    expect(report.totalFalsePositives).toBe(2);
   });
 });

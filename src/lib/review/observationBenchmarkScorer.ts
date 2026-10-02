@@ -5,6 +5,20 @@
 // algorithm — the one-to-one match is itself the proof of cross-floor
 // distinctness: two expected observations can never both claim the same
 // actual one.
+//
+// Matching is two passes (see matchObservations()): a PRIMARY pass on
+// (mark, scopeHint) — unchanged from the original single-pass matcher — and
+// a SECONDARY, fallback-only pass on (mark, page) for whatever the primary
+// pass left unmatched. The fallback exists because `scopeHint` is only
+// USUALLY the floor: the LOCATION prompt never documents scope_hint's
+// semantics in prose (only a single "Ground Floor" example), and a real run
+// (the third Srikakulam run) reported room/context strings there instead
+// ("Dining Room", "Building Lift") with floor recoverable only via `page`.
+// The fallback never touches an expected entry or actual observation the
+// primary pass already resolved, so it cannot change any run whose actual
+// output already encodes floor in scopeHint (every entry in runs #1/#2
+// matches via the primary pass alone — see locationBenchmarkRuns.test.ts's
+// dedicated regression tests).
 
 import type { ObservationV1 } from "./observationSchemaV1";
 import type { ExpectedObservation, LocationBenchmarkRun } from "./srikakulamObservationBenchmark";
@@ -16,6 +30,8 @@ function matchObservations(expected: ExpectedObservation[], actual: ObservationV
   const matchOf = new Map<string, ObservationV1>();
   const indexOf = new Map<string, number>();
 
+  // Pass 1 — PRIMARY identity: (mark, scopeHint). Exactly the original,
+  // single-pass matcher — untouched.
   for (const e of expected) {
     const idx = actual.findIndex(
       (a, i) => !usedActual.has(i) && norm(a.mark) === norm(e.mark) && norm(a.scopeHint) === norm(e.scopeHint),
@@ -26,6 +42,25 @@ function matchObservations(expected: ExpectedObservation[], actual: ObservationV
       indexOf.set(e.id, idx);
     }
   }
+
+  // Pass 2 — SECONDARY, page-based fallback. Only considers an expected
+  // entry the primary pass left unmatched (and only if it declares
+  // `expectedPage`), and only actuals the primary pass left unclaimed. Never
+  // reconsiders anything pass 1 already decided, so a run whose actual
+  // output already matches everything via (mark, scopeHint) — runs #1/#2 —
+  // is structurally unreachable by this pass.
+  for (const e of expected) {
+    if (matchOf.has(e.id) || e.expectedPage === undefined) continue;
+    const idx = actual.findIndex(
+      (a, i) => !usedActual.has(i) && norm(a.mark) === norm(e.mark) && a.source?.page === e.expectedPage,
+    );
+    if (idx !== -1) {
+      usedActual.add(idx);
+      matchOf.set(e.id, actual[idx]);
+      indexOf.set(e.id, idx);
+    }
+  }
+
   const falsePositives = actual.filter((_, i) => !usedActual.has(i));
   return { matchOf, indexOf, falsePositives };
 }

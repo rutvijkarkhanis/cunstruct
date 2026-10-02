@@ -375,6 +375,83 @@ export const SRIKAKULAM_SECOND_FLOOR_LOCATION_RUN: ExpectedObservation[] = [
  *  2026-09-28 run's Main Entrance/W1 cases) — nothing to check here yet. */
 const SRIKAKULAM_SECOND_FLOOR_DISTINCTNESS_PAIRS: { a: string; b: string }[] = [];
 
+// ── Real production LOCATION run #3 — Srikakulam apartment, a SEPARATE
+// 2-page drawing (source PDF e746d060-dbc7-496e-861d-c317ecc5c98f): p.1 First
+// Floor Plan, p.2 Second Floor Plan. Unlike runs #1/#2, the ground truth below
+// was supplied directly as an already-audited inventory (not independently
+// re-opened against the PDF in this session) — see the PR that introduced
+// this run for the exact instruction. Restated here mechanically, never
+// reinterpreted: marks/scopeHints/dimensions/pages are exactly as given.
+//
+// Only the 26 clearly named architectural spaces below are graded. Per
+// explicit instruction, several labels visible on the drawing are
+// deliberately EXCLUDED rather than turned into expectations: PLASMA (a
+// finish_or_material-shaped mark whose taxonomy fit isn't established),
+// WARDROBE/SHOWER/WC/WB/DRESS UNIT/MIRROR UNIT/STUDY UNIT/OH STORAGE/FRIDGE/
+// W.M/electrical legend items/balconies/passages/corridor/entrance-security
+// (none of these are clean, unambiguous LOCATION facts under the existing
+// contract), and W.R/W.I.C/DRESS specifically (the drawing has multiple W.R/
+// W.I.C/DRESS instances per floor with no clean one-to-one association to a
+// single dimension — encoding one would mean guessing which instance a
+// dimension belongs to, which is exactly the kind of invented ground truth
+// this benchmark refuses to add).
+//
+// All 26 entries are typed `room_or_space` per explicit instruction for this
+// fixture — including Lift, which runs #1/#2 instead classify as
+// `equipment`. That's a deliberate, called-out inconsistency with the other
+// two runs' taxonomy, not an oversight; see the PR description.
+export const SRIKAKULAM_THIRD_LOCATION_RUN_20260928: ExpectedObservation[] = [
+  // ── First Floor (p.1) — 13 spaces (includes Locker Room, no Kitchen).
+  { id: "thirdrun-firstfloor-dining-obs", observationType: "room_or_space", mark: "Dining", scopeHint: "First Floor", attributes: { dimension: "17'8\"x15'4\"" }, sourcePage: "p.1 (First Floor Plan)", expectedPage: 1, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan." },
+  { id: "thirdrun-firstfloor-master-bedroom-obs", observationType: "room_or_space", mark: "Master Bedroom", scopeHint: "First Floor", attributes: { dimension: "16'6\"x13'3\"" }, sourcePage: "p.1 (First Floor Plan)", expectedPage: 1, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan." },
+  { id: "thirdrun-firstfloor-guest-bedroom-obs", observationType: "room_or_space", mark: "Guest Bedroom", scopeHint: "First Floor", attributes: { dimension: "18'6\"x14'" }, sourcePage: "p.1 (First Floor Plan)", expectedPage: 1, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan." },
+  { id: "thirdrun-firstfloor-media-room-obs", observationType: "room_or_space", mark: "Media Room", scopeHint: "First Floor", attributes: { dimension: "15'7\"x10'6\"" }, sourcePage: "p.1 (First Floor Plan)", expectedPage: 1, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan." },
+  { id: "thirdrun-firstfloor-living-obs", observationType: "room_or_space", mark: "Living", scopeHint: "First Floor", attributes: { dimension: "17'8\"x15'6\"" }, sourcePage: "p.1 (First Floor Plan)", expectedPage: 1, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan." },
+  { id: "thirdrun-firstfloor-pooja-obs", observationType: "room_or_space", mark: "Pooja", scopeHint: "First Floor", attributes: { dimension: "6'2\"x8'8\"" }, sourcePage: "p.1 (First Floor Plan)", expectedPage: 1, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan." },
+  { id: "thirdrun-firstfloor-lift-obs", observationType: "room_or_space", mark: "Lift", scopeHint: "First Floor", attributes: { dimension: "7'x6'6\"" }, sourcePage: "p.1 (First Floor Plan)", expectedPage: 1, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan. Typed room_or_space for this fixture per explicit instruction, unlike runs #1/#2's equipment classification for Lift." },
+  { id: "thirdrun-firstfloor-children-bedroom-2-obs", observationType: "room_or_space", mark: "Children Bedroom-2", scopeHint: "First Floor", attributes: { dimension: "15'3\"x12'8\"" }, sourcePage: "p.1 (First Floor Plan)", expectedPage: 1, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan." },
+  { id: "thirdrun-firstfloor-great-room-obs", observationType: "room_or_space", mark: "Great Room", scopeHint: "First Floor", attributes: { dimension: "25'5\"x18'" }, sourcePage: "p.1 (First Floor Plan)", expectedPage: 1, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan." },
+  { id: "thirdrun-firstfloor-children-bedroom-1-obs", observationType: "room_or_space", mark: "Children Bedroom-1", scopeHint: "First Floor", attributes: { dimension: "18'6\"x11'6\"" }, sourcePage: "p.1 (First Floor Plan)", expectedPage: 1, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan." },
+  { id: "thirdrun-firstfloor-locker-room-obs", observationType: "room_or_space", mark: "Locker Room", scopeHint: "First Floor", attributes: { dimension: "18'6\"x5'" }, sourcePage: "p.1 (First Floor Plan)", expectedPage: 1, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan. First Floor only — no Second Floor counterpart in the supplied inventory." },
+  { id: "thirdrun-firstfloor-wet-kitchen-obs", observationType: "room_or_space", mark: "Wet Kitchen", scopeHint: "First Floor", attributes: { dimension: "10'6\"x8'5\"" }, sourcePage: "p.1 (First Floor Plan)", expectedPage: 1, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan." },
+  { id: "thirdrun-firstfloor-utility-obs", observationType: "room_or_space", mark: "Utility", scopeHint: "First Floor", attributes: { dimension: "11'2\"x11'6\"" }, sourcePage: "p.1 (First Floor Plan)", expectedPage: 1, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan." },
+
+  // ── Second Floor (p.2) — 13 spaces (includes Kitchen, no Locker Room).
+  { id: "thirdrun-secondfloor-dining-obs", observationType: "room_or_space", mark: "Dining", scopeHint: "Second Floor", attributes: { dimension: "17'8\"x15'4\"" }, sourcePage: "p.2 (Second Floor Plan)", expectedPage: 2, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan." },
+  { id: "thirdrun-secondfloor-master-bedroom-obs", observationType: "room_or_space", mark: "Master Bedroom", scopeHint: "Second Floor", attributes: { dimension: "16'6\"x13'3\"" }, sourcePage: "p.2 (Second Floor Plan)", expectedPage: 2, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan." },
+  { id: "thirdrun-secondfloor-kitchen-obs", observationType: "room_or_space", mark: "Kitchen", scopeHint: "Second Floor", attributes: { dimension: "22'2\"x11'" }, sourcePage: "p.2 (Second Floor Plan)", expectedPage: 2, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan. Second Floor only — no First Floor counterpart in the supplied inventory." },
+  { id: "thirdrun-secondfloor-guest-bedroom-obs", observationType: "room_or_space", mark: "Guest Bedroom", scopeHint: "Second Floor", attributes: { dimension: "18'6\"x14'" }, sourcePage: "p.2 (Second Floor Plan)", expectedPage: 2, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan." },
+  { id: "thirdrun-secondfloor-media-room-obs", observationType: "room_or_space", mark: "Media Room", scopeHint: "Second Floor", attributes: { dimension: "15'7\"x10'6\"" }, sourcePage: "p.2 (Second Floor Plan)", expectedPage: 2, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan." },
+  { id: "thirdrun-secondfloor-living-obs", observationType: "room_or_space", mark: "Living", scopeHint: "Second Floor", attributes: { dimension: "17'8\"x15'6\"" }, sourcePage: "p.2 (Second Floor Plan)", expectedPage: 2, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan." },
+  { id: "thirdrun-secondfloor-pooja-obs", observationType: "room_or_space", mark: "Pooja", scopeHint: "Second Floor", attributes: { dimension: "6'2\"x8'8\"" }, sourcePage: "p.2 (Second Floor Plan)", expectedPage: 2, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan." },
+  { id: "thirdrun-secondfloor-lift-obs", observationType: "room_or_space", mark: "Lift", scopeHint: "Second Floor", attributes: { dimension: "7'x6'6\"" }, sourcePage: "p.2 (Second Floor Plan)", expectedPage: 2, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan. Typed room_or_space for this fixture per explicit instruction, unlike runs #1/#2's equipment classification for Lift." },
+  { id: "thirdrun-secondfloor-children-bedroom-2-obs", observationType: "room_or_space", mark: "Children Bedroom-2", scopeHint: "Second Floor", attributes: { dimension: "15'3\"x12'8\"" }, sourcePage: "p.2 (Second Floor Plan)", expectedPage: 2, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan." },
+  { id: "thirdrun-secondfloor-great-room-obs", observationType: "room_or_space", mark: "Great Room", scopeHint: "Second Floor", attributes: { dimension: "25'5\"x18'" }, sourcePage: "p.2 (Second Floor Plan)", expectedPage: 2, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan." },
+  { id: "thirdrun-secondfloor-children-bedroom-1-obs", observationType: "room_or_space", mark: "Children Bedroom-1", scopeHint: "Second Floor", attributes: { dimension: "18'6\"x11'6\"" }, sourcePage: "p.2 (Second Floor Plan)", expectedPage: 2, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan." },
+  { id: "thirdrun-secondfloor-wet-kitchen-obs", observationType: "room_or_space", mark: "Wet Kitchen", scopeHint: "Second Floor", attributes: { dimension: "10'6\"x8'5\"" }, sourcePage: "p.2 (Second Floor Plan)", expectedPage: 2, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan." },
+  { id: "thirdrun-secondfloor-utility-obs", observationType: "room_or_space", mark: "Utility", scopeHint: "Second Floor", attributes: { dimension: "11'2\"x11'6\"" }, sourcePage: "p.2 (Second Floor Plan)", expectedPage: 2, notes: "Manually verified location fact from the third-run drawing audit — dimension read directly off the plan." },
+];
+
+/** Cross-floor identity pairs: every mark that appears on BOTH First and
+ *  Second Floor in this run's own inventory (12 of the 13 marks per floor —
+ *  Kitchen and Locker Room are each floor-exclusive, so they have no pair).
+ *  Mechanically derived from the ids above, not a new fact — mirrors the
+ *  Main Entrance/W1 cross-floor pairs in run #1. */
+const SRIKAKULAM_THIRD_RUN_DISTINCTNESS_PAIRS: { a: string; b: string }[] = [
+  { a: "thirdrun-firstfloor-dining-obs", b: "thirdrun-secondfloor-dining-obs" },
+  { a: "thirdrun-firstfloor-master-bedroom-obs", b: "thirdrun-secondfloor-master-bedroom-obs" },
+  { a: "thirdrun-firstfloor-guest-bedroom-obs", b: "thirdrun-secondfloor-guest-bedroom-obs" },
+  { a: "thirdrun-firstfloor-media-room-obs", b: "thirdrun-secondfloor-media-room-obs" },
+  { a: "thirdrun-firstfloor-living-obs", b: "thirdrun-secondfloor-living-obs" },
+  { a: "thirdrun-firstfloor-pooja-obs", b: "thirdrun-secondfloor-pooja-obs" },
+  { a: "thirdrun-firstfloor-lift-obs", b: "thirdrun-secondfloor-lift-obs" },
+  { a: "thirdrun-firstfloor-children-bedroom-2-obs", b: "thirdrun-secondfloor-children-bedroom-2-obs" },
+  { a: "thirdrun-firstfloor-great-room-obs", b: "thirdrun-secondfloor-great-room-obs" },
+  { a: "thirdrun-firstfloor-children-bedroom-1-obs", b: "thirdrun-secondfloor-children-bedroom-1-obs" },
+  { a: "thirdrun-firstfloor-wet-kitchen-obs", b: "thirdrun-secondfloor-wet-kitchen-obs" },
+  { a: "thirdrun-firstfloor-utility-obs", b: "thirdrun-secondfloor-utility-obs" },
+];
+
 /** Registry of every manually audited LOCATION run available to score
  *  independently. Add a new run by appending a new entry here with its OWN
  *  expectedObservations/distinctnessPairs arrays (defined above, following
@@ -398,5 +475,16 @@ export const LOCATION_BENCHMARK_RUNS: LocationBenchmarkRun[] = [
       "Drawing, p.2 Door/Window Schedule). Project/document/revision identifiers not supplied for this run.",
     expectedObservations: SRIKAKULAM_SECOND_FLOOR_LOCATION_RUN,
     distinctnessPairs: SRIKAKULAM_SECOND_FLOOR_DISTINCTNESS_PAIRS,
+  },
+  {
+    id: "srikakulam-third-run-20260928",
+    title: "Srikakulam Apartment — Third Production Run (First Floor Plan / Second Floor Plan)",
+    documentDescription:
+      "Srikakulam apartment, 2-page drawing (source PDF e746d060-dbc7-496e-861d-c317ecc5c98f): " +
+      "p.1 First Floor Plan, p.2 Second Floor Plan. Ground truth supplied directly as an " +
+      "already-audited inventory, not independently re-opened against the PDF in this session. " +
+      "Project/document/revision identifiers not otherwise supplied for this run.",
+    expectedObservations: SRIKAKULAM_THIRD_LOCATION_RUN_20260928,
+    distinctnessPairs: SRIKAKULAM_THIRD_RUN_DISTINCTNESS_PAIRS,
   },
 ];

@@ -58,6 +58,101 @@ describe("scoreObservations — cross-floor collapse is caught, not silently pas
   });
 });
 
+// ── The page-based fallback (added alongside the third Srikakulam run) —
+// proves the mechanism itself: a SECONDARY (mark, page) match, tried only for
+// whatever the PRIMARY (mark, scopeHint) pass left unmatched, never
+// reconsidering anything the primary pass already resolved. ────────────────
+describe("scoreObservations — page-based fallback matching", () => {
+  it("a wrong page never prevents a PRIMARY (mark, scopeHint) match — the fallback is not why this succeeds", () => {
+    const expected = [
+      { id: "e1", observationType: "room_or_space" as const, mark: "Living", scopeHint: "Ground Floor", sourcePage: "p.2", expectedPage: 2 },
+    ];
+    // Correct mark + scopeHint, but a WRONG page — the primary pass must
+    // still match on (mark, scopeHint) alone, exactly as before this change.
+    const actual: ObservationV1[] = [
+      { observationType: "room_or_space", mark: "Living", scopeHint: "Ground Floor", attributes: {}, evidenceCompleteness: "FULL", source: { page: 9, evidence: [] } },
+    ];
+    const result = scoreObservations(expected, actual, []);
+    expect(result.scopeRecall).toBe(1);
+    expect(result.unmatchedExpectedIds).toEqual([]);
+    // The wrong page is still visible — via pageAccuracy, not via a failure
+    // to match. Matching and page-correctness stay separate questions.
+    expect(result.pageAccuracy).toBe(0);
+  });
+
+  it("when scopeHint doesn't agree but mark and page do, the fallback finds the entry", () => {
+    const expected = [
+      { id: "e1", observationType: "room_or_space" as const, mark: "Dining", scopeHint: "First Floor", sourcePage: "p.1", expectedPage: 1 },
+    ];
+    // scopeHint here names a room/context ("Dining Room"), not the floor —
+    // exactly the third run's real shape. Primary pass fails; fallback must
+    // still find it via (mark, page).
+    const actual: ObservationV1[] = [
+      { observationType: "room_or_space", mark: "Dining", scopeHint: "Dining Room", attributes: {}, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+    ];
+    const result = scoreObservations(expected, actual, []);
+    expect(result.scopeRecall).toBe(1);
+    expect(result.unmatchedExpectedIds).toEqual([]);
+  });
+
+  it("the fallback still requires the mark to agree — page alone is never enough", () => {
+    const expected = [
+      { id: "e1", observationType: "room_or_space" as const, mark: "Dining", scopeHint: "First Floor", sourcePage: "p.1", expectedPage: 1 },
+    ];
+    const actual: ObservationV1[] = [
+      { observationType: "room_or_space", mark: "Kitchen", scopeHint: "Kitchen", attributes: {}, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+    ];
+    const result = scoreObservations(expected, actual, []);
+    expect(result.unmatchedExpectedIds).toEqual(["e1"]);
+    expect(result.falsePositiveCount).toBe(1);
+  });
+
+  it("an expected entry with no expectedPage is never matched via the fallback, even if mark coincidentally agrees", () => {
+    const expected = [
+      { id: "e1", observationType: "room_or_space" as const, mark: "Dining", scopeHint: "First Floor", sourcePage: "unclear which page" },
+    ];
+    const actual: ObservationV1[] = [
+      { observationType: "room_or_space", mark: "Dining", scopeHint: "Dining Room", attributes: {}, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+    ];
+    const result = scoreObservations(expected, actual, []);
+    expect(result.unmatchedExpectedIds).toEqual(["e1"]);
+    expect(result.falsePositiveCount).toBe(1);
+  });
+
+  it("the fallback never reconsiders an actual the primary pass already claimed for a DIFFERENT expected entry", () => {
+    // Two expected entries share the same mark on different floors. The
+    // primary pass correctly claims the sole actual for the First Floor
+    // entry (matching scopeHint); the fallback must NOT then also hand that
+    // same actual to the Second Floor entry just because its page happens to
+    // coincidentally agree with a wrong expectation.
+    const expected = [
+      { id: "first-floor-dining", observationType: "room_or_space" as const, mark: "Dining", scopeHint: "First Floor", sourcePage: "p.1", expectedPage: 1 },
+      { id: "second-floor-dining", observationType: "room_or_space" as const, mark: "Dining", scopeHint: "Second Floor", sourcePage: "p.1", expectedPage: 1 },
+    ];
+    const actual: ObservationV1[] = [
+      { observationType: "room_or_space", mark: "Dining", scopeHint: "First Floor", attributes: {}, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+    ];
+    const result = scoreObservations(expected, actual, []);
+    // The primary pass claims the actual for first-floor-dining. Only one
+    // actual exists, so second-floor-dining's fallback attempt finds nothing
+    // left to claim — one-to-one discipline holds across both passes.
+    expect(result.unmatchedExpectedIds).toEqual(["second-floor-dining"]);
+    expect(result.falsePositiveCount).toBe(0);
+  });
+
+  it("when NEITHER scopeHint NOR (mark, page) agree, the entry correctly stays unmatched", () => {
+    const expected = [
+      { id: "e1", observationType: "room_or_space" as const, mark: "Dining", scopeHint: "First Floor", sourcePage: "p.1", expectedPage: 1 },
+    ];
+    const actual: ObservationV1[] = [
+      { observationType: "room_or_space", mark: "Dining", scopeHint: "Dining Room", attributes: {}, evidenceCompleteness: "FULL", source: { page: 9, evidence: [] } },
+    ];
+    const result = scoreObservations(expected, actual, []);
+    expect(result.unmatchedExpectedIds).toEqual(["e1"]);
+    expect(result.falsePositiveCount).toBe(1);
+  });
+});
+
 // ── The real 2026-09-28 production run (after PR #126) — scored against the
 // dedicated per-run fixture, never the full SRIKAKULAM_OBSERVATIONS (which
 // would also expect unrelated W1/brickwork facts this run never covered and
