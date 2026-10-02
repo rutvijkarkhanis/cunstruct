@@ -19,6 +19,31 @@ so it should reflect the current branch tip, commit `1386cb1`.)
 - Dev tools are only needed for Step A.5 (console errors) — everywhere else,
   plain browser use is enough.
 
+---
+
+## 0 — Infra Preflight (run BEFORE Section A)
+
+Sections A–F assume the preview is already reachable and functional. If any
+check below is wrong, Section A will fail for an infra reason that looks
+like an app bug (e.g. a blank storefront homepage instead of the ops
+dashboard, or AI actions erroring out) — run these five first and don't
+waste time on A–F until they're clean.
+
+**Every check here is read-only.** None of them require changing a Vercel
+env var, a Supabase secret, a project flag, a database row, or a migration
+— if a check fails, the fix itself is a separate, explicitly authorized
+action, not something to do reflexively while verifying.
+
+| # | Check | Dashboard location | Expected | If it fails |
+|---|---|---|---|---|
+| 0.1 | Preview routing env vars | Vercel → your project → **Settings → Environment Variables**, filtered to the **Preview** environment (or the specific branch, if per-branch overrides exist) | `VITE_IS_APP_SUBDOMAIN=true` is set, **or** `VITE_APP_URL` points at a reachable app-subdomain host | `/ops/*` (including Find Similar) will redirect to a nonexistent `track.<preview-alias>` host instead of loading. **Next action:** report the exact env var state found; an authorized operator (whoever owns Vercel project settings) adds the missing variable — do not attempt to route around this in app code. |
+| 0.2 | `ai-analysis` actually contains `find_similar` | Supabase → **Edge Functions → ai-analysis**. A recent "Last deployed" timestamp alone is **not proof** the deployed code includes this PR's `find_similar` action — the function could have been redeployed for an unrelated reason after a stale checkout. If the Dashboard shows function source/logs, confirm the `find_similar` action literally appears; if it only shows a timestamp, treat the code revision as unconfirmed even if the timestamp looks recent | `find_similar` action present and confirmed from actual deployed source/logs, not inferred from a timestamp | Sections B/C will return a generic error or 404, not a feature bug, and could be misread as "the AI got it wrong" instead of "this isn't deployed yet." **Next action:** report exactly what was confirmed (timestamp only vs. actual source/logs); an authorized operator deploys from the merged commit if needed — PR #149 is still unmerged, so deploying its code ahead of merge is a separate decision for whoever owns that call, not something to do as part of "checking." |
+| 0.3 | Migrations | Already confirmed from the repository, no Dashboard check needed | **PR #149 adds zero migration files** — confirmed via `git diff origin/main...claude/coverage-by-project-type-3ag0in -- supabase/migrations/` returning empty. Find Similar performs no database writes by design (see Section F and the structural zero-write guarantee), so there is nothing new to apply for this feature specifically. | N/A for this PR. (This repo has a separately documented, pre-existing migration-history/schema divergence — see `docs/deployment-log.md` — that is unrelated to Find Similar and out of scope here.) |
+| 0.4 | `OPENAI_API_KEY` present — name only | Supabase → **Edge Functions → Secrets** | `OPENAI_API_KEY` is listed. **Never open, copy, or paste its value anywhere — presence by name is the entire check.** | Missing → every `identify`/`find_similar` call returns a clean `500 "AI generation is not configured on the server."` (confirmed in `ai-analysis/index.ts`), not a crash — but Sections B/C will show nothing but errors. **Next action:** report "missing by name"; an authorized operator (whoever owns Supabase secrets) adds it — never type a key into a prompt, ticket, chat, or this checklist. |
+| 0.5 | `ai_processing_enabled` for the test project | Supabase → **Table Editor → projects** → the specific row for the project you intend to test with. **There is no in-app toggle for this anywhere in the Cunstruct UI** (confirmed: zero references in `src/pages/` or `src/components/`) — Table Editor is the only place to check or change it. | `true` for the project you're about to use | `false` → every AI action on that project returns `403 "AI processing is not enabled for this project."`, which will look like Find Similar is broken rather than a project-config issue. **Next action:** either pick a different test project that already has this `true`, or have an authorized operator (whoever owns write access to this table) flip it for your specific test project — do not edit this row yourself unless you already hold that authorization. |
+
+---
+
 ## Choosing a drawing (M9.2)
 
 Pick (or import) a PDF with, ideally:
@@ -166,3 +191,32 @@ Once I have this, I'll build the M9.8 accuracy audit from your real
 observations, categorize anything that looks like a genuine defect, and
 only then consider any code change (M9.9) — strictly for a reproducible
 problem, never a UI redesign or prompt change bundled in.
+
+---
+
+## Current verification status
+
+Status values:
+- **PASS — repo evidence**: confirmed from the codebase/diff itself; no live access needed or possible for this one.
+- **PASS — live evidence**: confirmed by actually running the check against the real deployed system.
+- **FAIL**: checked live and it did not match the expected result.
+- **BLOCKED**: requires Dashboard or signed-in-browser access this environment does not have; not yet checked.
+- **NOT RUN**: in scope but not attempted yet (e.g. depends on an earlier BLOCKED step).
+
+| # | Check | Status | Basis |
+|---|---|---|---|
+| 0.1 | Preview routing env vars | BLOCKED | No Vercel CLI, connector, or network access from this environment |
+| 0.2 | `ai-analysis` contains `find_similar` | BLOCKED | No Supabase CLI, connector, or network access from this environment |
+| 0.3 | Migrations | **PASS — repo evidence** | `git diff origin/main...claude/coverage-by-project-type-3ag0in -- supabase/migrations/` is empty — PR #149 adds no migration files |
+| 0.4 | `OPENAI_API_KEY` present | BLOCKED | Supabase Dashboard access required; not available here |
+| 0.5 | `ai_processing_enabled` for test project | BLOCKED | Supabase Table Editor access required; not available here |
+| A | Sign-in & document loading | NOT RUN | Depends on 0.1–0.5; requires a live signed-in browser session not available here |
+| B | Click-to-Identify vs. real AI | NOT RUN | Same — requires live browser + real AI access |
+| C | Find Similar vs. real AI | NOT RUN | Same |
+| D | Highlight geometry across zoom/pages | NOT RUN | Same |
+| E | Cross-document isolation (live) | NOT RUN | Same. Note: this exact scenario is already covered with mocked data — see M8 row below |
+| F | Reviewer actions & BOQ boundary (live before/after) | NOT RUN — **remains mandatory, not substitutable** | Same. The structural guarantee below is not a replacement for this live check |
+| — | M8 Playwright suite (mocked Supabase/AI, real pdf.js rendering/clicks/geometry) | **PASS — repo evidence** | Existing automated suite, already passing on this branch; proves real-browser rendering/interaction mechanics, not real-AI correctness |
+| — | BOQ zero-write guarantee (structural) | **PASS — repo evidence** | `findSimilarHandler.ts` receives no Supabase client at all, only a narrow `{loadDocumentFile, callOpenAi}` pair — no method in scope could write anything. This is evidence the *code* can't write, not evidence that *production* doesn't — Section F's live before/after check still applies |
+
+**No check above is marked PASS — live evidence.** M9 remains not verified live.
