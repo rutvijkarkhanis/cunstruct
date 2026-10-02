@@ -617,4 +617,43 @@ describe("PdfEvidenceViewer — Find Similar matches", () => {
     const overlay = await screen.findByTestId("evidence-overlays");
     expect(overlay.querySelectorAll(".border-cyan-600, .border-emerald-600")).toHaveLength(0);
   });
+
+  // M7.5 (Post-M6 review §4): mirrors the marker-mode and claim-aware
+  // fallbacks elsewhere in this file — "matches exist, just not on the
+  // page currently showing" is distinguished from both "no matches at all"
+  // (the panel's own concern, not the canvas's) and "a match is visible
+  // right here" (no message needed). Never auto-navigates.
+  it("shows an 'on another page' message when matches exist but none are on the currently-shown page", async () => {
+    render(
+      <PdfEvidenceViewer
+        fileUrl="https://signed.example/drawing.pdf" source={source}
+        similarMatches={[{ id: "m1", status: "pending", evidence: [{ bbox: [10, 10, 20, 20], page: 2 }] }]}
+      />,
+    );
+    await screen.findByText(`5 / ${NUM_PAGES}`); // still showing page 5, not auto-navigated to page 2
+    expect(await screen.findByText(/Similar matches were found — on another page/)).toBeInTheDocument();
+  });
+
+  it("shows no 'on another page' message once a match is visible on the current page", async () => {
+    render(
+      <PdfEvidenceViewer
+        fileUrl="https://signed.example/drawing.pdf" source={source}
+        similarMatches={[
+          { id: "m1", status: "pending", evidence: [{ bbox: [10, 10, 20, 20], page: 5 }] },
+          { id: "m2", status: "pending", evidence: [{ bbox: [30, 30, 40, 40], page: 2 }] },
+        ]}
+      />,
+    );
+    await screen.findByText(`5 / ${NUM_PAGES}`);
+    expect(screen.queryByText(/Similar matches were found — on another page/)).toBeNull();
+  });
+
+  it("shows no 'on another page' message when there are no matches at all — that's the panel's own empty-state concern, not the canvas's", async () => {
+    render(<PdfEvidenceViewer fileUrl="https://signed.example/drawing.pdf" source={source} similarMatches={[]} />);
+    await screen.findByText(`5 / ${NUM_PAGES}`);
+    expect(screen.queryByText(/Similar matches were found — on another page/)).toBeNull();
+
+    render(<PdfEvidenceViewer fileUrl="https://signed.example/drawing.pdf" source={source} similarMatches={null} />);
+    expect(screen.queryByText(/Similar matches were found — on another page/)).toBeNull();
+  });
 });

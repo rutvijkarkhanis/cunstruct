@@ -847,6 +847,16 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
         }
         return null;
       })()}
+      {/* Find Similar page-awareness fallback (M7.5, Post-M6 review §4):
+          mirrors the two fallbacks above — "no matches at all" is already
+          said by FindSimilarResultPanel's own empty state, so this stays
+          silent then; this only distinguishes "matches exist, just not on
+          the page currently showing" from matches actually being visible
+          here. Never navigates there itself — same as the other two. */}
+      {similarMatches && similarMatches.length > 0
+        && !similarMatches.some((m) => m.evidence.some((b) => b.page != null && b.page === page)) && (
+        <p className="text-[11px] text-muted-foreground">Similar matches were found — on another page. Use the page controls.</p>
+      )}
       {pageSizeWarning && <p className="text-[11px] text-amber-600">{pageSizeWarning}</p>}
     </Shell>
   );

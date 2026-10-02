@@ -198,23 +198,47 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
   const [findSimilarError, setFindSimilarError] = useState<string | null>(null);
   const [findSimilarMatches, setFindSimilarMatches] = useState<FindSimilarMatchState[]>([]);
 
+  // Request-lifecycle guards (M7): a monotonically increasing counter per
+  // request family, not a boolean "alive" flag, since a NEW request of the
+  // same kind (another identify click, another Find Similar run) must be
+  // able to invalidate an earlier in-flight one of its own kind, not just
+  // "this component is still mounted." Bumping either ref is how every
+  // context change below (a new click, exiting Identify mode, resetting
+  // Find Similar) declares "anything already in flight is now stale" —
+  // a response is only ever applied if the ref still equals the request's
+  // own captured id at the moment it resolves.
+  const identifyRequestIdRef = useRef(0);
+  const findSimilarRequestIdRef = useRef(0);
+
   const resetFindSimilar = () => {
+    findSimilarRequestIdRef.current += 1;
     setFindSimilarActive(false);
     setFindSimilarError(null);
     setFindSimilarMatches([]);
   };
 
   const exitIdentifyMode = () => {
+    identifyRequestIdRef.current += 1;
     setIdentifyModeActive(false);
     setIdentifyPoint(null);
     setIdentifyDocumentId(null);
     setIdentifyError(null);
     setIdentifyCandidates([]);
     setIdentifyConfirmed(null);
+    // Explicit, not left for a stale request's own finally to clean up:
+    // that finally is now correctly gated on its request still being
+    // current (M7), so once we bump the ref above it will never touch this
+    // flag again for the request we're abandoning here.
+    setIdentifyLoading(false);
     resetFindSimilar();
   };
 
   const handleIdentifyPoint = useCallback(async (args: { page: number; point: { x: number; y: number }; nearbyText: string[]; documentId: string | null }) => {
+    // Bumped unconditionally, even on the early-return guard below: a newer
+    // click is the reviewer's newest intent regardless of whether it can
+    // resolve to a document, so it must still invalidate any earlier
+    // pending identify request.
+    const requestId = (identifyRequestIdRef.current += 1);
     if (!args.documentId || !boq?.project_id) {
       setIdentifyError("This drawing isn't linked to a stored document yet, so it can't be identified.");
       return;
@@ -230,15 +254,22 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
       const res = await identifyAtPoint({
         projectId: boq.project_id, documentId: args.documentId, page: args.page, point: args.point, nearbyText: args.nearbyText,
       });
+      // A newer click (or exiting Identify mode) bumped the ref while this
+      // request was in flight — its result, success or failure, is stale
+      // and must never overwrite whatever the newer request already did.
+      if (identifyRequestIdRef.current !== requestId) return;
       if (!res.ok || !res.result) {
         setIdentifyError(res.error ?? "Couldn't identify this point. Please try again.");
         return;
       }
       setIdentifyCandidates(res.result.candidates);
     } catch (e) {
+      if (identifyRequestIdRef.current !== requestId) return;
       setIdentifyError(e instanceof Error ? e.message : "Couldn't identify this point. Please try again.");
     } finally {
-      setIdentifyLoading(false);
+      // A stale finally must never clear the loading flag a NEWER request
+      // already owns.
+      if (identifyRequestIdRef.current === requestId) setIdentifyLoading(false);
     }
   }, [boq?.project_id]);
 
@@ -341,6 +372,17 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
     return map;
   }, [items, drawings, resolvedDocumentId]);
 
+  // The document the CURRENTLY SELECTED item actually resolves to — the
+  // same resolution drawingMarkers already uses (below) to keep one
+  // document's markings off another's page. Identify/Find Similar overlays
+  // reuse it the same way (M7): identifyDocumentId/similar matches are
+  // captured against the document a request originated from, at request
+  // time, and never re-derived from whichever item/document happens to be
+  // selected once a response arrives — so comparing that captured id
+  // against THIS (the document on screen right now) is what decides
+  // whether an overlay may render, never a page-number coincidence alone.
+  const currentDocId = current ? docIdByItemId.get(current.id) ?? null : null;
+
   const resolvedDocIds = useMemo(
     () => [...new Set([...docIdByItemId.values()].filter((id): id is string => id != null))].sort(),
     [docIdByItemId],
@@ -376,6 +418,12 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
     const candidate = identifyCandidates[identifyConfirmed.index];
     if (!candidate) return;
 
+    // Captured now, at request start — never re-read from the (possibly
+    // since-changed) identifyDocumentId state once the response arrives, so
+    // a late response can't be mis-attributed to whichever document happens
+    // to be selected by then (M7).
+    const requestId = (findSimilarRequestIdRef.current += 1);
+    const requestDocumentId = identifyDocumentId;
     setFindSimilarActive(true);
     setFindSimilarStatus("loading");
     setFindSimilarError(null);
@@ -383,13 +431,18 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
     try {
       const res = await findSimilar({
         projectId: boq.project_id,
-        documentId: identifyDocumentId,
+        documentId: requestDocumentId,
         reference: {
           label: identifyConfirmed.label,
           ...(candidate.description ? { description: candidate.description } : {}),
           evidence: candidate.evidence,
         },
       });
+      // A newer Find Similar request, a new identify click, or exiting
+      // Identify mode all bump this ref — any of those make this response
+      // stale, success or failure alike, and it must never reopen the
+      // panel, replace newer matches, or overwrite the current error.
+      if (findSimilarRequestIdRef.current !== requestId) return;
       if (!res.ok || !res.result) {
         setFindSimilarStatus("error");
         setFindSimilarError(res.error ?? "Couldn't search the document. Please try again.");
@@ -400,11 +453,12 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
       // fetched reviewer-accessibly for the existing instance-display
       // feature (no new network call), and never adds, removes, or
       // reorders a match — see findSimilarLocationEnrichment.ts.
-      const locationObservations = identifyDocumentId ? (observationsByDoc[identifyDocumentId] ?? []) : [];
+      const locationObservations = requestDocumentId ? (observationsByDoc[requestDocumentId] ?? []) : [];
       const enrichment = enrichMatchesWithLocation(res.result.matches, locationObservations);
       setFindSimilarMatches(res.result.matches.map((m, i) => ({ ...m, id: `similar-${i}`, status: "pending" as const, location: enrichment[i] })));
       setFindSimilarStatus("success");
     } catch (e) {
+      if (findSimilarRequestIdRef.current !== requestId) return;
       setFindSimilarStatus("error");
       setFindSimilarError(e instanceof Error ? e.message : "Couldn't search the document. Please try again.");
     }
@@ -446,8 +500,8 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
         : drawingMode === "category" && selectedCategory
           ? markersForCategory(categoryGroups.find((g) => g.category === selectedCategory)!, instancesByItemId)
           : markersForType(current, currentCategory, currentInstances);
-    const currentDocId = docIdByItemId.get(current.id);
-    return raw.filter((m) => docIdByItemId.get(m.reviewItemId) === currentDocId);
+    const currentItemDocId = docIdByItemId.get(current.id);
+    return raw.filter((m) => docIdByItemId.get(m.reviewItemId) === currentItemDocId);
   }, [current, focusedInstanceId, drawingMode, selectedCategory, categoryGroups, instancesByItemId, currentInstances, currentCategory, docIdByItemId]);
 
   // "What am I looking at?" (acceptance criteria) — a real, computed label
@@ -769,8 +823,16 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
                 markerContextLabel={markerContextLabel}
                 identifyModeActive={identifyModeActive}
                 onIdentifyPoint={handleIdentifyPoint}
-                identifyHighlight={identifyPoint ? { point: identifyPoint, evidence: identifyCandidates[0]?.evidence } : null}
-                similarMatches={findSimilarActive ? findSimilarMatches : null}
+                /* Document-scoped (M7): an identify click or Find Similar
+                   run on document A must never render on document B just
+                   because B happens to have a same-numbered page — the
+                   same invariant drawingMarkers already enforces above.
+                   Switching to another document hides the overlay without
+                   discarding it; switching back to the originating
+                   document restores it, since nothing here is cleared by
+                   navigation alone (see M7 report for this choice). */
+                identifyHighlight={identifyPoint && identifyDocumentId === currentDocId ? { point: identifyPoint, evidence: identifyCandidates[0]?.evidence } : null}
+                similarMatches={findSimilarActive && identifyDocumentId === currentDocId ? findSimilarMatches : null}
                 onSelectMarker={(id) => {
                   const marker = drawingMarkers.find((m) => m.id === id);
                   if (!marker) return;
