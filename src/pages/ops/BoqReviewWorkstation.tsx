@@ -46,7 +46,10 @@ import DocumentSelector from "@/components/review/DocumentSelector";
 import AiApiPanel from "@/components/review/AiApiPanel";
 import AiStateBadge from "@/components/review/AiStateBadge";
 import IdentifyResultPanel from "@/components/review/IdentifyResultPanel";
+import FindSimilarResultPanel, { type FindSimilarMatchState } from "@/components/review/FindSimilarResultPanel";
+import { enrichMatchesWithLocation } from "@/lib/review/findSimilarLocationEnrichment";
 import { identifyAtPoint } from "@/lib/ai/identifyClient";
+import { findSimilar } from "@/lib/ai/findSimilarClient";
 import type { IdentificationCandidateV1 } from "@/lib/review/identifySchemaV1";
 
 const FLAG_REASONS: { key: FlagReason; label: string }[] = [
@@ -175,42 +178,98 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
   // new click or on exiting the mode.
   const [identifyModeActive, setIdentifyModeActive] = useState(false);
   const [identifyPoint, setIdentifyPoint] = useState<{ page: number; x: number; y: number } | null>(null);
+  // The exact document the current identify click/candidate resolved
+  // against — stored at click time (not re-derived from `current` later)
+  // so Find Similar always searches the SAME document the confirmed
+  // candidate actually came from, even if the reviewer navigates to a
+  // different item while Identify mode is still active.
+  const [identifyDocumentId, setIdentifyDocumentId] = useState<string | null>(null);
   const [identifyLoading, setIdentifyLoading] = useState(false);
   const [identifyError, setIdentifyError] = useState<string | null>(null);
   const [identifyCandidates, setIdentifyCandidates] = useState<IdentificationCandidateV1[]>([]);
   const [identifyConfirmed, setIdentifyConfirmed] = useState<{ index: number; label: string } | null>(null);
 
+  // Find Similar — built directly on a CONFIRMED identification; see
+  // handleFindSimilar below. Equally ephemeral: nothing here is persisted,
+  // and it resets alongside the identify state above on every new click or
+  // on exiting Identify mode entirely (see exitIdentifyMode/handleIdentifyPoint).
+  const [findSimilarActive, setFindSimilarActive] = useState(false);
+  const [findSimilarStatus, setFindSimilarStatus] = useState<"loading" | "success" | "error">("loading");
+  const [findSimilarError, setFindSimilarError] = useState<string | null>(null);
+  const [findSimilarMatches, setFindSimilarMatches] = useState<FindSimilarMatchState[]>([]);
+
+  // Request-lifecycle guards (M7): a monotonically increasing counter per
+  // request family, not a boolean "alive" flag, since a NEW request of the
+  // same kind (another identify click, another Find Similar run) must be
+  // able to invalidate an earlier in-flight one of its own kind, not just
+  // "this component is still mounted." Bumping either ref is how every
+  // context change below (a new click, exiting Identify mode, resetting
+  // Find Similar) declares "anything already in flight is now stale" —
+  // a response is only ever applied if the ref still equals the request's
+  // own captured id at the moment it resolves.
+  const identifyRequestIdRef = useRef(0);
+  const findSimilarRequestIdRef = useRef(0);
+
+  const resetFindSimilar = () => {
+    findSimilarRequestIdRef.current += 1;
+    setFindSimilarActive(false);
+    setFindSimilarError(null);
+    setFindSimilarMatches([]);
+  };
+
   const exitIdentifyMode = () => {
+    identifyRequestIdRef.current += 1;
     setIdentifyModeActive(false);
     setIdentifyPoint(null);
+    setIdentifyDocumentId(null);
     setIdentifyError(null);
     setIdentifyCandidates([]);
     setIdentifyConfirmed(null);
+    // Explicit, not left for a stale request's own finally to clean up:
+    // that finally is now correctly gated on its request still being
+    // current (M7), so once we bump the ref above it will never touch this
+    // flag again for the request we're abandoning here.
+    setIdentifyLoading(false);
+    resetFindSimilar();
   };
 
   const handleIdentifyPoint = useCallback(async (args: { page: number; point: { x: number; y: number }; nearbyText: string[]; documentId: string | null }) => {
+    // Bumped unconditionally, even on the early-return guard below: a newer
+    // click is the reviewer's newest intent regardless of whether it can
+    // resolve to a document, so it must still invalidate any earlier
+    // pending identify request.
+    const requestId = (identifyRequestIdRef.current += 1);
     if (!args.documentId || !boq?.project_id) {
       setIdentifyError("This drawing isn't linked to a stored document yet, so it can't be identified.");
       return;
     }
     setIdentifyPoint({ page: args.page, x: args.point.x, y: args.point.y });
+    setIdentifyDocumentId(args.documentId);
     setIdentifyConfirmed(null);
     setIdentifyCandidates([]);
     setIdentifyError(null);
     setIdentifyLoading(true);
+    resetFindSimilar();
     try {
       const res = await identifyAtPoint({
         projectId: boq.project_id, documentId: args.documentId, page: args.page, point: args.point, nearbyText: args.nearbyText,
       });
+      // A newer click (or exiting Identify mode) bumped the ref while this
+      // request was in flight — its result, success or failure, is stale
+      // and must never overwrite whatever the newer request already did.
+      if (identifyRequestIdRef.current !== requestId) return;
       if (!res.ok || !res.result) {
         setIdentifyError(res.error ?? "Couldn't identify this point. Please try again.");
         return;
       }
       setIdentifyCandidates(res.result.candidates);
     } catch (e) {
+      if (identifyRequestIdRef.current !== requestId) return;
       setIdentifyError(e instanceof Error ? e.message : "Couldn't identify this point. Please try again.");
     } finally {
-      setIdentifyLoading(false);
+      // A stale finally must never clear the loading flag a NEWER request
+      // already owns.
+      if (identifyRequestIdRef.current === requestId) setIdentifyLoading(false);
     }
   }, [boq?.project_id]);
 
@@ -313,6 +372,17 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
     return map;
   }, [items, drawings, resolvedDocumentId]);
 
+  // The document the CURRENTLY SELECTED item actually resolves to — the
+  // same resolution drawingMarkers already uses (below) to keep one
+  // document's markings off another's page. Identify/Find Similar overlays
+  // reuse it the same way (M7): identifyDocumentId/similar matches are
+  // captured against the document a request originated from, at request
+  // time, and never re-derived from whichever item/document happens to be
+  // selected once a response arrives — so comparing that captured id
+  // against THIS (the document on screen right now) is what decides
+  // whether an overlay may render, never a page-number coincidence alone.
+  const currentDocId = current ? docIdByItemId.get(current.id) ?? null : null;
+
   const resolvedDocIds = useMemo(
     () => [...new Set([...docIdByItemId.values()].filter((id): id is string => id != null))].sort(),
     [docIdByItemId],
@@ -331,6 +401,68 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
       return Object.fromEntries(entries);
     },
   });
+
+  // Find Similar — builds DIRECTLY on the confirmed candidate (never an
+  // unconfirmed guess): label is the reviewer's own confirmed label (which
+  // may differ from the AI's original if they used Change), description/
+  // evidence come from the original candidate the confirmation applies to.
+  // Reuses findSimilarClient.ts verbatim — no edge-function logic duplicated
+  // here. Never creates a BOQ item, a quantity, or any persisted row;
+  // Confirm/Reject on an individual match (wired below) are local state
+  // only, same ephemeral discipline as identify's own Confirm/Change/Dismiss.
+  // Declared here (after observationsByDoc) rather than alongside the rest
+  // of the identify state above, since its LOCATION enrichment step (M5)
+  // reads that query's result.
+  const handleFindSimilar = useCallback(async () => {
+    if (!identifyConfirmed || !identifyDocumentId || !boq?.project_id) return;
+    const candidate = identifyCandidates[identifyConfirmed.index];
+    if (!candidate) return;
+
+    // Captured now, at request start — never re-read from the (possibly
+    // since-changed) identifyDocumentId state once the response arrives, so
+    // a late response can't be mis-attributed to whichever document happens
+    // to be selected by then (M7).
+    const requestId = (findSimilarRequestIdRef.current += 1);
+    const requestDocumentId = identifyDocumentId;
+    setFindSimilarActive(true);
+    setFindSimilarStatus("loading");
+    setFindSimilarError(null);
+    setFindSimilarMatches([]);
+    try {
+      const res = await findSimilar({
+        projectId: boq.project_id,
+        documentId: requestDocumentId,
+        reference: {
+          label: identifyConfirmed.label,
+          ...(candidate.description ? { description: candidate.description } : {}),
+          evidence: candidate.evidence,
+        },
+      });
+      // A newer Find Similar request, a new identify click, or exiting
+      // Identify mode all bump this ref — any of those make this response
+      // stale, success or failure alike, and it must never reopen the
+      // panel, replace newer matches, or overwrite the current error.
+      if (findSimilarRequestIdRef.current !== requestId) return;
+      if (!res.ok || !res.result) {
+        setFindSimilarStatus("error");
+        setFindSimilarError(res.error ?? "Couldn't search the document. Please try again.");
+        return;
+      }
+      // LOCATION enrichment (M5) — purely informational, never a
+      // prerequisite: reuses the SAME observationsByDoc data already
+      // fetched reviewer-accessibly for the existing instance-display
+      // feature (no new network call), and never adds, removes, or
+      // reorders a match — see findSimilarLocationEnrichment.ts.
+      const locationObservations = requestDocumentId ? (observationsByDoc[requestDocumentId] ?? []) : [];
+      const enrichment = enrichMatchesWithLocation(res.result.matches, locationObservations);
+      setFindSimilarMatches(res.result.matches.map((m, i) => ({ ...m, id: `similar-${i}`, status: "pending" as const, location: enrichment[i] })));
+      setFindSimilarStatus("success");
+    } catch (e) {
+      if (findSimilarRequestIdRef.current !== requestId) return;
+      setFindSimilarStatus("error");
+      setFindSimilarError(e instanceof Error ? e.message : "Couldn't search the document. Please try again.");
+    }
+  }, [identifyConfirmed, identifyCandidates, identifyDocumentId, boq?.project_id, observationsByDoc]);
 
   const instancesByItemId = useMemo(() => {
     const map = new Map<string, TypeInstance[]>();
@@ -368,8 +500,8 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
         : drawingMode === "category" && selectedCategory
           ? markersForCategory(categoryGroups.find((g) => g.category === selectedCategory)!, instancesByItemId)
           : markersForType(current, currentCategory, currentInstances);
-    const currentDocId = docIdByItemId.get(current.id);
-    return raw.filter((m) => docIdByItemId.get(m.reviewItemId) === currentDocId);
+    const currentItemDocId = docIdByItemId.get(current.id);
+    return raw.filter((m) => docIdByItemId.get(m.reviewItemId) === currentItemDocId);
   }, [current, focusedInstanceId, drawingMode, selectedCategory, categoryGroups, instancesByItemId, currentInstances, currentCategory, docIdByItemId]);
 
   // "What am I looking at?" (acceptance criteria) — a real, computed label
@@ -691,7 +823,16 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
                 markerContextLabel={markerContextLabel}
                 identifyModeActive={identifyModeActive}
                 onIdentifyPoint={handleIdentifyPoint}
-                identifyHighlight={identifyPoint ? { point: identifyPoint, evidence: identifyCandidates[0]?.evidence } : null}
+                /* Document-scoped (M7): an identify click or Find Similar
+                   run on document A must never render on document B just
+                   because B happens to have a same-numbered page — the
+                   same invariant drawingMarkers already enforces above.
+                   Switching to another document hides the overlay without
+                   discarding it; switching back to the originating
+                   document restores it, since nothing here is cleared by
+                   navigation alone (see M7 report for this choice). */
+                identifyHighlight={identifyPoint && identifyDocumentId === currentDocId ? { point: identifyPoint, evidence: identifyCandidates[0]?.evidence } : null}
+                similarMatches={findSimilarActive && identifyDocumentId === currentDocId ? findSimilarMatches : null}
                 onSelectMarker={(id) => {
                   const marker = drawingMarkers.find((m) => m.id === id);
                   if (!marker) return;
@@ -719,17 +860,29 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
                 pair would break every exact-name button query in its tests. */}
             <div className="mt-3 lg:mt-0 lg:w-80 lg:shrink-0 lg:h-full lg:overflow-y-auto lg:rounded-lg lg:border lg:bg-card lg:p-3">
               {identifyModeActive ? (
-                <IdentifyResultPanel
-                  loading={identifyLoading}
-                  error={identifyError}
-                  hasPoint={identifyPoint != null}
-                  candidates={identifyCandidates}
-                  confirmed={identifyConfirmed}
-                  onConfirm={(_candidate, index) => setIdentifyConfirmed({ index, label: identifyCandidates[index].label })}
-                  onChangeLabel={(_candidate, index, newLabel) => setIdentifyConfirmed({ index, label: newLabel })}
-                  onDismiss={() => { setIdentifyPoint(null); setIdentifyCandidates([]); setIdentifyError(null); setIdentifyConfirmed(null); }}
-                  onExit={exitIdentifyMode}
-                />
+                findSimilarActive ? (
+                  <FindSimilarResultPanel
+                    status={findSimilarStatus}
+                    error={findSimilarError}
+                    matches={findSimilarMatches}
+                    onConfirm={(_match, index) => setFindSimilarMatches((prev) => prev.map((m, i) => (i === index ? { ...m, status: "confirmed" } : m)))}
+                    onReject={(_match, index) => setFindSimilarMatches((prev) => prev.map((m, i) => (i === index ? { ...m, status: "rejected" } : m)))}
+                    onExit={exitIdentifyMode}
+                  />
+                ) : (
+                  <IdentifyResultPanel
+                    loading={identifyLoading}
+                    error={identifyError}
+                    hasPoint={identifyPoint != null}
+                    candidates={identifyCandidates}
+                    confirmed={identifyConfirmed}
+                    onConfirm={(_candidate, index) => setIdentifyConfirmed({ index, label: identifyCandidates[index].label })}
+                    onChangeLabel={(_candidate, index, newLabel) => setIdentifyConfirmed({ index, label: newLabel })}
+                    onDismiss={() => { setIdentifyPoint(null); setIdentifyCandidates([]); setIdentifyError(null); setIdentifyConfirmed(null); resetFindSimilar(); }}
+                    onExit={exitIdentifyMode}
+                    onFindSimilar={handleFindSimilar}
+                  />
+                )
               ) : (
                 <ItemPanel
                   key={current.id}
@@ -1707,7 +1860,7 @@ export function ItemPanel({
 }
 
 // ── Right panel: resolve the real drawing, else fall back to the coord plot ────
-export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, selectedClaim, markers, onSelectMarker, markerContextLabel, identifyModeActive, onIdentifyPoint, identifyHighlight }: {
+export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, selectedClaim, markers, onSelectMarker, markerContextLabel, identifyModeActive, onIdentifyPoint, identifyHighlight, similarMatches }: {
   item: StoredReviewItem; drawings: StoredDrawing[]; resolvedDocumentId?: string | null; selectedClaim?: ClaimType | null;
   markers?: DrawingMarker[]; onSelectMarker?: (id: string) => void; markerContextLabel?: string | null;
   /** Click-to-Identify (additive, backward compatible — see PdfEvidenceViewer's
@@ -1718,6 +1871,12 @@ export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, sel
   identifyModeActive?: boolean;
   onIdentifyPoint?: (args: { page: number; point: { x: number; y: number }; nearbyText: string[]; documentId: string | null }) => void;
   identifyHighlight?: { point: { page: number; x: number; y: number }; evidence?: EvidenceBox[] } | null;
+  /** Find Similar (additive, backward compatible — see PdfEvidenceViewer's
+   *  own prop doc). Passed straight through; unlike `onIdentifyPoint` there
+   *  is no documentId to fill in here since matches already carry their own
+   *  per-box page, not a document reference this component would need to
+   *  resolve. */
+  similarMatches?: { id: string; evidence: EvidenceBox[]; status: "pending" | "confirmed" | "rejected" }[] | null;
 }) {
   const resolved = useMemo(
     () => resolveItemDrawing(item.ai.source, drawings, resolvedDocumentId),
@@ -1786,6 +1945,7 @@ export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, sel
           identifyModeActive={identifyModeActive}
           onIdentifyPoint={onIdentifyPoint ? (args) => onIdentifyPoint({ ...args, documentId: resolved.documentId ?? null }) : undefined}
           identifyHighlight={identifyHighlight}
+          similarMatches={similarMatches}
         />
       </div>
     );

@@ -76,6 +76,14 @@ interface Props {
    *  highlighted box — a visually distinct color from evidence (amber) and
    *  markers (blue/rose) so it reads as its own kind of thing. */
   identifyHighlight?: { point: { page: number; x: number; y: number }; evidence?: EvidenceBox[] } | null;
+  /** Find Similar's returned matches (additive, backward compatible —
+   *  omitted or empty means zero behavior change). Each match is filtered
+   *  to its OWN evidence page(s), same as markers — a match found on a
+   *  different page simply isn't drawn until the reviewer navigates there
+   *  with the existing page controls; nothing here auto-navigates. A
+   *  distinct hue per status (pending/confirmed/rejected) so a match's
+   *  local decision is visible on the canvas, not just in the side panel. */
+  similarMatches?: { id: string; evidence: EvidenceBox[]; status: "pending" | "confirmed" | "rejected" }[] | null;
 }
 
 type Size = { width: number; height: number };
@@ -90,7 +98,7 @@ type Size = { width: number; height: number };
 // real rectangle doesn't need to stop being drawn as a rectangle either.
 const RICH_GEOMETRY_TYPES = new Set(["point", "line", "polyline", "polygon", "path"]);
 
-export default function PdfEvidenceViewer({ fileUrl, source, documentName, unavailableReason, selectedClaim, selectedClaimValue, pageTitles, markers, onSelectMarker, markerContextLabel, identifyModeActive, onIdentifyPoint, identifyHighlight }: Props) {
+export default function PdfEvidenceViewer({ fileUrl, source, documentName, unavailableReason, selectedClaim, selectedClaimValue, pageTitles, markers, onSelectMarker, markerContextLabel, identifyModeActive, onIdentifyPoint, identifyHighlight, similarMatches }: Props) {
   // Marker mode is signaled by PRESENCE of `markers` (even []), not its
   // length — an empty marker set for the current selection (e.g. a category
   // with no real evidence at all) must still suppress the old per-item
@@ -626,6 +634,33 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
               </>
             );
           })()}
+          {/* Find Similar matches — a DIFFERENT hue (cyan) from evidence
+              (amber), markers (blue/rose), and the identify click (violet),
+              so a batch of document-wide matches reads as its own kind of
+              thing. Confirmed/rejected recolor in place as the reviewer
+              decides on each one; nothing here is ever auto-selected. */}
+          {similarMatches && similarMatches.length > 0 && pageBase && (() => {
+            const space = resolvePageSpace(source, pageBase);
+            if (!space) return null;
+            const renderedSize: Size = { width: pageBase.width * scale, height: pageBase.height * scale };
+            return similarMatches.flatMap((m) => {
+              const onPage = m.evidence.filter((b) => b.page != null && b.page === page);
+              if (onPage.length === 0) return [];
+              const rects = transformBoxes(onPage, space, renderedSize);
+              const statusCls = m.status === "confirmed"
+                ? "border-emerald-600 bg-emerald-500/20 shadow-[0_0_0_4px_rgba(5,150,105,0.15)]"
+                : m.status === "rejected"
+                  ? "border-dashed border-muted-foreground/40 bg-muted-foreground/5"
+                  : "border-cyan-600 bg-cyan-500/20 shadow-[0_0_0_4px_rgba(8,145,178,0.15)]";
+              return rects.map((r, i) => (
+                <div
+                  key={`${m.id}-${i}`}
+                  className={cn("absolute pointer-events-none border-[3px]", statusCls)}
+                  style={{ left: r.left, top: r.top, width: r.width, height: r.height }}
+                />
+              ));
+            });
+          })()}
           {/* The first box is the SELECTED element — it must read as an
               object the reviewer picked on the drawing, not one of several
               generic highlight rectangles. A heavier solid border + a
@@ -812,6 +847,16 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
         }
         return null;
       })()}
+      {/* Find Similar page-awareness fallback (M7.5, Post-M6 review §4):
+          mirrors the two fallbacks above — "no matches at all" is already
+          said by FindSimilarResultPanel's own empty state, so this stays
+          silent then; this only distinguishes "matches exist, just not on
+          the page currently showing" from matches actually being visible
+          here. Never navigates there itself — same as the other two. */}
+      {similarMatches && similarMatches.length > 0
+        && !similarMatches.some((m) => m.evidence.some((b) => b.page != null && b.page === page)) && (
+        <p className="text-[11px] text-muted-foreground">Similar matches were found — on another page. Use the page controls.</p>
+      )}
       {pageSizeWarning && <p className="text-[11px] text-amber-600">{pageSizeWarning}</p>}
     </Shell>
   );

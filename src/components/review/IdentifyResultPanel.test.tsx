@@ -46,6 +46,28 @@ describe("IdentifyResultPanel", () => {
     expect(screen.queryByRole("button", { name: /^Confirm$/i })).not.toBeInTheDocument();
   });
 
+  it("does not show a Find Similar action before a candidate is confirmed, even when the callback is provided", () => {
+    render(<IdentifyResultPanel loading={false} error={null} hasPoint={true} candidates={[CANDIDATE]} confirmed={null} onConfirm={vi.fn()} onChangeLabel={vi.fn()} onDismiss={vi.fn()} onExit={vi.fn()} onFindSimilar={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: /Find Similar/i })).not.toBeInTheDocument();
+  });
+
+  it("shows Find Similar once a candidate is confirmed, when the callback is provided", () => {
+    render(<IdentifyResultPanel loading={false} error={null} hasPoint={true} candidates={[CANDIDATE]} confirmed={{ index: 0, label: "Door" }} onConfirm={vi.fn()} onChangeLabel={vi.fn()} onDismiss={vi.fn()} onExit={vi.fn()} onFindSimilar={vi.fn()} />);
+    expect(screen.getByRole("button", { name: /Find Similar/i })).toBeInTheDocument();
+  });
+
+  it("never shows Find Similar when no callback is provided, even once confirmed — purely additive, zero behavior change for a caller that doesn't wire it", () => {
+    render(<IdentifyResultPanel loading={false} error={null} hasPoint={true} candidates={[CANDIDATE]} confirmed={{ index: 0, label: "Door" }} onConfirm={vi.fn()} onChangeLabel={vi.fn()} onDismiss={vi.fn()} onExit={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: /Find Similar/i })).not.toBeInTheDocument();
+  });
+
+  it("calls onFindSimilar when the Find Similar button is clicked", () => {
+    const onFindSimilar = vi.fn();
+    render(<IdentifyResultPanel loading={false} error={null} hasPoint={true} candidates={[CANDIDATE]} confirmed={{ index: 0, label: "Door" }} onConfirm={vi.fn()} onChangeLabel={vi.fn()} onDismiss={vi.fn()} onExit={vi.fn()} onFindSimilar={onFindSimilar} />);
+    fireEvent.click(screen.getByRole("button", { name: /Find Similar/i }));
+    expect(onFindSimilar).toHaveBeenCalledTimes(1);
+  });
+
   it("lets the user change the label before confirming, never auto-saving an empty value", () => {
     const onChangeLabel = vi.fn();
     render(<IdentifyResultPanel loading={false} error={null} hasPoint={true} candidates={[CANDIDATE]} confirmed={null} onConfirm={vi.fn()} onChangeLabel={onChangeLabel} onDismiss={vi.fn()} onExit={vi.fn()} />);
