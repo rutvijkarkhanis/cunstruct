@@ -772,9 +772,30 @@ export default function OpsBoqBuilder() {
           normal load, a refresh, or a BOQ never built via review). Names the
           same pipeline without claiming a provenance this render can't back. */}
       {!present && justAppliedCount === 0 && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-          <span>Drawing → Generate → Review → Apply → <b className="text-foreground">BOQ</b> → Export</span>
-          <Button variant="link" size="sm" className="ml-auto h-auto p-0 text-xs" onClick={() => navigate("review")}>
+        <div className="flex items-center gap-1 text-xs text-muted-foreground flex-wrap">
+          {/* "Drawing" is the only breadcrumb step with somewhere real to go
+              back to on mobile — the same destination "Review Analysis →"
+              already links to (the Review Workstation at `boqs/:boqId/review`,
+              reusing this route's own relative `navigate`). It's the one
+              screen that actually has the drawing canvas + Identify, so this
+              is genuinely "back to the drawing," not just "back to BOQ" (the
+              back arrow above already covers that). Generate/Review/Apply/
+              Export have no separate page of their own to point at — Review
+              Analysis already has its own explicit CTA, Export its own
+              button lower on this page — so only this one word becomes a
+              control, to avoid redundant links for steps that aren't
+              separately navigable. -mx-2 -my-1.5 px-2 py-1.5 widens the tap
+              target on mobile without changing how the text looks inline. */}
+          <Button
+            variant="link" size="sm"
+            className="h-auto -mx-2 -my-1.5 px-2 py-1.5 text-xs font-normal text-muted-foreground hover:text-foreground"
+            onClick={() => navigate("review")}
+            aria-label="Back to the drawing to use Identify"
+          >
+            Drawing
+          </Button>
+          <span>→ Generate → Review → Apply → <b className="text-foreground">BOQ</b> → Export</span>
+          <Button variant="link" size="sm" className="ml-auto h-auto -mx-2 -my-1.5 px-2 py-1.5 text-xs" onClick={() => navigate("review")}>
             Review Analysis →
           </Button>
         </div>
