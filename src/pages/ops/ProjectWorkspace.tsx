@@ -18,12 +18,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Menu, PanelRight, Share2, X } from "lucide-react";
+import { ArrowLeft, ClipboardCheck, Menu, PanelRight, Share2, X } from "lucide-react";
 import BoqReviewWorkstation from "./BoqReviewWorkstation";
 import WorkspaceSources from "@/components/ops/workspace/WorkspaceSources";
 import WorkspaceSourceManager from "@/components/ops/workspace/WorkspaceSourceManager";
 import WorkspaceCanvas from "@/components/ops/workspace/WorkspaceCanvas";
 import WorkspaceContext from "@/components/ops/workspace/WorkspaceContext";
+import { useProjectBoqs } from "@/hooks/useProjectBoqs";
 import ShareLinksDialog from "@/components/ops/workspace/ShareLinksDialog";
 import { parseWorkspaceQuery, buildWorkspaceQuery, type WorkspaceMode } from "@/lib/review/workspaceState";
 
@@ -45,6 +46,13 @@ export default function ProjectWorkspace() {
       return data ?? null;
     },
   });
+
+  // Same query (and queryKey) DrawingHome's own "Review" button already
+  // uses to decide whether Review is reachable — reused here, not
+  // duplicated-with-different-logic, so the mobile canvas CTA below and the
+  // Context panel's CTA can never disagree about whether a BOQ exists.
+  const { data: boqs } = useProjectBoqs(projectId ?? "");
+  const defaultBoq = boqs?.[0] ?? null;
 
   // Mobile-only drill-down panel — pure UI state, never persisted/shared:
   // which of the three panes is currently full-screen on a narrow viewport.
@@ -182,6 +190,29 @@ export default function ProjectWorkspace() {
                 Context <PanelRight className="w-3.5 h-3.5" />
               </Button>
             </div>
+            {/* Mobile-only CTA: the drawing canvas here is intentionally a
+                read-only source viewer — it has no Identify of its own (see
+                WorkspaceCanvas.tsx's own header comment) — so without this,
+                a mobile visitor has no on-screen indication that Review
+                (full drawing canvas + Click-to-Identify) is one tap away
+                behind the generic, unlabeled "Context" button above. Reuses
+                onEnterMode exactly as DrawingHome's own "Review" button
+                does (same mode/boqId, same takeover at the top of this
+                component) — no new navigation path, no Identify logic here.
+                Gated on defaultBoq so it never offers a Review that would
+                immediately bounce back to the mode switcher's "no BOQ yet"
+                state. Desktop is untouched — the right rail there already
+                shows this same Review entry permanently. */}
+            {defaultBoq && (
+              <div className="shrink-0 border-b bg-card px-2 py-2">
+                <Button
+                  size="sm" className="w-full h-9 gap-1.5"
+                  onClick={() => onEnterMode("review", defaultBoq.id)}
+                >
+                  <ClipboardCheck className="w-4 h-4" /> Review &amp; Identify
+                </Button>
+              </div>
+            )}
             <WorkspaceCanvas documentId={state.document} page={state.page} />
           </div>
         )}

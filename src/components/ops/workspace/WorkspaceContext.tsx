@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { ClipboardCheck, Calculator, PackageSearch, Boxes, FileText } from "lucide-react";
 import { formatINR } from "@/lib/forecastEngine";
 import type { WorkspaceMode } from "@/lib/review/workspaceState";
+import { useProjectBoqs } from "@/hooks/useProjectBoqs";
 import WorkspaceBoqPanel from "./WorkspaceBoqPanel";
 
 export interface WorkspaceContextProps {
@@ -46,17 +47,6 @@ export default function WorkspaceContext({ mode, projectId, activeDocumentId, ac
       </div>
     </div>
   );
-}
-
-function useProjectBoqs(projectId: string) {
-  return useQuery({
-    queryKey: ["workspace-project-boqs", projectId],
-    enabled: !!projectId,
-    queryFn: async () => {
-      const { data } = await supabase.from("boq").select("id, name, created_at").eq("project_id", projectId).order("created_at", { ascending: false });
-      return data ?? [];
-    },
-  });
 }
 
 function useActiveDocumentInfo(activeDocumentId: string | null) {
