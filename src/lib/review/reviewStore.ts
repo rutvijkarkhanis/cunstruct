@@ -124,6 +124,32 @@ export async function latestRunForBoq(boqId: string): Promise<{ id: string; sour
   return (data && data[0]) ?? null;
 }
 
+/** The project's most recently ANALYZED boq_id — i.e. the boq_id of the
+ *  newest analysis_run, across every BOQ in this project, that actually
+ *  produced at least one review item (`item_count > 0`, the same count
+ *  `createAnalysisRun` writes atomically alongside the run itself — a
+ *  cheap, already-stored proxy for "has analysis_review_item rows" that
+ *  avoids a second table/join). Null when no BOQ in this project has been
+ *  analyzed yet.
+ *
+ *  One query scoped by project_id (not one per BOQ) — the same shape as
+ *  latestRunForBoq above, just filtered by project instead of by a single
+ *  boq, so this costs nothing extra as the project's BOQ count grows. Used
+ *  to pick WHICH boq "Review"/"Review & Identify" should open when more
+ *  than one exists — see useProjectBoqs.ts's useMostRecentlyAnalyzedBoqId. */
+export async function mostRecentlyAnalyzedBoqId(projectId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("analysis_run")
+    .select("boq_id, created_at")
+    .eq("project_id", projectId)
+    .gt("item_count", 0)
+    .not("boq_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) return null;
+  return (data && data[0]?.boq_id) ?? null;
+}
+
 export interface SaveReviewArgs {
   itemId: string;
   reviewStatus: ReviewStatus;
