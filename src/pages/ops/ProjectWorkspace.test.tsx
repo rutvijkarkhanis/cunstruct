@@ -4,23 +4,49 @@
 // child (WorkspaceSources/WorkspaceCanvas/WorkspaceContext) already has its
 // own focused tests, and BoqReviewWorkstation is Phase 9/10's approved,
 // untouched implementation (not re-tested here).
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
+import { QueryClientProvider, QueryClient, useQuery } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
 import ProjectWorkspace from "./ProjectWorkspace";
+
+// Mutable per-test fixture for the "boq" table specifically — the mobile
+// "Review & Identify" CTA (ProjectWorkspace's own useProjectBoqs call) must
+// be able to see BOTH "a BOQ exists" and "no BOQ yet" without the generic
+// single-row stub below (used for every other table) getting in the way.
+// vi.hoisted so the mock factory (which vi.mock hoists above these imports)
+// can close over it.
+const { boqRowsRef } = vi.hoisted(() => ({
+  boqRowsRef: { current: [{ id: "boq-1", name: "Main BOQ", created_at: "2024-01-01" }] as { id: string; name: string; created_at: string }[] },
+}));
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
-    from: () => {
+    from: (table: string) => {
       const obj: Record<string, unknown> = {};
-      ["select", "eq", "single"].forEach((m) => { obj[m] = () => obj; });
-      (obj as { then: unknown }).then = (resolve: (r: { data: unknown; error: null }) => void) =>
-        resolve({ data: { id: "proj-1", name: "Srikakulam Apartment" }, error: null });
+      ["select", "eq", "single", "order", "not"].forEach((m) => { obj[m] = () => obj; });
+      (obj as { then: unknown }).then = (resolve: (r: { data: unknown; error: null }) => void) => {
+        if (table === "boq") return resolve({ data: boqRowsRef.current, error: null });
+        if (table === "projects") return resolve({ data: { id: "proj-1", name: "Srikakulam Apartment" }, error: null });
+        // Everything else this tree queries (e.g. ShareLinksDialog's own
+        // "project_share_link" via useShareLinks, mounted unconditionally
+        // regardless of the dialog's open state) expects a list, not a
+        // single row — an empty array here, not the "projects" object
+        // above, so list.map()/list.length in a component this test
+        // doesn't otherwise mock never throws.
+        return resolve({ data: [], error: null });
+      };
       return obj;
     },
   },
 }));
+
+afterEach(() => {
+  // Reset to the "has a BOQ" default so one test's override never leaks
+  // into the next.
+  boqRowsRef.current = [{ id: "boq-1", name: "Main BOQ", created_at: "2024-01-01" }];
+});
 
 vi.mock("./BoqReviewWorkstation", () => ({
   default: ({ boqId }: { boqId?: string }) => <div data-testid="embedded-review">Review for {boqId}</div>,
@@ -39,6 +65,23 @@ vi.mock("@/components/ops/workspace/WorkspaceCanvas", () => ({
     <div data-testid="canvas">doc:{documentId ?? "none"} page:{page ?? "none"}</div>
   ),
 }));
+// ProjectWorkspace.tsx and WorkspaceContext's own DrawingHome both import
+// the real useProjectBoqs from this hook module — mocked here with its
+// real implementation (backed by the same mocked supabase "boq" table the
+// rest of this file already drives via boqRowsRef via a real useQuery),
+// not a stub that always says "yes" or "no", so the mobile CTA tests below
+// can actually flip "has a BOQ" / "no BOQ yet" by setting boqRowsRef.
+vi.mock("@/hooks/useProjectBoqs", () => ({
+  useProjectBoqs: (projectId: string) => useQuery({
+    queryKey: ["workspace-project-boqs", projectId],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const { data } = await supabase.from("boq").select("id, name, created_at").eq("project_id", projectId).order("created_at", { ascending: false });
+      return data ?? [];
+    },
+  }),
+}));
+
 vi.mock("@/components/ops/workspace/WorkspaceContext", () => ({
   default: ({ mode, onEnterMode }: { mode: string; onEnterMode: (m: string, boq?: string) => void }) => (
     <div data-testid="context">
@@ -111,6 +154,57 @@ describe("ProjectWorkspace — entering a context mode from the panel", () => {
     renderWorkspace("/ops/projects/proj-1/workspace?document=doc-1");
     fireEvent.click(first(await screen.findAllByText("enter review")));
     expect(await screen.findByTestId("embedded-review")).toHaveTextContent("Review for boq-1");
+  });
+});
+
+describe("ProjectWorkspace — mobile 'Review & Identify' CTA on the drawing canvas", () => {
+  // Mobile lands on the "canvas" pane by default once a document is
+  // selected (see initialMobilePanel) — this is the exact pane the live
+  // bug report described as showing "Evidence coordinates unavailable"
+  // with no visible way to reach Identify.
+  it("appears on the mobile canvas pane when the project has a BOQ", async () => {
+    renderWorkspace("/ops/projects/proj-1/workspace?document=doc-1");
+    expect(await screen.findByRole("button", { name: /review & identify/i })).toBeInTheDocument();
+  });
+
+  it("tapping it enters the existing Review/BoqReviewWorkstation takeover, preserving the project id and the BOQ id", async () => {
+    renderWorkspace("/ops/projects/proj-1/workspace?document=doc-1");
+    const cta = await screen.findByRole("button", { name: /review & identify/i });
+    fireEvent.click(cta);
+    // BoqReviewWorkstation is mocked above to echo its boqId prop — this
+    // proves the CTA reused the real onEnterMode("review", boqId) path
+    // (not a new navigation state), landing on the SAME takeover the
+    // Context panel's own "Review" button uses, with the project id still
+    // in the route (MemoryRouter would 404 otherwise) and the real BOQ id
+    // ("boq-1" from the mocked "boq" table row) carried through.
+    expect(await screen.findByTestId("embedded-review")).toHaveTextContent("Review for boq-1");
+  });
+
+  it("does NOT appear when the project has no BOQ yet", async () => {
+    boqRowsRef.current = [];
+    renderWorkspace("/ops/projects/proj-1/workspace?document=doc-1");
+    expect(first(await screen.findAllByTestId("canvas"))).toHaveTextContent("doc:doc-1 page:none"); // canvas pane has rendered
+    expect(screen.queryByRole("button", { name: /review & identify/i })).not.toBeInTheDocument();
+  });
+
+  it("leaves the rest of the mobile canvas pane (Sources/Context nav, the drawing itself) unchanged", async () => {
+    renderWorkspace("/ops/projects/proj-1/workspace?document=doc-1");
+    expect(first(await screen.findAllByTestId("canvas"))).toHaveTextContent("doc:doc-1 page:none");
+    // Two of each: the always-present header icon buttons (aria-label=
+    // "Sources"/"Context") plus this pane's own "← Sources"/"Context →"
+    // nav row — unrelated to this change, just confirming neither was
+    // removed by the new banner sitting between that row and the canvas.
+    expect(screen.getAllByRole("button", { name: /^sources$/i })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /^context$/i })).toHaveLength(2);
+  });
+
+  it("does not add this CTA anywhere in the desktop layout (desktop already shows Review permanently in the right rail)", async () => {
+    renderWorkspace("/ops/projects/proj-1/workspace?document=doc-1");
+    await screen.findByRole("button", { name: /review & identify/i });
+    // Exactly one — the mobile canvas pane's banner. Desktop's own
+    // always-visible "Review" entry lives inside the (mocked) Context
+    // component, not as a second copy of this CTA.
+    expect(screen.getAllByRole("button", { name: /review & identify/i })).toHaveLength(1);
   });
 });
 
