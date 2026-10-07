@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { ClipboardCheck, Calculator, PackageSearch, Boxes, FileText } from "lucide-react";
 import { formatINR } from "@/lib/forecastEngine";
 import type { WorkspaceMode } from "@/lib/review/workspaceState";
-import { useProjectBoqs } from "@/hooks/useProjectBoqs";
+import { useProjectBoqs, useMostRecentlyAnalyzedBoqId } from "@/hooks/useProjectBoqs";
 import WorkspaceBoqPanel from "./WorkspaceBoqPanel";
 
 export interface WorkspaceContextProps {
@@ -67,6 +67,14 @@ function DrawingHome({ projectId, activeDocumentId, onEnterMode }: { projectId: 
   const { data: boqs } = useProjectBoqs(projectId);
   const { data: docInfo } = useActiveDocumentInfo(activeDocumentId);
   const defaultBoq = boqs?.[0] ?? null;
+  // Which boq_id "Review" actually opens — the project's most recently
+  // analyzed BOQ when one exists, else the same defaultBoq (newest-created)
+  // as before. Only the Review button's target changes here; "disabled"
+  // below and the BOQ/Materials buttons' own fallback stay on defaultBoq —
+  // whether Review is reachable at all is still just "does this project
+  // have ANY boq," unchanged.
+  const { data: analyzedBoqId } = useMostRecentlyAnalyzedBoqId(projectId);
+  const reviewBoqId = analyzedBoqId ?? defaultBoq?.id ?? null;
 
   return (
     <div className="space-y-4">
@@ -89,7 +97,7 @@ function DrawingHome({ projectId, activeDocumentId, onEnterMode }: { projectId: 
         <Button
           variant="outline" size="sm" className="w-full justify-start gap-2"
           disabled={!defaultBoq}
-          onClick={() => defaultBoq && onEnterMode("review", defaultBoq.id)}
+          onClick={() => reviewBoqId && onEnterMode("review", reviewBoqId)}
         >
           <ClipboardCheck className="w-3.5 h-3.5" /> Review
         </Button>

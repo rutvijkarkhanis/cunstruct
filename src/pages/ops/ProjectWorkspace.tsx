@@ -24,7 +24,7 @@ import WorkspaceSources from "@/components/ops/workspace/WorkspaceSources";
 import WorkspaceSourceManager from "@/components/ops/workspace/WorkspaceSourceManager";
 import WorkspaceCanvas from "@/components/ops/workspace/WorkspaceCanvas";
 import WorkspaceContext from "@/components/ops/workspace/WorkspaceContext";
-import { useProjectBoqs } from "@/hooks/useProjectBoqs";
+import { useProjectBoqs, useMostRecentlyAnalyzedBoqId } from "@/hooks/useProjectBoqs";
 import ShareLinksDialog from "@/components/ops/workspace/ShareLinksDialog";
 import { parseWorkspaceQuery, buildWorkspaceQuery, type WorkspaceMode } from "@/lib/review/workspaceState";
 
@@ -53,6 +53,13 @@ export default function ProjectWorkspace() {
   // Context panel's CTA can never disagree about whether a BOQ exists.
   const { data: boqs } = useProjectBoqs(projectId ?? "");
   const defaultBoq = boqs?.[0] ?? null;
+  // Which boq_id the CTA below actually opens — the project's most recently
+  // analyzed BOQ when one exists (same hook DrawingHome's own "Review"
+  // button now uses, so the two can never disagree), else defaultBoq
+  // (newest-created) exactly as before. The CTA's own visibility still
+  // gates on defaultBoq (any boq at all), unchanged.
+  const { data: analyzedBoqId } = useMostRecentlyAnalyzedBoqId(projectId ?? "");
+  const reviewBoqId = analyzedBoqId ?? defaultBoq?.id ?? null;
 
   // Mobile-only drill-down panel — pure UI state, never persisted/shared:
   // which of the three panes is currently full-screen on a narrow viewport.
@@ -199,15 +206,18 @@ export default function ProjectWorkspace() {
                 onEnterMode exactly as DrawingHome's own "Review" button
                 does (same mode/boqId, same takeover at the top of this
                 component) — no new navigation path, no Identify logic here.
-                Gated on defaultBoq so it never offers a Review that would
-                immediately bounce back to the mode switcher's "no BOQ yet"
-                state. Desktop is untouched — the right rail there already
+                Targets reviewBoqId (the project's analyzed BOQ when one
+                exists, else the newest one) rather than always assuming the
+                newest-created BOQ is reviewable — see
+                useMostRecentlyAnalyzedBoqId. Still gated on defaultBoq (any
+                boq at all) so it never offers a Review when the project has
+                none. Desktop is untouched — the right rail there already
                 shows this same Review entry permanently. */}
             {defaultBoq && (
               <div className="shrink-0 border-b bg-card px-2 py-2">
                 <Button
                   size="sm" className="w-full h-9 gap-1.5"
-                  onClick={() => onEnterMode("review", defaultBoq.id)}
+                  onClick={() => reviewBoqId && onEnterMode("review", reviewBoqId)}
                 >
                   <ClipboardCheck className="w-4 h-4" /> Review &amp; Identify
                 </Button>

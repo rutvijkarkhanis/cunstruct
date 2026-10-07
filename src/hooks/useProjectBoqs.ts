@@ -8,6 +8,7 @@
 // lint warning — no behavior change from how it lived inline before.
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { mostRecentlyAnalyzedBoqId } from "@/lib/review/reviewStore";
 
 export interface ProjectBoqSummary {
   id: string;
@@ -23,5 +24,23 @@ export function useProjectBoqs(projectId: string) {
       const { data } = await supabase.from("boq").select("id, name, created_at").eq("project_id", projectId).order("created_at", { ascending: false });
       return (data ?? []) as ProjectBoqSummary[];
     },
+  });
+}
+
+// Which boq_id "Review"/"Review & Identify" should actually open — the
+// project's most recently ANALYZED BOQ (see mostRecentlyAnalyzedBoqId's own
+// comment) when one exists, so entering Review lands on the drawing +
+// Identify view rather than BoqReviewWorkstation's own "load analysis" gate
+// for a BOQ nobody has analyzed yet. Both call sites that pick a BOQ for
+// Review (WorkspaceContext's DrawingHome and ProjectWorkspace's mobile CTA)
+// use this one hook, so they can never pick different BOQs for the same
+// project. Deliberately NOT folded into useProjectBoqs's own return value:
+// useProjectBoqs also backs WorkspaceBoqPanel/MaterialsPanel, whose own
+// "newest BOQ" default is unrelated to analysis and must not change.
+export function useMostRecentlyAnalyzedBoqId(projectId: string) {
+  return useQuery({
+    queryKey: ["workspace-most-analyzed-boq", projectId],
+    enabled: !!projectId,
+    queryFn: () => mostRecentlyAnalyzedBoqId(projectId),
   });
 }

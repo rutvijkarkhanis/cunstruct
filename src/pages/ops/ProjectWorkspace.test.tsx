@@ -17,18 +17,31 @@ import ProjectWorkspace from "./ProjectWorkspace";
 // single-row stub below (used for every other table) getting in the way.
 // vi.hoisted so the mock factory (which vi.mock hoists above these imports)
 // can close over it.
-const { boqRowsRef } = vi.hoisted(() => ({
+const { boqRowsRef, analyzedBoqIdRef } = vi.hoisted(() => ({
   boqRowsRef: { current: [{ id: "boq-1", name: "Main BOQ", created_at: "2024-01-01" }] as { id: string; name: string; created_at: string }[] },
+  // Which boq_id mostRecentlyAnalyzedBoqId should "find" — null means no
+  // BOQ in this project has been analyzed yet (the pre-existing default,
+  // so every test that doesn't set this keeps exercising the newest-BOQ
+  // fallback exactly as before this fix).
+  analyzedBoqIdRef: { current: null as string | null },
 }));
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     from: (table: string) => {
       const obj: Record<string, unknown> = {};
-      ["select", "eq", "single", "order", "not"].forEach((m) => { obj[m] = () => obj; });
+      ["select", "eq", "single", "order", "not", "gt", "limit"].forEach((m) => { obj[m] = () => obj; });
       (obj as { then: unknown }).then = (resolve: (r: { data: unknown; error: null }) => void) => {
         if (table === "boq") return resolve({ data: boqRowsRef.current, error: null });
         if (table === "projects") return resolve({ data: { id: "proj-1", name: "Srikakulam Apartment" }, error: null });
+        // Backs useMostRecentlyAnalyzedBoqId's own query (project-scoped,
+        // item_count > 0, boq_id not null, newest first, limit 1) — the
+        // real filtering/ordering happens in reviewStore.ts itself and is
+        // covered by reviewStore.test.ts; here we just hand back the one
+        // row (or none) the test fixture says should "win".
+        if (table === "analysis_run") {
+          return resolve({ data: analyzedBoqIdRef.current ? [{ boq_id: analyzedBoqIdRef.current, created_at: "2099-01-01" }] : [], error: null });
+        }
         // Everything else this tree queries (e.g. ShareLinksDialog's own
         // "project_share_link" via useShareLinks, mounted unconditionally
         // regardless of the dialog's open state) expects a list, not a
@@ -43,9 +56,10 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 
 afterEach(() => {
-  // Reset to the "has a BOQ" default so one test's override never leaks
-  // into the next.
+  // Reset to the "has a BOQ, nothing analyzed" default so one test's
+  // override never leaks into the next.
   boqRowsRef.current = [{ id: "boq-1", name: "Main BOQ", created_at: "2024-01-01" }];
+  analyzedBoqIdRef.current = null;
 });
 
 vi.mock("./BoqReviewWorkstation", () => ({
@@ -78,6 +92,21 @@ vi.mock("@/hooks/useProjectBoqs", () => ({
     queryFn: async () => {
       const { data } = await supabase.from("boq").select("id, name, created_at").eq("project_id", projectId).order("created_at", { ascending: false });
       return data ?? [];
+    },
+  }),
+  // Real query shape (project-scoped analysis_run, item_count > 0, boq_id
+  // not null, newest first) against the same mocked supabase client, so
+  // this test file drives the real selection contract via analyzedBoqIdRef
+  // rather than a hardcoded yes/no stub.
+  useMostRecentlyAnalyzedBoqId: (projectId: string) => useQuery({
+    queryKey: ["workspace-most-analyzed-boq", projectId],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const { data } = await supabase.from("analysis_run")
+        .select("boq_id, created_at").eq("project_id", projectId)
+        .gt("item_count", 0).not("boq_id", "is", null)
+        .order("created_at", { ascending: false }).limit(1);
+      return (data as { boq_id: string }[] | null)?.[0]?.boq_id ?? null;
     },
   }),
 }));
@@ -178,6 +207,30 @@ describe("ProjectWorkspace — mobile 'Review & Identify' CTA on the drawing can
     // in the route (MemoryRouter would 404 otherwise) and the real BOQ id
     // ("boq-1" from the mocked "boq" table row) carried through.
     expect(await screen.findByTestId("embedded-review")).toHaveTextContent("Review for boq-1");
+  });
+
+  it("with multiple BOQs where only one has analysis, selects the ANALYZED boq — not boqs[0] (newest-created)", async () => {
+    boqRowsRef.current = [
+      { id: "boq-new-no-analysis", name: "Newly created BOQ", created_at: "2026-03-01" },
+      { id: "boq-old-analyzed", name: "Elevation & Facade", created_at: "2026-01-01" },
+    ];
+    analyzedBoqIdRef.current = "boq-old-analyzed";
+    renderWorkspace("/ops/projects/proj-1/workspace?document=doc-1");
+    const cta = await screen.findByRole("button", { name: /review & identify/i });
+    fireEvent.click(cta);
+    expect(await screen.findByTestId("embedded-review")).toHaveTextContent("Review for boq-old-analyzed");
+  });
+
+  it("with multiple BOQs and NONE analyzed, falls back to boqs[0] (newest-created) — the pre-existing behavior", async () => {
+    boqRowsRef.current = [
+      { id: "boq-newest", name: "Newest BOQ", created_at: "2026-03-01" },
+      { id: "boq-older", name: "Older BOQ", created_at: "2026-01-01" },
+    ];
+    // analyzedBoqIdRef stays null (afterEach default) — nothing analyzed yet.
+    renderWorkspace("/ops/projects/proj-1/workspace?document=doc-1");
+    const cta = await screen.findByRole("button", { name: /review & identify/i });
+    fireEvent.click(cta);
+    expect(await screen.findByTestId("embedded-review")).toHaveTextContent("Review for boq-newest");
   });
 
   it("does NOT appear when the project has no BOQ yet", async () => {
