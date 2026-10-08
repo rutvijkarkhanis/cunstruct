@@ -18,6 +18,25 @@ export const FINDING_STATE_ACTIONS: Record<Exclude<FindingState, "OPEN">, string
   KEPT_PENDING: "Keep Pending",
 };
 
+/** Terminal states — a human has settled this finding. Matches the exact
+ *  two-state definition this codebase already establishes independently in
+ *  two places: BoqAuditReview.tsx's own `terminal` check (greys the row out,
+ *  hides the apply actions) and reviewSummary()'s own issue-bucket exclusion
+ *  below. Not derived from either — this is the same existing semantics,
+ *  named once so a future caller (PR #157's Coverage readiness summary)
+ *  doesn't need a third independent copy of it. */
+const TERMINAL_FINDING_STATES: ReadonlySet<FindingState> = new Set(["DISMISSED", "RESOLVED"]);
+
+/** True for OPEN/ACCEPTED/KEPT_PENDING — a finding still worth a human's
+ *  attention, by this repository's existing lifecycle semantics. A human
+ *  disposition (however it was reached) is always respected: a DISMISSED or
+ *  RESOLVED finding is never "active" again just because the thing that
+ *  produced it (a pasted audit, or a regenerated Coverage signal) runs
+ *  again. */
+export function isActiveFindingState(state: FindingState): boolean {
+  return !TERMINAL_FINDING_STATES.has(state);
+}
+
 /** A minimal view of a BOQ line, enough to match a finding against it. */
 export interface BoqLineRef {
   id: string;

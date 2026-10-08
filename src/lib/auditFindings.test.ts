@@ -3,6 +3,7 @@ import {
   matchFindingToLine,
   linkFindings,
   reviewSummary,
+  isActiveFindingState,
   type BoqLineRef,
 } from "./auditFindings";
 import type { AuditFinding } from "./auditJson";
@@ -96,5 +97,21 @@ describe("reviewSummary", () => {
     const s = reviewSummary(findings, 100, states);
     expect(s.missing).toBe(1); // one MISSING_ITEM dismissed
     expect(s.pending).toBe(0); // the QUANTITY_PENDING resolved
+  });
+});
+
+// PR #157 — the readiness summary needs the SAME active/terminal definition
+// this module and BoqAuditReview.tsx already agree on, named once rather
+// than guessed a third time.
+describe("isActiveFindingState", () => {
+  it("OPEN, ACCEPTED, and KEPT_PENDING are active", () => {
+    expect(isActiveFindingState("OPEN")).toBe(true);
+    expect(isActiveFindingState("ACCEPTED")).toBe(true);
+    expect(isActiveFindingState("KEPT_PENDING")).toBe(true);
+  });
+
+  it("DISMISSED and RESOLVED are not active — a human has settled it", () => {
+    expect(isActiveFindingState("DISMISSED")).toBe(false);
+    expect(isActiveFindingState("RESOLVED")).toBe(false);
   });
 });

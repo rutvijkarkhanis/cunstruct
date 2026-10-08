@@ -4,6 +4,7 @@
 // exception review, all without touching Supabase or OpenAI.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import WorkspaceAnalyzePanel from "./WorkspaceAnalyzePanel";
 
@@ -69,19 +70,31 @@ vi.mock("@/lib/review/boqDocumentLinks", () => ({
   linkAnalyzedDocumentsToBoq: (...args: unknown[]) => linkAnalyzedDocumentsToBoq(...(args as [string, string[]])),
 }));
 
+// PR #157 — the readiness panel now reads already-persisted Coverage
+// finding counts; mocked here like every other I/O dependency this
+// component imports, so this file keeps testing orchestration/UI behavior
+// without touching Supabase. Empty by default — most existing tests here
+// have no Coverage findings and must see the readiness output unchanged.
+const loadActiveCoverageFindingCounts = vi.fn(async () => ({}) as Record<string, number>);
+vi.mock("@/lib/auditImport", () => ({
+  loadActiveCoverageFindingCounts: (...args: unknown[]) => loadActiveCoverageFindingCounts(...(args as [string[]])),
+}));
+
 function renderPanel() {
   const qc = new QueryClient();
   const onEnterMode = vi.fn();
   const result = render(
     <QueryClientProvider client={qc}>
-      <WorkspaceAnalyzePanel projectId="proj-1" onEnterMode={onEnterMode} />
+      <MemoryRouter>
+        <WorkspaceAnalyzePanel projectId="proj-1" onEnterMode={onEnterMode} />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
   return { ...result, onEnterMode };
 }
 
 describe("WorkspaceAnalyzePanel — assignment step", () => {
-  beforeEach(() => { createBoq.mockClear(); generateAnalysis.mockClear(); linkAnalyzedDocumentsToBoq.mockClear(); });
+  beforeEach(() => { createBoq.mockClear(); generateAnalysis.mockClear(); linkAnalyzedDocumentsToBoq.mockClear(); loadActiveCoverageFindingCounts.mockClear(); loadActiveCoverageFindingCounts.mockResolvedValue({}); });
 
   it("lists every project drawing with a checkbox per discipline, and the Analyze button starts disabled", async () => {
     renderPanel();
@@ -104,7 +117,7 @@ describe("WorkspaceAnalyzePanel — assignment step", () => {
 });
 
 describe("WorkspaceAnalyzePanel — running the analysis and reviewing readiness", () => {
-  beforeEach(() => { createBoq.mockClear(); generateAnalysis.mockClear(); linkAnalyzedDocumentsToBoq.mockClear(); });
+  beforeEach(() => { createBoq.mockClear(); generateAnalysis.mockClear(); linkAnalyzedDocumentsToBoq.mockClear(); loadActiveCoverageFindingCounts.mockClear(); loadActiveCoverageFindingCounts.mockResolvedValue({}); });
 
   it("creates one new BOQ per assigned discipline, calls generateAnalysis once per discipline (BOQ) and once per distinct document (LOCATION), then shows the readiness rollup", async () => {
     const { onEnterMode } = renderPanel();
@@ -173,5 +186,62 @@ describe("WorkspaceAnalyzePanel — running the analysis and reviewing readiness
     // The run as a whole still surfaces as a failure — Electrical's own
     // analysis genuinely did fail, and nothing here claims otherwise.
     await screen.findByText(/Simulated failure/i);
+  });
+});
+
+// PR #157 — Coverage summary + navigation to the existing BOQ Audit Review.
+describe("WorkspaceAnalyzePanel — Coverage readiness summary", () => {
+  beforeEach(() => {
+    createBoq.mockClear(); generateAnalysis.mockClear(); linkAnalyzedDocumentsToBoq.mockClear();
+    loadActiveCoverageFindingCounts.mockClear();
+  });
+
+  async function runAnalysis() {
+    renderPanel();
+    await screen.findByText("Ground Floor Plan.pdf");
+    fireEvent.click(within(screen.getByText("Ground Floor Plan.pdf").closest("tr")!).getByLabelText(/Assign Ground Floor Plan.pdf to Civil Works/i));
+    fireEvent.click(within(screen.getByText("Electrical Layout.pdf").closest("tr")!).getByLabelText(/Assign Electrical Layout.pdf to Electrical Works/i));
+    fireEvent.click(screen.getByRole("button", { name: /Analyze Project/i }));
+    await screen.findByText(/Ready/);
+  }
+
+  it("B/C: shows the total active Coverage count as an advisory badge, never a primary readiness state", async () => {
+    loadActiveCoverageFindingCounts.mockResolvedValue({ "new-civil-boq": 2 });
+    await runAnalysis();
+    expect(screen.getAllByText("2 potential gaps").length).toBeGreaterThan(0);
+    // The primary GREEN/AMBER/RED badges are unaffected — same values as the
+    // no-Coverage test above.
+    expect(screen.getByText("1 Needs Review")).toBeInTheDocument();
+    expect(screen.getByText("1 Unresolved")).toBeInTheDocument();
+  });
+
+  it("A: zero active Coverage findings shows no gap badge at all", async () => {
+    loadActiveCoverageFindingCounts.mockResolvedValue({});
+    await runAnalysis();
+    expect(screen.queryByText(/potential gap/)).not.toBeInTheDocument();
+  });
+
+  it("G: a Civil-only Coverage count never shows a gap badge for Electrical's own row", async () => {
+    loadActiveCoverageFindingCounts.mockResolvedValue({ "new-civil-boq": 1 });
+    await runAnalysis();
+    const civilRow = screen.getByText("Civil Works BOQ").closest("div.rounded")!;
+    const electricalRow = screen.getByText("Electrical Works BOQ").closest("div.rounded")!;
+    expect(within(civilRow).getByText("1 potential gap")).toBeInTheDocument();
+    expect(within(electricalRow).queryByText(/potential gap/)).not.toBeInTheDocument();
+  });
+
+  it("L: the per-BOQ Review link navigates to the existing BOQ Audit Review route for the correct BOQ, never the embedded workstation", async () => {
+    loadActiveCoverageFindingCounts.mockResolvedValue({ "new-civil-boq": 1 });
+    await runAnalysis();
+    const civilRow = screen.getByText("Civil Works BOQ").closest("div.rounded")!;
+    const reviewLink = within(civilRow).getByRole("link", { name: /review/i });
+    expect(reviewLink).toHaveAttribute("href", "/ops/projects/proj-1/boqs/new-civil-boq");
+  });
+
+  it("no Review link is rendered for a BOQ with zero active Coverage findings", async () => {
+    loadActiveCoverageFindingCounts.mockResolvedValue({ "new-civil-boq": 1 });
+    await runAnalysis();
+    const electricalRow = screen.getByText("Electrical Works BOQ").closest("div.rounded")!;
+    expect(within(electricalRow).queryByRole("link", { name: /review/i })).not.toBeInTheDocument();
   });
 });

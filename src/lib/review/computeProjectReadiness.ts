@@ -35,6 +35,27 @@ export interface ReadinessComputeDeps {
    *  its observations if so — `ran: false` is "unknown, never checked," NOT
    *  "zero located" (see ReconciliationInput.locationRan's own doc). */
   loadLocationRun: (documentId: string) => Promise<{ ran: boolean; observations: LocationObservation[] }>;
+  /** PR #157 — active (non-terminal) Coverage "Potential Gap" findings,
+   *  scoped to exactly this call's boqRefs. Optional so every pre-existing
+   *  caller/test that builds ReadinessComputeDeps without it keeps working
+   *  unchanged — omitting it simply means an empty CoverageSummary, exactly
+   *  like before this field existed. This is a SEPARATE advisory signal,
+   *  never folded into GREEN/AMBER/RED: reconcileInstances()/aggregateReadiness()
+   *  have no concept of "evidence for an item that doesn't exist yet," and
+   *  this file never fabricates one to make Coverage fit. */
+  loadActiveCoverageFindingCounts?: (boqIds: string[]) => Promise<Record<string, number>>;
+}
+
+/** PR #157 — the project-wide and per-BOQ Coverage advisory, derived from
+ *  the SAME active-finding counts so the two numbers can never disagree
+ *  (same discipline as readiness.ts's own overall/byBoq split). Never a
+ *  status, never folded into ReadinessCounts. */
+export interface CoverageSummary {
+  /** Only BOQs with at least one active Coverage finding are present —
+   *  never a zero-filled entry for every BOQ (see
+   *  loadActiveCoverageFindingCounts' own doc). */
+  activeCountByBoqId: Record<string, number>;
+  totalActiveCount: number;
 }
 
 export interface ExceptionRow {
@@ -52,6 +73,10 @@ export interface ExceptionRow {
 export interface ProjectReadinessResult {
   projectReadiness: ProjectReadiness;
   exceptions: ExceptionRow[];
+  /** PR #157. Always present (never undefined) — an empty
+   *  { activeCountByBoqId: {}, totalActiveCount: 0 } when the dep is
+   *  omitted or returns nothing, so callers never need an extra null check. */
+  coverage: CoverageSummary;
 }
 
 export async function computeProjectReadiness(
@@ -108,5 +133,16 @@ export async function computeProjectReadiness(
     groups.push({ boqId: ref.boqId, boqName: ref.boqName, discipline: ref.discipline, statuses });
   }
 
-  return { projectReadiness: aggregateProjectReadiness(groups), exceptions };
+  // One scoped call for the whole boqRefs set — never per-BOQ (see
+  // loadActiveCoverageFindingCounts' own N+1 discipline).
+  const activeCountByBoqId = deps.loadActiveCoverageFindingCounts
+    ? await deps.loadActiveCoverageFindingCounts(boqRefs.map((r) => r.boqId))
+    : {};
+  const totalActiveCount = Object.values(activeCountByBoqId).reduce((sum, n) => sum + n, 0);
+
+  return {
+    projectReadiness: aggregateProjectReadiness(groups),
+    exceptions,
+    coverage: { activeCountByBoqId, totalActiveCount },
+  };
 }

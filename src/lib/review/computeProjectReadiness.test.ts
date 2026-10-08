@@ -115,4 +115,69 @@ describe("computeProjectReadiness", () => {
     expect(result.projectReadiness.byBoq.find((b) => b.boqId === "electrical-boq")?.counts.red).toBe(1);
     expect(result.projectReadiness.overall).toEqual({ green: 1, amber: 0, red: 1, total: 2, readyPct: 50 });
   });
+
+  // PR #157 — Coverage summary.
+  describe("coverage (PR #157)", () => {
+    const baseDeps = (): Pick<ReadinessComputeDeps, "latestRunForBoq" | "loadReviewItems" | "loadLocationRun"> => ({
+      latestRunForBoq: vi.fn(async () => null),
+      loadReviewItems: vi.fn(async () => []),
+      loadLocationRun: vi.fn(async () => ({ ran: false, observations: [] })),
+    });
+
+    it("A: omitting loadActiveCoverageFindingCounts leaves the existing output unchanged and yields an empty coverage summary", async () => {
+      const refs: DisciplineBoqRef[] = [{ discipline: "civil", boqId: "civil-boq", boqName: "Civil Works" }];
+      const result = await computeProjectReadiness(refs, [], baseDeps());
+      expect(result.coverage).toEqual({ activeCountByBoqId: {}, totalActiveCount: 0 });
+      expect(result.projectReadiness.byBoq).toEqual([{ boqId: "civil-boq", boqName: "Civil Works", discipline: "civil", counts: { green: 0, amber: 0, red: 0, total: 0, readyPct: 0 } }]);
+    });
+
+    it("B: one active Coverage finding is exposed as a 1-count coverage summary", async () => {
+      const refs: DisciplineBoqRef[] = [{ discipline: "civil", boqId: "civil-boq", boqName: "Civil Works" }];
+      const loadActiveCoverageFindingCounts = vi.fn(async () => ({ "civil-boq": 1 }));
+      const result = await computeProjectReadiness(refs, [], { ...baseDeps(), loadActiveCoverageFindingCounts });
+      expect(result.coverage).toEqual({ activeCountByBoqId: { "civil-boq": 1 }, totalActiveCount: 1 });
+      expect(loadActiveCoverageFindingCounts).toHaveBeenCalledWith(["civil-boq"]);
+    });
+
+    it("C: multiple active Coverage findings produce a deterministic total", async () => {
+      const refs: DisciplineBoqRef[] = [{ discipline: "civil", boqId: "civil-boq", boqName: "Civil Works" }];
+      const loadActiveCoverageFindingCounts = vi.fn(async () => ({ "civil-boq": 3 }));
+      const result = await computeProjectReadiness(refs, [], { ...baseDeps(), loadActiveCoverageFindingCounts });
+      expect(result.coverage.totalActiveCount).toBe(3);
+    });
+
+    it("G: a Civil Coverage finding never leaks into Electrical's count — BOQ scope preserved", async () => {
+      const refs: DisciplineBoqRef[] = [
+        { discipline: "civil", boqId: "civil-boq", boqName: "Civil Works" },
+        { discipline: "electrical", boqId: "electrical-boq", boqName: "Electrical Works" },
+      ];
+      const loadActiveCoverageFindingCounts = vi.fn(async () => ({ "civil-boq": 1 })); // electrical absent = 0
+      const result = await computeProjectReadiness(refs, [], { ...baseDeps(), loadActiveCoverageFindingCounts });
+      expect(result.coverage.activeCountByBoqId).toEqual({ "civil-boq": 1 });
+      expect(result.coverage.totalActiveCount).toBe(1);
+      expect(loadActiveCoverageFindingCounts).toHaveBeenCalledWith(["civil-boq", "electrical-boq"]);
+    });
+
+    it("I/J: an existing RED or AMBER primary status is never changed by an active Coverage count", async () => {
+      const redItem = item({ id: "item-red", ai: { key: "E1", quantity: null, unit: "nos", source: { evidence: [] } } });
+      const refs: DisciplineBoqRef[] = [{ discipline: "electrical", boqId: "electrical-boq", boqName: "Electrical Works" }];
+      const deps: ReadinessComputeDeps = {
+        latestRunForBoq: vi.fn(async () => ({ id: "run-1" })),
+        loadReviewItems: vi.fn(async () => [redItem]),
+        loadLocationRun: vi.fn(async () => ({ ran: false, observations: [] })),
+        loadActiveCoverageFindingCounts: vi.fn(async () => ({ "electrical-boq": 3 })),
+      };
+      const result = await computeProjectReadiness(refs, [], deps);
+      expect(result.projectReadiness.overall.red).toBe(1); // unchanged — still RED
+      expect(result.coverage.totalActiveCount).toBe(3); // reported alongside, never merged in
+    });
+
+    it("N: the same finding-count dataset produces the same coverage summary on repeated calls", async () => {
+      const refs: DisciplineBoqRef[] = [{ discipline: "civil", boqId: "civil-boq", boqName: "Civil Works" }];
+      const deps: ReadinessComputeDeps = { ...baseDeps(), loadActiveCoverageFindingCounts: vi.fn(async () => ({ "civil-boq": 2 })) };
+      const r1 = await computeProjectReadiness(refs, [], deps);
+      const r2 = await computeProjectReadiness(refs, [], deps);
+      expect(r1.coverage).toEqual(r2.coverage);
+    });
+  });
 });
