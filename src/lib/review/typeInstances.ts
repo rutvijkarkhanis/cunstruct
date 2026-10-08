@@ -27,7 +27,10 @@ export interface TypeInstance {
   differsFromType: boolean;
 }
 
-const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
+// Exported for coverageSignals.ts (PR #155), which matches evidence marks
+// against BOQ item keys using this exact same case/whitespace-insensitive
+// rule — never a second, independently-reasoned normalizer.
+export const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
 
 /** Every LOCATION observation sharing this type's key (case-insensitive,
  *  trimmed) — the real, non-fabricated Type -> Instances mapping. Returns
@@ -71,7 +74,9 @@ export function instancesForType(
 // Everything else (opening, wall_or_partition, room_or_space,
 // structural_element, fixture, equipment, plan_symbol, finish_or_material,
 // other_construction_fact) is a real candidate "this is one physical W1".
-const PHYSICAL_OBSERVATION_TYPES: ReadonlySet<ObservationType> = new Set([
+// Exported for coverageSignals.ts (PR #155), which needs the exact same
+// physical/non-physical classification — never a second definition.
+export const PHYSICAL_OBSERVATION_TYPES: ReadonlySet<ObservationType> = new Set([
   "opening", "wall_or_partition", "room_or_space", "structural_element",
   "fixture", "equipment", "plan_symbol", "finish_or_material", "other_construction_fact",
 ]);
