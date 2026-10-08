@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { persistCoverageFindings } from "./auditImport";
+import { persistCoverageFindings, loadActiveCoverageFindingCounts } from "./auditImport";
 import { COVERAGE_FINDING_SOURCE } from "./review/coverageFindings";
 import type { CoverageSignal } from "./review/coverageSignals";
 
@@ -42,6 +42,14 @@ const insertRunCalls: Record<string, unknown>[] = [];
 const updateRunCalls: { id: string; patch: Record<string, unknown> }[] = [];
 const deleteRunCalls: { id: string }[] = [];
 
+/** Rows loadActiveCoverageFindingCounts' query "returns" — the mock doesn't
+ *  re-implement PostgREST's own source-filtering join; the test fixture
+ *  simply configures exactly the rows that WOULD have survived
+ *  `.eq("boq_audit_run.source", "coverage_engine")` server-side. */
+let activeCountRows: { boq_id: string; state: string }[] = [];
+const activeCountInCalls: string[][] = [];
+const activeCountSourceFilters: string[] = [];
+
 vi.mock("@/integrations/supabase/client", () => {
   return {
     supabase: {
@@ -49,7 +57,16 @@ vi.mock("@/integrations/supabase/client", () => {
       from: (table: string) => {
         if (table === "boq_audit_finding") {
           return {
-            select: () => {
+            select: (cols: string) => {
+              if (cols.includes("boq_audit_run")) {
+                const obj: Record<string, unknown> = {};
+                obj.in = (_col: string, ids: string[]) => { activeCountInCalls.push(ids); return obj; };
+                obj.eq = (col: string, v: string) => {
+                  activeCountSourceFilters.push(`${col}=${v}`);
+                  return { then: (resolve: (r: { data: unknown; error: null }) => void) => resolve({ data: activeCountRows, error: null }) };
+                };
+                return obj;
+              }
               const obj: Record<string, unknown> = {};
               let boqId = "";
               obj.eq = (_col: string, v: string) => { boqId = v; return obj; };
@@ -115,6 +132,9 @@ describe("persistCoverageFindings", () => {
     insertRunCalls.length = 0;
     updateRunCalls.length = 0;
     deleteRunCalls.length = 0;
+    activeCountRows = [];
+    activeCountInCalls.length = 0;
+    activeCountSourceFilters.length = 0;
   });
 
   it("is a no-op for an empty signals array — never queries or creates a run", async () => {
@@ -251,5 +271,71 @@ describe("persistCoverageFindings", () => {
   it("propagates a genuine, unrelated insert error rather than swallowing it as a conflict", async () => {
     genericErrorKeys = new Set(["coverage¦boq-civil¦doc-A¦d-07"]);
     await expect(persistCoverageFindings({ boqId: "boq-civil", signals: [signal()] })).rejects.toMatchObject({ code: "42501" });
+  });
+});
+
+// PR #157 — the readiness summary's one scoped query for active Coverage
+// finding counts, per boqId.
+describe("loadActiveCoverageFindingCounts", () => {
+  beforeEach(() => {
+    activeCountRows = [];
+    activeCountInCalls.length = 0;
+    activeCountSourceFilters.length = 0;
+  });
+
+  it("is a no-op for an empty boqIds array — never issues a query", async () => {
+    const result = await loadActiveCoverageFindingCounts([]);
+    expect(result).toEqual({});
+    expect(activeCountInCalls).toHaveLength(0);
+  });
+
+  it("filters by boq_audit_run.source = coverage_engine, the actual schema field — never by parsing reason/evidence text", async () => {
+    activeCountRows = [{ boq_id: "boq-civil", state: "open" }];
+    await loadActiveCoverageFindingCounts(["boq-civil"]);
+    expect(activeCountSourceFilters).toEqual([`boq_audit_run.source=${COVERAGE_FINDING_SOURCE}`]);
+  });
+
+  it("scopes the query to exactly the given boqIds — one query, never one per BOQ", async () => {
+    await loadActiveCoverageFindingCounts(["boq-civil", "boq-electrical"]);
+    expect(activeCountInCalls).toEqual([["boq-civil", "boq-electrical"]]);
+  });
+
+  it("counts an OPEN finding as active", async () => {
+    activeCountRows = [{ boq_id: "boq-civil", state: "open" }];
+    expect(await loadActiveCoverageFindingCounts(["boq-civil"])).toEqual({ "boq-civil": 1 });
+  });
+
+  it("counts a KEPT_PENDING finding as active", async () => {
+    activeCountRows = [{ boq_id: "boq-civil", state: "kept_pending" }];
+    expect(await loadActiveCoverageFindingCounts(["boq-civil"])).toEqual({ "boq-civil": 1 });
+  });
+
+  it("counts an ACCEPTED finding as active, matching the existing lifecycle semantics (not terminal)", async () => {
+    activeCountRows = [{ boq_id: "boq-civil", state: "accepted" }];
+    expect(await loadActiveCoverageFindingCounts(["boq-civil"])).toEqual({ "boq-civil": 1 });
+  });
+
+  it("a DISMISSED finding is never counted as active — a human already settled it", async () => {
+    activeCountRows = [{ boq_id: "boq-civil", state: "dismissed" }];
+    expect(await loadActiveCoverageFindingCounts(["boq-civil"])).toEqual({});
+  });
+
+  it("a RESOLVED finding is never counted as active", async () => {
+    activeCountRows = [{ boq_id: "boq-civil", state: "resolved" }];
+    expect(await loadActiveCoverageFindingCounts(["boq-civil"])).toEqual({});
+  });
+
+  it("keeps multiple BOQs' counts independent — never merges or cross-attributes them", async () => {
+    activeCountRows = [
+      { boq_id: "boq-civil", state: "open" },
+      { boq_id: "boq-civil", state: "open" },
+      { boq_id: "boq-electrical", state: "open" },
+    ];
+    expect(await loadActiveCoverageFindingCounts(["boq-civil", "boq-electrical"])).toEqual({ "boq-civil": 2, "boq-electrical": 1 });
+  });
+
+  it("a BOQ with zero active findings is simply absent from the result, never a zero entry", async () => {
+    activeCountRows = [{ boq_id: "boq-civil", state: "dismissed" }];
+    expect(await loadActiveCoverageFindingCounts(["boq-civil"])).toEqual({});
   });
 });

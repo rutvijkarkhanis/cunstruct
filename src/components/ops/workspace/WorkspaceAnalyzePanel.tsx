@@ -35,7 +35,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
-import { Loader2, Sparkles, AlertTriangle } from "lucide-react";
+import { Loader2, Sparkles, AlertTriangle, AlertCircle } from "lucide-react";
 import { DISCIPLINES, disciplineByKey } from "@/lib/disciplines";
 import { loadProjectDrawings } from "@/lib/review/drawingStorage";
 import { useProjectBoqs } from "@/hooks/useProjectBoqs";
@@ -49,8 +49,10 @@ import { linkAnalyzedDocumentsToBoq } from "@/lib/review/boqDocumentLinks";
 import { latestRunForBoq, loadReviewItems } from "@/lib/review/reviewStore";
 import { latestLocationRunForDocument, loadLocationObservations } from "@/lib/review/locationObservations";
 import { computeProjectReadiness, type ProjectReadinessResult, type ExceptionRow } from "@/lib/review/computeProjectReadiness";
+import { loadActiveCoverageFindingCounts } from "@/lib/auditImport";
 import type { ReconciliationStatus } from "@/lib/review/instanceReconciliation";
 import type { WorkspaceMode } from "@/lib/review/workspaceState";
+import { Link } from "react-router-dom";
 
 const STATUS_LABEL: Record<ReconciliationStatus, string> = { GREEN: "Ready", AMBER: "Needs Review", RED: "Unresolved" };
 const STATUS_VARIANT: Record<ReconciliationStatus, "default" | "secondary" | "destructive"> = { GREEN: "default", AMBER: "secondary", RED: "destructive" };
@@ -182,6 +184,10 @@ export default function WorkspaceAnalyzePanel({ projectId, onEnterMode }: Worksp
           if (run.status !== "SUCCEEDED" || !run.runId) return { ran: false, observations: [] };
           return { ran: true, observations: await loadLocationObservations(run.runId) };
         },
+        // PR #157 — active Coverage "Potential Gap" findings, already
+        // persisted by PR #156. Read-only: never regenerates Coverage here,
+        // never calls coverageSignals.ts, never writes anything.
+        loadActiveCoverageFindingCounts,
       });
 
       setReadiness(readinessResult);
@@ -216,7 +222,7 @@ export default function WorkspaceAnalyzePanel({ projectId, onEnterMode }: Worksp
   }
 
   if (step === "results" && readiness) {
-    return <ReadinessResults readiness={readiness} onEnterMode={onEnterMode} onBackToAssign={() => setStep("assign")} />;
+    return <ReadinessResults readiness={readiness} projectId={projectId} onEnterMode={onEnterMode} onBackToAssign={() => setStep("assign")} />;
   }
 
   return (
@@ -308,36 +314,70 @@ export default function WorkspaceAnalyzePanel({ projectId, onEnterMode }: Worksp
 }
 
 function ReadinessResults({
-  readiness, onEnterMode, onBackToAssign,
+  readiness, projectId, onEnterMode, onBackToAssign,
 }: {
   readiness: ProjectReadinessResult;
+  projectId: string;
   onEnterMode: (mode: WorkspaceMode, boqId?: string) => void;
   onBackToAssign: () => void;
 }) {
   const [showExceptions, setShowExceptions] = useState(false);
   const { overall, byBoq } = readiness.projectReadiness;
+  const { activeCountByBoqId, totalActiveCount } = readiness.coverage;
 
   return (
     <div className="space-y-4">
       <div className="space-y-1">
         <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Readiness</div>
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex items-center gap-2 text-xs flex-wrap">
           <Badge variant="default">{overall.green} Ready</Badge>
           <Badge variant="secondary">{overall.amber} Needs Review</Badge>
           <Badge variant="destructive">{overall.red} Unresolved</Badge>
+          {/* PR #157 — advisory only, never a primary readiness state: a
+              Potential Gap has no existing BOQ item to attach a GREEN/AMBER/
+              RED status to, so it is reported here, never folded into the
+              badges above. */}
+          {totalActiveCount > 0 && (
+            <Badge variant="outline" className="gap-1">
+              <AlertCircle className="w-3 h-3" /> {totalActiveCount} potential {totalActiveCount === 1 ? "gap" : "gaps"}
+            </Badge>
+          )}
         </div>
+        {totalActiveCount > 0 && (
+          <p className="text-[11px] text-muted-foreground">
+            Evidence was found that does not currently map to a BOQ item — review below.
+          </p>
+        )}
       </div>
 
       <div className="space-y-1.5">
-        {byBoq.map((b) => (
-          <div key={b.boqId} className="rounded border p-2 flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <div className="text-xs font-medium truncate">{b.boqName}</div>
-              <div className="text-[11px] text-muted-foreground">{disciplineByKey(b.discipline).name}</div>
+        {byBoq.map((b) => {
+          const gapCount = activeCountByBoqId[b.boqId] ?? 0;
+          return (
+            <div key={b.boqId} className="rounded border p-2 flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-xs font-medium truncate">{b.boqName}</div>
+                <div className="text-[11px] text-muted-foreground">{disciplineByKey(b.discipline).name}</div>
+                {gapCount > 0 && (
+                  <div className="text-[11px] text-amber-700 mt-0.5">
+                    {gapCount} potential {gapCount === 1 ? "gap" : "gaps"}
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="text-[11px] text-muted-foreground">{b.counts.readyPct}% ready</div>
+                {gapCount > 0 && (
+                  // Navigates to the EXISTING BOQ Audit Review (OpsBoqBuilder,
+                  // same route WorkspaceBoqPanel.tsx's own "Open BOQ" link
+                  // already uses) — never an embedded/reimplemented review UI.
+                  <Link to={`/ops/projects/${projectId}/boqs/${b.boqId}`}>
+                    <Button size="sm" variant="outline" className="h-6 text-[11px] px-2">Review</Button>
+                  </Link>
+                )}
+              </div>
             </div>
-            <div className="text-[11px] text-muted-foreground shrink-0">{b.counts.readyPct}% ready</div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {readiness.exceptions.length > 0 ? (

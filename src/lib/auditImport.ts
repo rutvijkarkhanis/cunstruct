@@ -7,7 +7,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { parseAuditJson } from "./auditJson";
-import { linkFindings, type BoqLineRef, type FindingState } from "./auditFindings";
+import { linkFindings, isActiveFindingState, type BoqLineRef, type FindingState } from "./auditFindings";
 import { recordAuditTrail } from "./security/auditTrail";
 import { coverageSignalToFindingInput, COVERAGE_FINDING_SOURCE } from "./review/coverageFindings";
 import type { CoverageSignal } from "./review/coverageSignals";
@@ -272,4 +272,45 @@ export async function persistCoverageFindings(args: {
   });
 
   return { runId, createdCount, skippedCount: alreadyKnownCount + racedCount };
+}
+
+/** The exact reverse of STATE_TO_DB above — needed here because this is the
+ *  one place in this module that reads `state` BACK out of the database
+ *  (every other function only ever writes it). Same literal mapping
+ *  BoqAuditReview.tsx's own local DB_TO_STATE already uses. */
+const DB_TO_FINDING_STATE: Record<string, FindingState> = {
+  open: "OPEN", accepted: "ACCEPTED", dismissed: "DISMISSED", resolved: "RESOLVED", kept_pending: "KEPT_PENDING",
+};
+
+/**
+ * Active (non-terminal, per isActiveFindingState) Coverage findings, counted
+ * per boqId — ONE query, scoped to exactly `boqIds` (never every project's
+ * findings, never one query per BOQ). Identifies Coverage findings by the
+ * actual schema field PR #156 established (`boq_audit_run.source =
+ * "coverage_engine"`, via the standard PostgREST embedded-filter join this
+ * codebase already uses elsewhere — see OpsProjectDetail.tsx's own
+ * `forecasts!inner(...)`), never by parsing `reason`/`evidence` text.
+ *
+ * Returns only boqIds that have at least one active Coverage finding — a
+ * BOQ with none is simply absent from the result, never a zero entry; the
+ * caller (computeProjectReadiness.ts) defaults a missing key to 0.
+ */
+export async function loadActiveCoverageFindingCounts(boqIds: string[]): Promise<Record<string, number>> {
+  if (boqIds.length === 0) return {};
+
+  const { data, error } = await supabase
+    .from("boq_audit_finding")
+    .select("boq_id, state, boq_audit_run!inner(source)")
+    .in("boq_id", boqIds)
+    .eq("boq_audit_run.source", COVERAGE_FINDING_SOURCE);
+  if (error) throw error;
+
+  const counts: Record<string, number> = {};
+  for (const row of data ?? []) {
+    const state = DB_TO_FINDING_STATE[row.state as string];
+    if (state && !isActiveFindingState(state)) continue; // human already settled this one
+    const boqId = row.boq_id as string;
+    counts[boqId] = (counts[boqId] ?? 0) + 1;
+  }
+  return counts;
 }
