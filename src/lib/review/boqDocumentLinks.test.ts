@@ -4,11 +4,13 @@
 // already do, so this exercises the real upsert/select shape this function
 // actually sends, not a re-implementation of it.
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { linkAnalyzedDocumentsToBoq } from "./boqDocumentLinks";
+import { linkAnalyzedDocumentsToBoq, loadBoqDocumentLinks } from "./boqDocumentLinks";
 
 let projectDocumentRows: { id: string; current_revision_id: string | null }[] = [];
 const upsertCalls: { table: string; rows: unknown; options: unknown }[] = [];
 const selectCalls: { table: string; ids: string[] }[] = [];
+let boqDocumentRows: { boq_id: string; document_id: string }[] = [];
+const boqDocumentSelectCalls: string[][] = [];
 
 vi.mock("@/integrations/supabase/client", () => {
   const chain = (result: { data: unknown; error: null }) => {
@@ -32,6 +34,12 @@ vi.mock("@/integrations/supabase/client", () => {
               upsertCalls.push({ table, rows, options });
               return { then: (resolve: (r: { data: null; error: null }) => void) => resolve({ data: null, error: null }) };
             },
+            select: () => ({
+              in: (_col: string, ids: string[]) => {
+                boqDocumentSelectCalls.push(ids);
+                return { then: (resolve: (r: { data: unknown; error: null }) => void) => resolve({ data: boqDocumentRows, error: null }) };
+              },
+            }),
           };
         }
         throw new Error(`unexpected table in test: ${table}`);
@@ -45,6 +53,8 @@ describe("linkAnalyzedDocumentsToBoq", () => {
     projectDocumentRows = [];
     upsertCalls.length = 0;
     selectCalls.length = 0;
+    boqDocumentRows = [];
+    boqDocumentSelectCalls.length = 0;
   });
 
   it("is a no-op for an empty documentIds array — never issues a query", async () => {
@@ -118,5 +128,45 @@ describe("linkAnalyzedDocumentsToBoq", () => {
     await linkAnalyzedDocumentsToBoq("electrical-boq", ["doc-1"]);
     expect(selectCalls).toHaveLength(2);
     expect(upsertCalls[1].rows).toEqual([{ boq_id: "electrical-boq", document_id: "doc-1", analyzed_revision_id: "rev-2" }]);
+  });
+});
+
+// Coverage orchestration wiring — reading the authoritative boq_document
+// scope back out, the exact shape coverageSignals.ts's CoverageBoqDocumentLink needs.
+describe("loadBoqDocumentLinks", () => {
+  beforeEach(() => {
+    boqDocumentRows = [];
+    boqDocumentSelectCalls.length = 0;
+  });
+
+  it("is a no-op for an empty boqIds array — never issues a query", async () => {
+    const result = await loadBoqDocumentLinks([]);
+    expect(result).toEqual([]);
+    expect(boqDocumentSelectCalls).toHaveLength(0);
+  });
+
+  it("maps boq_id/document_id rows to boqId/documentId", async () => {
+    boqDocumentRows = [{ boq_id: "boq-civil", document_id: "doc-1" }];
+    expect(await loadBoqDocumentLinks(["boq-civil"])).toEqual([{ boqId: "boq-civil", documentId: "doc-1" }]);
+  });
+
+  it("scopes the query to exactly the given boqIds — one query, never one per BOQ", async () => {
+    await loadBoqDocumentLinks(["boq-civil", "boq-electrical"]);
+    expect(boqDocumentSelectCalls).toEqual([["boq-civil", "boq-electrical"]]);
+  });
+
+  it("returns one row per boq_document pair, preserving multiple documents per BOQ and multiple BOQs per document", async () => {
+    boqDocumentRows = [
+      { boq_id: "boq-civil", document_id: "doc-1" },
+      { boq_id: "boq-civil", document_id: "doc-2" },
+      { boq_id: "boq-electrical", document_id: "doc-1" },
+    ];
+    const result = await loadBoqDocumentLinks(["boq-civil", "boq-electrical"]);
+    expect(result).toHaveLength(3);
+    expect(result).toEqual(expect.arrayContaining([
+      { boqId: "boq-civil", documentId: "doc-1" },
+      { boqId: "boq-civil", documentId: "doc-2" },
+      { boqId: "boq-electrical", documentId: "doc-1" },
+    ]));
   });
 });

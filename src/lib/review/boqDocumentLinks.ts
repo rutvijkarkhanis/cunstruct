@@ -93,3 +93,34 @@ export async function linkAnalyzedDocumentsToBoq(boqId: string, documentIds: str
     .upsert(rows, { onConflict: "boq_id,document_id", ignoreDuplicates: true });
   if (error) throw error;
 }
+
+/** One persisted boq_document row's scope — exactly what coverageSignals.ts's
+ *  CoverageBoqDocumentLink needs. */
+export interface BoqDocumentLink {
+  boqId: string;
+  documentId: string;
+}
+
+/**
+ * Read back the persisted (boq_id, document_id) scope for the given BOQs —
+ * the authoritative boq_document rows linkAnalyzedDocumentsToBoq() above
+ * writes. Added for Coverage orchestration (coverageOrchestration.ts),
+ * which needs this exact scope to know which documents' LOCATION evidence
+ * to evaluate against which BOQ — never re-derived from review-item
+ * evidence (that is reconciliation's own, unrelated per-item mechanism).
+ *
+ * One query, scoped to exactly `boqIds` — never one per BOQ. A no-op (never
+ * issues a query) for an empty `boqIds`, matching this file's own existing
+ * no-op convention.
+ */
+export async function loadBoqDocumentLinks(boqIds: string[]): Promise<BoqDocumentLink[]> {
+  if (boqIds.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("boq_document")
+    .select("boq_id, document_id")
+    .in("boq_id", boqIds);
+  if (error) throw error;
+
+  return (data ?? []).map((r) => ({ boqId: r.boq_id as string, documentId: r.document_id as string }));
+}
