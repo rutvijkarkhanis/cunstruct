@@ -42,3 +42,24 @@ export function resolveAnalysisMode(requested: string | undefined | null): Analy
   if (requested == null) return DEFAULT_ANALYSIS_MODE;
   return (ANALYSIS_MODES as readonly string[]).includes(requested) ? (requested as AnalysisMode) : null;
 }
+
+/**
+ * Whether this mode's claim/preflight identity must be scoped per-BOQ — i.e.
+ * the SAME document content, under the SAME contract/model, can be
+ * independently (re-)claimed once per boq_id rather than once project-wide.
+ *
+ * BOQ and BOQ_AND_LOCATION extract INTO a specific BOQ's review items, so a
+ * document assigned to several disciplines' BOQs (Phase A's "Analyze
+ * Project") must be independently claimable for each one. LOCATION extracts
+ * document-level evidence (observations) that every BOQ referencing that
+ * document reuses unchanged — multiplying it per-BOQ would mean the SAME
+ * drawing gets re-sent to the model N times for N disciplines, for the exact
+ * same observations each time, which is both wasteful and not what LOCATION
+ * is for. See 20261001000000_analysis_run_source_boq_scope.sql, whose two
+ * partial unique indexes encode exactly this split — this function is the
+ * single source of truth both that migration's intent and the edge
+ * function's ledger/claim logic are derived from, so they can't drift apart.
+ */
+export function modeRequiresBoqScope(mode: AnalysisMode): boolean {
+  return mode === "BOQ" || mode === "BOQ_AND_LOCATION";
+}

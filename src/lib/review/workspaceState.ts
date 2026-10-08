@@ -18,9 +18,14 @@
 // ProjectWorkspace opens the existing source-management drawer and
 // immediately normalizes the URL back to "drawing" — never a second
 // Documents page, never a lasting URL state.
-export type WorkspaceMode = "drawing" | "documents" | "review" | "boq" | "materials" | "procurement";
+// "analyze" (Phase A) is a sustained context like boq/materials/procurement,
+// not a one-shot trigger like "documents": project-level Analyze +
+// discipline/BOQ assignment + readiness rollup + exception review, all
+// inside the existing Context panel — no new top-level nav, no second
+// workspace shell.
+export type WorkspaceMode = "drawing" | "documents" | "review" | "boq" | "materials" | "procurement" | "analyze";
 
-export const WORKSPACE_MODES: readonly WorkspaceMode[] = ["drawing", "documents", "review", "boq", "materials", "procurement"];
+export const WORKSPACE_MODES: readonly WorkspaceMode[] = ["drawing", "documents", "review", "boq", "materials", "procurement", "analyze"];
 
 export function isWorkspaceMode(value: string | null | undefined): value is WorkspaceMode {
   return !!value && (WORKSPACE_MODES as readonly string[]).includes(value);

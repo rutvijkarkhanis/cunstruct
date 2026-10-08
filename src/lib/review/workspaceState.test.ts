@@ -3,7 +3,7 @@ import { parseWorkspaceQuery, buildWorkspaceQuery, workspaceUrl, isWorkspaceMode
 
 describe("isWorkspaceMode", () => {
   it("accepts every real mode", () => {
-    for (const m of ["drawing", "review", "boq", "materials", "procurement"]) {
+    for (const m of ["drawing", "review", "boq", "materials", "procurement", "analyze"]) {
       expect(isWorkspaceMode(m)).toBe(true);
     }
   });

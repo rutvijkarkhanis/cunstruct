@@ -3,7 +3,7 @@
 // via a relative, explicit-extension path — the same way index.ts imports
 // it — so this exercises the real module, not a copy.
 import { describe, it, expect } from "vitest";
-import { ANALYSIS_MODES, DEFAULT_ANALYSIS_MODE, resolveAnalysisMode } from "../../../supabase/functions/_shared/contract.ts";
+import { ANALYSIS_MODES, DEFAULT_ANALYSIS_MODE, resolveAnalysisMode, modeRequiresBoqScope } from "../../../supabase/functions/_shared/contract.ts";
 
 describe("resolveAnalysisMode", () => {
   it("omitted (undefined) resolves to the default mode, BOQ", () => {
@@ -36,5 +36,19 @@ describe("resolveAnalysisMode", () => {
 
   it("ANALYSIS_MODES is exactly the three specified modes, in a stable order", () => {
     expect(ANALYSIS_MODES).toEqual(["BOQ", "LOCATION", "BOQ_AND_LOCATION"]);
+  });
+});
+
+describe("modeRequiresBoqScope — Phase A: a document may feed multiple BOQs, so BOQ extraction is claimed per-BOQ, never project-wide", () => {
+  it("BOQ requires per-BOQ scoping", () => {
+    expect(modeRequiresBoqScope("BOQ")).toBe(true);
+  });
+
+  it("BOQ_AND_LOCATION requires per-BOQ scoping too — it still runs the BOQ extraction path", () => {
+    expect(modeRequiresBoqScope("BOQ_AND_LOCATION")).toBe(true);
+  });
+
+  it("LOCATION does NOT require per-BOQ scoping — one call per document, reused by every BOQ referencing it", () => {
+    expect(modeRequiresBoqScope("LOCATION")).toBe(false);
   });
 });

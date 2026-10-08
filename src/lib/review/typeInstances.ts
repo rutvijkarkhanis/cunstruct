@@ -17,6 +17,7 @@
 // exactly one boq_line per AnalysisItemV1, completely unchanged by this file.
 
 import type { LocationObservation } from "./locationObservations";
+import type { ObservationType } from "./observationSchemaV1";
 
 export interface TypeInstance {
   observation: LocationObservation;
@@ -31,7 +32,16 @@ const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
 /** Every LOCATION observation sharing this type's key (case-insensitive,
  *  trimmed) — the real, non-fabricated Type -> Instances mapping. Returns
  *  [] (not undefined) both when the type has no key and when nothing
- *  matches, so callers can treat "no instances" uniformly. */
+ *  matches, so callers can treat "no instances" uniformly.
+ *
+ *  Deliberately UNFILTERED by observation type — this includes a
+ *  `schedule_entry` sharing the mark, same as every other caller has always
+ *  seen (drawingMarkers.ts draws a marker per entry here; narrowing this
+ *  function's own output would silently change what it draws). A
+ *  `schedule_entry` is a schedule-TABLE row, not a placed occurrence on a
+ *  drawing — see physicalInstancesForType/hasScheduleEntryForType below for
+ *  the two callers that need that physical/non-physical distinction (instance
+ *  *counting*), added additively rather than changed in place here. */
 export function instancesForType(
   item: { key: string; dimension?: string; specification?: string },
   observations: LocationObservation[],
@@ -47,4 +57,47 @@ export function instancesForType(
         && norm(observation.attributes.specification) !== norm(item.specification);
       return { observation, differsFromType: dimDiffers || specDiffers };
     });
+}
+
+// Observation types that represent an actual PLACED/PHYSICAL occurrence on a
+// drawing — i.e. something a reviewer could point at and say "there it is."
+// Deliberately excludes:
+//   - "schedule_entry": the schedule TABLE's own row for this mark — proves
+//     the mark is a real, documented type, never a placed unit (see
+//     observationSchemaV1.ts's own "LOCATION mode never asserts a resolved
+//     quantity" discipline — a schedule_entry has no count of its own either).
+//   - "dimension_annotation" / "level_annotation": drawing annotations, not
+//     occurrences of the annotated element itself.
+// Everything else (opening, wall_or_partition, room_or_space,
+// structural_element, fixture, equipment, plan_symbol, finish_or_material,
+// other_construction_fact) is a real candidate "this is one physical W1".
+const PHYSICAL_OBSERVATION_TYPES: ReadonlySet<ObservationType> = new Set([
+  "opening", "wall_or_partition", "room_or_space", "structural_element",
+  "fixture", "equipment", "plan_symbol", "finish_or_material", "other_construction_fact",
+]);
+
+/** Same Type -> Instances mapping as instancesForType, narrowed to
+ *  PHYSICAL_OBSERVATION_TYPES — this is the count reconciliation should use
+ *  ("how many of this type are actually placed on the drawing"), never
+ *  instancesForType's own unfiltered output (which would double-count a
+ *  schedule table row as if it were a placed unit). */
+export function physicalInstancesForType(
+  item: { key: string; dimension?: string; specification?: string },
+  observations: LocationObservation[],
+): TypeInstance[] {
+  return instancesForType(item, observations).filter((i) => PHYSICAL_OBSERVATION_TYPES.has(i.observation.observationType));
+}
+
+/** True when at least one `schedule_entry` observation shares this type's
+ *  mark — i.e. a schedule table on this drawing documents this mark at all.
+ *  This is presence only, never a count (LOCATION mode asserts no quantity
+ *  for a schedule_entry) — see instanceReconciliation.ts for how this is
+ *  used as an independent-source signal, not a number to reconcile against. */
+export function hasScheduleEntryForType(
+  item: { key: string },
+  observations: LocationObservation[],
+): boolean {
+  const key = norm(item.key);
+  if (!key) return false;
+  return observations.some((o) => norm(o.mark) === key && o.observationType === "schedule_entry");
 }

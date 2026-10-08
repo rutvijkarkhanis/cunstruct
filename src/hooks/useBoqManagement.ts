@@ -24,6 +24,7 @@ import type { ProjectScope } from "@/lib/projectDocs";
 export type { ProjectScope };
 export interface BoqRow {
   id: string; name: string; description: string | null; scope_id: string | null; sort: number; status: string;
+  discipline: string;
   /** Commercial waterfall inputs (cost index / contingency / overhead / cess /
    *  GST percentages) — the SAME column OpsBoqBuilder reads/writes. Exposed
    *  here so any consumer that needs the authoritative grand total (not just
@@ -43,6 +44,13 @@ export interface CreateBoqParams {
   scopeId: string;
   newScopeName?: string;
   newScopeKind?: string;
+  /** One of disciplines.ts's 5 keys (civil/plumbing/electrical/hvac/fire).
+   *  Omit to preserve the existing behavior exactly: the `boq.discipline`
+   *  column's own DB default ('civil') applies, same as every BOQ created
+   *  before this field existed — this is NOT a redundant default written
+   *  here, it's leaving the key out of the insert payload entirely so
+   *  Postgres decides, unchanged from today. */
+  discipline?: string;
 }
 
 export function useBoqManagement(projectId: string | undefined | null) {
@@ -64,7 +72,7 @@ export function useBoqManagement(projectId: string | undefined | null) {
     enabled: !!projectId,
     queryFn: async () => {
       const { data } = await supabase.from("boq")
-        .select("id, name, description, scope_id, sort, status, spec").eq("project_id", projectId!)
+        .select("id, name, description, scope_id, sort, status, spec, discipline").eq("project_id", projectId!)
         .order("sort").order("created_at");
       return (data ?? []) as BoqRow[];
     },
@@ -117,7 +125,7 @@ export function useBoqManagement(projectId: string | undefined | null) {
       const sid = await resolveScopeId(params.scopeId, params.newScopeName ?? "", params.newScopeKind ?? "floor");
       if (!sid) return null;
       const { data, error } = await supabase.from("boq")
-        .insert({ project_id: projectId, name: params.name.trim(), description: params.description?.trim() || null, scope_id: sid, sort: boqs?.length ?? 0, spec: {}, created_by: user?.id })
+        .insert({ project_id: projectId, name: params.name.trim(), description: params.description?.trim() || null, scope_id: sid, sort: boqs?.length ?? 0, spec: {}, created_by: user?.id, discipline: params.discipline })
         .select("id").single();
       if (error) throw error;
       toast.success("BOQ created");
