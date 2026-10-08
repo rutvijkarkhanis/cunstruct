@@ -179,3 +179,103 @@ describe("runProjectAnalysis", () => {
     expect(result.disciplines).toEqual([{ discipline: "civil", boqId: "civil-boq", result: civilResult }]);
   });
 });
+
+// PR #154 — the first Coverage/Completeness prerequisite: persisting the
+// (boqId, documentIds) provenance an Analyze Project run actually submitted
+// and successfully executed, via the new optional linkAnalyzedDocuments dep.
+describe("runProjectAnalysis — linkAnalyzedDocuments (PR #154 provenance persistence)", () => {
+  function deps(overrides: Partial<ProjectAnalysisDeps> = {}): ProjectAnalysisDeps & {
+    createBoqForDiscipline: ReturnType<typeof vi.fn>;
+    generateBoqAnalysis: ReturnType<typeof vi.fn>;
+    generateLocationAnalysis: ReturnType<typeof vi.fn>;
+    linkAnalyzedDocuments: ReturnType<typeof vi.fn>;
+  } {
+    return {
+      createBoqForDiscipline: vi.fn(async (discipline: string) => `new-${discipline}-boq`),
+      generateBoqAnalysis: vi.fn(async () => ok()),
+      generateLocationAnalysis: vi.fn(async () => ok(0)),
+      linkAnalyzedDocuments: vi.fn(async () => {}),
+      ...overrides,
+    };
+  }
+
+  it("is never called when omitted — every pre-existing caller/test keeps working unchanged", async () => {
+    const plans: DisciplinePlan[] = [{ discipline: "civil", documentIds: ["doc-1"], boqId: "civil-boq" }];
+    // No linkAnalyzedDocuments in deps at all — must not throw, must not be required.
+    await expect(runProjectAnalysis(plans, {
+      createBoqForDiscipline: vi.fn(async () => "new-boq"),
+      generateBoqAnalysis: vi.fn(async () => ok()),
+      generateLocationAnalysis: vi.fn(async () => ok(0)),
+    })).resolves.toBeDefined();
+  });
+
+  it("is called once per successful discipline, immediately after that discipline's own generateBoqAnalysis resolves, with exactly that discipline's boqId + documentIds", async () => {
+    const plans: DisciplinePlan[] = [
+      { discipline: "civil", documentIds: ["doc-1", "doc-2"], boqId: "civil-boq" },
+      { discipline: "electrical", documentIds: ["doc-3"], boqId: "electrical-boq" },
+    ];
+    const d = deps();
+    await runProjectAnalysis(plans, d);
+    expect(d.linkAnalyzedDocuments).toHaveBeenCalledTimes(2);
+    expect(d.linkAnalyzedDocuments).toHaveBeenNthCalledWith(1, { boqId: "civil-boq", documentIds: ["doc-1", "doc-2"] });
+    expect(d.linkAnalyzedDocuments).toHaveBeenNthCalledWith(2, { boqId: "electrical-boq", documentIds: ["doc-3"] });
+  });
+
+  it("uses the REAL boqId a newly-created BOQ resolved to, never the plan's null placeholder", async () => {
+    const plans: DisciplinePlan[] = [{ discipline: "fire", documentIds: ["doc-1"], boqId: null }];
+    const d = deps();
+    await runProjectAnalysis(plans, d);
+    expect(d.linkAnalyzedDocuments).toHaveBeenCalledWith({ boqId: "new-fire-boq", documentIds: ["doc-1"] });
+  });
+
+  it("a discipline with zero documents never calls it — nothing was submitted for that discipline", async () => {
+    const plans: DisciplinePlan[] = [{ discipline: "hvac", documentIds: [], boqId: null }];
+    const d = deps();
+    await runProjectAnalysis(plans, d);
+    expect(d.linkAnalyzedDocuments).not.toHaveBeenCalled();
+    expect(d.createBoqForDiscipline).not.toHaveBeenCalled();
+  });
+
+  it("the SAME document assigned to two disciplines produces two independent calls, never one overwriting the other", async () => {
+    const plans: DisciplinePlan[] = [
+      { discipline: "civil", documentIds: ["shared-doc"], boqId: "civil-boq" },
+      { discipline: "electrical", documentIds: ["shared-doc"], boqId: "electrical-boq" },
+    ];
+    const d = deps();
+    await runProjectAnalysis(plans, d);
+    expect(d.linkAnalyzedDocuments).toHaveBeenCalledTimes(2);
+    expect(d.linkAnalyzedDocuments).toHaveBeenCalledWith({ boqId: "civil-boq", documentIds: ["shared-doc"] });
+    expect(d.linkAnalyzedDocuments).toHaveBeenCalledWith({ boqId: "electrical-boq", documentIds: ["shared-doc"] });
+  });
+
+  it("a later discipline's generateBoqAnalysis failure never prevents an earlier discipline's already-successful call from being persisted, and is itself never persisted", async () => {
+    const plans: DisciplinePlan[] = [
+      { discipline: "civil", documentIds: ["doc-1"], boqId: "civil-boq" },
+      { discipline: "electrical", documentIds: ["doc-2"], boqId: "electrical-boq" },
+    ];
+    const d = deps({
+      generateBoqAnalysis: vi.fn()
+        .mockResolvedValueOnce(ok()) // civil succeeds
+        .mockRejectedValueOnce(new Error("BOQ analysis failed.")), // electrical fails
+    });
+    await expect(runProjectAnalysis(plans, d)).rejects.toThrow("BOQ analysis failed.");
+    expect(d.linkAnalyzedDocuments).toHaveBeenCalledTimes(1);
+    expect(d.linkAnalyzedDocuments).toHaveBeenCalledWith({ boqId: "civil-boq", documentIds: ["doc-1"] });
+  });
+
+  it("a failing linkAnalyzedDocuments call propagates — a provenance-write failure is a real failure, never silently swallowed", async () => {
+    const plans: DisciplinePlan[] = [{ discipline: "civil", documentIds: ["doc-1"], boqId: "civil-boq" }];
+    const d = deps({ linkAnalyzedDocuments: vi.fn(async () => { throw new Error("DB write failed"); }) });
+    await expect(runProjectAnalysis(plans, d)).rejects.toThrow("DB write failed");
+  });
+
+  it("re-running the identical plan calls it again with identical arguments — idempotency is the DB layer's job (unique constraint + upsert), not this orchestration's", async () => {
+    const plans: DisciplinePlan[] = [{ discipline: "civil", documentIds: ["doc-1"], boqId: "civil-boq" }];
+    const d = deps();
+    await runProjectAnalysis(plans, d);
+    await runProjectAnalysis(plans, d);
+    expect(d.linkAnalyzedDocuments).toHaveBeenCalledTimes(2);
+    expect(d.linkAnalyzedDocuments).toHaveBeenNthCalledWith(1, { boqId: "civil-boq", documentIds: ["doc-1"] });
+    expect(d.linkAnalyzedDocuments).toHaveBeenNthCalledWith(2, { boqId: "civil-boq", documentIds: ["doc-1"] });
+  });
+});
