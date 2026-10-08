@@ -45,11 +45,12 @@ import {
   type ProjectAnalysisProgress, type DisciplinePlan,
 } from "@/lib/ai/projectAnalysis";
 import { fetchPreflight, generateAnalysis } from "@/lib/ai/analysisClient";
-import { linkAnalyzedDocumentsToBoq } from "@/lib/review/boqDocumentLinks";
+import { linkAnalyzedDocumentsToBoq, loadBoqDocumentLinks } from "@/lib/review/boqDocumentLinks";
 import { latestRunForBoq, loadReviewItems } from "@/lib/review/reviewStore";
 import { latestLocationRunForDocument, loadLocationObservations } from "@/lib/review/locationObservations";
 import { computeProjectReadiness, type ProjectReadinessResult, type ExceptionRow } from "@/lib/review/computeProjectReadiness";
-import { loadActiveCoverageFindingCounts } from "@/lib/auditImport";
+import { generateAndPersistCoverageFindings } from "@/lib/review/coverageOrchestration";
+import { loadActiveCoverageFindingCounts, persistCoverageFindings } from "@/lib/auditImport";
 import type { ReconciliationStatus } from "@/lib/review/instanceReconciliation";
 import type { WorkspaceMode } from "@/lib/review/workspaceState";
 import { Link } from "react-router-dom";
@@ -175,6 +176,31 @@ export default function WorkspaceAnalyzePanel({ projectId, onEnterMode }: Worksp
       const boqRefs = result.disciplines.map((d) => ({
         discipline: d.discipline, boqId: d.boqId, boqName: boqNameById.get(d.boqId) ?? disciplineByKey(d.discipline).name,
       }));
+
+      // Coverage generation + persistence (PR #155/#156's own functions,
+      // never duplicated here) — must run BEFORE computeProjectReadiness
+      // below, so this same run's results screen reflects any gap it just
+      // found rather than only showing it on a later run. Best-effort,
+      // matching the exact existing precedent for a LOCATION failure (see
+      // generateLocationAnalysis above): a Coverage failure never blocks
+      // or hides the BOQ/readiness results Analyze Project already produced.
+      try {
+        await generateAndPersistCoverageFindings(boqRefs, projectId, {
+          latestRunForBoq,
+          loadReviewItems,
+          loadLocationObservations: async (documentId) => {
+            const run = await latestLocationRunForDocument(projectId, documentId, locationModel);
+            if (run.status !== "SUCCEEDED" || !run.runId) return [];
+            return loadLocationObservations(run.runId);
+          },
+          loadBoqDocumentLinks,
+          persistCoverageFindings,
+        });
+      } catch {
+        // Swallowed deliberately — Coverage is advisory; a failure here
+        // must never surface as "Analysis failed" for a run whose BOQ/
+        // LOCATION analysis genuinely succeeded.
+      }
 
       const readinessResult = await computeProjectReadiness(boqRefs, documents, {
         latestRunForBoq,

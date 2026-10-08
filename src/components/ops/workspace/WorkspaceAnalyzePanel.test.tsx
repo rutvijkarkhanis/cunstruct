@@ -7,6 +7,7 @@ import { render, screen, fireEvent, waitFor, within } from "@testing-library/rea
 import { MemoryRouter } from "react-router-dom";
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import WorkspaceAnalyzePanel from "./WorkspaceAnalyzePanel";
+import { latestLocationRunForDocument, loadLocationObservations as loadLocationObservationsMock } from "@/lib/review/locationObservations";
 
 window.HTMLElement.prototype.scrollIntoView = () => {};
 
@@ -66,8 +67,15 @@ vi.mock("@/lib/review/locationObservations", () => ({
 // already is, so this file keeps testing orchestration/UI behavior without
 // touching Supabase.
 const linkAnalyzedDocumentsToBoq = vi.fn(async () => {});
+// Coverage orchestration wiring — this component now also assembles and
+// persists Coverage signals via these real functions; mocked like every
+// other I/O dependency this file imports. Empty by default (no boq_document
+// links -> generateAndPersistCoverageFindings is a no-op), so every
+// pre-existing test here keeps seeing today's exact BOQ/readiness behavior.
+const loadBoqDocumentLinks = vi.fn(async () => [] as { boqId: string; documentId: string }[]);
 vi.mock("@/lib/review/boqDocumentLinks", () => ({
   linkAnalyzedDocumentsToBoq: (...args: unknown[]) => linkAnalyzedDocumentsToBoq(...(args as [string, string[]])),
+  loadBoqDocumentLinks: (...args: unknown[]) => loadBoqDocumentLinks(...(args as [string[]])),
 }));
 
 // PR #157 — the readiness panel now reads already-persisted Coverage
@@ -76,8 +84,10 @@ vi.mock("@/lib/review/boqDocumentLinks", () => ({
 // without touching Supabase. Empty by default — most existing tests here
 // have no Coverage findings and must see the readiness output unchanged.
 const loadActiveCoverageFindingCounts = vi.fn(async () => ({}) as Record<string, number>);
+const persistCoverageFindings = vi.fn(async () => ({ runId: "run-coverage", createdCount: 0, skippedCount: 0 }));
 vi.mock("@/lib/auditImport", () => ({
   loadActiveCoverageFindingCounts: (...args: unknown[]) => loadActiveCoverageFindingCounts(...(args as [string[]])),
+  persistCoverageFindings: (...args: unknown[]) => persistCoverageFindings(...(args as [{ boqId: string; projectId?: string | null; signals: unknown[] }])),
 }));
 
 function renderPanel() {
@@ -94,7 +104,7 @@ function renderPanel() {
 }
 
 describe("WorkspaceAnalyzePanel — assignment step", () => {
-  beforeEach(() => { createBoq.mockClear(); generateAnalysis.mockClear(); linkAnalyzedDocumentsToBoq.mockClear(); loadActiveCoverageFindingCounts.mockClear(); loadActiveCoverageFindingCounts.mockResolvedValue({}); });
+  beforeEach(() => { createBoq.mockClear(); generateAnalysis.mockClear(); linkAnalyzedDocumentsToBoq.mockClear(); loadActiveCoverageFindingCounts.mockClear(); loadActiveCoverageFindingCounts.mockResolvedValue({}); loadBoqDocumentLinks.mockClear(); loadBoqDocumentLinks.mockResolvedValue([]); persistCoverageFindings.mockClear(); persistCoverageFindings.mockResolvedValue({ runId: "run-coverage", createdCount: 0, skippedCount: 0 }); });
 
   it("lists every project drawing with a checkbox per discipline, and the Analyze button starts disabled", async () => {
     renderPanel();
@@ -117,7 +127,7 @@ describe("WorkspaceAnalyzePanel — assignment step", () => {
 });
 
 describe("WorkspaceAnalyzePanel — running the analysis and reviewing readiness", () => {
-  beforeEach(() => { createBoq.mockClear(); generateAnalysis.mockClear(); linkAnalyzedDocumentsToBoq.mockClear(); loadActiveCoverageFindingCounts.mockClear(); loadActiveCoverageFindingCounts.mockResolvedValue({}); });
+  beforeEach(() => { createBoq.mockClear(); generateAnalysis.mockClear(); linkAnalyzedDocumentsToBoq.mockClear(); loadActiveCoverageFindingCounts.mockClear(); loadActiveCoverageFindingCounts.mockResolvedValue({}); loadBoqDocumentLinks.mockClear(); loadBoqDocumentLinks.mockResolvedValue([]); persistCoverageFindings.mockClear(); persistCoverageFindings.mockResolvedValue({ runId: "run-coverage", createdCount: 0, skippedCount: 0 }); });
 
   it("creates one new BOQ per assigned discipline, calls generateAnalysis once per discipline (BOQ) and once per distinct document (LOCATION), then shows the readiness rollup", async () => {
     const { onEnterMode } = renderPanel();
@@ -194,6 +204,8 @@ describe("WorkspaceAnalyzePanel — Coverage readiness summary", () => {
   beforeEach(() => {
     createBoq.mockClear(); generateAnalysis.mockClear(); linkAnalyzedDocumentsToBoq.mockClear();
     loadActiveCoverageFindingCounts.mockClear();
+    loadBoqDocumentLinks.mockClear(); loadBoqDocumentLinks.mockResolvedValue([]);
+    persistCoverageFindings.mockClear(); persistCoverageFindings.mockResolvedValue({ runId: "run-coverage", createdCount: 0, skippedCount: 0 });
   });
 
   async function runAnalysis() {
@@ -243,5 +255,78 @@ describe("WorkspaceAnalyzePanel — Coverage readiness summary", () => {
     await runAnalysis();
     const electricalRow = screen.getByText("Electrical Works BOQ").closest("div.rounded")!;
     expect(within(electricalRow).queryByRole("link", { name: /review/i })).not.toBeInTheDocument();
+  });
+});
+
+// The missing orchestration wiring itself: generateAndPersistCoverageFindings
+// must actually be invoked, with real boqDocumentLinks/LOCATION evidence,
+// BEFORE computeProjectReadiness — using the REAL coverageOrchestration.ts/
+// coverageSignals.ts/coverageFindings.ts modules (never mocked), only their
+// I/O boundaries mocked.
+describe("WorkspaceAnalyzePanel — Coverage generation + persistence wiring", () => {
+  beforeEach(() => {
+    createBoq.mockClear(); generateAnalysis.mockClear(); linkAnalyzedDocumentsToBoq.mockClear();
+    loadActiveCoverageFindingCounts.mockClear(); loadActiveCoverageFindingCounts.mockResolvedValue({});
+    loadBoqDocumentLinks.mockClear(); loadBoqDocumentLinks.mockResolvedValue([]);
+    persistCoverageFindings.mockClear(); persistCoverageFindings.mockResolvedValue({ runId: "run-coverage", createdCount: 1, skippedCount: 0 });
+    vi.mocked(latestLocationRunForDocument).mockReset();
+    vi.mocked(latestLocationRunForDocument).mockResolvedValue({ status: "NOT_RUN", runId: null, claimedAt: null, completedAt: null, error: null });
+    vi.mocked(loadLocationObservationsMock).mockReset();
+    vi.mocked(loadLocationObservationsMock).mockResolvedValue([]);
+  });
+
+  async function runAnalysis() {
+    renderPanel();
+    await screen.findByText("Ground Floor Plan.pdf");
+    fireEvent.click(within(screen.getByText("Ground Floor Plan.pdf").closest("tr")!).getByLabelText(/Assign Ground Floor Plan.pdf to Civil Works/i));
+    fireEvent.click(within(screen.getByText("Electrical Layout.pdf").closest("tr")!).getByLabelText(/Assign Electrical Layout.pdf to Electrical Works/i));
+    fireEvent.click(screen.getByRole("button", { name: /Analyze Project/i }));
+    await screen.findByText(/Ready/);
+  }
+
+  it("detects a LOCATION mark with no matching review item and persists it for the correct BOQ, before the results screen renders", async () => {
+    loadBoqDocumentLinks.mockResolvedValue([{ boqId: "new-civil-boq", documentId: "doc-floor-plan" }]);
+    vi.mocked(latestLocationRunForDocument).mockResolvedValue({ status: "SUCCEEDED", runId: "loc-run-1", claimedAt: null, completedAt: null, error: null });
+    vi.mocked(loadLocationObservationsMock).mockResolvedValue([
+      { id: "obs-1", observationType: "schedule_entry", mark: "D-07", scopeHint: null, locationText: null, attributes: {}, evidence: { evidence: [] }, evidenceCompleteness: "FULL", createdAt: "2026-01-01T00:00:00Z" },
+    ]);
+
+    await runAnalysis();
+
+    expect(persistCoverageFindings).toHaveBeenCalledTimes(1);
+    const call = persistCoverageFindings.mock.calls[0][0] as { boqId: string; projectId?: string | null; signals: { normalizedKey: string; boqId: string }[] };
+    expect(call.boqId).toBe("new-civil-boq");
+    expect(call.signals).toHaveLength(1);
+    expect(call.signals[0]).toMatchObject({ normalizedKey: "d-07", boqId: "new-civil-boq" });
+  });
+
+  it("persists before computeProjectReadiness reads the count — same run's results screen shows the gap it just found", async () => {
+    loadBoqDocumentLinks.mockResolvedValue([{ boqId: "new-civil-boq", documentId: "doc-floor-plan" }]);
+    vi.mocked(latestLocationRunForDocument).mockResolvedValue({ status: "SUCCEEDED", runId: "loc-run-1", claimedAt: null, completedAt: null, error: null });
+    vi.mocked(loadLocationObservationsMock).mockResolvedValue([
+      { id: "obs-1", observationType: "schedule_entry", mark: "D-07", scopeHint: null, locationText: null, attributes: {}, evidence: { evidence: [] }, evidenceCompleteness: "FULL", createdAt: "2026-01-01T00:00:00Z" },
+    ]);
+    loadActiveCoverageFindingCounts.mockImplementation(async () => (persistCoverageFindings.mock.calls.length > 0 ? { "new-civil-boq": 1 } : {}));
+
+    await runAnalysis();
+    expect(screen.getAllByText("1 potential gap").length).toBeGreaterThan(0);
+  });
+
+  it("no boq_document links -> no Coverage signals, never calls persistCoverageFindings", async () => {
+    loadBoqDocumentLinks.mockResolvedValue([]);
+    await runAnalysis();
+    expect(persistCoverageFindings).not.toHaveBeenCalled();
+  });
+
+  it("a Coverage persistence failure never surfaces as an Analyze Project failure — BOQ/readiness results still render", async () => {
+    loadBoqDocumentLinks.mockResolvedValue([{ boqId: "new-civil-boq", documentId: "doc-floor-plan" }]);
+    vi.mocked(latestLocationRunForDocument).mockResolvedValue({ status: "SUCCEEDED", runId: "loc-run-1", claimedAt: null, completedAt: null, error: null });
+    vi.mocked(loadLocationObservationsMock).mockResolvedValue([
+      { id: "obs-1", observationType: "schedule_entry", mark: "D-07", scopeHint: null, locationText: null, attributes: {}, evidence: { evidence: [] }, evidenceCompleteness: "FULL", createdAt: "2026-01-01T00:00:00Z" },
+    ]);
+    persistCoverageFindings.mockRejectedValue(new Error("DB unavailable"));
+
+    await runAnalysis(); // must still resolve to the results screen, not "Analysis failed"
+    expect(screen.queryByText(/Analysis failed/i)).not.toBeInTheDocument();
   });
 });
