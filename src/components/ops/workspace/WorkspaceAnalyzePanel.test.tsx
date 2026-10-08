@@ -60,6 +60,15 @@ vi.mock("@/lib/review/locationObservations", () => ({
   loadLocationObservations: vi.fn(async () => []),
 }));
 
+// PR #154 — the panel now wires linkAnalyzedDocuments into runProjectAnalysis;
+// mocked here the same way every other I/O dependency this component imports
+// already is, so this file keeps testing orchestration/UI behavior without
+// touching Supabase.
+const linkAnalyzedDocumentsToBoq = vi.fn(async () => {});
+vi.mock("@/lib/review/boqDocumentLinks", () => ({
+  linkAnalyzedDocumentsToBoq: (...args: unknown[]) => linkAnalyzedDocumentsToBoq(...(args as [string, string[]])),
+}));
+
 function renderPanel() {
   const qc = new QueryClient();
   const onEnterMode = vi.fn();
@@ -72,7 +81,7 @@ function renderPanel() {
 }
 
 describe("WorkspaceAnalyzePanel — assignment step", () => {
-  beforeEach(() => { createBoq.mockClear(); generateAnalysis.mockClear(); });
+  beforeEach(() => { createBoq.mockClear(); generateAnalysis.mockClear(); linkAnalyzedDocumentsToBoq.mockClear(); });
 
   it("lists every project drawing with a checkbox per discipline, and the Analyze button starts disabled", async () => {
     renderPanel();
@@ -95,7 +104,7 @@ describe("WorkspaceAnalyzePanel — assignment step", () => {
 });
 
 describe("WorkspaceAnalyzePanel — running the analysis and reviewing readiness", () => {
-  beforeEach(() => { createBoq.mockClear(); generateAnalysis.mockClear(); });
+  beforeEach(() => { createBoq.mockClear(); generateAnalysis.mockClear(); linkAnalyzedDocumentsToBoq.mockClear(); });
 
   it("creates one new BOQ per assigned discipline, calls generateAnalysis once per discipline (BOQ) and once per distinct document (LOCATION), then shows the readiness rollup", async () => {
     const { onEnterMode } = renderPanel();
@@ -120,6 +129,12 @@ describe("WorkspaceAnalyzePanel — running the analysis and reviewing readiness
     const locationCalls = generateAnalysis.mock.calls.filter((c) => (c[0] as { mode?: string }).mode === "LOCATION");
     expect(locationCalls).toHaveLength(2);
 
+    // PR #154: each discipline's own BOQ+documents are persisted to boq_document
+    // once its own BOQ call succeeded — never one combined call for the whole run.
+    await waitFor(() => expect(linkAnalyzedDocumentsToBoq).toHaveBeenCalledTimes(2));
+    expect(linkAnalyzedDocumentsToBoq).toHaveBeenCalledWith("new-civil-boq", ["doc-floor-plan"]);
+    expect(linkAnalyzedDocumentsToBoq).toHaveBeenCalledWith("new-electrical-boq", ["doc-electrical-layout"]);
+
     // Readiness: W1 (no LOCATION run) -> AMBER "Needs Review"; E1 (no quantity, no evidence) -> RED "Unresolved".
     await screen.findByText(/Ready/);
     expect(screen.getByText("1 Needs Review")).toBeInTheDocument();
@@ -132,5 +147,31 @@ describe("WorkspaceAnalyzePanel — running the analysis and reviewing readiness
 
     fireEvent.click(screen.getByText("Window W1").closest("tr")!);
     expect(onEnterMode).toHaveBeenCalledWith("review", "new-civil-boq");
+  });
+
+  it("PR #154: a later discipline's failed analysis call never un-persists, or blocks, an earlier discipline's already-successful mapping", async () => {
+    // civil (processed first, per DISCIPLINES' fixed order) succeeds;
+    // electrical (processed second) fails — queued in that exact call order.
+    generateAnalysis.mockImplementationOnce(async (args: { boqId?: string | null; documentIds?: string[] }) => ({
+      ok: true, generated: 1, itemCount: 1, runId: `run-${args.boqId}`,
+    }));
+    generateAnalysis.mockImplementationOnce(async () => ({ ok: false, generated: 0, error: "Simulated failure" }));
+
+    renderPanel();
+    await screen.findByText("Ground Floor Plan.pdf");
+    fireEvent.click(within(screen.getByText("Ground Floor Plan.pdf").closest("tr")!).getByLabelText(/Assign Ground Floor Plan.pdf to Civil Works/i));
+    fireEvent.click(within(screen.getByText("Electrical Layout.pdf").closest("tr")!).getByLabelText(/Assign Electrical Layout.pdf to Electrical Works/i));
+
+    fireEvent.click(screen.getByRole("button", { name: /Analyze Project/i }));
+
+    // Civil's mapping is persisted exactly once; Electrical's call threw
+    // before ever reaching its own persistence call.
+    await waitFor(() => expect(linkAnalyzedDocumentsToBoq).toHaveBeenCalledTimes(1));
+    expect(linkAnalyzedDocumentsToBoq).toHaveBeenCalledWith("new-civil-boq", ["doc-floor-plan"]);
+    expect(linkAnalyzedDocumentsToBoq).not.toHaveBeenCalledWith("new-electrical-boq", expect.anything());
+
+    // The run as a whole still surfaces as a failure — Electrical's own
+    // analysis genuinely did fail, and nothing here claims otherwise.
+    await screen.findByText(/Simulated failure/i);
   });
 });

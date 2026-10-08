@@ -104,6 +104,20 @@ export interface ProjectAnalysisDeps {
   createBoqForDiscipline: (discipline: string) => Promise<string>;
   generateBoqAnalysis: (args: { boqId: string; documentIds: string[] }) => Promise<GenerateResponse>;
   generateLocationAnalysis: (args: { documentId: string }) => Promise<GenerateResponse>;
+  /** PR #154 — persist the (boqId, documentIds) provenance this discipline's
+   *  BOQ call just succeeded against (see boqDocumentLinks.ts). Called ONLY
+   *  from inside the loop below, immediately after generateBoqAnalysis
+   *  resolves for THIS discipline — never speculatively, never for a
+   *  discipline whose call is about to run or has thrown. A later
+   *  discipline's failure throws before its own link call, but can never
+   *  un-persist an earlier discipline's already-recorded mapping (each
+   *  iteration's persistence is independent and already committed by the
+   *  time a later iteration throws).
+   *
+   *  Optional so every pre-existing caller/test that builds
+   *  ProjectAnalysisDeps without it keeps working unchanged — omitting it
+   *  simply skips persistence, exactly like before this field existed. */
+  linkAnalyzedDocuments?: (args: { boqId: string; documentIds: string[] }) => Promise<void>;
 }
 
 export interface DisciplineAnalysisOutcome {
@@ -157,6 +171,13 @@ export async function runProjectAnalysis(
     const boqId = plan.boqId ?? (await deps.createBoqForDiscipline(plan.discipline));
     const result = await deps.generateBoqAnalysis({ boqId, documentIds: plan.documentIds });
     disciplines.push({ discipline: plan.discipline, boqId, result });
+    // Persisted right here — the moment THIS discipline's own call is known
+    // to have succeeded — never batched until the whole multi-discipline
+    // run finishes. A later discipline's throw aborts the loop before its
+    // own persistence call, but this one has already committed.
+    if (deps.linkAnalyzedDocuments) {
+      await deps.linkAnalyzedDocuments({ boqId, documentIds: plan.documentIds });
+    }
   }
 
   // Never per-discipline, never per-item: exactly one LOCATION call per

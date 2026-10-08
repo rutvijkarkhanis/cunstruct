@@ -45,6 +45,7 @@ import {
   type ProjectAnalysisProgress, type DisciplinePlan,
 } from "@/lib/ai/projectAnalysis";
 import { fetchPreflight, generateAnalysis } from "@/lib/ai/analysisClient";
+import { linkAnalyzedDocumentsToBoq } from "@/lib/review/boqDocumentLinks";
 import { latestRunForBoq, loadReviewItems } from "@/lib/review/reviewStore";
 import { latestLocationRunForDocument, loadLocationObservations } from "@/lib/review/locationObservations";
 import { computeProjectReadiness, type ProjectReadinessResult, type ExceptionRow } from "@/lib/review/computeProjectReadiness";
@@ -156,6 +157,11 @@ export default function WorkspaceAnalyzePanel({ projectId, onEnterMode }: Worksp
           // "LOCATION not run" (AMBER for its countable items), an honest
           // outcome, not a blocked run.
           generateLocationAnalysis: ({ documentId }) => generateAnalysis({ projectId, boqId: null, documentIds: [documentId], mode: "LOCATION" }),
+          // PR #154 — persists which documents fed this BOQ. Called by
+          // runProjectAnalysis ONLY after this discipline's own BOQ call
+          // already succeeded (see projectAnalysis.ts), so it never records
+          // a discipline whose analysis failed.
+          linkAnalyzedDocuments: ({ boqId, documentIds }) => linkAnalyzedDocumentsToBoq(boqId, documentIds),
         },
         setProgress,
       );
