@@ -17,11 +17,12 @@ import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { supabase as catalogSupabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { ClipboardCheck, Calculator, PackageSearch, Boxes, FileText } from "lucide-react";
+import { ClipboardCheck, Calculator, PackageSearch, Boxes, FileText, Sparkles } from "lucide-react";
 import { formatINR } from "@/lib/forecastEngine";
 import type { WorkspaceMode } from "@/lib/review/workspaceState";
 import { useProjectBoqs, useMostRecentlyAnalyzedBoqId } from "@/hooks/useProjectBoqs";
 import WorkspaceBoqPanel from "./WorkspaceBoqPanel";
+import WorkspaceAnalyzePanel from "./WorkspaceAnalyzePanel";
 
 export interface WorkspaceContextProps {
   mode: Exclude<WorkspaceMode, "review" | "documents">;
@@ -36,13 +37,14 @@ export default function WorkspaceContext({ mode, projectId, activeDocumentId, ac
     <div className="flex flex-col w-full h-full min-h-0 border-l bg-card">
       <div className="px-3 py-2.5 border-b shrink-0">
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          {mode === "drawing" ? "Workspace" : mode === "boq" ? "BOQ" : mode === "materials" ? "Materials" : "Procurement"}
+          {mode === "drawing" ? "Workspace" : mode === "boq" ? "BOQ" : mode === "materials" ? "Materials" : mode === "analyze" ? "Analyze Project" : "Procurement"}
         </span>
       </div>
       <div className="flex-1 overflow-y-auto p-3 min-h-0">
         {mode === "drawing" && <DrawingHome projectId={projectId} activeDocumentId={activeDocumentId} onEnterMode={onEnterMode} />}
         {mode === "boq" && <WorkspaceBoqPanel projectId={projectId} activeBoqId={activeBoqId} onEnterMode={onEnterMode} />}
         {mode === "materials" && <MaterialsPanel projectId={projectId} activeBoqId={activeBoqId} />}
+        {mode === "analyze" && <WorkspaceAnalyzePanel projectId={projectId} onEnterMode={onEnterMode} />}
         {mode === "procurement" && <ProcurementPlaceholder />}
       </div>
     </div>
@@ -112,6 +114,9 @@ function DrawingHome({ projectId, activeDocumentId, onEnterMode }: { projectId: 
         </Button>
         <Button variant="outline" size="sm" className="w-full justify-start gap-2" onClick={() => onEnterMode("procurement")}>
           <PackageSearch className="w-3.5 h-3.5" /> Procurement
+        </Button>
+        <Button variant="outline" size="sm" className="w-full justify-start gap-2" onClick={() => onEnterMode("analyze")}>
+          <Sparkles className="w-3.5 h-3.5" /> Analyze Project
         </Button>
         {!defaultBoq && (
           <p className="text-[11px] text-muted-foreground pt-1">

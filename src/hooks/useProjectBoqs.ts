@@ -14,6 +14,12 @@ export interface ProjectBoqSummary {
   id: string;
   name: string;
   created_at: string;
+  /** boq.discipline — see createBoq()'s own doc comment: reliable only for a
+   *  BOQ created via the discipline-aware flow; historically defaulted to
+   *  'civil' for every BOQ regardless of actual content, so Phase A's
+   *  Analyze UI treats a match here as a CANDIDATE to confirm, never an
+   *  authoritative "this IS the Civil BOQ." */
+  discipline: string;
 }
 
 export function useProjectBoqs(projectId: string) {
@@ -21,7 +27,7 @@ export function useProjectBoqs(projectId: string) {
     queryKey: ["workspace-project-boqs", projectId],
     enabled: !!projectId,
     queryFn: async (): Promise<ProjectBoqSummary[]> => {
-      const { data } = await supabase.from("boq").select("id, name, created_at").eq("project_id", projectId).order("created_at", { ascending: false });
+      const { data } = await supabase.from("boq").select("id, name, created_at, discipline").eq("project_id", projectId).order("created_at", { ascending: false });
       return (data ?? []) as ProjectBoqSummary[];
     },
   });

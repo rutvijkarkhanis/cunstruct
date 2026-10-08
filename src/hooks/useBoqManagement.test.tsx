@@ -138,6 +138,25 @@ describe("useBoqManagement", () => {
     expect(toast.success).toHaveBeenCalledWith("BOQ created");
   });
 
+  it("createBoq omits discipline from the insert payload when not given, preserving the DB column default", async () => {
+    const { result } = renderBm();
+    await waitFor(() => expect(result.current.boqs).toBeDefined());
+    await act(async () => { await result.current.createBoq({ name: "Ground Floor BOQ", scopeId: "scope-1" }); });
+    expect(inserted.boq[0]).not.toHaveProperty("discipline", expect.anything());
+    expect((inserted.boq[0] as { discipline?: string }).discipline).toBeUndefined();
+  });
+
+  it("createBoq persists an explicit discipline on the insert payload", async () => {
+    const { result } = renderBm();
+    await waitFor(() => expect(result.current.boqs).toBeDefined());
+    let id: string | null = null;
+    await act(async () => {
+      id = await result.current.createBoq({ name: "Plumbing BOQ", scopeId: "scope-1", discipline: "plumbing" });
+    });
+    expect(id).toBe("new-boq-id");
+    expect((inserted.boq[0] as { discipline?: string }).discipline).toBe("plumbing");
+  });
+
   it("createBoq creates a new scope inline when scopeId is NEW_SCOPE", async () => {
     const { result } = renderBm();
     await waitFor(() => expect(result.current.boqs).toBeDefined());

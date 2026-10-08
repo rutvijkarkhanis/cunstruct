@@ -40,6 +40,7 @@ import { signedDrawingUrl, loadProjectDrawings } from "@/lib/review/drawingStora
 import { groupByCategory, isCountableUnit, type CategoryGroup, type TypeCard, type ElementCategory } from "@/lib/review/typeGrouping";
 import { instancesForType, type TypeInstance } from "@/lib/review/typeInstances";
 import { latestLocationRunForDocument, loadLocationObservations, type LocationObservation } from "@/lib/review/locationObservations";
+import { fetchPreflight } from "@/lib/ai/analysisClient";
 import { markersForAll, markersForCategory, markersForType, markersForInstance, type DrawingMarker } from "@/lib/review/drawingMarkers";
 import PdfEvidenceViewer from "@/components/review/PdfEvidenceViewer";
 import DocumentSelector from "@/components/review/DocumentSelector";
@@ -388,13 +389,31 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
     [docIdByItemId],
   );
 
+  // The exact model preflight resolved for this project's LOCATION
+  // eligibility — latestLocationRunForDocument's content-hash fallback match
+  // path requires this (see its own doc comment); an empty string can never
+  // match a real analysis_run_source row, silently disabling that fallback.
+  // Same query key as DocumentLocationExtraction's own admin-check query, so
+  // React Query dedupes the two when both are mounted. `internal` (and thus
+  // `.model`) is only ever present for an admin caller — a non-admin reviewer
+  // gets `locationModel = ""`, exactly today's pre-fix behavior for them
+  // (they never had a real model to check the fallback against either way;
+  // only the fallback degrades, never the primary document_id-scoped lookup
+  // below, which doesn't consult model at all).
+  const { data: locationAdminCheck } = useQuery({
+    queryKey: ["location-admin-check", boq?.project_id],
+    queryFn: () => fetchPreflight({ projectId: boq!.project_id!, boqId: null, mode: "LOCATION" }),
+    enabled: !!boq?.project_id,
+  });
+  const locationModel = locationAdminCheck?.internal?.model ?? "";
+
   const { data: observationsByDoc = {} } = useQuery({
-    queryKey: ["rw-location-observations", boq?.project_id, resolvedDocIds],
+    queryKey: ["rw-location-observations", boq?.project_id, resolvedDocIds, locationModel],
     enabled: !!boq?.project_id && resolvedDocIds.length > 0,
     queryFn: async (): Promise<Record<string, LocationObservation[]>> => {
       const projectId = boq!.project_id!;
       const entries = await Promise.all(resolvedDocIds.map(async (docId): Promise<[string, LocationObservation[]]> => {
-        const run = await latestLocationRunForDocument(projectId, docId, "");
+        const run = await latestLocationRunForDocument(projectId, docId, locationModel);
         if (run.status !== "SUCCEEDED" || !run.runId) return [docId, []];
         return [docId, await loadLocationObservations(run.runId)];
       }));

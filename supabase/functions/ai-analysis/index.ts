@@ -27,7 +27,7 @@
 
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { z } from "npm:zod@3.22.4";
-import { ANALYSIS_CONTRACT_VERSION, DEFAULT_PROVIDER, resolveAnalysisMode, type AnalysisMode } from "../_shared/contract.ts";
+import { ANALYSIS_CONTRACT_VERSION, DEFAULT_PROVIDER, resolveAnalysisMode, modeRequiresBoqScope, type AnalysisMode } from "../_shared/contract.ts";
 import { DEFAULT_MODEL, SUPPORTED_MODELS, actualCostUsd, estimateCostRange, resolveModel } from "../_shared/modelConfig.ts";
 import { computePreflight, resolveRequestedToSend, type EligibleFile, type LedgerRow } from "../_shared/preflight.ts";
 import { parseAnalysisV1, buildReviewItems } from "../_shared/analysisValidation.ts";
@@ -229,8 +229,9 @@ async function loadLedger(
   provider: string,
   model: string,
   mode: AnalysisMode,
+  boqId: string | null,
 ): Promise<LedgerRow[]> {
-  const { data, error } = await supabase
+  let query = supabase
     .from("analysis_run_source")
     .select("content_hash, status, document_id, filename_at_time_of_analysis, analysis_run_id, claimed_at")
     .eq("project_id", projectId)
@@ -244,6 +245,18 @@ async function loadLedger(
     // analysed" by a BOQ-mode preflight for the same file, which is wrong:
     // they are separate analysis_run_source identities by design.
     .eq("mode", mode);
+  // Phase A: BOQ/BOQ_AND_LOCATION claims are scoped per-BOQ (a document may
+  // feed several disciplines' BOQs independently — see modeRequiresBoqScope's
+  // doc and 20261001000000_analysis_run_source_boq_scope.sql). Filtering the
+  // ledger by boq_id here is what makes computePreflight() (which just
+  // trusts whatever ledger it's handed) agree with the DB's own partial
+  // unique index on the same identity. LOCATION deliberately stays
+  // project-wide/document-level — never filtered by boq_id — exactly its
+  // pre-Phase-A behavior.
+  if (modeRequiresBoqScope(mode)) {
+    query = query.eq("boq_id", boqId);
+  }
+  const { data, error } = await query;
   if (error) throw error;
   return (data ?? []).map((r) => ({
     contentHash: r.content_hash,
@@ -386,6 +399,14 @@ Deno.serve(async (req) => {
   if (mode === null) {
     return json({ ok: false, error: `Invalid mode: "${input.mode}". Must be one of BOQ, LOCATION, BOQ_AND_LOCATION.` }, 400);
   }
+  // Phase A: a BOQ/BOQ_AND_LOCATION claim is scoped per-BOQ (see
+  // modeRequiresBoqScope's doc) — never silently fall back to a project-wide
+  // (boq_id = null) claim for these modes. Every existing caller already
+  // passes a real boqId for BOQ-mode requests, so this rejects only a
+  // genuinely malformed request, never today's real traffic.
+  if (modeRequiresBoqScope(mode) && !input.boqId) {
+    return json({ ok: false, error: "boqId is required for BOQ-mode analysis." }, 400);
+  }
 
   let totalProjectFiles: number;
   let eligible: EligibleRow[];
@@ -395,7 +416,7 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: e instanceof Error ? e.message : "Failed to load project files" }, 500);
   }
 
-  const ledger = await loadLedger(supabase, input.projectId, ANALYSIS_CONTRACT_VERSION, DEFAULT_PROVIDER, model.id, mode);
+  const ledger = await loadLedger(supabase, input.projectId, ANALYSIS_CONTRACT_VERSION, DEFAULT_PROVIDER, model.id, mode, input.boqId ?? null);
   const preflight = computePreflight(
     totalProjectFiles,
     eligible.map((e): EligibleFile => ({
@@ -525,6 +546,12 @@ Deno.serve(async (req) => {
         provider: DEFAULT_PROVIDER, model: model.id, mode, status: "PROCESSING",
         document_id: file.documentId, document_revision_id: file.documentRevisionId,
         filename_at_time_of_analysis: file.filename, claimed_by: user.id,
+        // Phase A: BOQ/BOQ_AND_LOCATION claims carry the real boq_id they
+        // were validated against above — never null (the DB's own
+        // analysis_run_source_boq_mode_requires_boq_id check backs this up).
+        // LOCATION stays null regardless of what was sent, preserving its
+        // document-level (not per-BOQ) identity exactly as before Phase A.
+        boq_id: modeRequiresBoqScope(mode) ? input.boqId : null,
       })
       .select("id")
       .single();
@@ -549,11 +576,16 @@ Deno.serve(async (req) => {
     //      the claim crashed/timed out before resolving it). A genuinely
     //      live PROCESSING claim (claimed_at recent) never matches this and
     //      stays protected.
-    const { data: reclaimed } = await supabase
+    let reclaimQuery = supabase
       .from("analysis_run_source")
       .update({ status: "PROCESSING", claimed_by: user.id, claimed_at: new Date().toISOString(), error: null, completed_at: null })
       .eq("project_id", input.projectId).eq("content_hash", file.contentHash).eq("contract_version", ANALYSIS_CONTRACT_VERSION)
-      .eq("provider", DEFAULT_PROVIDER).eq("model", model.id).eq("mode", mode)
+      .eq("provider", DEFAULT_PROVIDER).eq("model", model.id).eq("mode", mode);
+    // Match the exact same boq_id scoping the insert above and the ledger
+    // query use, so a reclaim can never cross from one BOQ's stale/failed
+    // claim into a different BOQ's identity.
+    reclaimQuery = modeRequiresBoqScope(mode) ? reclaimQuery.eq("boq_id", input.boqId) : reclaimQuery.is("boq_id", null);
+    const { data: reclaimed } = await reclaimQuery
       .or(buildStaleReclaimFilter(Date.now(), STALE_PROCESSING_MS))
       .select("id")
       .maybeSingle();

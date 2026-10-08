@@ -288,3 +288,63 @@ describe("resolveRequestedToSend — per-document resolution against a shared-ha
     expect(toSend[0].contentHash).toBe("prod-shared-hash");
   });
 });
+
+// ── Phase A: BOQ-scoped claim identity — a document may legitimately feed
+// several disciplines' BOQs (e.g. an architectural floor plan analysed for
+// both Civil and Electrical). computePreflight itself is UNCHANGED here —
+// it still just trusts whatever `ledger` it's handed (see the "mode" describe
+// block above, same convention). The actual per-BOQ scoping lives in the
+// edge function's loadLedger() query, which now filters by boq_id for
+// BOQ/BOQ_AND_LOCATION mode (never for LOCATION) before calling this
+// function — see modeRequiresBoqScope() in contract.ts and
+// 20261001000000_analysis_run_source_boq_scope.sql's two partial unique
+// indexes, which enforce the identical split at the DB level. These tests
+// simulate loadLedger's filtering explicitly, by constructing exactly the
+// ledger rows a boq_id-scoped query would (and wouldn't) return. ───────────
+describe("computePreflight — Phase A BOQ-scoped ledgers (document shared across multiple BOQs)", () => {
+  it("1 & 7. the SAME BOQ's own ledger shows a document it already claimed as already-analysed — a repeat Analyze Project run does not re-send it", () => {
+    const files = [file({ documentId: "floor-plan", contentHash: "shared-hash" })];
+    const civilLedger = [ledgerRow({ contentHash: "shared-hash", status: "SUCCEEDED", documentId: "floor-plan", analysisRunId: "civil-run" })];
+    const r = computePreflight(1, files, civilLedger, opts);
+    expect(r.willSend).toEqual([]);
+    expect(r.alreadyAnalysed).toHaveLength(1);
+  });
+
+  it("2 & 8. the exact same document+content, SUCCEEDED under Civil's BOQ, is still 'new' under Electrical's own boq-scoped ledger — independently analyzable, not blocked by Civil's claim", () => {
+    const files = [file({ documentId: "floor-plan", contentHash: "shared-hash" })];
+    // Civil's own ledger (what loadLedger(..., boqId: "civil-boq") returns):
+    const civilPreflight = computePreflight(1, files,
+      [ledgerRow({ contentHash: "shared-hash", status: "SUCCEEDED", documentId: "floor-plan", analysisRunId: "civil-run" })], opts);
+    expect(civilPreflight.alreadyAnalysed).toHaveLength(1);
+
+    // Electrical's own ledger (what loadLedger(..., boqId: "electrical-boq")
+    // returns) never includes Civil's claim row — different boq_id, filtered
+    // out at the query level — so from Electrical's point of view this is
+    // the SAME document/content, genuinely new.
+    const electricalPreflight = computePreflight(1, files, [], opts);
+    expect(electricalPreflight.alreadyAnalysed).toEqual([]);
+    expect(electricalPreflight.willSend.map((f) => f.documentId)).toEqual(["floor-plan"]);
+  });
+
+  it("3. the same content hash under a different document name is likewise independently analyzable under a second BOQ's empty (boq-scoped) ledger", () => {
+    const files = [file({ documentId: "floor-plan-copy", contentHash: "shared-hash" })];
+    const r = computePreflight(1, files, [], opts);
+    expect(r.willSend.map((f) => f.documentId)).toEqual(["floor-plan-copy"]);
+  });
+
+  it("4. two different documents claimed under the SAME BOQ's ledger are tracked independently of each other (boq-scoping doesn't affect within-BOQ dedup)", () => {
+    const files = [file({ documentId: "doc-a", contentHash: "hash-a" }), file({ documentId: "doc-b", contentHash: "hash-b" })];
+    const sameBoqLedger = [ledgerRow({ contentHash: "hash-a", status: "SUCCEEDED", documentId: "doc-a", analysisRunId: "run-1" })];
+    const r = computePreflight(2, files, sameBoqLedger, opts);
+    expect(r.alreadyAnalysed.map((f) => f.documentId)).toEqual(["doc-a"]);
+    expect(r.willSend.map((f) => f.documentId)).toEqual(["doc-b"]);
+  });
+
+  it("5. LOCATION's ledger is never boq-scoped — a document already analysed under LOCATION stays already-analysed regardless of which BOQ is asking", () => {
+    const files = [file({ documentId: "floor-plan", contentHash: "shared-hash" })];
+    const locationLedger = [ledgerRow({ contentHash: "shared-hash", status: "SUCCEEDED", documentId: "floor-plan", analysisRunId: "location-run" })];
+    const r = computePreflight(1, files, locationLedger, { ...opts, mode: "LOCATION" });
+    expect(r.alreadyAnalysed).toHaveLength(1);
+    expect(r.willSend).toEqual([]);
+  });
+});
