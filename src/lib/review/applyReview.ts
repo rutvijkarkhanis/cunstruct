@@ -352,32 +352,105 @@ async function resolveScopeIdForLocation(projectId: string, location: string): P
 }
 
 /**
- * Resolve a document id to its CURRENT revision id, for writing
+ * Resolve the EXACT revision analysis_run_source durably recorded as having
+ * been analyzed for this (run, document) pair — Scope E. The ai-analysis edge
+ * function resolves project_document.current_revision_id itself at the
+ * moment it downloads a file for OpenAI, and records that exact
+ * document_revision id verbatim on the claim row it inserts
+ * (analysis_run_source.document_revision_id), then stamps the claim with
+ * analysis_run_id once the run that produced this review item's items
+ * succeeds. That is the one place in this codebase where "which revision was
+ * actually analyzed" is captured durably — see boqDocumentLinks.ts's
+ * identical reasoning, which first identified this exact plumbing gap and
+ * deliberately deferred closing it; this is that closure, scoped to Apply.
+ *
+ * Returns a three-way result, each meaning something distinct to the caller:
+ *   - a revision id: exactly one SUCCEEDED claim for (runId, documentId)
+ *     names a document_revision_id, and it genuinely exists AND belongs to
+ *     documentId (same ownership discipline as the current-revision fallback
+ *     below — never trusted on id alone). The caller persists this directly.
+ *   - undefined: no SUCCEEDED claim for (runId, documentId) exists at all —
+ *     a json_import run (which never creates analysis_run_source rows), an
+ *     ai_api run from before this column was populated, or a document this
+ *     run simply never claimed. Genuinely "no opinion": the caller falls
+ *     back to the pre-existing current-revision resolution, exactly as if
+ *     this function didn't exist. The SAME fallback applies when the one
+ *     claim's revision turns out to be invalid/cross-document — that is
+ *     also "no trustworthy run-source evidence," not a reason to persist
+ *     something known to be wrong, but also not grounds to refuse the
+ *     pre-existing, already-accepted-risk fallback either.
+ *   - null: more than one SUCCEEDED claim for (runId, documentId) names
+ *     DIFFERING revisions — active, contradictory evidence. Never
+ *     arbitrarily picked from, and never handed to the current-revision
+ *     fallback either (that would be an equally arbitrary pick in the face
+ *     of disagreement): the caller persists null and stops there.
+ */
+async function resolveAnalyzedRevisionId(runId: string, documentId: string): Promise<string | null | undefined> {
+  const { data } = await supabase
+    .from("analysis_run_source")
+    .select("document_revision_id")
+    .eq("analysis_run_id", runId)
+    .eq("document_id", documentId)
+    .eq("status", "SUCCEEDED")
+    .not("document_revision_id", "is", null);
+  const rows = (data ?? []) as { document_revision_id: string }[];
+  if (rows.length === 0) return undefined; // no run-source evidence — caller falls back
+
+  const distinctRevisionIds = new Set(rows.map((r) => r.document_revision_id));
+  if (distinctRevisionIds.size > 1) return null; // conflicting evidence — never guess, never fall back
+
+  const revisionId = rows[0].document_revision_id;
+  const { data: revision } = await supabase
+    .from("document_revision")
+    .select("id")
+    .eq("id", revisionId)
+    .eq("document_id", documentId)
+    .maybeSingle();
+  return revision ? revisionId : undefined; // invalid/cross-document → no usable evidence, caller falls back
+}
+
+/**
+ * Resolve a document id to the revision id to persist as
  * boq_line.source_revision_id (a real foreign key to document_revision,
  * unlike project_document.current_revision_id itself — see
  * drawingStorage.ts's loadProjectDrawings, the only other place in this
  * codebase that already resolves this same soft reference).
  *
- * project_document.current_revision_id is an unchecked soft reference (see
- * the project_workspace migration's "avoids circular FK" comment) — it can
- * point at a revision row that exists but belongs to a DIFFERENT document,
- * if it's ever stale or corrupted. document_revision.document_id IS a real,
- * FK-enforced column (references project_document(id)), so the existence
- * check below filters on BOTH `id` and `document_id`: a revision that
- * exists but doesn't belong to `documentId` is treated exactly like one
- * that doesn't exist at all — never persisted as this document's source.
+ * Scope E: when `runId` is given (the analysis run that produced the review
+ * item being applied), the EXACT analyzed revision is tried first via
+ * resolveAnalyzedRevisionId — see that function's own doc comment for its
+ * three-way result and exactly which cases fall through to the resolution
+ * below versus return null outright. `runId` is optional so every existing
+ * caller/fixture that predates this parameter keeps compiling and behaving
+ * unchanged — omitting it always takes the fallback path, exactly as before
+ * this parameter existed.
  *
- * KNOWN LIMITATION, stated rather than solved: AnalysisItemV1.source
- * carries a documentId but no revision id at all (see analysisSchemaV1.ts —
- * AnalysisSource has no revisionId field). This resolves the document's
- * CURRENT revision at Apply time, which is the best available signal, but
- * is not necessarily the exact revision the AI analysis read if the
- * document was re-uploaded between analysis and Apply. Never fabricated:
- * returns null (never a guess) when the document has no current_revision_id,
- * that id does not resolve to a real document_revision row, or that row
- * belongs to a different document.
+ * Fallback — project_document.current_revision_id is an unchecked soft
+ * reference (see the project_workspace migration's "avoids circular FK"
+ * comment) — it can point at a revision row that exists but belongs to a
+ * DIFFERENT document, if it's ever stale or corrupted. document_revision.
+ * document_id IS a real, FK-enforced column (references project_document
+ * (id)), so the existence check below filters on BOTH `id` and
+ * `document_id`: a revision that exists but doesn't belong to `documentId`
+ * is treated exactly like one that doesn't exist at all — never persisted
+ * as this document's source.
+ *
+ * KNOWN LIMITATION of this fallback path, stated rather than solved: it
+ * resolves the document's CURRENT revision at Apply time, which is the best
+ * available signal when no run-source evidence exists, but is not
+ * necessarily the exact revision the AI analysis read if the document was
+ * re-uploaded between analysis and Apply. Never fabricated: returns null
+ * (never a guess) when the document has no current_revision_id, that id
+ * does not resolve to a real document_revision row, or that row belongs to
+ * a different document.
  */
-async function resolveSourceRevisionId(documentId: string): Promise<string | null> {
+async function resolveSourceRevisionId(documentId: string, runId?: string | null): Promise<string | null> {
+  if (runId) {
+    const analyzed = await resolveAnalyzedRevisionId(runId, documentId);
+    if (analyzed === null) return null; // conflicting evidence — explicit null, no fallback
+    if (typeof analyzed === "string") return analyzed; // exact analyzed revision — highest precedence
+    // analyzed === undefined → no usable run-source evidence; fall through below.
+  }
   const { data: doc } = await supabase
     .from("project_document")
     .select("current_revision_id")
@@ -417,6 +490,15 @@ export async function applyReviewPlan(args: {
   boqId: string;
   candidates: ApplyCandidate[];
   selectedIds: Set<string>;
+  /** Scope E — the analysis run that produced every candidate in this call
+   *  (every candidate here is always classified from the SAME StoredReviewItem[]
+   *  array, which is itself always loaded from exactly one run — see
+   *  BoqReviewWorkstation.tsx's single `runId` state; items from two runs
+   *  never coexist there). Passed through to resolveSourceRevisionId so it
+   *  can try the exact analyzed revision before falling back to "current
+   *  revision at Apply time." Optional so every existing caller/fixture that
+   *  predates this parameter keeps compiling and behaving unchanged. */
+  runId?: string | null;
 }): Promise<ApplyResult> {
   const { data: userData } = await supabase.auth.getUser();
   const changedBy = userData?.user?.id ?? null;
@@ -440,11 +522,14 @@ export async function applyReviewPlan(args: {
   const createdNewLineIdentities = new Set<string>();
   const conflictedReviewItemIds: string[] = [];
   // Resolved at most once per distinct documentId in this call (see
-  // resolveSourceRevisionId) — never re-looked-up per candidate.
+  // resolveSourceRevisionId) — never re-looked-up per candidate. Cached by
+  // documentId alone, never by (runId, documentId): args.runId is a single
+  // value for this entire call (see the field's own doc comment above), so
+  // it adds no variation the cache key would need to account for.
   const revisionIdByDocumentId = new Map<string, string | null>();
   async function resolveCachedRevisionId(documentId: string): Promise<string | null> {
     if (!revisionIdByDocumentId.has(documentId)) {
-      revisionIdByDocumentId.set(documentId, await resolveSourceRevisionId(documentId));
+      revisionIdByDocumentId.set(documentId, await resolveSourceRevisionId(documentId, args.runId));
     }
     return revisionIdByDocumentId.get(documentId) ?? null;
   }

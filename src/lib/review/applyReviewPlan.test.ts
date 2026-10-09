@@ -43,15 +43,30 @@ function seedRevision(revisionId: string, ownerDocumentId: string) {
   documentRevisionOwner.set(revisionId, ownerDocumentId);
 }
 
-/** A minimal .select(cols).eq(col, val).maybeSingle() reader for
- *  project_document/document_revision — the only read shape
- *  resolveSourceRevisionId actually issues. For document_revision, a row is
- *  only returned when BOTH the `id` filter matches a seeded revision AND
- *  (when present) the `document_id` filter matches that revision's actual
- *  owner — mirroring the real FK-backed column, not just an existence set. */
-function selectBuilder(table: string, filters: Record<string, unknown> = {}) {
+// Scope E — models analysis_run_source's durable (run, document) -> analyzed
+// -revision claim record. A plain array (not a Map) because the real table
+// can genuinely hold more than one row for the same (analysis_run_id,
+// document_id) — that's exactly the "conflicting records" case Scope E must
+// never guess through.
+interface RunSourceRow { analysis_run_id: string; document_id: string; status: string; document_revision_id: string | null }
+const analysisRunSourceStore: RunSourceRow[] = [];
+function seedRunSource(runId: string, documentId: string, revisionId: string | null, status = "SUCCEEDED") {
+  analysisRunSourceStore.push({ analysis_run_id: runId, document_id: documentId, status, document_revision_id: revisionId });
+}
+
+/** A minimal .select(cols).eq(col, val)... reader for project_document/
+ *  document_revision (terminated by .maybeSingle(), as resolveSourceRevisionId's
+ *  fallback path always does) and analysis_run_source (terminated by directly
+ *  awaiting the chain, as resolveAnalyzedRevisionId's `.not()`-filtered query
+ *  does — the real supabase-js builder is thenable without a terminal call).
+ *  For document_revision, a row is only returned when BOTH the `id` filter
+ *  matches a seeded revision AND (when present) the `document_id` filter
+ *  matches that revision's actual owner — mirroring the real FK-backed
+ *  column, not just an existence set. */
+function selectBuilder(table: string, filters: Record<string, unknown> = {}, excludeNullRevision = false) {
   return {
-    eq: (col: string, val: unknown) => selectBuilder(table, { ...filters, [col]: val }),
+    eq: (col: string, val: unknown) => selectBuilder(table, { ...filters, [col]: val }, excludeNullRevision),
+    not: (_col: string, _op: string, _val: unknown) => selectBuilder(table, filters, true),
     maybeSingle: async () => {
       const id = filters.id as string | undefined;
       if (table === "project_document") {
@@ -65,6 +80,18 @@ function selectBuilder(table: string, filters: Record<string, unknown> = {}) {
         return { data: found ? { id } : null, error: null };
       }
       return { data: null, error: null };
+    },
+    then: (resolve: (r: { data: unknown; error: null }) => void) => {
+      if (table === "analysis_run_source") {
+        const rows = analysisRunSourceStore.filter((r) =>
+          (filters.analysis_run_id === undefined || r.analysis_run_id === filters.analysis_run_id)
+          && (filters.document_id === undefined || r.document_id === filters.document_id)
+          && (filters.status === undefined || r.status === filters.status)
+          && (!excludeNullRevision || r.document_revision_id != null),
+        );
+        return resolve({ data: rows.map((r) => ({ document_revision_id: r.document_revision_id })), error: null });
+      }
+      return resolve({ data: [], error: null });
     },
   };
 }
@@ -145,7 +172,7 @@ function changeLogRows(): { field: string; old_value: string | null; new_value: 
     .flatMap((c) => c.payload as { field: string; old_value: string | null; new_value: string | null }[]);
 }
 
-beforeEach(() => { calls.length = 0; boqLineStore.clear(); projectDocumentStore.clear(); documentRevisionOwner.clear(); });
+beforeEach(() => { calls.length = 0; boqLineStore.clear(); projectDocumentStore.clear(); documentRevisionOwner.clear(); analysisRunSourceStore.length = 0; });
 
 describe("applyReviewPlan — NEW_LINE audit logging", () => {
   it("records field-level qty AND unit audit entries, alongside line_created as additional provenance", async () => {
@@ -605,5 +632,194 @@ describe("applyReviewPlan — source traceability (Scope C)", () => {
     // The reviewed quantity change is still applied correctly — the ownership
     // check never blocks or alters the underlying qty/unit write.
     expect(patch.qty).toBe(9);
+  });
+});
+
+// ── Scope E — exact analyzed revision, resolved from analysis_run_source,
+// preferred over the Scope C current-revision-at-apply-time fallback. ───────
+describe("applyReviewPlan — exact analyzed revision (Scope E)", () => {
+  it("revision drift: the run's analyzed revision (A) is persisted even though the document's current revision is now B", async () => {
+    seedDocument("doc-e1", "rev-e1-B"); // B is CURRENT at apply time
+    seedRevision("rev-e1-A", "doc-e1"); // the revision actually analyzed — no longer current
+    seedRevision("rev-e1-B", "doc-e1");
+    seedRunSource("run-e1", "doc-e1", "rev-e1-A"); // durable record: run-e1 analyzed rev-e1-A
+
+    const it_ = reviewItem({
+      id: "ri-e1", reviewStatus: "VERIFIED",
+      ai: ai({ key: "W-e1", item: "Window — drift", quantity: 4, source: { documentId: "doc-e1", page: 2, evidence: [] } }),
+    });
+    const plan = buildApplyPlan([it_], []);
+    expect(plan[0].classification).toBe("NEW_LINE");
+
+    await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-e1"]), runId: "run-e1" });
+
+    const row = calls.find((c) => c.table === "boq_line" && c.op === "insert")!.payload as Record<string, unknown>;
+    expect(row.source_revision_id).toBe("rev-e1-A");
+    expect(row.source_revision_id).not.toBe("rev-e1-B");
+    expect(row.source_document_id).toBe("doc-e1");
+    expect(row.source_page).toBe("2");
+  });
+
+  it("a run-source claim naming a revision owned by a DIFFERENT document is rejected — never persisted, never used in place of the (absent) fallback", async () => {
+    seedDocument("doc-e2", null); // no current revision either — isolates the ownership rejection
+    seedRevision("rev-e2-foreign", "doc-OTHER"); // exists, but NOT owned by doc-e2
+    seedRunSource("run-e2", "doc-e2", "rev-e2-foreign");
+
+    const it_ = reviewItem({
+      id: "ri-e2", reviewStatus: "VERIFIED",
+      ai: ai({ key: "W-e2", item: "Window — cross-doc claim", quantity: 3, source: { documentId: "doc-e2", page: 5, evidence: [] } }),
+    });
+    const plan = buildApplyPlan([it_], []);
+
+    await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-e2"]), runId: "run-e2" });
+
+    const row = calls.find((c) => c.table === "boq_line" && c.op === "insert")!.payload as Record<string, unknown>;
+    expect(row.source_revision_id).toBeNull();
+    expect(row.source_revision_id).not.toBe("rev-e2-foreign");
+    expect(row.source_document_id).toBe("doc-e2");
+    expect(row.source_page).toBe("5");
+  });
+
+  it("no analysis_run_source record at all: the existing current-revision fallback behaves exactly as before Scope E", async () => {
+    seedDocument("doc-e3", "rev-e3-current");
+    seedRevision("rev-e3-current", "doc-e3");
+    // Deliberately no seedRunSource call — models a json_import run, or an
+    // ai_api run from before this plumbing existed.
+
+    const it_ = reviewItem({
+      id: "ri-e3", reviewStatus: "VERIFIED",
+      ai: ai({ key: "W-e3", item: "Window — no run-source row", quantity: 1, source: { documentId: "doc-e3", page: null, evidence: [] } }),
+    });
+    const plan = buildApplyPlan([it_], []);
+
+    await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-e3"]), runId: "run-e3-unclaimed" });
+
+    const row = calls.find((c) => c.table === "boq_line" && c.op === "insert")!.payload as Record<string, unknown>;
+    expect(row.source_revision_id).toBe("rev-e3-current");
+  });
+
+  it("a run-source claim with no SUCCEEDED status is never trusted, even if it names an otherwise-valid revision — falls back safely", async () => {
+    seedDocument("doc-e4", "rev-e4-current");
+    seedRevision("rev-e4-current", "doc-e4");
+    seedRevision("rev-e4-failed-claim", "doc-e4"); // a real, owned revision — but the claim for it never succeeded
+    seedRunSource("run-e4", "doc-e4", "rev-e4-failed-claim", "FAILED");
+
+    const it_ = reviewItem({
+      id: "ri-e4", reviewStatus: "VERIFIED",
+      ai: ai({ key: "W-e4", item: "Window — unsucceeded claim", quantity: 2, source: { documentId: "doc-e4", page: 1, evidence: [] } }),
+    });
+    const plan = buildApplyPlan([it_], []);
+
+    await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-e4"]), runId: "run-e4" });
+
+    const row = calls.find((c) => c.table === "boq_line" && c.op === "insert")!.payload as Record<string, unknown>;
+    // The FAILED claim's revision is never used — the safe fallback (current
+    // revision) is used instead, exactly as if no claim existed at all.
+    expect(row.source_revision_id).toBe("rev-e4-current");
+    expect(row.source_revision_id).not.toBe("rev-e4-failed-claim");
+  });
+
+  it("conflicting run-source records (two DIFFERENT revisions for the same run+document) never arbitrarily pick one, and never fall back to current-revision either", async () => {
+    seedDocument("doc-e5", "rev-e5-current");
+    seedRevision("rev-e5-current", "doc-e5");
+    seedRevision("rev-e5-X", "doc-e5");
+    seedRevision("rev-e5-Y", "doc-e5");
+    seedRunSource("run-e5", "doc-e5", "rev-e5-X");
+    seedRunSource("run-e5", "doc-e5", "rev-e5-Y"); // contradicts the row above — same run+document, different revision
+
+    const it_ = reviewItem({
+      id: "ri-e5", reviewStatus: "VERIFIED",
+      ai: ai({ key: "W-e5", item: "Window — conflicting claims", quantity: 6, source: { documentId: "doc-e5", page: 9, evidence: [] } }),
+    });
+    const plan = buildApplyPlan([it_], []);
+
+    await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-e5"]), runId: "run-e5" });
+
+    const row = calls.find((c) => c.table === "boq_line" && c.op === "insert")!.payload as Record<string, unknown>;
+    expect(row.source_revision_id).toBeNull();
+    expect(row.source_revision_id).not.toBe("rev-e5-X");
+    expect(row.source_revision_id).not.toBe("rev-e5-Y");
+    // Critically, NOT the fallback either — conflicting evidence stops here,
+    // it does not quietly resolve to "whatever is current right now."
+    expect(row.source_revision_id).not.toBe("rev-e5-current");
+    // Document/page provenance is still preserved despite the revision conflict.
+    expect(row.source_document_id).toBe("doc-e5");
+    expect(row.source_page).toBe("9");
+  });
+
+  it("APPLY (matched line ALREADY has a source): preserved under Scope E exactly as under Scope C — the update patch carries no source keys at all, even with a perfectly valid run-source claim available", async () => {
+    seedDocument("doc-e6", "rev-e6-current");
+    seedRevision("rev-e6-current", "doc-e6");
+    seedRevision("rev-e6-analyzed", "doc-e6");
+    seedRunSource("run-e6", "doc-e6", "rev-e6-analyzed"); // a valid, resolvable claim — but must still be ignored
+
+    const it_ = reviewItem({
+      id: "ri-e6",
+      ai: ai({ key: "W-e6", quantity: 11, unit: "nos", source: { documentId: "doc-e6", page: 4, evidence: [] } }),
+      reviewStatus: "EDITED", reviewer: { quantity: 11 },
+    });
+    const lines = [{ id: "line-e6", external_key: "W-e6", qty: 7, unit: "nos", quantity_status: "MEASURED", scope_name: null, source_document_id: "doc-already-sourced" }];
+    const plan = buildApplyPlan([it_], lines);
+    expect(plan[0].classification).toBe("APPLY");
+    expect(plan[0].source).toBeUndefined(); // preserve-by-default already decided this upstream of any revision resolution
+    seedLine("line-e6", 7, "nos");
+
+    await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-e6"]), runId: "run-e6" });
+
+    const updateCall = calls.find((c) => c.table === "boq_line" && c.op === "update")!;
+    const patch = updateCall.payload as Record<string, unknown>;
+    expect("source_document_id" in patch).toBe(false);
+    expect("source_revision_id" in patch).toBe(false);
+    expect("source_page" in patch).toBe(false);
+    expect(patch.qty).toBe(11);
+  });
+
+  it("NEW_LINE: document, page, and the exact analyzed revision are all persisted together", async () => {
+    seedDocument("doc-e7", "rev-e7-current");
+    seedRevision("rev-e7-current", "doc-e7");
+    seedRevision("rev-e7-analyzed", "doc-e7");
+    seedRunSource("run-e7", "doc-e7", "rev-e7-analyzed");
+
+    const it_ = reviewItem({
+      id: "ri-e7", reviewStatus: "VERIFIED",
+      ai: ai({ key: "W-e7", item: "Window — full triple", quantity: 8, source: { documentId: "doc-e7", page: 12, evidence: [] } }),
+    });
+    const plan = buildApplyPlan([it_], []);
+
+    const result = await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-e7"]), runId: "run-e7" });
+    expect(result.appliedCount).toBe(1);
+
+    const row = calls.find((c) => c.table === "boq_line" && c.op === "insert")!.payload as Record<string, unknown>;
+    expect(row.source_document_id).toBe("doc-e7");
+    expect(row.source_page).toBe("12");
+    expect(row.source_revision_id).toBe("rev-e7-analyzed");
+  });
+
+  it("multiple analysis runs over the SAME document: a review item from run A never uses run B's analyzed-revision record", async () => {
+    seedDocument("doc-e8", "rev-e8-current");
+    seedRevision("rev-e8-current", "doc-e8");
+    seedRevision("rev-e8-A", "doc-e8");
+    seedRevision("rev-e8-B", "doc-e8");
+    seedRunSource("run-e8-A", "doc-e8", "rev-e8-A");
+    seedRunSource("run-e8-B", "doc-e8", "rev-e8-B");
+
+    const itemA = reviewItem({
+      id: "ri-e8-A", reviewStatus: "VERIFIED",
+      ai: ai({ key: "W-e8-A", item: "Window — run A", quantity: 1, source: { documentId: "doc-e8", page: 1, evidence: [] } }),
+    });
+    const planA = buildApplyPlan([itemA], []);
+    await applyReviewPlan({ boqId: "boq-1", candidates: planA, selectedIds: new Set(["ri-e8-A"]), runId: "run-e8-A" });
+    const rowA = calls.filter((c) => c.table === "boq_line" && c.op === "insert").at(-1)!.payload as Record<string, unknown>;
+    expect(rowA.source_revision_id).toBe("rev-e8-A");
+
+    const itemB = reviewItem({
+      id: "ri-e8-B", reviewStatus: "VERIFIED",
+      ai: ai({ key: "W-e8-B", item: "Window — run B", quantity: 1, source: { documentId: "doc-e8", page: 1, evidence: [] } }),
+    });
+    const planB = buildApplyPlan([itemB], []);
+    await applyReviewPlan({ boqId: "boq-1", candidates: planB, selectedIds: new Set(["ri-e8-B"]), runId: "run-e8-B" });
+    const rowB = calls.filter((c) => c.table === "boq_line" && c.op === "insert").at(-1)!.payload as Record<string, unknown>;
+    expect(rowB.source_revision_id).toBe("rev-e8-B");
+    expect(rowB.source_revision_id).not.toBe("rev-e8-A");
   });
 });

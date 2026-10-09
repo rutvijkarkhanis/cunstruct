@@ -589,7 +589,11 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
   }, [runId]);
 
   const applyMut = useMutation({
-    mutationFn: () => applyReviewPlan({ boqId, candidates: applyPlan, selectedIds: selectedApplyIds }),
+    // runId (Scope E): the analysis run `items`/`applyPlan` were built from —
+    // see applyReviewPlan's own doc comment on why passing it is safe (this
+    // component only ever holds items from one run at a time; importing a
+    // new analysis replaces `items`/`runId` together, never merges runs).
+    mutationFn: () => applyReviewPlan({ boqId, candidates: applyPlan, selectedIds: selectedApplyIds, runId }),
     onSuccess: (res) => {
       // Honest, best-effort provenance for the BOQ screen: only existing lines
       // this exact call is known to have modified — matchedLineId comes from
