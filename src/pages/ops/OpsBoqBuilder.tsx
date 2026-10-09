@@ -8,6 +8,7 @@ import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, roundRupee,
 import { openIntakeForm } from "@/lib/boqIntakeForm";
 import { sanityForCode, countFlagged } from "@/lib/boqSanity";
 import { parseBoqEvalJson, evalLinesToRows, pendingCount, PENDING_BASIS } from "@/lib/boqEvalJson";
+import { loadProjectDrawings } from "@/lib/review/drawingStorage";
 import BoqDocumentsPanel from "@/components/ops/BoqDocumentsPanel";
 import BoqAuditReview from "@/components/ops/BoqAuditReview";
 import AiStateBadge from "@/components/review/AiStateBadge";
@@ -30,6 +31,13 @@ interface BoqLine {
   basis: string | null; basis_note: string | null;
   external_key: string | null; measurement_method: string | null; quantity_status: string | null;
   included: boolean; source: string; sort: number;
+  /** Scope C drawing-evidence traceability, read back for display only (never
+   *  written from here). Optional — absent on a deployment still on
+   *  LINE_COLS_BASE, or on any row fetched before these columns existed;
+   *  treated identically to null, same convention as applyReview.ts's
+   *  BoqLineForApply.source_document_id. */
+  source_document_id?: string | null;
+  source_page?: string | null;
 }
 
 /** The rate in effect: the estimator's case-specific override, else the DSR reference. */
@@ -41,9 +49,9 @@ const lineAmount = (l: BoqLine) => roundRupee(l.qty * (effRate(l) ?? 0));
 // The provenance columns (basis / basis_note) come from migrations that may not be
 // run on every deployment. Select them when present, but fall back to the base
 // columns if they are missing so the builder never breaks on a stale DB.
-const LINE_COLS = "id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, cost, basis, basis_note, external_key, measurement_method, quantity_status, included, source, sort";
+const LINE_COLS = "id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, cost, basis, basis_note, external_key, measurement_method, quantity_status, included, source, sort, source_document_id, source_page";
 const LINE_COLS_BASE = "id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, cost, included, source, sort";
-const missingCol = (msg?: string) => !!msg && /\b(drawing|basis|basis_note|external_key|measurement_method|quantity_status)\b|schema cache|could not find|does not exist/i.test(msg);
+const missingCol = (msg?: string) => !!msg && /\b(drawing|basis|basis_note|external_key|measurement_method|quantity_status|source_document_id|source_page)\b|schema cache|could not find|does not exist/i.test(msg);
 async function selectBoqLines(boqId: string): Promise<BoqLine[]> {
   let r = await supabase.from("boq_line").select(LINE_COLS).eq("boq_id", boqId).order("sort");
   if (r.error && missingCol(r.error.message)) {
@@ -288,6 +296,19 @@ export default function OpsBoqBuilder() {
   });
 
   const refetchLines = () => qc.invalidateQueries({ queryKey: ["boq-lines", id] });
+
+  // Scope D — resolves Scope C's persisted boq_line.source_document_id back to
+  // a real document name for display. Reuses loadProjectDrawings as-is (the
+  // same utility BoqReviewWorkstation.tsx already uses for this exact lookup)
+  // rather than a second document-fetching path. Loaded ONCE per project, not
+  // per line — every line's badge below only ever reads from the resulting
+  // map, never issuing its own request.
+  const { data: drawings = [], isLoading: drawingsLoading } = useQuery({
+    queryKey: ["boq-drawings", boq?.project_id],
+    enabled: !!boq?.project_id,
+    queryFn: () => loadProjectDrawings(boq!.project_id!),
+  });
+  const drawingsById = useMemo(() => new Map(drawings.map((d) => [d.documentId, d])), [drawings]);
 
   // AOR coefficients for the DSR codes present on this BOQ, for the material schedule.
   const codes = useMemo(
@@ -1192,6 +1213,13 @@ export default function OpsBoqBuilder() {
                 }
                 const isExp = expanded === l.id;
                 const breakdown = l.dsr_code ? (coeffsByCode.get(l.dsr_code) ?? []) : [];
+                // Scope D — read-only display of Scope C's persisted source
+                // reference. `sourceDrawing` undefined while drawings are still
+                // loading is deliberately NOT reported as unresolved (that would
+                // flash "unavailable" on every page load); only once loading has
+                // actually finished does a genuinely missing match count as one.
+                const sourceDrawing = l.source_document_id ? drawingsById.get(l.source_document_id) : undefined;
+                const sourceUnresolved = !!l.source_document_id && !sourceDrawing && !drawingsLoading;
                 return (
                   <div key={l.id} className={cn("border-b last:border-0", !l.included && "opacity-40")}>
                     <div className="grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_4.5rem_3rem_5rem_5.5rem_auto] items-start gap-x-3 gap-y-1 py-2">
@@ -1210,6 +1238,16 @@ export default function OpsBoqBuilder() {
                             </span>
                           )}
                           {justAppliedLineIds.includes(l.id) && <AiStateBadge state="applied" />}
+                          {sourceDrawing && (
+                            <span className="inline-flex items-center gap-0.5 text-muted-foreground font-sans" title={`Sourced from ${sourceDrawing.name}${l.source_page ? `, page ${l.source_page}` : ""}`}>
+                              <FileText className="h-3 w-3" />{sourceDrawing.name}{l.source_page ? ` · p.${l.source_page}` : ""}
+                            </span>
+                          )}
+                          {sourceUnresolved && (
+                            <span className="inline-flex items-center gap-0.5 text-muted-foreground font-sans" title="This line's source drawing could not be resolved">
+                              <FileText className="h-3 w-3" />Source document unavailable
+                            </span>
+                          )}
                         </div>
                         <Input className="h-8 text-[13px] mb-1" defaultValue={l.description ?? ""} placeholder="Item description"
                           onClick={(e) => e.stopPropagation()}
