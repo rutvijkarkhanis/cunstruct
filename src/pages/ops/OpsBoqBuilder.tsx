@@ -8,7 +8,7 @@ import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, roundRupee,
 import { openIntakeForm } from "@/lib/boqIntakeForm";
 import { sanityForCode, countFlagged } from "@/lib/boqSanity";
 import { parseBoqEvalJson, evalLinesToRows, pendingCount, PENDING_BASIS } from "@/lib/boqEvalJson";
-import { loadProjectDrawings } from "@/lib/review/drawingStorage";
+import { loadProjectDrawings, resolveDrawingSource } from "@/lib/review/drawingStorage";
 import BoqDocumentsPanel from "@/components/ops/BoqDocumentsPanel";
 import BoqAuditReview from "@/components/ops/BoqAuditReview";
 import AiStateBadge from "@/components/review/AiStateBadge";
@@ -314,15 +314,11 @@ export default function OpsBoqBuilder() {
   // reused by both export paths so the PDF and CSV agree with the editor about
   // which source references are actually available. Never resolves anything new:
   // reads only drawingsById, already loaded above for the editor's own display.
-  const resolveLineSource = (line: BoqLine): { sourceDocument: string | null; sourcePage: string | null } => {
-    const sourceDrawing = line.source_document_id ? drawingsById.get(line.source_document_id) : undefined;
-    const sourceUnresolved = !!line.source_document_id && !sourceDrawing && !drawingsLoading;
-    return {
-      sourceDocument: sourceDrawing ? sourceDrawing.name : sourceUnresolved ? "Source document unavailable" : null,
-      // Never shown without a genuinely resolved name — see QuoteItem/CsvRow's own contract.
-      sourcePage: sourceDrawing ? (line.source_page ?? null) : null,
-    };
-  };
+  // The resolution rule itself now lives in drawingStorage.ts's
+  // resolveDrawingSource, shared with the combined multi-BOQ export
+  // (ProjectBoqs.tsx) — this is just the BoqLine-shaped call site.
+  const resolveLineSource = (line: BoqLine) =>
+    resolveDrawingSource(line.source_document_id, line.source_page, drawingsById, drawingsLoading);
 
   // AOR coefficients for the DSR codes present on this BOQ, for the material schedule.
   const codes = useMemo(

@@ -15,6 +15,7 @@ import { parseBoqImport } from "@/lib/boqImport";
 import { parseBoqEvalJson, evalLinesToRows, pendingCount } from "@/lib/boqEvalJson";
 import { computeCommercials, roundRupee, openProjectQuote, type ProjectQuoteBoq, type QuoteSubHead } from "@/lib/boqDsrDocument";
 import { useBoqManagement, NEW_SCOPE, type BoqRow } from "@/hooks/useBoqManagement";
+import { loadProjectDrawings, resolveDrawingSource } from "@/lib/review/drawingStorage";
 
 interface MovableBoq { id: string; name: string; project_id: string | null; scope_id: string | null; updated_at: string; }
 type Mode = null | "create" | "import" | "move" | "json" | "share";
@@ -48,6 +49,18 @@ export default function ProjectBoqs() {
       return data as { name: string; client_name: string | null; location: string | null; project_type: string | null; floors: number | null; area_sqft: number | null } | null;
     },
   });
+
+  // Scope H follow-up — the combined client export's own source-document
+  // resolution, same mechanism OpsBoqBuilder.tsx uses for the single-BOQ
+  // export: one project-scoped, batched load (never per line, never per BOQ),
+  // resolved via the shared resolveDrawingSource() rule so both export paths
+  // can never disagree about which source references are actually available.
+  const { data: drawings = [], isLoading: drawingsLoading } = useQuery({
+    queryKey: ["project-drawings", projectId],
+    enabled: !!projectId,
+    queryFn: () => loadProjectDrawings(projectId!),
+  });
+  const drawingsById = useMemo(() => new Map(drawings.map((d) => [d.documentId, d])), [drawings]);
 
   // BOQs that can be moved into this project: standalone (no project) or under a
   // different project. Loaded only when the Move panel is open.
@@ -202,7 +215,12 @@ export default function ProjectBoqs() {
 
   // Group one BOQ's included, quantified lines into numbered sub-heads (same ordering
   // as the builder: by DSR chapter, then name), each with a priced subtotal.
-  const subheadsFromLines = (lns: { section: string | null; dsr_code: string | null; description: string | null; unit: string | null; qty: number; dsr_rate: number | null; custom_rate: number | null }[]): QuoteSubHead[] => {
+  //
+  // Scope H follow-up — source_document_id/source_page are resolved here via the
+  // same resolveDrawingSource() rule OpsBoqBuilder.tsx's single-BOQ export uses,
+  // against drawingsById/drawingsLoading already loaded once for the whole
+  // project (see above) — never a new per-line or per-BOQ lookup.
+  const subheadsFromLines = (lns: { section: string | null; dsr_code: string | null; description: string | null; unit: string | null; qty: number; dsr_rate: number | null; custom_rate: number | null; source_document_id: string | null; source_page: string | null }[]): QuoteSubHead[] => {
     const groups = new Map<string, typeof lns>();
     for (const l of lns) { const sec = l.section ?? "Other"; const a = groups.get(sec) ?? []; a.push(l); groups.set(sec, a); }
     const chapterNo = (g: typeof lns) => { const coded = g.find((l) => l.dsr_code); return coded ? parseInt(coded.dsr_code!.split(".")[0], 10) || 900 : 999; };
@@ -213,7 +231,11 @@ export default function ProjectBoqs() {
         let item = 0;
         const lines = g.map((l) => {
           const rate = l.custom_rate ?? l.dsr_rate;
-          return { no: `${no}.${String(++item).padStart(2, "0")}`, code: l.dsr_code, spec: l.description ?? "", qty: l.qty, unit: l.unit ?? "", rate, amount: rate != null ? roundRupee(l.qty * rate) : null };
+          const { sourceDocument, sourcePage } = resolveDrawingSource(l.source_document_id, l.source_page, drawingsById, drawingsLoading);
+          return {
+            no: `${no}.${String(++item).padStart(2, "0")}`, code: l.dsr_code, spec: l.description ?? "", qty: l.qty, unit: l.unit ?? "",
+            rate, amount: rate != null ? roundRupee(l.qty * rate) : null, sourceDocument, sourcePage,
+          };
         });
         const subtotal = lines.reduce((s, l) => s + (l.amount ?? 0), 0);
         return { no, name, subtotal, lines };
@@ -229,12 +251,16 @@ export default function ProjectBoqs() {
       const ids = list.map((b) => b.id);
       const [{ data: specRows }, { data: lineRows, error }] = await Promise.all([
         supabase.from("boq").select("id, spec").in("id", ids),
-        supabase.from("boq_line").select("boq_id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, included, sort").in("boq_id", ids).order("sort"),
+        supabase.from("boq_line").select("boq_id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, included, sort, source_document_id, source_page").in("boq_id", ids).order("sort"),
       ]);
       if (error) throw error;
       const specById = new Map<string, Record<string, unknown>>();
       for (const r of (specRows ?? []) as { id: string; spec: Record<string, unknown> | null }[]) specById.set(r.id, r.spec ?? {});
-      type Ln = { boq_id: string; section: string | null; dsr_code: string | null; description: string | null; unit: string | null; qty: number; dsr_rate: number | null; custom_rate: number | null; included: boolean };
+      type Ln = {
+        boq_id: string; section: string | null; dsr_code: string | null; description: string | null; unit: string | null;
+        qty: number; dsr_rate: number | null; custom_rate: number | null; included: boolean;
+        source_document_id: string | null; source_page: string | null;
+      };
       const byBoq = new Map<string, Ln[]>();
       for (const l of (lineRows ?? []) as Ln[]) { const a = byBoq.get(l.boq_id) ?? []; a.push(l); byBoq.set(l.boq_id, a); }
 

@@ -117,3 +117,40 @@ export async function loadProjectDrawings(projectId: string): Promise<StoredDraw
     };
   });
 }
+
+/**
+ * Resolve a single boq_line's source_document_id/source_page against a
+ * project's already-loaded drawings (a `loadProjectDrawings` result keyed by
+ * `documentId`) — the one shared rule both the BOQ editor's badge and every
+ * export path (single-BOQ and combined multi-BOQ) use, so they can never
+ * disagree about which source references are actually available.
+ *
+ * Never resolves anything new and never fabricates: `drawingsById` must
+ * already be scoped to the correct project (as `loadProjectDrawings(projectId)`
+ * naturally is), so a sourceDocumentId that belongs to a different project —
+ * or any other id this project's drawings don't contain — simply won't be
+ * found here, the same as a genuinely deleted/missing document.
+ *
+ *   - No `sourceDocumentId` at all        -> no source reference.
+ *   - Id found in `drawingsById`           -> that document's real name,
+ *     plus its page ONLY if `sourcePage` is non-null (never a page without a
+ *     resolved name).
+ *   - Id present, not found, still loading -> no source reference YET (never
+ *     "unavailable" prematurely, which would otherwise flash on every
+ *     cold load before the drawings query settles).
+ *   - Id present, not found, loading done  -> "Source document unavailable",
+ *     literally — never the raw id, never a guessed name.
+ */
+export function resolveDrawingSource(
+  sourceDocumentId: string | null | undefined,
+  sourcePage: string | null | undefined,
+  drawingsById: Map<string, StoredDrawing>,
+  drawingsLoading: boolean,
+): { sourceDocument: string | null; sourcePage: string | null } {
+  const drawing = sourceDocumentId ? drawingsById.get(sourceDocumentId) : undefined;
+  const unresolved = !!sourceDocumentId && !drawing && !drawingsLoading;
+  return {
+    sourceDocument: drawing ? drawing.name : unresolved ? "Source document unavailable" : null,
+    sourcePage: drawing ? (sourcePage ?? null) : null,
+  };
+}
