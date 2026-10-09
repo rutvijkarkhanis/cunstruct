@@ -34,6 +34,11 @@ vi.mock("@/integrations/supabase/client", () => {
         if (table === "document_folder") return chain(table, () => ({ data: [FOLDER], error: null }));
         if (table === "project_document") return chain(table, () => ({ data: [DOC_IN_FOLDER, UNFILED_DOC], error: null }));
         if (table === "document_revision") return chain(table, () => ({ data: [REV], error: null }));
+        // Scope G — deleteDocument() now counts referencing boq_line rows
+        // before confirming. No boq_line fixture is referenced by either
+        // document in this file's scenarios, so this is the (real,
+        // zero-reference) count case, not a stand-in for "untested."
+        if (table === "boq_line") return chain(table, () => ({ data: null, error: null, count: 0 }));
         return chain(table, () => ({ data: [], error: null }));
       },
     },
@@ -103,9 +108,13 @@ describe("WorkspaceSourceManager", () => {
     confirmReturn = false;
     renderDrawer();
     fireEvent.click(await screen.findByLabelText("Delete Plan A"));
-    expect(window.confirm).toHaveBeenCalledWith(
+    // Scope G — deleteDocument() now awaits a boq_line reference count before
+    // calling confirm(); the mocked query still resolves asynchronously, so
+    // this waits for that same confirm() call rather than asserting on the
+    // same tick as the click.
+    await waitFor(() => expect(window.confirm).toHaveBeenCalledWith(
       'Delete "Plan A" and its uploaded file? Existing analysis review history is kept.',
-    );
+    ));
   });
 
   it("Stage C4 — no longer links out to a separate Documents page (that route now redirects back into this same drawer)", async () => {

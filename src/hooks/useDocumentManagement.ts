@@ -314,8 +314,32 @@ export function useDocumentManagement(projectId: string | undefined | null) {
   };
 
   // ---- Delete a document + its stored files (analysis history is untouched) --
+  //
+  // boq_line.source_document_id is ON DELETE SET NULL (project_workspace
+  // migration) — deleting this document silently erases that drawing-source
+  // reference on every boq_line that currently carries it, via a raw DB
+  // cascade that writes no boq_line_change_log entry at all (that table only
+  // ever gets rows from an explicit Apply — see applyReviewPlan). This counts
+  // those lines FIRST and folds the number into the one confirmation prompt,
+  // so a user can't delete a referenced document without being told.
+  //
+  // A failed or indeterminate count is never treated as "zero references" —
+  // that would silently let a referenced document through under the
+  // unqualified, lower-stakes zero-reference message. Deletion aborts safely
+  // instead; the user can retry once the count can actually be established.
   const deleteDocument = async (doc: ProjectDocument): Promise<void> => {
-    if (!confirm(`Delete "${doc.name}" and its uploaded file? Existing analysis review history is kept.`)) return;
+    const { count: affectedLineCount, error: countError } = await supabase
+      .from("boq_line")
+      .select("id", { count: "exact", head: true })
+      .eq("source_document_id", doc.id);
+    if (countError || affectedLineCount == null) {
+      toast.error("Could not check whether BOQ lines reference this document. Delete cancelled — please try again.");
+      return;
+    }
+    const confirmMessage = affectedLineCount > 0
+      ? `Delete "${doc.name}" and its uploaded file? This will remove the drawing-source reference from ${affectedLineCount} BOQ line${affectedLineCount === 1 ? "" : "s"}. Existing analysis review history is kept.`
+      : `Delete "${doc.name}" and its uploaded file? Existing analysis review history is kept.`;
+    if (!confirm(confirmMessage)) return;
     try {
       const paths = revsFor(doc.id).map((r) => r.file_path).filter(Boolean) as string[];
       for (const p of paths) { try { await deleteDrawing(p); } catch { /* keep going */ } }

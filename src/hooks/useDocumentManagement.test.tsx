@@ -22,6 +22,15 @@ const inserted: Record<string, unknown[]> = {};
 const updated: Record<string, unknown[]> = {};
 const deleted: Record<string, unknown[]> = {};
 
+// Scope G — the boq_line reference-count check deleteDocument() now runs
+// before confirming. Modeled separately from the generic `chain()` helper
+// below so the exact filter column/value reaching `.eq()` can be asserted —
+// proving the query is actually scoped to this document, not merely that
+// *some* count was requested.
+let boqLineCount: number | null = 0;
+let boqLineCountError: { message: string } | null = null;
+const boqLineEqCalls: { col: string; val: unknown }[] = [];
+
 vi.mock("@/integrations/supabase/client", () => {
   const chain = (table: string, getResult: () => { data: unknown; error: null }) => {
     const obj: Record<string, unknown> = {};
@@ -39,6 +48,14 @@ vi.mock("@/integrations/supabase/client", () => {
         if (table === "document_folder") return chain(table, () => ({ data: table in inserted ? { id: "new-folder-id" } : folders, error: null }));
         if (table === "project_document") return chain(table, () => ({ data: docs, error: null }));
         if (table === "document_revision") return chain(table, () => ({ data: revs, error: null }));
+        if (table === "boq_line") {
+          const obj: Record<string, unknown> = {};
+          obj.select = () => obj;
+          obj.eq = (col: string, val: unknown) => { boqLineEqCalls.push({ col, val }); return obj; };
+          (obj as { then: unknown }).then = (resolve: (r: { data: null; error: unknown; count: number | null }) => void) =>
+            resolve({ data: null, error: boqLineCountError, count: boqLineCountError ? null : boqLineCount });
+          return obj;
+        }
         return chain(table, () => ({ data: [], error: null }));
       },
     },
@@ -61,6 +78,9 @@ describe("useDocumentManagement", () => {
     Object.keys(inserted).forEach((k) => delete inserted[k]);
     Object.keys(updated).forEach((k) => delete updated[k]);
     Object.keys(deleted).forEach((k) => delete deleted[k]);
+    boqLineCount = 0;
+    boqLineCountError = null;
+    boqLineEqCalls.length = 0;
   });
 
   it("loads folders/docs grouped by folder, with the current revision resolvable via revsFor", async () => {
@@ -109,6 +129,90 @@ describe("useDocumentManagement", () => {
     await act(async () => { await result.current.deleteDocument(DOC); });
     expect(deleted.project_document).toHaveLength(1);
     expect(toast.success).toHaveBeenCalledWith(`Deleted ${DOC.name}`);
+  });
+
+  // ── Scope G — warn before deleting a document referenced by BOQ lines ──────
+
+  it("deleteDocument queries boq_line filtered by THIS document's id, not merely requesting some count", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { result } = renderDm();
+    await waitFor(() => expect(result.current.docs).toBeDefined());
+    await act(async () => { await result.current.deleteDocument(DOC); });
+    expect(boqLineEqCalls).toEqual([{ col: "source_document_id", val: DOC.id }]);
+  });
+
+  it("zero references: the confirmation text is byte-identical to before Scope G, and deletion proceeds", async () => {
+    boqLineCount = 0;
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { result } = renderDm();
+    await waitFor(() => expect(result.current.docs).toBeDefined());
+    await act(async () => { await result.current.deleteDocument(DOC); });
+    expect(confirmSpy).toHaveBeenCalledWith(`Delete "${DOC.name}" and its uploaded file? Existing analysis review history is kept.`);
+    expect(deleted.project_document).toHaveLength(1);
+  });
+
+  it("one reference: the confirmation explicitly warns, in the singular, that one BOQ line will lose its drawing-source reference", async () => {
+    boqLineCount = 1;
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { result } = renderDm();
+    await waitFor(() => expect(result.current.docs).toBeDefined());
+    await act(async () => { await result.current.deleteDocument(DOC); });
+    expect(confirmSpy).toHaveBeenCalledWith(
+      `Delete "${DOC.name}" and its uploaded file? This will remove the drawing-source reference from 1 BOQ line. Existing analysis review history is kept.`,
+    );
+  });
+
+  it("multiple references: the confirmation shows the exact count with plural wording", async () => {
+    boqLineCount = 3;
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { result } = renderDm();
+    await waitFor(() => expect(result.current.docs).toBeDefined());
+    await act(async () => { await result.current.deleteDocument(DOC); });
+    expect(confirmSpy).toHaveBeenCalledWith(
+      `Delete "${DOC.name}" and its uploaded file? This will remove the drawing-source reference from 3 BOQ lines. Existing analysis review history is kept.`,
+    );
+  });
+
+  it("declining with references present deletes nothing", async () => {
+    boqLineCount = 2;
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const { result } = renderDm();
+    await waitFor(() => expect(result.current.docs).toBeDefined());
+    await act(async () => { await result.current.deleteDocument(DOC); });
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(deleted.project_document).toBeUndefined();
+  });
+
+  it("confirming with references present proceeds through the existing deletion flow unchanged", async () => {
+    boqLineCount = 2;
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { result } = renderDm();
+    await waitFor(() => expect(result.current.docs).toBeDefined());
+    await act(async () => { await result.current.deleteDocument(DOC); });
+    expect(deleted.project_document).toHaveLength(1);
+    expect(toast.success).toHaveBeenCalledWith(`Deleted ${DOC.name}`);
+  });
+
+  it("a count-query error aborts deletion safely — never silently shown the zero-reference confirmation", async () => {
+    boqLineCountError = { message: "network error" };
+    const confirmSpy = vi.spyOn(window, "confirm");
+    const { result } = renderDm();
+    await waitFor(() => expect(result.current.docs).toBeDefined());
+    await act(async () => { await result.current.deleteDocument(DOC); });
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(deleted.project_document).toBeUndefined();
+    expect(toast.error).toHaveBeenCalledWith("Could not check whether BOQ lines reference this document. Delete cancelled — please try again.");
+  });
+
+  it("an indeterminate count (null, no error) aborts deletion safely, exactly like a count-query error", async () => {
+    boqLineCount = null;
+    const confirmSpy = vi.spyOn(window, "confirm");
+    const { result } = renderDm();
+    await waitFor(() => expect(result.current.docs).toBeDefined());
+    await act(async () => { await result.current.deleteDocument(DOC); });
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(deleted.project_document).toBeUndefined();
+    expect(toast.error).toHaveBeenCalledWith("Could not check whether BOQ lines reference this document. Delete cancelled — please try again.");
   });
 
   it("addRevision rejects a blank label without hitting the network", async () => {
