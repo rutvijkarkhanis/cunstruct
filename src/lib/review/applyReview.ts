@@ -45,6 +45,15 @@ export interface BoqLineForApply {
   unit: string | null;
   quantity_status: string | null;
   scope_name: string | null;
+  /** The line's CURRENT source_document_id, if it has one. Consulted ONLY to
+   *  decide whether an APPLY (matched-line) candidate should propose writing
+   *  a source reference — a line that already carries one keeps it; see
+   *  classifyReviewItem's `source` field below. Optional so every existing
+   *  BoqLineForApply fixture/caller that predates this field keeps compiling
+   *  unchanged; absent is treated identically to null — "no source yet",
+   *  the safe default that only ever ENABLES a first-time population, never
+   *  blocks one. */
+  source_document_id?: string | null;
 }
 
 export type ApplyClassification =
@@ -98,6 +107,26 @@ export interface ApplyCandidate {
    * NEW_LINE or any other classification.
    */
   expectedLineState?: { qty: number; unit: string | null };
+  /**
+   * The AI item's own drawing-source reference (Scope C — traceability),
+   * proposed for writing ONLY when it is safe and non-destructive to do so:
+   *   - NEW_LINE: always populated when item.ai.source.documentId is a
+   *     non-empty string — there is no existing provenance to protect.
+   *   - APPLY (matched line): populated ONLY when the matched line does not
+   *     already carry a source_document_id (`!match.source_document_id`) —
+   *     existing provenance is preserved by default, never silently
+   *     replaced by a later Apply's source. A line that already has one
+   *     keeps `source` undefined here, meaning "nothing to write."
+   * `page` is carried through as a plain number (converted to text at the
+   * write site, matching boq_line.source_page's column type) and is
+   * genuinely optional — a source can be a whole-document reference with no
+   * specific page. Never includes a revision id: AnalysisSource captures
+   * none (see analysisSchemaV1.ts's own doc comment), so resolving
+   * source_revision_id is applyReviewPlan's job, not this pure function's —
+   * it requires an I/O lookup this function (documented pure, no I/O) must
+   * never perform.
+   */
+  source?: { documentId: string; page: number | null };
 }
 
 function effectiveUnit(item: StoredReviewItem): string | null {
@@ -110,6 +139,29 @@ function effectiveQty(item: StoredReviewItem): number | null {
 }
 const displayQty = (qty: number, status: string | null) => (status === "PENDING" ? "pending" : String(qty));
 const norm = (s: string | null | undefined) => (s ?? "").trim();
+
+/**
+ * The drawing-source reference to propose for this item, or undefined when
+ * there is nothing safe to propose. `existingSourceDocumentId` is the
+ * MATCHED line's current value (undefined/null for a NEW_LINE, which has no
+ * existing line to protect) — a truthy value means the line already has
+ * provenance, which this function must never silently replace.
+ *
+ * documentId is required (AnalysisSource.document, the by-name fallback,
+ * is never used here — only the stable stored-document id is trustworthy
+ * enough to persist as a foreign key). A missing/empty documentId yields
+ * undefined, never a guessed or name-matched id.
+ */
+function sourceToPropose(
+  item: StoredReviewItem,
+  existingSourceDocumentId: string | null | undefined,
+): { documentId: string; page: number | null } | undefined {
+  if (existingSourceDocumentId) return undefined; // preserve existing provenance — never overwrite
+  const documentId = item.ai.source?.documentId;
+  if (!documentId) return undefined; // nothing safe to propose — never guessed
+  const page = item.ai.source?.page;
+  return { documentId, page: typeof page === "number" ? page : null };
+}
 
 const UNSUPPORTED_FIELDS = ["dimension", "specification", "location"] as const;
 
@@ -218,6 +270,7 @@ export function classifyReviewItem(item: StoredReviewItem, lines: BoqLineForAppl
     return {
       ...base, classification: "APPLY", matchedLineId: match.id, changes, unsupportedChanges,
       expectedLineState: { qty: match.qty, unit: match.unit },
+      source: sourceToPropose(item, match.source_document_id),
     };
   }
 
@@ -237,6 +290,7 @@ export function classifyReviewItem(item: StoredReviewItem, lines: BoqLineForAppl
     ],
     unsupportedChanges,
     newLine: { description: item.ai.item, unit, qty: qty ?? 0, pending: qty == null, location: item.ai.location ?? null },
+    source: sourceToPropose(item, null),
   };
 }
 
@@ -298,6 +352,49 @@ async function resolveScopeIdForLocation(projectId: string, location: string): P
 }
 
 /**
+ * Resolve a document id to its CURRENT revision id, for writing
+ * boq_line.source_revision_id (a real foreign key to document_revision,
+ * unlike project_document.current_revision_id itself — see
+ * drawingStorage.ts's loadProjectDrawings, the only other place in this
+ * codebase that already resolves this same soft reference).
+ *
+ * project_document.current_revision_id is an unchecked soft reference (see
+ * the project_workspace migration's "avoids circular FK" comment) — it can
+ * point at a revision row that exists but belongs to a DIFFERENT document,
+ * if it's ever stale or corrupted. document_revision.document_id IS a real,
+ * FK-enforced column (references project_document(id)), so the existence
+ * check below filters on BOTH `id` and `document_id`: a revision that
+ * exists but doesn't belong to `documentId` is treated exactly like one
+ * that doesn't exist at all — never persisted as this document's source.
+ *
+ * KNOWN LIMITATION, stated rather than solved: AnalysisItemV1.source
+ * carries a documentId but no revision id at all (see analysisSchemaV1.ts —
+ * AnalysisSource has no revisionId field). This resolves the document's
+ * CURRENT revision at Apply time, which is the best available signal, but
+ * is not necessarily the exact revision the AI analysis read if the
+ * document was re-uploaded between analysis and Apply. Never fabricated:
+ * returns null (never a guess) when the document has no current_revision_id,
+ * that id does not resolve to a real document_revision row, or that row
+ * belongs to a different document.
+ */
+async function resolveSourceRevisionId(documentId: string): Promise<string | null> {
+  const { data: doc } = await supabase
+    .from("project_document")
+    .select("current_revision_id")
+    .eq("id", documentId)
+    .maybeSingle();
+  const revisionId = (doc as { current_revision_id: string | null } | null)?.current_revision_id;
+  if (!revisionId) return null;
+  const { data: revision } = await supabase
+    .from("document_revision")
+    .select("id")
+    .eq("id", revisionId)
+    .eq("document_id", documentId)
+    .maybeSingle();
+  return revision ? revisionId : null;
+}
+
+/**
  * Execute the reviewer's confirmed selection. Only candidates in `selectedIds`
  * with classification APPLY or NEW_LINE are written; everything else (including
  * a candidate that IS selected but isn't APPLY/NEW_LINE — which the UI should
@@ -342,6 +439,27 @@ export async function applyReviewPlan(args: {
   // duplicating the BOQ entry (and double-counting its quantity).
   const createdNewLineIdentities = new Set<string>();
   const conflictedReviewItemIds: string[] = [];
+  // Resolved at most once per distinct documentId in this call (see
+  // resolveSourceRevisionId) — never re-looked-up per candidate.
+  const revisionIdByDocumentId = new Map<string, string | null>();
+  async function resolveCachedRevisionId(documentId: string): Promise<string | null> {
+    if (!revisionIdByDocumentId.has(documentId)) {
+      revisionIdByDocumentId.set(documentId, await resolveSourceRevisionId(documentId));
+    }
+    return revisionIdByDocumentId.get(documentId) ?? null;
+  }
+  /** The source columns to include in a write, or {} when `c.source` is
+   *  undefined (nothing proposed — see classifyReviewItem/sourceToPropose).
+   *  Never overwrites an unrelated column; merged into an existing patch. */
+  async function sourcePatchFor(c: ApplyCandidate): Promise<Record<string, unknown>> {
+    if (!c.source) return {};
+    const revisionId = await resolveCachedRevisionId(c.source.documentId);
+    return {
+      source_document_id: c.source.documentId,
+      source_revision_id: revisionId,
+      source_page: c.source.page == null ? null : String(c.source.page),
+    };
+  }
 
   for (const c of args.candidates) {
     if (!args.selectedIds.has(c.reviewItemId)) continue;
@@ -398,6 +516,12 @@ export async function applyReviewPlan(args: {
         patch.unit = unitChange.to === "—" ? null : unitChange.to;
         if (c.expectedLineState) expected.unit = c.expectedLineState.unit;
       }
+      // Source-traceability (Scope C): rides along on the SAME conditional
+      // update as qty/unit above — c.source is only ever populated when the
+      // candidate also has a real qty/unit change (see classifyReviewItem),
+      // so this never becomes an unguarded, isolated write to a possibly
+      // stale row.
+      Object.assign(patch, await sourcePatchFor(c));
       const applied = await applyReviewQtyUnit(lineId, patch, expected);
       if (!applied) {
         // The row no longer matches the snapshot this diff was computed
@@ -423,9 +547,16 @@ export async function applyReviewPlan(args: {
         }
         if (projectId) scopeId = await resolveScopeIdForLocation(projectId, location);
       }
+      // Source-traceability (Scope C) — a brand-new line has no existing
+      // provenance to protect, so this is always included when the item
+      // carries a mappable source (see classifyReviewItem/sourceToPropose).
+      const sourcePatch = await sourcePatchFor(c);
       const insertedLineId = await addReviewItemAsLine({
         boqId: args.boqId, description: c.newLine.description, unit: c.newLine.unit,
         qty: c.newLine.qty, pending: c.newLine.pending, externalKey: c.itemKey, scopeId,
+        sourceDocumentId: (sourcePatch.source_document_id as string | undefined) ?? null,
+        sourceRevisionId: (sourcePatch.source_revision_id as string | undefined) ?? null,
+        sourcePage: (sourcePatch.source_page as string | undefined) ?? null,
       });
       if (insertedLineId == null) {
         // The database's boq_line identity index rejected this insert as a

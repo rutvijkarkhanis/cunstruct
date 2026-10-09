@@ -25,6 +25,50 @@ function seedLine(id: string, qty: number, unit: string | null) {
   boqLineStore.set(id, { qty, unit });
 }
 
+// Scope C — source-revision resolution mock state. Mirrors exactly what
+// resolveSourceRevisionId (applyReview.ts) reads: project_document's
+// current_revision_id (a soft reference, may be stale/missing) and whether
+// that id actually exists as a document_revision row BELONGING TO the
+// requested document. documentRevisionOwner models real ownership
+// (revisionId -> the document_id it actually belongs to) rather than a flat
+// set of "known" ids, so a seeded revision that belongs to a DIFFERENT
+// document than the one being resolved is correctly rejected by this mock,
+// exactly as the real document_revision.document_id FK column would.
+const projectDocumentStore = new Map<string, { current_revision_id: string | null }>();
+const documentRevisionOwner = new Map<string, string>();
+function seedDocument(documentId: string, currentRevisionId: string | null) {
+  projectDocumentStore.set(documentId, { current_revision_id: currentRevisionId });
+}
+function seedRevision(revisionId: string, ownerDocumentId: string) {
+  documentRevisionOwner.set(revisionId, ownerDocumentId);
+}
+
+/** A minimal .select(cols).eq(col, val).maybeSingle() reader for
+ *  project_document/document_revision — the only read shape
+ *  resolveSourceRevisionId actually issues. For document_revision, a row is
+ *  only returned when BOTH the `id` filter matches a seeded revision AND
+ *  (when present) the `document_id` filter matches that revision's actual
+ *  owner — mirroring the real FK-backed column, not just an existence set. */
+function selectBuilder(table: string, filters: Record<string, unknown> = {}) {
+  return {
+    eq: (col: string, val: unknown) => selectBuilder(table, { ...filters, [col]: val }),
+    maybeSingle: async () => {
+      const id = filters.id as string | undefined;
+      if (table === "project_document") {
+        const row = id ? projectDocumentStore.get(id) : undefined;
+        return { data: row ?? null, error: null };
+      }
+      if (table === "document_revision") {
+        const owner = id ? documentRevisionOwner.get(id) : undefined;
+        const documentIdFilter = filters.document_id as string | undefined;
+        const found = owner != null && (documentIdFilter === undefined || owner === documentIdFilter);
+        return { data: found ? { id } : null, error: null };
+      }
+      return { data: null, error: null };
+    },
+  };
+}
+
 /** A chainable update() builder supporting the two shapes updateLineResilient
  *  actually produces: the plain legacy path (`.update(patch).eq("id", id)`,
  *  awaited directly) and the guarded compare-and-swap path (additional
@@ -75,6 +119,7 @@ vi.mock("@/integrations/supabase/client", () => ({
         };
       },
       update: (payload: Record<string, unknown>) => updateBuilder(table, payload),
+      select: (_cols: string) => selectBuilder(table),
     }),
   },
 }));
@@ -100,7 +145,7 @@ function changeLogRows(): { field: string; old_value: string | null; new_value: 
     .flatMap((c) => c.payload as { field: string; old_value: string | null; new_value: string | null }[]);
 }
 
-beforeEach(() => { calls.length = 0; boqLineStore.clear(); });
+beforeEach(() => { calls.length = 0; boqLineStore.clear(); projectDocumentStore.clear(); documentRevisionOwner.clear(); });
 
 describe("applyReviewPlan — NEW_LINE audit logging", () => {
   it("records field-level qty AND unit audit entries, alongside line_created as additional provenance", async () => {
@@ -370,5 +415,195 @@ describe("applyReviewPlan — cross-call stale-snapshot guard (compare-and-swap)
     const rows = changeLogRows();
     expect(rows).toEqual([expect.objectContaining({ field: "unit", old_value: "nos", new_value: "sqft" })]);
     expect(rows.some((r) => r.new_value === "sqm")).toBe(false);
+  });
+});
+
+// ── Scope C — drawing-evidence traceability: the actual write, including
+// source_revision_id resolution against project_document/document_revision. ──
+describe("applyReviewPlan — source traceability (Scope C)", () => {
+  it("NEW_LINE: a valid source resolves document_id/revision_id/page and writes all three", async () => {
+    seedDocument("doc-1", "rev-1");
+    seedRevision("rev-1", "doc-1");
+    const it_ = reviewItem({
+      id: "ri-src-1",
+      ai: ai({ key: "W20", item: "Window W20", quantity: 4, unit: "nos", source: { documentId: "doc-1", page: 7, evidence: [] } }),
+      reviewStatus: "VERIFIED",
+    });
+    const plan = buildApplyPlan([it_], []);
+    expect(plan[0].classification).toBe("NEW_LINE");
+    expect(plan[0].source).toEqual({ documentId: "doc-1", page: 7 });
+
+    await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-src-1"]) });
+
+    const insertCall = calls.find((c) => c.table === "boq_line" && c.op === "insert")!;
+    const row = insertCall.payload as Record<string, unknown>;
+    expect(row.source_document_id).toBe("doc-1");
+    expect(row.source_revision_id).toBe("rev-1");
+    expect(row.source_page).toBe("7");
+  });
+
+  it("NEW_LINE: a document whose current_revision_id does not resolve to a real revision writes a null revision, never a guess", async () => {
+    seedDocument("doc-1", "rev-stale"); // points at a revision that doesn't actually exist
+    // seedRevision("rev-stale") deliberately NOT called
+    const it_ = reviewItem({
+      id: "ri-src-2",
+      ai: ai({ key: "W21", item: "Window W21", quantity: 4, unit: "nos", source: { documentId: "doc-1", page: 2, evidence: [] } }),
+      reviewStatus: "VERIFIED",
+    });
+    const plan = buildApplyPlan([it_], []);
+    await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-src-2"]) });
+
+    const row = calls.find((c) => c.table === "boq_line" && c.op === "insert")!.payload as Record<string, unknown>;
+    expect(row.source_document_id).toBe("doc-1");
+    expect(row.source_revision_id).toBeNull();
+    expect(row.source_page).toBe("2");
+  });
+
+  it("NEW_LINE: no source on the item writes all three source columns as null — never fabricated", async () => {
+    const it_ = reviewItem({ id: "ri-src-3", ai: ai({ key: "W22", item: "Window W22", quantity: 4, unit: "nos" }), reviewStatus: "VERIFIED" });
+    const plan = buildApplyPlan([it_], []);
+    expect(plan[0].source).toBeUndefined();
+    await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-src-3"]) });
+
+    const row = calls.find((c) => c.table === "boq_line" && c.op === "insert")!.payload as Record<string, unknown>;
+    expect(row.source_document_id).toBeNull();
+    expect(row.source_revision_id).toBeNull();
+    expect(row.source_page).toBeNull();
+  });
+
+  it("APPLY (matched line with no existing source): the update patch includes the resolved source columns", async () => {
+    seedDocument("doc-2", "rev-2");
+    seedRevision("rev-2", "doc-2");
+    const it_ = reviewItem({
+      id: "ri-src-4",
+      ai: ai({ key: "W23", quantity: 7, unit: "nos", source: { documentId: "doc-2", page: 1, evidence: [] } }),
+      reviewStatus: "EDITED", reviewer: { quantity: 8 },
+    });
+    const lines = [{ id: "line-src-1", external_key: "W23", qty: 7, unit: "nos", quantity_status: "MEASURED", scope_name: null, source_document_id: null }];
+    const plan = buildApplyPlan([it_], lines);
+    expect(plan[0].classification).toBe("APPLY");
+    expect(plan[0].source).toEqual({ documentId: "doc-2", page: 1 });
+    seedLine("line-src-1", 7, "nos");
+
+    await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-src-4"]) });
+
+    const updateCall = calls.find((c) => c.table === "boq_line" && c.op === "update")!;
+    const patch = updateCall.payload as Record<string, unknown>;
+    expect(patch.source_document_id).toBe("doc-2");
+    expect(patch.source_revision_id).toBe("rev-2");
+    expect(patch.source_page).toBe("1");
+    // The qty change this patch rides along with is still applied correctly.
+    expect(patch.qty).toBe(8);
+  });
+
+  it("APPLY (matched line ALREADY has a source): preserved — the update patch carries no source keys at all, even though the item has a different source", async () => {
+    seedDocument("doc-3", "rev-3");
+    seedRevision("rev-3", "doc-3");
+    const it_ = reviewItem({
+      id: "ri-src-5",
+      ai: ai({ key: "W24", quantity: 7, unit: "nos", source: { documentId: "doc-3", page: 9, evidence: [] } }),
+      reviewStatus: "EDITED", reviewer: { quantity: 8 },
+    });
+    const lines = [{ id: "line-src-2", external_key: "W24", qty: 7, unit: "nos", quantity_status: "MEASURED", scope_name: null, source_document_id: "doc-already-set" }];
+    const plan = buildApplyPlan([it_], lines);
+    expect(plan[0].source).toBeUndefined(); // classifyReviewItem already refused to propose one
+    seedLine("line-src-2", 7, "nos");
+
+    await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-src-5"]) });
+
+    const updateCall = calls.find((c) => c.table === "boq_line" && c.op === "update")!;
+    const patch = updateCall.payload as Record<string, unknown>;
+    expect("source_document_id" in patch).toBe(false);
+    expect("source_revision_id" in patch).toBe(false);
+    expect("source_page" in patch).toBe(false);
+    // Confirms this preserved-source case still applies qty correctly —
+    // preserving provenance never blocks the actual reviewed change.
+    expect(patch.qty).toBe(8);
+  });
+
+  it("source_revision_id is resolved at most once per distinct documentId across multiple candidates in one call", async () => {
+    seedDocument("doc-shared", "rev-shared");
+    seedRevision("rev-shared", "doc-shared");
+    const items: StoredReviewItem[] = [
+      reviewItem({ id: "ri-s1", ai: ai({ key: "W30", item: "A", quantity: 1, unit: "nos", source: { documentId: "doc-shared", page: 1, evidence: [] } }), reviewStatus: "VERIFIED" }),
+      reviewItem({ id: "ri-s2", ai: ai({ key: "W31", item: "B", quantity: 1, unit: "nos", source: { documentId: "doc-shared", page: 2, evidence: [] } }), reviewStatus: "VERIFIED" }),
+    ];
+    const plan = buildApplyPlan(items, []);
+    const result = await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-s1", "ri-s2"]) });
+    expect(result.appliedCount).toBe(2);
+
+    // Both candidates share one documentId — both resolved rows must agree
+    // on the same revision (the per-call cache never lets two candidates
+    // for the same document silently diverge on separate lookups).
+    const insertRows = calls.filter((c) => c.table === "boq_line" && c.op === "insert").map((c) => c.payload as Record<string, unknown>);
+    expect(insertRows).toHaveLength(2);
+    expect(insertRows.every((r) => r.source_revision_id === "rev-shared")).toBe(true);
+  });
+
+  it("NEW_LINE: a revision that exists but belongs to a DIFFERENT document is rejected — source_revision_id is null, never the mismatched id", async () => {
+    // doc-A's current_revision_id is stale/corrupted: it points at a real
+    // document_revision row, but one that actually belongs to doc-B. This is
+    // the exact scenario resolveSourceRevisionId's own doc comment (applyReview.ts)
+    // says it guards against.
+    seedDocument("doc-A", "rev-for-doc-B");
+    seedRevision("rev-for-doc-B", "doc-B"); // owned by doc-B, not doc-A
+    const it_ = reviewItem({
+      id: "ri-src-6",
+      ai: ai({ key: "W40", item: "Window W40", quantity: 4, unit: "nos", source: { documentId: "doc-A", page: 3, evidence: [] } }),
+      reviewStatus: "VERIFIED",
+    });
+    const plan = buildApplyPlan([it_], []);
+    expect(plan[0].classification).toBe("NEW_LINE");
+    expect(plan[0].source).toEqual({ documentId: "doc-A", page: 3 });
+
+    const result = await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-src-6"]) });
+
+    const row = calls.find((c) => c.table === "boq_line" && c.op === "insert")!.payload as Record<string, unknown>;
+    // source_document_id/page are the requested document's own data — preserved
+    // even though the revision lookup failed ownership.
+    expect(row.source_document_id).toBe("doc-A");
+    expect(row.source_page).toBe("3");
+    // THE FIX: never the mismatched "rev-for-doc-B" — treated identically to
+    // "doesn't exist at all".
+    expect(row.source_revision_id).toBeNull();
+    expect(row.source_revision_id).not.toBe("rev-for-doc-B");
+    // The ownership check is a pure addition to source-column resolution: it
+    // changes nothing about row-identity, classification, or the actual
+    // quantity/unit written for this new line.
+    expect(result.appliedCount).toBe(1);
+    expect(row.qty).toBe(4);
+    expect(row.unit).toBe("nos");
+    expect(row.external_key).toBe("W40");
+  });
+
+  it("APPLY: a mismatched revision is rejected (null) without disturbing the qty/unit compare-and-swap or classification for the matched line", async () => {
+    // Same stale cross-document pointer as above, but on the APPLY (matched
+    // line) path rather than NEW_LINE — proves the ownership check behaves
+    // identically on both write paths and never interferes with the
+    // pre-existing compare-and-swap guard the qty/unit write rides on.
+    seedDocument("doc-A2", "rev-for-doc-B2");
+    seedRevision("rev-for-doc-B2", "doc-B2");
+    const it_ = reviewItem({
+      id: "ri-src-7",
+      ai: ai({ key: "W41", quantity: 7, unit: "nos", source: { documentId: "doc-A2", page: 5, evidence: [] } }),
+      reviewStatus: "EDITED", reviewer: { quantity: 9 },
+    });
+    const lines = [{ id: "line-src-3", external_key: "W41", qty: 7, unit: "nos", quantity_status: "MEASURED", scope_name: null, source_document_id: null }];
+    const plan = buildApplyPlan([it_], lines);
+    expect(plan[0].classification).toBe("APPLY");
+    seedLine("line-src-3", 7, "nos");
+
+    const result = await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-src-7"]) });
+
+    expect(result.appliedCount).toBe(1);
+    const updateCall = calls.find((c) => c.table === "boq_line" && c.op === "update")!;
+    const patch = updateCall.payload as Record<string, unknown>;
+    expect(patch.source_document_id).toBe("doc-A2");
+    expect(patch.source_page).toBe("5");
+    expect(patch.source_revision_id).toBeNull();
+    expect(patch.source_revision_id).not.toBe("rev-for-doc-B2");
+    // The reviewed quantity change is still applied correctly — the ownership
+    // check never blocks or alters the underlying qty/unit write.
+    expect(patch.qty).toBe(9);
   });
 });

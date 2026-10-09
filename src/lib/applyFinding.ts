@@ -10,7 +10,7 @@ import { PENDING_BASIS } from "./boqEvalJson";
 
 // The optional columns some deployments haven't migrated yet. On a schema error
 // we retry without them, mirroring the existing insert/update fallbacks.
-const OPTIONAL_COL_RE = /\bbasis\b|external_key|measurement_method|quantity_status|scope_id|schema cache|could not find|does not exist/i;
+const OPTIONAL_COL_RE = /\bbasis\b|external_key|measurement_method|quantity_status|scope_id|source_document_id|source_revision_id|source_page|schema cache|could not find|does not exist/i;
 
 // Matches ONLY the two partial unique indexes 20260929000000_boq_line_identity_
 // constraint.sql adds for (boq_id, external_key, scope_id) — never any other
@@ -31,12 +31,21 @@ interface NewLine {
   external_key: string | null; measurement_method: string | null; quantity_status: string | null;
   scope_id: string | null;
   included: boolean; source: string; sort: number;
+  /** Scope C — drawing-evidence traceability. Null when the originating AI
+   *  item carried no (safely mappable) source; see applyReview.ts's
+   *  sourceToPropose/sourcePatchFor, the only place these are computed. */
+  source_document_id: string | null;
+  source_revision_id: string | null;
+  source_page: string | null;
 }
 
 async function insertLineResilient(row: NewLine): Promise<string> {
   let res = await supabase.from("boq_line").insert(row).select("id").single();
   if (res.error && OPTIONAL_COL_RE.test(res.error.message)) {
-    const { basis, basis_note, external_key, measurement_method, quantity_status, scope_id, ...base } = row;
+    const {
+      basis, basis_note, external_key, measurement_method, quantity_status, scope_id,
+      source_document_id, source_revision_id, source_page, ...base
+    } = row;
     res = await supabase.from("boq_line").insert(base).select("id").single();
   }
   if (res.error) throw res.error;
@@ -88,7 +97,10 @@ async function updateLineResilient(
   if (!guarded) {
     let { error } = await supabase.from("boq_line").update(patch).eq("id", lineId);
     if (error && OPTIONAL_COL_RE.test(error.message)) {
-      const { measurement_method, quantity_status, external_key, basis, basis_note, scope_id, ...base } = patch;
+      const {
+        measurement_method, quantity_status, external_key, basis, basis_note, scope_id,
+        source_document_id, source_revision_id, source_page, ...base
+      } = patch;
       ({ error } = await supabase.from("boq_line").update(base).eq("id", lineId));
     }
     if (error) throw error;
@@ -97,7 +109,10 @@ async function updateLineResilient(
 
   let { data, error } = await withExpectedFilters(supabase.from("boq_line").update(patch).eq("id", lineId), expected).select("id");
   if (error && OPTIONAL_COL_RE.test(error.message)) {
-    const { measurement_method, quantity_status, external_key, basis, basis_note, scope_id, ...base } = patch;
+    const {
+      measurement_method, quantity_status, external_key, basis, basis_note, scope_id,
+      source_document_id, source_revision_id, source_page, ...base
+    } = patch;
     ({ data, error } = await withExpectedFilters(supabase.from("boq_line").update(base).eq("id", lineId), expected).select("id"));
   }
   if (error) throw error;
@@ -131,6 +146,10 @@ export async function addFindingAsLine(args: AddLineArgs): Promise<string> {
     measurement_method: args.method ?? null,
     quantity_status: "PENDING",
     scope_id: null,
+    // An audit finding carries no AI drawing source at all — never guessed.
+    source_document_id: null,
+    source_revision_id: null,
+    source_page: null,
     included: true,
     source: "manual",
     sort: args.sort ?? 9999,
@@ -178,6 +197,13 @@ export interface AddReviewLineArgs {
    *  (see applyReview.ts's resolveScopeIdForLocation) — never resolved here,
    *  only persisted. A line created with no scope behaves exactly as before. */
   scopeId?: string | null;
+  /** Scope C — drawing-evidence traceability, already resolved by the caller
+   *  (applyReview.ts's sourceToPropose/sourcePatchFor) — never resolved or
+   *  guessed here, only persisted. A new line is never blocked by a missing
+   *  source; all three stay null exactly as before this field existed. */
+  sourceDocumentId?: string | null;
+  sourceRevisionId?: string | null;
+  sourcePage?: string | null;
 }
 
 /**
@@ -211,6 +237,9 @@ export async function addReviewItemAsLine(args: AddReviewLineArgs): Promise<stri
       included: true,
       source: "manual",
       sort: args.sort ?? 9999,
+      source_document_id: args.sourceDocumentId ?? null,
+      source_revision_id: args.sourceRevisionId ?? null,
+      source_page: args.sourcePage ?? null,
     });
   } catch (err) {
     if (isBoqLineIdentityConflict(err as { code?: string; message?: string } | null | undefined)) return null;
@@ -231,7 +260,13 @@ export async function addReviewItemAsLine(args: AddReviewLineArgs): Promise<stri
  */
 export async function applyReviewQtyUnit(
   lineId: string,
-  patch: { qty?: number; unit?: string | null; basis?: string | null; quantity_status?: string | null },
+  patch: {
+    qty?: number; unit?: string | null; basis?: string | null; quantity_status?: string | null;
+    /** Scope C — only ever included by applyReview.ts when the matched line
+     *  had no existing source (preserve-by-default); never forced to null
+     *  onto a line that already has one. */
+    source_document_id?: string; source_revision_id?: string | null; source_page?: string | null;
+  },
   expected?: { qty?: number; unit?: string | null },
 ): Promise<boolean> {
   return updateLineResilient(lineId, patch, expected);

@@ -119,22 +119,29 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
     queryKey: ["rw-lines", boqId],
     enabled: !!boqId,
     queryFn: async (): Promise<BoqLineForApply[]> => {
+      // source_document_id (Scope C — traceability) is selected here too:
+      // classifyReviewItem needs it to decide whether a matched line already
+      // has provenance to preserve. If this column is missing on a lagging
+      // deployment, the same fallback below (scope embed absent) already
+      // degrades gracefully — classifyReviewItem treats an absent value
+      // identically to null, which only ever ENABLES a first-time
+      // population, never blocks one.
       const { data, error } = await supabase.from("boq_line")
-        .select("id, external_key, qty, unit, quantity_status, scope_id, project_scope(name)")
+        .select("id, external_key, qty, unit, quantity_status, scope_id, project_scope(name), source_document_id")
         .eq("boq_id", boqId);
       if (!error) {
         return (data ?? []).map((r) => {
-          const row = r as unknown as { id: string; external_key: string | null; qty: number; unit: string | null; quantity_status: string | null; project_scope: { name: string } | { name: string }[] | null };
+          const row = r as unknown as { id: string; external_key: string | null; qty: number; unit: string | null; quantity_status: string | null; project_scope: { name: string } | { name: string }[] | null; source_document_id?: string | null };
           const scope = Array.isArray(row.project_scope) ? row.project_scope[0] : row.project_scope;
           return {
             id: row.id, external_key: row.external_key, qty: row.qty, unit: row.unit, quantity_status: row.quantity_status,
-            scope_name: scope?.name ?? null,
+            scope_name: scope?.name ?? null, source_document_id: row.source_document_id ?? null,
           };
         });
       }
       const { data: fallback } = await supabase.from("boq_line")
         .select("id, external_key, qty, unit, quantity_status").eq("boq_id", boqId);
-      return (fallback ?? []).map((r) => ({ ...(r as object), scope_name: null }) as BoqLineForApply);
+      return (fallback ?? []).map((r) => ({ ...(r as object), scope_name: null, source_document_id: null }) as BoqLineForApply);
     },
   });
 

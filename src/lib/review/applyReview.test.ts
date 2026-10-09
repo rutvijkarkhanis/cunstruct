@@ -27,6 +27,7 @@ const line = (o: Partial<BoqLineForApply>): BoqLineForApply => ({
   id: o.id ?? "line-1", external_key: o.external_key ?? "W1", qty: o.qty ?? 9,
   unit: o.unit ?? "nos", quantity_status: o.quantity_status ?? "MEASURED",
   scope_name: o.scope_name ?? null,
+  source_document_id: "source_document_id" in o ? o.source_document_id : null,
 });
 
 describe("classifyReviewItem — eligibility", () => {
@@ -340,5 +341,78 @@ describe("classifyReviewItem — scoped identity when external_key collides acro
     // that structurally true rather than re-testing the DB-touching function.
     expect(plan[0].matchedLineId).toBeNull();
     expect(plan[0].newLine).toBeUndefined();
+  });
+});
+
+// ── Scope C — drawing-evidence traceability: what classifyReviewItem
+// proposes for boq_line.source_document_id/source_page, before any I/O
+// (source_revision_id resolution is applyReviewPlan's job — see
+// applyReviewPlan.test.ts). ──────────────────────────────────────────────────
+describe("classifyReviewItem — source proposal (Scope C)", () => {
+  it("NEW_LINE: proposes the item's source when it has a documentId", () => {
+    const it_ = reviewItem({
+      ai: ai({ key: "W1", quantity: 7, unit: "nos", source: { documentId: "doc-1", page: 4, evidence: [] } }),
+      reviewStatus: "VERIFIED",
+    });
+    const c = classifyReviewItem(it_, []);
+    expect(c.classification).toBe("NEW_LINE");
+    expect(c.source).toEqual({ documentId: "doc-1", page: 4 });
+  });
+
+  it("NEW_LINE: proposes no source when the item has none — never guessed", () => {
+    const it_ = reviewItem({ ai: ai({ key: "W1", quantity: 7, unit: "nos" }), reviewStatus: "VERIFIED" });
+    const c = classifyReviewItem(it_, []);
+    expect(c.classification).toBe("NEW_LINE");
+    expect(c.source).toBeUndefined();
+  });
+
+  it("NEW_LINE: a source with no page still proposes documentId, with page null", () => {
+    const it_ = reviewItem({
+      ai: ai({ key: "W1", quantity: 7, unit: "nos", source: { documentId: "doc-1", evidence: [] } }),
+      reviewStatus: "VERIFIED",
+    });
+    const c = classifyReviewItem(it_, []);
+    expect(c.source).toEqual({ documentId: "doc-1", page: null });
+  });
+
+  it("NEW_LINE: a source with only a document NAME (no documentId) proposes nothing — the name is never trusted as an id", () => {
+    const it_ = reviewItem({
+      ai: ai({ key: "W1", quantity: 7, unit: "nos", source: { document: "floor-plan.pdf", page: 4, evidence: [] } }),
+      reviewStatus: "VERIFIED",
+    });
+    const c = classifyReviewItem(it_, []);
+    expect(c.source).toBeUndefined();
+  });
+
+  it("APPLY (matched line with NO existing source): proposes the item's source", () => {
+    const it_ = reviewItem({
+      ai: ai({ key: "W1", quantity: 7, unit: "nos", source: { documentId: "doc-1", page: 4, evidence: [] } }),
+      reviewStatus: "EDITED", reviewer: { quantity: 8 },
+    });
+    const c = classifyReviewItem(it_, [line({ external_key: "W1", qty: 9, unit: "nos", source_document_id: null })]);
+    expect(c.classification).toBe("APPLY");
+    expect(c.source).toEqual({ documentId: "doc-1", page: 4 });
+  });
+
+  it("APPLY (matched line ALREADY has a source): preserves it — proposes nothing, even though the item has a DIFFERENT source", () => {
+    const it_ = reviewItem({
+      ai: ai({ key: "W1", quantity: 7, unit: "nos", source: { documentId: "doc-2", page: 9, evidence: [] } }),
+      reviewStatus: "EDITED", reviewer: { quantity: 8 },
+    });
+    const c = classifyReviewItem(it_, [line({ external_key: "W1", qty: 9, unit: "nos", source_document_id: "doc-1" })]);
+    expect(c.classification).toBe("APPLY");
+    expect(c.source).toBeUndefined();
+  });
+
+  it("APPLY: a line with no selected BoqLineForApply.source_document_id field at all (absent, not explicitly null) is still treated as 'no source yet'", () => {
+    // line() always sets it via the default, so build the row directly to
+    // simulate a caller that never selected the column.
+    const bareLine: BoqLineForApply = { id: "line-1", external_key: "W1", qty: 9, unit: "nos", quantity_status: "MEASURED", scope_name: null };
+    const it_ = reviewItem({
+      ai: ai({ key: "W1", quantity: 7, unit: "nos", source: { documentId: "doc-1", page: 4, evidence: [] } }),
+      reviewStatus: "EDITED", reviewer: { quantity: 8 },
+    });
+    const c = classifyReviewItem(it_, [bareLine]);
+    expect(c.source).toEqual({ documentId: "doc-1", page: 4 });
   });
 });
