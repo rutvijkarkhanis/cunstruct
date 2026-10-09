@@ -74,7 +74,7 @@ const linkAnalyzedDocumentsToBoq = vi.fn(async () => {});
 // pre-existing test here keeps seeing today's exact BOQ/readiness behavior.
 const loadBoqDocumentLinks = vi.fn(async () => [] as { boqId: string; documentId: string }[]);
 vi.mock("@/lib/review/boqDocumentLinks", () => ({
-  linkAnalyzedDocumentsToBoq: (...args: unknown[]) => linkAnalyzedDocumentsToBoq(...(args as [string, string[]])),
+  linkAnalyzedDocumentsToBoq: (...args: unknown[]) => linkAnalyzedDocumentsToBoq(...(args as [string, string[], string | null | undefined])),
   loadBoqDocumentLinks: (...args: unknown[]) => loadBoqDocumentLinks(...(args as [string[]])),
 }));
 
@@ -154,9 +154,11 @@ describe("WorkspaceAnalyzePanel — running the analysis and reviewing readiness
 
     // PR #154: each discipline's own BOQ+documents are persisted to boq_document
     // once its own BOQ call succeeded — never one combined call for the whole run.
+    // Scope F: the third argument (runId) is that same BOQ call's OWN generateAnalysis
+    // result — proves the actual run id is propagated, not a placeholder/omitted value.
     await waitFor(() => expect(linkAnalyzedDocumentsToBoq).toHaveBeenCalledTimes(2));
-    expect(linkAnalyzedDocumentsToBoq).toHaveBeenCalledWith("new-civil-boq", ["doc-floor-plan"]);
-    expect(linkAnalyzedDocumentsToBoq).toHaveBeenCalledWith("new-electrical-boq", ["doc-electrical-layout"]);
+    expect(linkAnalyzedDocumentsToBoq).toHaveBeenCalledWith("new-civil-boq", ["doc-floor-plan"], "run-new-civil-boq");
+    expect(linkAnalyzedDocumentsToBoq).toHaveBeenCalledWith("new-electrical-boq", ["doc-electrical-layout"], "run-new-electrical-boq");
 
     // Readiness: W1 (no LOCATION run) -> AMBER "Needs Review"; E1 (no quantity, no evidence) -> RED "Unresolved".
     await screen.findByText(/Ready/);
@@ -190,8 +192,8 @@ describe("WorkspaceAnalyzePanel — running the analysis and reviewing readiness
     // Civil's mapping is persisted exactly once; Electrical's call threw
     // before ever reaching its own persistence call.
     await waitFor(() => expect(linkAnalyzedDocumentsToBoq).toHaveBeenCalledTimes(1));
-    expect(linkAnalyzedDocumentsToBoq).toHaveBeenCalledWith("new-civil-boq", ["doc-floor-plan"]);
-    expect(linkAnalyzedDocumentsToBoq).not.toHaveBeenCalledWith("new-electrical-boq", expect.anything());
+    expect(linkAnalyzedDocumentsToBoq).toHaveBeenCalledWith("new-civil-boq", ["doc-floor-plan"], "run-new-civil-boq");
+    expect(linkAnalyzedDocumentsToBoq).not.toHaveBeenCalledWith("new-electrical-boq", expect.anything(), expect.anything());
 
     // The run as a whole still surfaces as a failure — Electrical's own
     // analysis genuinely did fail, and nothing here claims otherwise.

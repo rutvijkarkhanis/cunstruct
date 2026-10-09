@@ -163,8 +163,10 @@ export default function WorkspaceAnalyzePanel({ projectId, onEnterMode }: Worksp
           // PR #154 — persists which documents fed this BOQ. Called by
           // runProjectAnalysis ONLY after this discipline's own BOQ call
           // already succeeded (see projectAnalysis.ts), so it never records
-          // a discipline whose analysis failed.
-          linkAnalyzedDocuments: ({ boqId, documentIds }) => linkAnalyzedDocumentsToBoq(boqId, documentIds),
+          // a discipline whose analysis failed. runId (Scope F) is that same
+          // call's own analysis run id, forwarded so the link can resolve the
+          // exact analyzed revision rather than only "current revision now."
+          linkAnalyzedDocuments: ({ boqId, documentIds, runId }) => linkAnalyzedDocumentsToBoq(boqId, documentIds, runId),
         },
         setProgress,
       );

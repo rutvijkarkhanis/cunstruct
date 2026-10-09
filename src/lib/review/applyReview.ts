@@ -362,7 +362,12 @@ async function resolveScopeIdForLocation(projectId: string, location: string): P
  * succeeds. That is the one place in this codebase where "which revision was
  * actually analyzed" is captured durably — see boqDocumentLinks.ts's
  * identical reasoning, which first identified this exact plumbing gap and
- * deliberately deferred closing it; this is that closure, scoped to Apply.
+ * deliberately deferred closing it. Exported (Scope F) so
+ * linkAnalyzedDocumentsToBoq can reuse this exact resolution/validation
+ * logic for boq_document.analyzed_revision_id too, rather than
+ * reimplementing it — the generic (run, document) -> analyzed-revision
+ * question this answers is never specific to the Apply flow it was first
+ * built for.
  *
  * Returns a three-way result, each meaning something distinct to the caller:
  *   - a revision id: exactly one SUCCEEDED claim for (runId, documentId)
@@ -385,7 +390,7 @@ async function resolveScopeIdForLocation(projectId: string, location: string): P
  *     fallback either (that would be an equally arbitrary pick in the face
  *     of disagreement): the caller persists null and stops there.
  */
-async function resolveAnalyzedRevisionId(runId: string, documentId: string): Promise<string | null | undefined> {
+export async function resolveAnalyzedRevisionId(runId: string, documentId: string): Promise<string | null | undefined> {
   const { data } = await supabase
     .from("analysis_run_source")
     .select("document_revision_id")

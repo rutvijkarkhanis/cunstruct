@@ -117,7 +117,7 @@ export interface ProjectAnalysisDeps {
    *  Optional so every pre-existing caller/test that builds
    *  ProjectAnalysisDeps without it keeps working unchanged — omitting it
    *  simply skips persistence, exactly like before this field existed. */
-  linkAnalyzedDocuments?: (args: { boqId: string; documentIds: string[] }) => Promise<void>;
+  linkAnalyzedDocuments?: (args: { boqId: string; documentIds: string[]; runId?: string | null }) => Promise<void>;
 }
 
 export interface DisciplineAnalysisOutcome {
@@ -176,7 +176,11 @@ export async function runProjectAnalysis(
     // run finishes. A later discipline's throw aborts the loop before its
     // own persistence call, but this one has already committed.
     if (deps.linkAnalyzedDocuments) {
-      await deps.linkAnalyzedDocuments({ boqId, documentIds: plan.documentIds });
+      // Scope F — result.runId (GenerateResponse) is the analysis run that
+      // just produced this discipline's review items; forwarded so the link
+      // can resolve the EXACT analyzed revision (see boqDocumentLinks.ts)
+      // instead of only ever falling back to "current revision right now."
+      await deps.linkAnalyzedDocuments({ boqId, documentIds: plan.documentIds, runId: result.runId });
     }
   }
 

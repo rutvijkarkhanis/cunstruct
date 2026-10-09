@@ -11,13 +11,16 @@
 // this BOQ," so this makes that answer durable. It does nothing else: no
 // Coverage signal, no finding, no status, no new table, no AI call.
 //
-// Writes ONLY `boq_document`. Never touches boq_line, analysis_run_source,
-// analysis_review_item, or any reconciliation/readiness logic — this module
-// has no opinion on whether an analysis succeeded; its caller
-// (projectAnalysis.ts's runProjectAnalysis) only ever invokes it AFTER a
-// discipline's own BOQ analysis call has already succeeded.
+// Writes ONLY `boq_document` (Scope F additionally READS analysis_run_source/
+// document_revision, via resolveAnalyzedRevisionId, to resolve the revision to
+// write — it never writes either). Never touches boq_line, analysis_review_item,
+// or any reconciliation/readiness logic — this module has no opinion on
+// whether an analysis succeeded; its caller (projectAnalysis.ts's
+// runProjectAnalysis) only ever invokes it AFTER a discipline's own BOQ
+// analysis call has already succeeded.
 
 import { supabase } from "@/integrations/supabase/client";
+import { resolveAnalyzedRevisionId } from "./applyReview";
 
 /**
  * Link every document in `documentIds` to `boqId`.
@@ -25,45 +28,36 @@ import { supabase } from "@/integrations/supabase/client";
  * Idempotent via the table's own `unique (boq_id, document_id)` constraint:
  * an upsert with `ignoreDuplicates: true` is `ON CONFLICT (boq_id,
  * document_id) DO NOTHING` — a pair already linked is left completely
- * untouched (including its existing `analyzed_revision_id`, if any),
- * never duplicated and never silently overwritten with a value this run
- * happens to have. The constraint itself is never weakened or bypassed.
+ * untouched (including its existing `analyzed_revision_id`, even one a staff
+ * member manually picked in BoqDocumentsPanel.tsx), never duplicated and
+ * never silently overwritten with a value this run happens to have. The
+ * constraint itself is never weakened or bypassed — this is also exactly why
+ * Scope F needs no extra guard against clobbering a manual override: a row
+ * that already exists is never touched by this call at all, regardless of
+ * what `analyzed_revision_id` would otherwise resolve to below.
  *
- * ## `analyzed_revision_id` — what it is, and what it deliberately is NOT
+ * ## `analyzed_revision_id` — resolution, Scope F
  *
- * This reads `project_document.current_revision_id` fresh, right now, at
- * the moment this discipline's analysis is known to have succeeded. That is
- * a best-effort "current revision as of persistence time," NOT the exact
- * revision the edge function actually downloaded and sent to OpenAI for
- * this run.
+ * For a genuinely NEW (boq_id, document_id) pair, resolved with the same
+ * precedence Scope E established for `boq_line.source_revision_id`
+ * (applyReview.ts's resolveSourceRevisionId/resolveAnalyzedRevisionId):
  *
- * The EXACT analyzed revision does exist, durably, server-side: the
- * ai-analysis edge function resolves `project_document.current_revision_id`
- * itself (loadEligibleFiles), downloads that exact `document_revision` row,
- * and records its id verbatim on the claim it inserts —
- * `analysis_run_source.document_revision_id` (see index.ts's
- * `document_revision_id: file.documentRevisionId` at the claim-insert
- * site). That is the authoritative value.
+ *   1. `runId` given, and exactly one SUCCEEDED analysis_run_source claim for
+ *      (runId, documentId) names a document_revision_id that genuinely
+ *      exists and belongs to documentId → that EXACT analyzed revision.
+ *   2. No usable claim (no `runId`, no claim at all, or the one claim's
+ *      revision is invalid/cross-document) → the pre-existing fallback:
+ *      `project_document.current_revision_id`, read fresh at this moment —
+ *      a best-effort "current revision as of persistence time," NOT
+ *      necessarily the exact revision analyzed. Unchanged from before Scope F.
+ *   3. More than one SUCCEEDED claim for (runId, documentId) naming
+ *      DIFFERING revisions → `null`, explicitly — never an arbitrary pick,
+ *      and never the fallback either (same conflict policy as Scope E).
  *
- * This function does NOT read that column. `generateAnalysis()`'s
- * `GenerateResponse` (analysisClient.ts) never returns it, and neither
- * `runProjectAnalysis` nor `ProjectAnalysisResult` (projectAnalysis.ts)
- * carries it through today — getting it here would mean adding a new query
- * against `analysis_run_source` (by `run_id`/`project_id`+`document_id`+
- * `mode`), which is new plumbing this PR deliberately does not add scope
- * for. Audited and confirmed deliberately deferred, not overlooked.
- *
- * Consequence — a known, narrow, pre-existing class of risk, not something
- * this function introduces: if a document is re-uploaded (a new revision
- * becomes `current_revision_id`) in the brief window between the edge
- * function resolving/downloading the revision it analyzed and this
- * function's own later read of the same column, the row persisted here
- * will carry the NEWER revision id, not the one actually analyzed. This is
- * the exact same "current revision is a floating pointer, read at whatever
- * moment a caller happens to read it" convention `loadProjectDrawings()`
- * and the edge function's own `loadEligibleFiles` already rely on
- * elsewhere in this pipeline — not a new hazard, but documented here
- * explicitly rather than silently assumed safe.
+ * `runId` is optional so every existing caller that predates this parameter
+ * (and any that legitimately has none — e.g. a future non-analysis caller)
+ * keeps compiling and behaving exactly as before: omitting it always takes
+ * path 2 above, unchanged.
  *
  * A document missing from the result entirely (deleted, or an id that
  * doesn't resolve) gets NULL — never a fabricated or stale guess.
@@ -71,7 +65,7 @@ import { supabase } from "@/integrations/supabase/client";
  * A no-op for an empty `documentIds` (never issues a query, never creates a
  * boq-with-nothing-linked row — there's nothing to link).
  */
-export async function linkAnalyzedDocumentsToBoq(boqId: string, documentIds: string[]): Promise<void> {
+export async function linkAnalyzedDocumentsToBoq(boqId: string, documentIds: string[], runId?: string | null): Promise<void> {
   if (documentIds.length === 0) return;
 
   const { data: docs, error: docsError } = await supabase
@@ -80,12 +74,23 @@ export async function linkAnalyzedDocumentsToBoq(boqId: string, documentIds: str
     .in("id", documentIds);
   if (docsError) throw docsError;
 
-  const revisionById = new Map((docs ?? []).map((d) => [d.id as string, (d.current_revision_id as string | null) ?? null]));
+  const currentRevisionById = new Map((docs ?? []).map((d) => [d.id as string, (d.current_revision_id as string | null) ?? null]));
 
-  const rows = documentIds.map((documentId) => ({
-    boq_id: boqId,
-    document_id: documentId,
-    analyzed_revision_id: revisionById.get(documentId) ?? null,
+  const rows = await Promise.all(documentIds.map(async (documentId) => {
+    let analyzedRevisionId: string | null = null;
+    if (runId) {
+      const analyzed = await resolveAnalyzedRevisionId(runId, documentId);
+      if (analyzed === null) {
+        analyzedRevisionId = null; // conflicting claims — never guess, never fall back
+      } else if (typeof analyzed === "string") {
+        analyzedRevisionId = analyzed; // exact analyzed revision — highest precedence
+      } else {
+        analyzedRevisionId = currentRevisionById.get(documentId) ?? null; // no usable claim — existing fallback
+      }
+    } else {
+      analyzedRevisionId = currentRevisionById.get(documentId) ?? null;
+    }
+    return { boq_id: boqId, document_id: documentId, analyzed_revision_id: analyzedRevisionId };
   }));
 
   const { error } = await supabase
