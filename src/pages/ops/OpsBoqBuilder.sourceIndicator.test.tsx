@@ -10,6 +10,37 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import OpsBoqBuilder from "./OpsBoqBuilder";
+import { computeCommercials, type QuoteItem, type CsvRow } from "@/lib/boqDsrDocument";
+
+// Scope H — the export-wiring tests below need to see the ACTUAL arguments
+// OpsBoqBuilder hands to the PDF/CSV builders (not just the real builders'
+// own output, already covered by boqDsrDocument.test.ts). openDsrQuote and
+// downloadCsv are replaced outright (they touch window.open/Blob/URL, which
+// jsdom doesn't need to exercise here); buildBoqCsv is spied on but still
+// DELEGATES to the real implementation, so the CSV assertions below are
+// checking genuine end-to-end output, not a stand-in.
+const exportSpies = vi.hoisted(() => ({
+  openDsrQuote: vi.fn(() => true),
+  buildBoqCsv: vi.fn(),
+  downloadCsv: vi.fn(),
+}));
+vi.mock("@/lib/boqDsrDocument", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/boqDsrDocument")>("@/lib/boqDsrDocument");
+  return {
+    ...actual,
+    openDsrQuote: (...args: Parameters<typeof actual.openDsrQuote>) => {
+      exportSpies.openDsrQuote(...args);
+      return true;
+    },
+    buildBoqCsv: (...args: Parameters<typeof actual.buildBoqCsv>) => {
+      exportSpies.buildBoqCsv(...args);
+      return actual.buildBoqCsv(...args);
+    },
+    downloadCsv: (...args: Parameters<typeof actual.downloadCsv>) => {
+      exportSpies.downloadCsv(...args);
+    },
+  };
+});
 
 const fixtures = vi.hoisted(() => {
   const BOQ_ROW = {
@@ -39,7 +70,11 @@ const fixtures = vi.hoisted(() => {
   // no source_document_id/source_page columns at all — not merely null values.
   const LINES_NO_SOURCE_COLS = LINES_WITH_SOURCE.map(({ source_document_id, source_page, ...rest }) => rest);
 
-  const state = { missingSourceCols: false, calls: [] as { table: string; op: string; payload?: unknown }[] };
+  // Scope H, case 4 — holds project_document (and so loadProjectDrawings as a
+  // whole, which awaits it first) permanently pending, so drawingsLoading stays
+  // true for the life of a test. Real boq_line/boq/projects rows still resolve
+  // normally — only the drawings lookup is stalled.
+  const state = { missingSourceCols: false, holdDrawings: false, calls: [] as { table: string; op: string; payload?: unknown }[] };
   return { BOQ_ROW, PROJECT_ROW, DOCS, REVISIONS, LINES_WITH_SOURCE, LINES_NO_SOURCE_COLS, state };
 });
 
@@ -62,7 +97,14 @@ function chain(table: string) {
       const rows = fixtures.state.missingSourceCols ? fixtures.LINES_NO_SOURCE_COLS : fixtures.LINES_WITH_SOURCE;
       return resolve({ data: rows, error: null });
     }
-    if (table === "project_document") return resolve({ data: fixtures.DOCS, error: null });
+    if (table === "project_document") {
+      // Scope H, case 4 — never calling `resolve` leaves this specific await
+      // (loadProjectDrawings' first query) pending forever, so drawingsLoading
+      // stays true for the test's whole lifetime; document_revision is then
+      // never even reached, same as a real in-flight request.
+      if (fixtures.state.holdDrawings) return;
+      return resolve({ data: fixtures.DOCS, error: null });
+    }
     if (table === "document_revision") return resolve({ data: fixtures.REVISIONS, error: null });
     return resolve({ data: [], error: null });
   };
@@ -88,7 +130,145 @@ function renderBoqBuilder() {
 
 beforeEach(() => {
   fixtures.state.missingSourceCols = false;
+  fixtures.state.holdDrawings = false;
   fixtures.state.calls = [];
+  exportSpies.openDsrQuote.mockClear();
+  exportSpies.buildBoqCsv.mockClear();
+  exportSpies.downloadCsv.mockClear();
+});
+
+// Scope H — opens the desktop toolbar's "Export BOQ" menu and clicks the named
+// item. Two such menus exist in the DOM at once (desktop toolbar + mobile row
+// — only CSS, not jsdom, hides the mobile one), so `findAllByRole` and the
+// first match disambiguates, same convention OpsBoqBuilder.test.tsx already
+// uses for "Review Analysis →" vs. the breadcrumb's own link.
+//
+// A plain fireEvent.click on the trigger does NOT open a Radix dropdown under
+// jsdom (it relies on pointer-capture behavior jsdom doesn't implement) —
+// confirmed empirically before writing these tests. Keyboard activation
+// (focus + Enter) opens it reliably; the item itself responds to a normal
+// click once the menu is open.
+async function clickExportItem(item: "PDF" | "Excel") {
+  const triggers = await screen.findAllByRole("button", { name: /Export BOQ/i });
+  const trigger = triggers[0];
+  trigger.focus();
+  fireEvent.keyDown(trigger, { key: "Enter", code: "Enter" });
+  const menuItem = await screen.findByRole("menuitem", { name: item });
+  fireEvent.click(menuItem);
+}
+
+describe("OpsBoqBuilder — export wiring (Scope H)", () => {
+  it("resolved provenance: the PDF export receives the correct document name and page for the right line", async () => {
+    renderBoqBuilder();
+    await screen.findByText("RCC footing — resolved source");
+    await clickExportItem("PDF");
+    expect(exportSpies.openDsrQuote).toHaveBeenCalledTimes(1);
+    const payload = exportSpies.openDsrQuote.mock.calls[0][0] as { subheads: { lines: QuoteItem[] }[] };
+    const items = payload.subheads.flatMap((sh) => sh.lines);
+    const item = items.find((l) => l.spec === "RCC footing — resolved source");
+    expect(item).toMatchObject({ sourceDocument: "Ground Floor Plan", sourcePage: "3" });
+  });
+
+  it("resolved provenance: the Excel export's CSV row carries the same document name and page", async () => {
+    renderBoqBuilder();
+    await screen.findByText("RCC footing — resolved source");
+    await clickExportItem("Excel");
+    expect(exportSpies.buildBoqCsv).toHaveBeenCalledTimes(1);
+    const rows = exportSpies.buildBoqCsv.mock.calls[0][0] as CsvRow[];
+    const row = rows.find((r) => r.spec === "RCC footing — resolved source");
+    expect(row).toMatchObject({ sourceDocument: "Ground Floor Plan", sourcePage: "3" });
+    // End-to-end: the real buildBoqCsv ran (it isn't stubbed), so the actual
+    // downloaded CSV text is what downloadCsv received — prove the resolved
+    // name/page genuinely reached the rendered file, not just the call args.
+    const csv = exportSpies.downloadCsv.mock.calls[0][1] as string;
+    expect(csv).toContain("Ground Floor Plan");
+  });
+
+  it("unresolved document: the PDF export shows the established unavailable text and never pairs a page with it", async () => {
+    renderBoqBuilder();
+    await screen.findByText("Brickwork — unresolved source");
+    await clickExportItem("PDF");
+    const payload = exportSpies.openDsrQuote.mock.calls[0][0] as { subheads: { lines: QuoteItem[] }[] };
+    const items = payload.subheads.flatMap((sh) => sh.lines);
+    const item = items.find((l) => l.spec === "Brickwork — unresolved source");
+    expect(item?.sourceDocument).toBe("Source document unavailable");
+    // The unresolved line's own source_page ("rev" fixture has none — null —
+    // but even if it had one, it must never surface once the name itself
+    // didn't resolve).
+    expect(item?.sourcePage).toBeFalsy();
+    // The raw, unresolved id is never shown as a stand-in label.
+    expect(items.some((l) => l.sourceDocument === "doc-missing")).toBe(false);
+  });
+
+  it("unresolved document: the Excel export's row matches the same unavailable convention, never a bare page", async () => {
+    renderBoqBuilder();
+    await screen.findByText("Brickwork — unresolved source");
+    await clickExportItem("Excel");
+    const rows = exportSpies.buildBoqCsv.mock.calls[0][0] as CsvRow[];
+    const row = rows.find((r) => r.spec === "Brickwork — unresolved source");
+    expect(row?.sourceDocument).toBe("Source document unavailable");
+    expect(row?.sourcePage).toBeFalsy();
+  });
+
+  it("no provenance: a line with no source_document_id exports with blank/absent source fields, nothing fabricated", async () => {
+    renderBoqBuilder();
+    await screen.findByText("Plaster — no source");
+    await clickExportItem("PDF");
+    const payload = exportSpies.openDsrQuote.mock.calls[0][0] as { subheads: { lines: QuoteItem[] }[] };
+    const items = payload.subheads.flatMap((sh) => sh.lines);
+    const item = items.find((l) => l.spec === "Plaster — no source");
+    expect(item?.sourceDocument).toBeFalsy();
+    expect(item?.sourcePage).toBeFalsy();
+  });
+
+  it("loading state: while drawing metadata is still loading, export never prematurely marks a document unavailable", async () => {
+    fixtures.state.holdDrawings = true;
+    renderBoqBuilder();
+    await screen.findByText("Brickwork — unresolved source");
+    await clickExportItem("PDF");
+    const payload = exportSpies.openDsrQuote.mock.calls[0][0] as { subheads: { lines: QuoteItem[] }[] };
+    const items = payload.subheads.flatMap((sh) => sh.lines);
+    const item = items.find((l) => l.spec === "Brickwork — unresolved source");
+    // Still unresolved either way, but while drawings are in flight this must
+    // read as "nothing known yet" (null), never the same text a GENUINELY
+    // missing document gets once loading has actually finished.
+    expect(item?.sourceDocument).not.toBe("Source document unavailable");
+    expect(item?.sourceDocument).toBeFalsy();
+    expect(item?.sourcePage).toBeFalsy();
+  });
+
+  it("commercial invariants: qty/unit/rate/amount and the grand total are exactly what the pre-Scope-H formulas produce", async () => {
+    renderBoqBuilder();
+    await screen.findByText("RCC footing — resolved source");
+    await clickExportItem("PDF");
+    const payload = exportSpies.openDsrQuote.mock.calls[0][0] as {
+      subheads: { lines: QuoteItem[] }[];
+      commercials: ReturnType<typeof computeCommercials>;
+    };
+    const items = payload.subheads.flatMap((sh) => sh.lines);
+    const item = items.find((l) => l.spec === "RCC footing — resolved source");
+    // qty 10 × dsr_rate 100 (no custom_rate override) — untouched by source fields.
+    expect(item).toMatchObject({ qty: 10, unit: "cum", rate: 100, amount: 1000 });
+
+    // All three fixture lines are included with qty > 0: 10, 5, 8 × rate 100.
+    const works = 1000 + 500 + 800;
+    const expected = computeCommercials(works, {
+      costIndexPct: 0, contingencyPct: 3, overheadPct: 15, cessPct: 1, gstPct: 18,
+    });
+    expect(payload.commercials.works).toBe(expected.works);
+    expect(payload.commercials.grandTotal).toBe(expected.grandTotal);
+  });
+
+  it("commercial invariants: the Excel export's live Amount formula still references the original Qty/Your-rate columns", async () => {
+    renderBoqBuilder();
+    await screen.findByText("RCC footing — resolved source");
+    await clickExportItem("Excel");
+    const csv = exportSpies.downloadCsv.mock.calls[0][1] as string;
+    // Header line 4 (index 3), first data row is spreadsheet line 5 — the new
+    // Source Document/Source Page columns are appended after Amount, so this
+    // formula's column letters are exactly as before Scope H.
+    expect(csv).toContain("=F5*H5");
+  });
 });
 
 describe("OpsBoqBuilder — drawing-source indicator (Scope D)", () => {

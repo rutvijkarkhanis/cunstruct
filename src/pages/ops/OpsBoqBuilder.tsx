@@ -310,6 +310,20 @@ export default function OpsBoqBuilder() {
   });
   const drawingsById = useMemo(() => new Map(drawings.map((d) => [d.documentId, d])), [drawings]);
 
+  // Scope H — the same name/"unavailable" resolution the badge below renders,
+  // reused by both export paths so the PDF and CSV agree with the editor about
+  // which source references are actually available. Never resolves anything new:
+  // reads only drawingsById, already loaded above for the editor's own display.
+  const resolveLineSource = (line: BoqLine): { sourceDocument: string | null; sourcePage: string | null } => {
+    const sourceDrawing = line.source_document_id ? drawingsById.get(line.source_document_id) : undefined;
+    const sourceUnresolved = !!line.source_document_id && !sourceDrawing && !drawingsLoading;
+    return {
+      sourceDocument: sourceDrawing ? sourceDrawing.name : sourceUnresolved ? "Source document unavailable" : null,
+      // Never shown without a genuinely resolved name — see QuoteItem/CsvRow's own contract.
+      sourcePage: sourceDrawing ? (line.source_page ?? null) : null,
+    };
+  };
+
   // AOR coefficients for the DSR codes present on this BOQ, for the material schedule.
   const codes = useMemo(
     () => [...new Set(lines.map((l) => l.dsr_code).filter(Boolean))] as string[],
@@ -537,7 +551,8 @@ export default function OpsBoqBuilder() {
       no: sh.no, name: sh.name, subtotal: sh.subtotal,
       lines: sh.rows.filter(({ line }) => line.included && line.qty != null && line.qty > 0).map(({ line, no }) => {
         const rate = effRate(line);
-        return { no, code: line.dsr_code, spec: line.description ?? "", qty: line.qty, unit: line.unit ?? "", rate, amount: rate != null ? roundRupee(line.qty * rate) : null };
+        const { sourceDocument, sourcePage } = resolveLineSource(line);
+        return { no, code: line.dsr_code, spec: line.description ?? "", qty: line.qty, unit: line.unit ?? "", rate, amount: rate != null ? roundRupee(line.qty * rate) : null, sourceDocument, sourcePage };
       }),
     })).filter((sh) => sh.lines.length > 0);
 
@@ -576,10 +591,14 @@ export default function OpsBoqBuilder() {
 
   const exportExcel = () => {
     const rows: CsvRow[] = bySubhead.flatMap((sh) =>
-      sh.rows.filter(({ line }) => line.included).map(({ line, no }) => ({
-        subhead: `${sh.no}.00 ${sh.name}`, itemNo: no, code: line.dsr_code,
-        spec: line.description ?? "", unit: line.unit ?? "", qty: line.qty, rate: effRate(line),
-      })));
+      sh.rows.filter(({ line }) => line.included).map(({ line, no }) => {
+        const { sourceDocument, sourcePage } = resolveLineSource(line);
+        return {
+          subhead: `${sh.no}.00 ${sh.name}`, itemNo: no, code: line.dsr_code,
+          spec: line.description ?? "", unit: line.unit ?? "", qty: line.qty, rate: effRate(line),
+          sourceDocument, sourcePage,
+        };
+      }));
     if (!rows.length) return toast.error("Nothing to export yet");
     downloadCsv(`${boq!.name.replace(/[^\w]+/g, "_")}_BOQ.csv`, buildBoqCsv(rows, { boqName: boq!.name, project: project?.name, generatedOn: gen() }, []));
   };

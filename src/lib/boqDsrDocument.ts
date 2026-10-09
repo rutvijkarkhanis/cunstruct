@@ -15,6 +15,15 @@ export interface QuoteItem {
   unit: string;
   rate: number | null;   // excl. GST
   amount: number | null;
+  /** Scope H — drawing-source traceability, read-only passthrough of whatever the
+   *  caller already resolved (e.g. OpsBoqBuilder.tsx's drawingsById lookup). Never
+   *  resolved or fabricated here: absent/null means no source reference at all, and
+   *  a resolved document name with no page is rendered on its own. `sourcePage` is
+   *  only ever shown alongside an actual resolved `sourceDocument` name — never as a
+   *  bare page number — so a caller must leave it unset when the name itself did not
+   *  resolve, even if a page value exists. */
+  sourceDocument?: string | null;
+  sourcePage?: string | null;
 }
 export interface QuoteSubHead {
   no: number;            // sub-head number (1, 2, 3 …)
@@ -104,6 +113,13 @@ const esc = (s: unknown) =>
 const inr = (n: number | null) => (n == null ? "—" : "₹" + Math.round(n).toLocaleString("en-IN"));
 const qtyFmt = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
 
+/** Scope H — the compact, wrapping-safe inline source annotation appended to a
+ *  contract-table line's spec cell. Never shown at all when the caller resolved no
+ *  `sourceDocument`; `sourcePage` is only ever appended alongside a resolved name
+ *  (the caller's own contract — see QuoteItem), never on its own. */
+const srcRef = (l: QuoteItem) =>
+  l.sourceDocument ? `<span class="srcref"> · ${esc(l.sourceDocument)}${l.sourcePage ? `, p.${esc(l.sourcePage)}` : ""}</span>` : "";
+
 const ONES = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
   "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
 const TENS = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
@@ -184,7 +200,7 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
     ${sh.lines.map((l) => `
       <tr>
         <td class="no">${esc(l.no)}</td>
-        <td class="spec">${l.code ? `<span class="code">${esc(l.code)}</span>` : ""}${esc(l.spec)}</td>
+        <td class="spec">${l.code ? `<span class="code">${esc(l.code)}</span>` : ""}${esc(l.spec)}${srcRef(l)}</td>
         <td class="num">${qtyFmt(l.qty)}</td>
         <td class="unit">${esc(l.unit)}</td>
         <td class="num">${money(l.rate)}</td>
@@ -326,6 +342,7 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
   td.amt { font-weight:600; }
   td.spec { line-height:1.45; }
   td.spec .code { display:inline-block; font-family:ui-monospace,Menlo,monospace; font-size:10px; color:#b06d08; background:#fdf4e3; padding:0 5px; border-radius:3px; margin-right:6px; white-space:nowrap; }
+  td.spec .srcref { color:#99a; font-size:10.5px; font-style:italic; }
   tr.sub td { background:#1b2233; color:#fff; font-weight:700; font-size:12px; padding:8px 8px; letter-spacing:.02em; }
   tr.sub .ssub { float:right; font-weight:700; color:#f7c877; }
   .summary { width:380px; margin-left:auto; margin-top:14px; }
@@ -399,6 +416,11 @@ export interface CsvRow {
   unit: string;
   qty: number;
   rate: number | null;
+  /** Scope H — same read-only, never-fabricated contract as QuoteItem's fields of
+   *  the same name (see there). Appended as new columns AFTER the existing 9 (past
+   *  "Amount") so the `=F{n}*H{n}` formula's column letters are never disturbed. */
+  sourceDocument?: string | null;
+  sourcePage?: string | null;
 }
 const csvCell = (v: unknown) => {
   const s = String(v ?? "");
@@ -411,7 +433,11 @@ export function buildBoqCsv(
   pending?: { spec: string; unit: string; note?: string }[],
 ): string {
   const HEADER_LINE = 4;
-  const head = ["Sub-head", "Item", "Code", "Specification", "Unit", "Qty", "Rate (ref, excl GST)", "Your rate", "Amount"];
+  // Scope H — "Source Document"/"Source Page" are appended AFTER the existing 9
+  // columns (A–I). The Amount formula below references columns F and H by letter
+  // ("=F{n}*H{n}"); these new columns must never be inserted before Amount, or
+  // every row's formula would silently point at the wrong cells.
+  const head = ["Sub-head", "Item", "Code", "Specification", "Unit", "Qty", "Rate (ref, excl GST)", "Your rate", "Amount", "Source Document", "Source Page"];
   const lines: string[] = [
     csvCell(`Bill of Quantities — ${meta.boqName}`),
     csvCell(`${meta.project ?? "Standalone"}  ·  ${meta.generatedOn}  ·  Quantities from drawings; enter "Your rate" (excl. GST)`),
@@ -423,6 +449,7 @@ export function buildBoqCsv(
     const amount = r.rate != null ? `=F${ln}*H${ln}` : "";   // Qty(F) × Your rate(H)
     lines.push([
       r.subhead, r.itemNo, r.code ?? "", r.spec, r.unit, r.qty, r.rate ?? "", r.rate ?? "", amount,
+      r.sourceDocument ?? "", r.sourceDocument ? (r.sourcePage ?? "") : "",
     ].map(csvCell).join(","));
   });
   // Identified-but-unquantified drawing requirements — listed with a blank Qty
@@ -432,7 +459,7 @@ export function buildBoqCsv(
     lines.push("", csvCell("IDENTIFIED — PENDING QUANTIFICATION (not priced; confirm a quantity to price)"));
     pending.forEach((p, i) => {
       lines.push([
-        "Pending", `P.${String(i + 1).padStart(2, "0")}`, "", p.note ? `${p.spec} — ${p.note}` : p.spec, p.unit, "", "", "", "",
+        "Pending", `P.${String(i + 1).padStart(2, "0")}`, "", p.note ? `${p.spec} — ${p.note}` : p.spec, p.unit, "", "", "", "", "", "",
       ].map(csvCell).join(","));
     });
   }
@@ -504,7 +531,7 @@ export function buildProjectQuoteHtml(p: ProjectQuotePayload, boqs: ProjectQuote
       ${sh.lines.map((l) => `
         <tr>
           <td class="no">${esc(l.no)}</td>
-          <td class="spec">${l.code ? `<span class="code">${esc(l.code)}</span>` : ""}${esc(l.spec)}</td>
+          <td class="spec">${l.code ? `<span class="code">${esc(l.code)}</span>` : ""}${esc(l.spec)}${srcRef(l)}</td>
           <td class="num">${qtyFmt(l.qty)}</td>
           <td class="unit">${esc(l.unit)}</td>
           <td class="num">${inr(l.rate)}</td>
@@ -568,6 +595,7 @@ export function buildProjectQuoteHtml(p: ProjectQuotePayload, boqs: ProjectQuote
   td.amt { font-weight:600; }
   td.spec { line-height:1.45; }
   td.spec .code { display:inline-block; font-family:ui-monospace,Menlo,monospace; font-size:10px; color:#b06d08; background:#fdf4e3; padding:0 5px; border-radius:3px; margin-right:6px; white-space:nowrap; }
+  td.spec .srcref { color:#99a; font-size:10.5px; font-style:italic; }
   tr.sub td { background:#1b2233; color:#fff; font-weight:700; font-size:12px; padding:8px 8px; letter-spacing:.02em; }
   tr.sub .ssub { float:right; font-weight:700; color:#f7c877; }
   .summary { width:380px; margin-left:auto; margin-top:14px; }
