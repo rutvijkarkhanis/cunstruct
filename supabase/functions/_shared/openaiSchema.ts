@@ -47,6 +47,45 @@ const candidateSchema = {
   required: ["value", "unit", "basis", "source"],
 };
 
+// Must stay byte-identical, in the same order, to CALCULATION_FORMULA_IDS in
+// analysisSchemaV1.ts; see analysisSchemaV1.test.ts for the drift check —
+// same hand-duplicated-enum + runtime-equality-test pattern as
+// OBSERVATION_TYPE_ENUM above. measurementValidator.ts's FormulaId type is
+// the actual source of truth; it is erased at runtime and cannot populate
+// this enum directly.
+const CALCULATION_FORMULA_ENUM = [
+  "SUM_OF_SEGMENTS",
+  "LENGTH_TIMES_WIDTH",
+  "LENGTH_TIMES_WIDTH_TIMES_HEIGHT",
+  "COUNT_TIMES_MULTIPLIER",
+  "QUANTITY_PER_UNIT_TIMES_UNIT_COUNT",
+  "UNIT_CONVERSION",
+];
+
+const calculationInputSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    name: { type: "string" },
+    value: { type: "number" },
+    unit: { type: "string" },
+  },
+  required: ["name", "value", "unit"],
+};
+
+// Nullable: most items have no calculation_data at all. Only the six
+// code-owned formulas above are ever legal here — never an arbitrary
+// model-chosen label.
+const calculationDataSchema = {
+  type: ["object", "null"],
+  additionalProperties: false,
+  properties: {
+    formula: { type: "string", enum: CALCULATION_FORMULA_ENUM },
+    inputs: { type: "array", items: calculationInputSchema },
+  },
+  required: ["formula", "inputs"],
+};
+
 const itemSchema = {
   type: "object",
   additionalProperties: false,
@@ -63,12 +102,13 @@ const itemSchema = {
     confidence: { type: ["number", "null"] },
     status: { type: "string", enum: ["MEASURED", "INFERRED", "PENDING"] },
     calculation: { type: ["string", "null"] },
+    calculation_data: calculationDataSchema,
     notes: { type: ["string", "null"] },
     candidates: { type: "array", items: candidateSchema },
   },
   required: [
     "key", "item", "description", "quantity", "unit", "dimension", "specification",
-    "location", "source", "confidence", "status", "calculation", "notes", "candidates",
+    "location", "source", "confidence", "status", "calculation", "calculation_data", "notes", "candidates",
   ],
 };
 

@@ -42,6 +42,7 @@ import { instancesForType, type TypeInstance } from "@/lib/review/typeInstances"
 import { latestLocationRunForDocument, loadLocationObservations, type LocationObservation } from "@/lib/review/locationObservations";
 import { fetchPreflight } from "@/lib/ai/analysisClient";
 import { markersForAll, markersForCategory, markersForType, markersForInstance, type DrawingMarker } from "@/lib/review/drawingMarkers";
+import { validateItemCalculation, calculationAdvisoryText } from "@/lib/review/calculationAdvisory";
 import PdfEvidenceViewer from "@/components/review/PdfEvidenceViewer";
 import DocumentSelector from "@/components/review/DocumentSelector";
 import AiApiPanel from "@/components/review/AiApiPanel";
@@ -1582,6 +1583,15 @@ export function ItemPanel({
   // the item has none at all, so the two reasons never overlap.
   const reasons = evidenceUnresolvable ? [...criticalReasons(item), "Evidence unavailable"] : criticalReasons(item);
 
+  // Non-blocking arithmetic advisory — a separate, low-emphasis signal next
+  // to `reasons` above, never folded into it: it never touches
+  // criticalReasons()/isCritical(), queue priority, or review status, and
+  // compares only against ai.quantity/ai.unit (never effectiveQuantity() or
+  // any reviewer-adjusted value — see calculationAdvisory.ts). null for most
+  // items (no calculation_data, or nothing safe to recompute/compare), in
+  // which case no badge is shown at all.
+  const calcAdvisoryText = useMemo(() => calculationAdvisoryText(validateItemCalculation(ai)), [ai]);
+
   const documentName = useMemo(() => {
     const stored = resolved ? drawings.find((d) => d.documentId === resolved.documentId) : undefined;
     return stored?.name || ai.source?.document || null;
@@ -1659,6 +1669,17 @@ export function ItemPanel({
         <div className="flex items-start gap-1.5 text-xs text-amber-800">
           <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
           <span><span className="font-medium">Review required</span> — {reasons.join(" · ")}</span>
+        </div>
+      )}
+
+      {/* Arithmetic advisory — separate from, and lower-emphasis than, the
+          "Review required" banner above: it never gates Verify and never
+          implies the drawing itself was checked (see the exact required
+          wording in calculationAdvisory.ts). Absent for most items. */}
+      {calcAdvisoryText && (
+        <div className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+          <Info className="w-3 h-3 mt-0.5 shrink-0" />
+          <span>{calcAdvisoryText}</span>
         </div>
       )}
 

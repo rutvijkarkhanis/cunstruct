@@ -795,6 +795,19 @@ Deno.serve(async (req) => {
     .update({ status: "SUCCEEDED", analysis_run_id: run.id, completed_at: new Date().toISOString() })
     .in("id", claimed.map((c) => c.claimId));
 
+  // A plain count of items whose calculation_data was present but malformed
+  // (unrecognized formula, bad inputs) and so dropped during parsing — never
+  // the raw warning text itself, and nothing new persisted. Same sensitivity
+  // tier as the already-public itemCount/skipped fields below; lets anyone
+  // watching real runs get a crude signal of how often the model's
+  // calculation_data claims are malformed, with zero new infrastructure.
+  // Read directly off parsedAnalysis — parseAnalysisV1() (analysisSchemaV1.ts)
+  // increments this itself at the exact point a calculation_data claim is
+  // dropped, so it is never derived here by scanning warning text (which
+  // could be thrown off by an unrelated warning that happens to mention
+  // "calculation_data" in its own prose, e.g. in an item's own name).
+  const calculationDataDroppedCount = parsedAnalysis.calculationDataDroppedCount;
+
   return json({
     ok: true,
     generated: claimed.length,
@@ -802,6 +815,7 @@ Deno.serve(async (req) => {
     mode,
     itemCount: reviewItems.length,
     skipped,
+    calculationDataDroppedCount,
     // Honest, non-inflated coverage statement — this run covers ONLY the
     // files just claimed, never framed as a full-project analysis.
     sourceCoverage: claimed.map((c) => c.file.filename),

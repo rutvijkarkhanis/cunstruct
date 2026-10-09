@@ -33,6 +33,21 @@ export const ANALYSIS_SCHEMA_HINT = `{
   ]
 }`;
 
+/** Shown alongside ANALYSIS_SCHEMA_HINT — the pattern for stating the exact
+ *  arithmetic that produced a quantity, from one of a fixed, closed set of
+ *  formulas. Omitted entirely (calculation_data: null) whenever the
+ *  derivation doesn't match one of these exactly. */
+export const CALCULATION_SCHEMA_HINT = `{
+  "item": "W1", "quantity": 18, "unit": "sqm", "status": "MEASURED",
+  "calculation_data": {
+    "formula": "LENGTH_TIMES_WIDTH",
+    "inputs": [
+      { "name": "length", "value": 6, "unit": "m" },
+      { "name": "width", "value": 3, "unit": "m" }
+    ]
+  }
+}`;
+
 /** Shown alongside ANALYSIS_SCHEMA_HINT — the pattern for a quantity multiple
  *  supplied drawings disagree on, instead of silently picking one of them. */
 export const CANDIDATES_SCHEMA_HINT = `{
@@ -60,6 +75,7 @@ const BASE_RULES = [
   "Evidence coordinates must be given in the page's own RENDERED coordinate space (top-left origin, as the page looks when opened normally) — never the page's raw/unrotated content-stream coordinates. This matters most for a rotated page (e.g. a landscape schedule or detail sheet inside an otherwise-portrait set).",
   "Never invent evidence coordinates for any claim. If reliable evidence cannot be established for a claim, omit that evidence entry entirely; if the underlying value itself (e.g. the quantity) cannot be reliably established, use status PENDING (and quantity null) rather than fabricating either the value or its evidence.",
   "When different supplied drawings give DIFFERENT values for what should be the same quantity, do NOT pick one and do NOT average them. Use status PENDING (quantity null) and list every value found in a `candidates` array, each with a numeric `value` and a `basis` describing which source it came from (e.g. \"Printed total on the 2025 area statement\"). Only use `candidates` for a genuine cross-drawing disagreement — never as a substitute for a normal single value.",
+  "When the quantity was produced by exact arithmetic from raw measurements, and that arithmetic matches ONE of these exact formulas — SUM_OF_SEGMENTS, LENGTH_TIMES_WIDTH, LENGTH_TIMES_WIDTH_TIMES_HEIGHT, COUNT_TIMES_MULTIPLIER, QUANTITY_PER_UNIT_TIMES_UNIT_COUNT, UNIT_CONVERSION — include `calculation_data` with that formula name and the exact raw inputs (each a `name`, numeric `value`, and `unit`) that produced it. Set `calculation_data` to null whenever the derivation doesn't match one of these six exactly — never force-fit a formula or invent inputs.",
   "Return VALID Cunstruct analysis JSON only — no prose, no markdown, no code fences.",
 ];
 
@@ -74,6 +90,9 @@ export function buildAnalysisPrompt(opts: AnalysisPromptOptions = {}): string {
     "",
     "Return exactly this shape (values illustrative):",
     ANALYSIS_SCHEMA_HINT,
+    "",
+    "When you can state the exact arithmetic behind a quantity, use this pattern:",
+    CALCULATION_SCHEMA_HINT,
     "",
     "When sources conflict, use this pattern instead of guessing a value:",
     CANDIDATES_SCHEMA_HINT,

@@ -17,6 +17,11 @@
 // Function (Deno requires explicit extensions and has no "@/" alias) as well
 // as from the browser build — see supabase/functions/_shared/analysisValidation.ts.
 import { extractJson } from "../boqEvalJson.ts";
+// Type-only — erased at compile time, zero runtime coupling to the
+// already-committed, already-audited measurementValidator.ts (Scope A).
+// That file stays unmodified; see CALCULATION_FORMULA_IDS below for how
+// this module keeps its own formula enum from drifting out of sync with it.
+import type { FormulaId } from "./measurementValidator.ts";
 
 export type AiStatus = "MEASURED" | "INFERRED" | "PENDING";
 
@@ -59,6 +64,48 @@ export interface QuantityCandidate {
   source?: AnalysisSource;
 }
 
+/** One raw measurement feeding a structured calculation. Deliberately no
+ *  per-input evidence pointer in this increment (out of scope). */
+export interface CalculationInputV1 {
+  name: string;
+  value: number;
+  unit: string;
+}
+
+/**
+ * The AI's own claim about the exact arithmetic that produced `quantity` —
+ * never fabricated or inferred here, only parsed from what the model (or a
+ * pasted payload) supplied. Read-time-only: nothing in this file recomputes
+ * or validates this data (see calculationAdvisory.ts for that, built on the
+ * unmodified measurementValidator.ts). Separate from the existing free-text
+ * `calculation` field, which is shown verbatim and never parsed.
+ */
+export interface CalculationDataV1 {
+  formula: FormulaId;
+  inputs: CalculationInputV1[];
+}
+
+/** The finite, code-owned formula allowlist, duplicated as a runtime value
+ *  here because FormulaId (a TypeScript type) is erased at runtime and can't
+ *  itself populate anything — a JSON-Schema enum (openaiSchema.ts) or a
+ *  parser's own validation. `satisfies readonly FormulaId[]` locks this array
+ *  to the type in one direction (every listed string really is a FormulaId);
+ *  the type below locks it in the other direction (every FormulaId member
+ *  must appear in this array) — together a stronger, compile-time version of
+ *  the existing OBSERVATION_TYPE_ENUM/OBSERVATION_TYPES runtime-only drift
+ *  check (see observationValidation.test.ts). If measurementValidator.ts
+ *  ever gains or loses a formula, this file fails to typecheck until updated. */
+export const CALCULATION_FORMULA_IDS = [
+  "SUM_OF_SEGMENTS",
+  "LENGTH_TIMES_WIDTH",
+  "LENGTH_TIMES_WIDTH_TIMES_HEIGHT",
+  "COUNT_TIMES_MULTIPLIER",
+  "QUANTITY_PER_UNIT_TIMES_UNIT_COUNT",
+  "UNIT_CONVERSION",
+] as const satisfies readonly FormulaId[];
+type AssertEveryFormulaIdListed = FormulaId extends (typeof CALCULATION_FORMULA_IDS)[number] ? true : never;
+const _assertEveryFormulaIdListed: AssertEveryFormulaIdListed = true;
+
 export interface AnalysisItemV1 {
   /** Stable per-item key (e.g. "W1") — identifies, never authorizes. */
   key: string;
@@ -76,6 +123,9 @@ export interface AnalysisItemV1 {
   aiStatus: AiStatus;
   /** A derivation the analysis supplied — shown verbatim, never fabricated. */
   calculation?: string;
+  /** The AI's structured arithmetic claim, when it supplied one. Absent for
+   *  most items — never fabricated when missing. See CalculationDataV1. */
+  calculationData?: CalculationDataV1;
   notes?: string;
   /**
    * Present only when sources genuinely disagree on this quantity. When
@@ -101,6 +151,15 @@ export interface AnalysisParseV1 {
   error?: string;
   analysis?: AnalysisV1;
   warnings: string[];
+  /** How many items had a PRESENT-but-malformed `calculation_data` dropped
+   *  during parsing — incremented at the exact point of the drop inside
+   *  parseCalculationData() below, never inferred afterward by inspecting
+   *  warning text. Never counts an absent/null calculation_data. Always 0
+   *  when parsing failed before any item could be examined (ok: false with
+   *  no items array). This is the single source of truth consumers (e.g.
+   *  the ai-analysis edge function's calculationDataDroppedCount response
+   *  field) should read — never re-derive it by scanning `warnings`. */
+  calculationDataDroppedCount: number;
 }
 
 const SCHEMA_V1 = "cunstruct.analysis.v1";
@@ -218,6 +277,68 @@ function parseCandidate(raw: unknown, warnings: string[], itemLabel: string, idx
   };
 }
 
+const CALCULATION_FORMULA_SET: ReadonlySet<string> = new Set(CALCULATION_FORMULA_IDS);
+
+/** Validate one calculation input; returns null (not fabricated) if the name,
+ *  numeric value, or unit is missing — the caller drops the whole
+ *  calculation_data object rather than keep a half-formed input. */
+function parseCalculationInput(raw: unknown): CalculationInputV1 | null {
+  const o = asObj(raw);
+  const name = str(o.name);
+  const value = num(o.value);
+  const unit = str(o.unit);
+  if (!name || value == null || !unit) return null;
+  return { name, value, unit };
+}
+
+/** parseCalculationData()'s result — `wasDropped` is the explicit,
+ *  machine-readable classification `calculationDataDroppedCount` is built
+ *  from. It is set directly, at the exact point calculation_data is judged
+ *  malformed and discarded — never inferred afterward by inspecting the
+ *  text of `warnings`, so it can never be thrown off by an unrelated
+ *  warning that happens to mention "calculation_data" in its own prose.
+ *  `wasDropped` is true in exactly the three malformed branches below, and
+ *  only there — never for an absent/null calculation_data (that is simply
+ *  not a drop). */
+interface CalculationDataParseResult {
+  data: CalculationDataV1 | undefined;
+  wasDropped: boolean;
+}
+
+/**
+ * Parse an item's `calculation_data`, distinguishing ABSENT (the normal case
+ * for most items — no warning) from PRESENT BUT MALFORMED (an unrecognized
+ * formula, a non-array `inputs`, or a malformed input — dropped with a
+ * warning, never guessed at or partially kept). Only the item's own label is
+ * ever logged — never raw input values, never the full model response. The
+ * warning strings below exist purely for a human reviewer reading pasted
+ * JSON; `wasDropped` (not the text) is what any caller must use to count
+ * drops.
+ */
+function parseCalculationData(raw: unknown, warnings: string[], itemLabel: string): CalculationDataParseResult {
+  if (raw == null) return { data: undefined, wasDropped: false };
+  const o = asObj(raw);
+  const formula = str(o.formula);
+  if (!formula || !CALCULATION_FORMULA_SET.has(formula)) {
+    warnings.push(`"${itemLabel}": calculation_data has an unrecognized formula — dropped (never guessed at).`);
+    return { data: undefined, wasDropped: true };
+  }
+  if (!Array.isArray(o.inputs)) {
+    warnings.push(`"${itemLabel}": calculation_data is missing a valid "inputs" array — dropped (never guessed at).`);
+    return { data: undefined, wasDropped: true };
+  }
+  const inputs: CalculationInputV1[] = [];
+  for (const rawInput of o.inputs) {
+    const parsedInput = parseCalculationInput(rawInput);
+    if (!parsedInput) {
+      warnings.push(`"${itemLabel}": calculation_data has a malformed input — dropped (never guessed at).`);
+      return { data: undefined, wasDropped: true };
+    }
+    inputs.push(parsedInput);
+  }
+  return { data: { formula: formula as FormulaId, inputs }, wasDropped: false };
+}
+
 /**
  * Parse and validate a `cunstruct.analysis.v1` payload into an AnalysisV1.
  * Malformed JSON or a missing items array → ok:false. Per-item problems (unknown
@@ -225,11 +346,11 @@ function parseCandidate(raw: unknown, warnings: string[], itemLabel: string, idx
  */
 export function parseAnalysisV1(text: string): AnalysisParseV1 {
   const warnings: string[] = [];
-  if (!(text ?? "").trim()) return { ok: false, error: "Paste or upload the analysis JSON.", warnings };
+  if (!(text ?? "").trim()) return { ok: false, error: "Paste or upload the analysis JSON.", warnings, calculationDataDroppedCount: 0 };
 
   const parsed = extractJson(text);
   if (parsed === undefined) {
-    return { ok: false, error: "Invalid JSON — no JSON object found in the pasted text.", warnings };
+    return { ok: false, error: "Invalid JSON — no JSON object found in the pasted text.", warnings, calculationDataDroppedCount: 0 };
   }
 
   let arr: unknown;
@@ -248,14 +369,17 @@ export function parseAnalysisV1(text: string): AnalysisParseV1 {
   }
 
   if (!Array.isArray(arr)) {
-    return { ok: false, error: 'JSON schema error — expected an "items" array.', warnings };
+    return { ok: false, error: 'JSON schema error — expected an "items" array.', warnings, calculationDataDroppedCount: 0 };
   }
   if (arr.length === 0) {
-    return { ok: false, error: 'The "items" array is empty — nothing to review.', warnings };
+    return { ok: false, error: 'The "items" array is empty — nothing to review.', warnings, calculationDataDroppedCount: 0 };
   }
 
   const items: AnalysisItemV1[] = [];
   const missingFields: string[] = [];
+  // Incremented directly by parseCalculationData()'s explicit `wasDropped`
+  // flag below — never derived by re-scanning `warnings` text afterward.
+  let calculationDataDroppedCount = 0;
   arr.forEach((raw, idx) => {
     const o = asObj(raw);
     const item = str(o.item) || str(o.name) || str(o.description) || str(o.requirement);
@@ -290,6 +414,9 @@ export function parseAnalysisV1(text: string): AnalysisParseV1 {
       finalAiStatus = "PENDING";
     }
 
+    const calcResult = parseCalculationData(o.calculation_data ?? o.calculationData, warnings, item);
+    if (calcResult.wasDropped) calculationDataDroppedCount++;
+
     items.push({
       key: key || item,
       item,
@@ -303,15 +430,16 @@ export function parseAnalysisV1(text: string): AnalysisParseV1 {
       confidence: conf.value,
       aiStatus: finalAiStatus,
       calculation: str(o.calculation) || undefined,
+      calculationData: calcResult.data,
       notes: str(o.notes ?? o.note) || undefined,
       candidates: candidates.length ? candidates : undefined,
     });
   });
 
   if (items.length === 0) {
-    return { ok: false, error: `No valid items found. ${missingFields.join("; ")}`, warnings };
+    return { ok: false, error: `No valid items found. ${missingFields.join("; ")}`, warnings, calculationDataDroppedCount: 0 };
   }
   if (missingFields.length) warnings.push(...missingFields);
 
-  return { ok: true, analysis: { schemaVersion, project, items }, warnings };
+  return { ok: true, analysis: { schemaVersion, project, items }, warnings, calculationDataDroppedCount };
 }
