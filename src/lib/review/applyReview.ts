@@ -508,9 +508,22 @@ export async function applyReviewPlan(args: {
   const { data: userData } = await supabase.auth.getUser();
   const changedBy = userData?.user?.id ?? null;
   let appliedCount = 0;
-  // Looked up at most once per call, only if some NEW_LINE actually needs it.
-  // undefined = not yet looked up; null = looked up, boq has no project_id.
+  // Looked up at most once per call, only if some NEW_LINE's scope or some
+  // candidate's source-document check actually needs it (see
+  // resolveBoqProjectId below). undefined = not yet looked up; null = looked
+  // up, boq has no project_id.
   let projectId: string | null | undefined;
+  /** This BOQ's own project_id, resolved at most once per call and cached in
+   *  the `projectId` closure variable above. Shared by NEW_LINE's scope
+   *  resolution and documentStillExists below — both need "which project is
+   *  this Apply call writing into," never a second, independent lookup. */
+  async function resolveBoqProjectId(): Promise<string | null> {
+    if (projectId === undefined) {
+      const { data: boqRow } = await supabase.from("boq").select("project_id").eq("id", args.boqId).single();
+      projectId = (boqRow as { project_id: string | null } | null)?.project_id ?? null;
+    }
+    return projectId;
+  }
   // Lines this call has already written to. Every candidate's `changes` was
   // computed by classifyReviewItem against ONE static pre-apply snapshot, so
   // a second selected candidate targeting a line the first one already wrote
@@ -538,11 +551,66 @@ export async function applyReviewPlan(args: {
     }
     return revisionIdByDocumentId.get(documentId) ?? null;
   }
+  // Resolved at most once per distinct documentId in this call, same caching
+  // discipline as resolveCachedRevisionId above. Needed because
+  // source_document_id is a real FK to project_document(id): if the document
+  // was deleted between analysis and this Apply call, writing its id would
+  // violate that FK. resolveSourceRevisionId's own project_document lookup
+  // only runs on its fallback path (no runId, or no usable run-source
+  // evidence) — the exact-analyzed-revision path never touches
+  // project_document at all — so document existence needs its own check
+  // regardless of which revision-resolution path ran.
+  //
+  // Scoped to THIS call's own boq project, not just "does this id exist
+  // anywhere": project_document.project_id is NOT NULL (project_workspace
+  // migration), so a row belonging to a different project must never be
+  // accepted as this item's live source — "exists somewhere" is not the same
+  // claim as "exists for this project" and resolveDrawingSource's own
+  // export-side lookup (loadProjectDrawings(projectId)) already holds to the
+  // stricter one. If resolveBoqProjectId can't resolve a project_id for this
+  // boq at all, there is no project to scope the check against, so the
+  // document is treated as NOT verified (never falls back to a global,
+  // unscoped match just because scoping failed).
+  //
+  // A query error here is a genuinely unexpected failure (network blip, RLS
+  // misconfiguration) — never evidence the document is gone. It is thrown,
+  // not swallowed, matching the established convention in applyFinding.ts's
+  // insertLineResilient/updateLineResilient (`if (error) throw error`): any
+  // error that isn't one of their own specifically-matched, narrow retry/
+  // conflict cases still throws. Propagating here means this whole Apply
+  // call fails loudly — through applyReviewPlan's existing uncaught-throw
+  // behavior (see its own candidate loop, which has no per-candidate
+  // try/catch) — instead of silently reporting the source gone and the
+  // candidate successfully applied.
+  const documentExistsByDocumentId = new Map<string, boolean>();
+  async function documentStillExists(documentId: string): Promise<boolean> {
+    if (!documentExistsByDocumentId.has(documentId)) {
+      const boqProjectId = await resolveBoqProjectId();
+      if (!boqProjectId) {
+        documentExistsByDocumentId.set(documentId, false);
+      } else {
+        const { data, error } = await supabase
+          .from("project_document")
+          .select("id")
+          .eq("id", documentId)
+          .eq("project_id", boqProjectId)
+          .maybeSingle();
+        if (error) throw error;
+        documentExistsByDocumentId.set(documentId, !!data);
+      }
+    }
+    return documentExistsByDocumentId.get(documentId)!;
+  }
   /** The source columns to include in a write, or {} when `c.source` is
-   *  undefined (nothing proposed — see classifyReviewItem/sourceToPropose).
-   *  Never overwrites an unrelated column; merged into an existing patch. */
+   *  undefined (nothing proposed — see classifyReviewItem/sourceToPropose) OR
+   *  when the proposed document was deleted since analysis ran — never
+   *  attempt a write that would violate boq_line.source_document_id's own FK
+   *  to project_document; degrade exactly like "no source on the item" rather
+   *  than letting qty/unit fail alongside a doomed source write. Never
+   *  overwrites an unrelated column; merged into an existing patch. */
   async function sourcePatchFor(c: ApplyCandidate): Promise<Record<string, unknown>> {
     if (!c.source) return {};
+    if (!(await documentStillExists(c.source.documentId))) return {};
     const revisionId = await resolveCachedRevisionId(c.source.documentId);
     return {
       source_document_id: c.source.documentId,
@@ -631,11 +699,8 @@ export async function applyReviewPlan(args: {
       let scopeId: string | null = null;
       const location = (c.newLine.location ?? "").trim();
       if (location) {
-        if (projectId === undefined) {
-          const { data: boqRow } = await supabase.from("boq").select("project_id").eq("id", args.boqId).single();
-          projectId = (boqRow as { project_id: string | null } | null)?.project_id ?? null;
-        }
-        if (projectId) scopeId = await resolveScopeIdForLocation(projectId, location);
+        const boqProjectId = await resolveBoqProjectId();
+        if (boqProjectId) scopeId = await resolveScopeIdForLocation(boqProjectId, location);
       }
       // Source-traceability (Scope C) — a brand-new line has no existing
       // provenance to protect, so this is always included when the item

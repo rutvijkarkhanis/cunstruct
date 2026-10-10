@@ -8,9 +8,23 @@
 import { supabase } from "@/integrations/supabase/client";
 import { PENDING_BASIS } from "./boqEvalJson";
 
-// The optional columns some deployments haven't migrated yet. On a schema error
-// we retry without them, mirroring the existing insert/update fallbacks.
-const OPTIONAL_COL_RE = /\bbasis\b|external_key|measurement_method|quantity_status|scope_id|source_document_id|source_revision_id|source_page|schema cache|could not find|does not exist/i;
+// The optional columns some deployments haven't migrated yet. On a genuine
+// missing-column error we retry without them, mirroring the existing
+// insert/update fallbacks. Matches ONLY the generic "this column doesn't
+// exist" phrasing PostgREST/Postgres actually use for that specific error —
+// never a bare column name on its own. A bare name is NOT a safe signal: for
+// example, a foreign-key violation on source_document_id (a real FK to
+// project_document, e.g. its document was deleted after analysis ran but
+// before Apply) produces a Postgres-generated constraint name like
+// "boq_line_source_document_id_fkey", which contains the literal column name
+// despite being a completely different error class. Matching on the bare
+// name there used to make this fallback misfire: it would strip not just
+// source_document_id but every other "optional" column too — including
+// external_key and quantity_status — silently writing a line a reviewer
+// never intended (no error, no traceability) instead of either failing
+// loudly or degrading in a controlled way. See the same convention already
+// used correctly in security/auditTrail.ts's own missing-column check.
+const OPTIONAL_COL_RE = /schema cache|could not find|does not exist/i;
 
 // Matches ONLY the two partial unique indexes 20260929000000_boq_line_identity_
 // constraint.sql adds for (boq_id, external_key, scope_id) — never any other

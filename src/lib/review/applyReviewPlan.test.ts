@@ -34,10 +34,18 @@ function seedLine(id: string, qty: number, unit: string | null) {
 // set of "known" ids, so a seeded revision that belongs to a DIFFERENT
 // document than the one being resolved is correctly rejected by this mock,
 // exactly as the real document_revision.document_id FK column would.
-const projectDocumentStore = new Map<string, { current_revision_id: string | null }>();
+// Every test's boq ("boq-1", "boq-42", …) belongs to this project — the
+// `single()` mock for the "boq" table below always resolves project_id to
+// this constant, so seedDocument's default project_id keeps every
+// pre-existing test's documents "same-project" (today's normal case)
+// without having to pass it explicitly everywhere. The project-scoping and
+// query-error regression tests live in
+// applyReviewSourceDocumentIntegrity.test.ts, not this file.
+const BOQ_PROJECT_ID = "project-1";
+const projectDocumentStore = new Map<string, { current_revision_id: string | null; project_id: string }>();
 const documentRevisionOwner = new Map<string, string>();
-function seedDocument(documentId: string, currentRevisionId: string | null) {
-  projectDocumentStore.set(documentId, { current_revision_id: currentRevisionId });
+function seedDocument(documentId: string, currentRevisionId: string | null, projectId: string = BOQ_PROJECT_ID) {
+  projectDocumentStore.set(documentId, { current_revision_id: currentRevisionId, project_id: projectId });
 }
 function seedRevision(revisionId: string, ownerDocumentId: string) {
   documentRevisionOwner.set(revisionId, ownerDocumentId);
@@ -67,10 +75,25 @@ function selectBuilder(table: string, filters: Record<string, unknown> = {}, exc
   return {
     eq: (col: string, val: unknown) => selectBuilder(table, { ...filters, [col]: val }, excludeNullRevision),
     not: (_col: string, _op: string, _val: unknown) => selectBuilder(table, filters, true),
+    // Only the "boq" table's project_id lookup (documentStillExists's
+    // resolveBoqProjectId, applyReview.ts) is ever terminated with .single()
+    // rather than .maybeSingle() — mirrors the real supabase-js builder,
+    // which exposes both terminators on the same chain.
+    single: async () => {
+      if (table === "boq") return { data: { project_id: BOQ_PROJECT_ID }, error: null };
+      return { data: null, error: null };
+    },
     maybeSingle: async () => {
       const id = filters.id as string | undefined;
       if (table === "project_document") {
         const row = id ? projectDocumentStore.get(id) : undefined;
+        // N1 — project-scoped: a row whose project_id doesn't match the
+        // filter (documentStillExists always supplies one once it has
+        // resolved the boq's project) is treated exactly like no row at all,
+        // mirroring the real project_document.project_id column.
+        if (row && filters.project_id !== undefined && row.project_id !== filters.project_id) {
+          return { data: null, error: null };
+        }
         return { data: row ?? null, error: null };
       }
       if (table === "document_revision") {
