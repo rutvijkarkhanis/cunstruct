@@ -88,19 +88,34 @@ describe("scoreCase — identity correctness (Fix A) on the flagship cross-floor
     expect(result.identityFailures).toEqual([]);
   });
 
-  it("EXPOSES A REAL GAP: if the AI extraction drops location (not a Fix A regression — an upstream extraction failure), the false-duplicate bug resurfaces", () => {
-    // Same scenario Fix A protects against, EXCEPT every item's location is
-    // blank — i.e. the AI itself failed to report which floor each W1 is on.
-    // Fix A's key+location scoping degrades to a bare-key comparison whenever
-    // location is missing, so this is expected to fail identity correctness —
-    // and it must be attributed to extraction (no location reported), not to
-    // a defect in the review-queue scoping logic itself.
+  it("FIX B — the location-dropped gap Fix A alone left open is now closed: a bare mark code is no longer proof the three floors are one identity", () => {
+    // Same scenario as before Fix B: every item's location is blank — i.e.
+    // the AI itself failed to report which floor each W1 is on. Fix A's
+    // key+location scoping degrades to a bare-key comparison whenever
+    // location is missing, which used to wrongly link all three distinct
+    // floors (see git history for the pre-Fix-B failure this test recorded:
+    // identityCorrectness dropped to 0.25, with stilt/ground/typical each
+    // wrongly linked to one another). Fix B (reviewQueue.ts's
+    // unlocatedFingerprint) now requires quantity/dimension/specification to
+    // ALSO agree before two blank-location occurrences of the same bare key
+    // are linked — stilt (qty 1), ground (qty 7), and typical (qty null) all
+    // disagree, so none of them are linked to each other, while the genuine
+    // same-floor repeat (same qty/dimension/specification as ground) still
+    // is — see the next test. This must still be attributed to the AI's own
+    // extraction never reporting location in the first place, not to a
+    // defect in the review-queue scoping logic — Fix B closes exactly as
+    // much of that gap as the data allows without ever inventing a location.
     const noLocation: AnalysisItemV1[] = perfectRunFor(c).map((i) => ({ ...i, location: undefined }));
     const result = scoreCase(c, noLocation);
-    expect(result.identityCorrectness).toBeLessThan(1);
-    // The three genuinely-distinct floors get wrongly linked once location is gone.
-    const wronglyLinked = result.identityFailures.filter((f) => f.expected === false && f.actual === true);
-    expect(wronglyLinked.length).toBeGreaterThan(0);
+    expect(result.identityCorrectness).toBe(1);
+    expect(result.identityFailures).toEqual([]);
+  });
+
+  it("FIX B does not depend on processing order: the same-floor repeat still links correctly even though an earlier, differently-fingerprinted occurrence (stilt) shares its bare key", () => {
+    const noLocation: AnalysisItemV1[] = perfectRunFor(c).map((i) => ({ ...i, location: undefined }));
+    const result = scoreCase(c, noLocation);
+    const repeatFailure = result.identityFailures.find((f) => f.a === "ground-w1-id" && f.b === "ground-w1-repeat");
+    expect(repeatFailure).toBeUndefined(); // no failure recorded means it was correctly linked
   });
 
   it("still catches a genuine same-floor, same-key repeat (positive control) even with the Fix A scoping active", () => {

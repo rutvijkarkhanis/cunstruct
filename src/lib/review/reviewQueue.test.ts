@@ -61,6 +61,144 @@ describe("buildReviewItems — duplicate detection", () => {
   });
 });
 
+// ── Fix B: a bare mark code with NO location is never, by itself, proof that
+// two occurrences are the same physical instance. The scoping above (Fix A)
+// already protects an EXPLICIT location mismatch; this closes the gap Fix A
+// left open — the same mark code reused across floors looks IDENTICAL to a
+// genuine repeat once location drops out of both sides. Requires the item's
+// own measured facts (quantity/dimension/specification) to ALSO agree before
+// linking two blank-location occurrences; any disagreement is treated as
+// evidence they are different instances, never guessed past. ────────────────
+describe("buildReviewItems — Fix B: blank-location duplicates require agreeing measured facts", () => {
+  it("three same-key items, all blank location, three DIFFERENT quantities -> none linked to one another", () => {
+    const items = buildReviewItems([
+      ai({ key: "W1", item: "Window W1", quantity: 1 }),  // Stilt, in reality
+      ai({ key: "W1", item: "Window W1", quantity: 7 }),  // Ground, in reality
+      ai({ key: "W1", item: "Window W1", quantity: 3 }),  // a Typical floor, in reality
+    ]);
+    expect(items[0].duplicateOf).toBeUndefined();
+    expect(items[1].duplicateOf).toBeUndefined();
+    expect(items[2].duplicateOf).toBeUndefined();
+  });
+
+  it("a genuine same-floor repeat (identical quantity/dimension/specification) is still linked, even with location blank on both", () => {
+    const items = buildReviewItems([
+      ai({ key: "W1", item: "Window W1", quantity: 7, dimension: "6'x6'9\"", specification: "UPVC" }),
+      ai({ key: "W1", item: "Window W1", quantity: 7, dimension: "6'x6'9\"", specification: "UPVC" }),
+    ]);
+    expect(items[0].duplicateOf).toBeUndefined();
+    expect(items[1].duplicateOf).toBe("W1");
+  });
+
+  it("the repeat still links correctly even when an EARLIER, differently-fingerprinted occurrence of the same bare key comes first — not dependent on processing order", () => {
+    const items = buildReviewItems([
+      ai({ key: "W1", item: "Window W1", quantity: 1, dimension: "4'x5'3\"", specification: "UPVC" }),  // Stilt
+      ai({ key: "W1", item: "Window W1", quantity: 7, dimension: "6'x6'9\"", specification: "UPVC" }),  // Ground
+      ai({ key: "W1", item: "Window W1", quantity: null, aiStatus: "PENDING" }),                        // Typical (uncertain)
+      ai({ key: "W1", item: "Window W1", quantity: 7, dimension: "6'x6'9\"", specification: "UPVC" }),  // Ground, repeated
+    ]);
+    expect(items[0].duplicateOf).toBeUndefined();
+    expect(items[1].duplicateOf).toBeUndefined();
+    expect(items[2].duplicateOf).toBeUndefined();
+    expect(items[3].duplicateOf).toBe("W1"); // links to the Ground occurrence's fingerprint, not Stilt's
+  });
+
+  it("a differing dimension alone (same quantity) still prevents linking — any disagreement is evidence, not just quantity", () => {
+    const items = buildReviewItems([
+      ai({ key: "W1", item: "Window W1", quantity: 7, dimension: "6'x6'9\"" }),
+      ai({ key: "W1", item: "Window W1", quantity: 7, dimension: "4'x5'3\"" }), // same qty, different size
+    ]);
+    expect(items[1].duplicateOf).toBeUndefined();
+  });
+
+  it("a missing location item is never confused with an explicit-location item sharing the same key — distinct bucket spaces, never cross-matched", () => {
+    const items = buildReviewItems([
+      ai({ key: "W1", item: "Window W1", quantity: 7, location: "Ground" }),
+      ai({ key: "W1", item: "Window W1", quantity: 7 }), // same key/quantity, but no location at all
+    ]);
+    expect(items[0].duplicateOf).toBeUndefined();
+    expect(items[1].duplicateOf).toBeUndefined(); // never linked to the Ground item, missing != agreeing
+  });
+});
+
+// ── Adversarial-review follow-up: quantity/dimension/specification agreeing
+// is NOT proof of physical identity — three genuinely distinct floors can
+// legitimately share an identical count/size/spec (e.g. "every floor has 10
+// Type-D1 doors, 900x2100, flush panel"), and the measured-facts fingerprint
+// alone cannot tell that apart from one floor's row re-parsed three times.
+// `source.documentId`/`source.page` (a different drawing page is real,
+// direct evidence of a different physical instance) narrows this for
+// occurrences that actually track it — WITHOUT it, the limitation is
+// unresolved and stated as such below, not silently accepted. ─────────────
+describe("buildReviewItems — Fix B refinement: source page/document disambiguates when measured facts alone cannot", () => {
+  it("three same-key items, blank location, IDENTICAL quantity/dimension/specification, but three DIFFERENT source pages -> none linked to one another", () => {
+    const items = buildReviewItems([
+      ai({ key: "D1", item: "Door D1", quantity: 10, dimension: "900x2100", specification: "Flush panel", source: { documentId: "doc-1", page: 7, evidence: [] } }),
+      ai({ key: "D1", item: "Door D1", quantity: 10, dimension: "900x2100", specification: "Flush panel", source: { documentId: "doc-1", page: 8, evidence: [] } }),
+      ai({ key: "D1", item: "Door D1", quantity: 10, dimension: "900x2100", specification: "Flush panel", source: { documentId: "doc-1", page: 9, evidence: [] } }),
+    ]);
+    expect(items[0].duplicateOf).toBeUndefined();
+    expect(items[1].duplicateOf).toBeUndefined();
+    expect(items[2].duplicateOf).toBeUndefined();
+  });
+
+  it("a genuine repeat with IDENTICAL measured facts AND the same source page is still linked", () => {
+    const items = buildReviewItems([
+      ai({ key: "D1", item: "Door D1", quantity: 10, dimension: "900x2100", specification: "Flush panel", source: { documentId: "doc-1", page: 7, evidence: [] } }),
+      ai({ key: "D1", item: "Door D1", quantity: 10, dimension: "900x2100", specification: "Flush panel", source: { documentId: "doc-1", page: 7, evidence: [] } }),
+    ]);
+    expect(items[0].duplicateOf).toBeUndefined();
+    expect(items[1].duplicateOf).toBe("D1");
+  });
+
+  it("the same document but a DIFFERENT page still prevents linking, even with every other field identical", () => {
+    const items = buildReviewItems([
+      ai({ key: "D1", item: "Door D1", quantity: 10, source: { documentId: "doc-1", page: 7, evidence: [] } }),
+      ai({ key: "D1", item: "Door D1", quantity: 10, source: { documentId: "doc-1", page: 8, evidence: [] } }),
+    ]);
+    expect(items[1].duplicateOf).toBeUndefined();
+  });
+
+  it("source info present on only ONE side never silently matches the other, even with identical measured facts — asymmetric tracking is treated as insufficient evidence, not agreement", () => {
+    const items = buildReviewItems([
+      ai({ key: "D1", item: "Door D1", quantity: 10, source: { documentId: "doc-1", page: 7, evidence: [] } }),
+      ai({ key: "D1", item: "Door D1", quantity: 10 }), // no source tracked at all
+    ]);
+    expect(items[1].duplicateOf).toBeUndefined();
+  });
+
+  it("matching source (same document+page) is never sufficient on its own — a disagreeing quantity or dimension still blocks linking, exactly like the no-source case", () => {
+    // Source metadata is SUPPORTING evidence, never proof of physical
+    // identity by itself: two occurrences reported from the exact same page
+    // but disagreeing on a measured fact are still two different claims
+    // about that page (e.g. a miscount, or two distinct items the AI
+    // genuinely found on the same sheet), not one item confirmed twice.
+    const differingQty = buildReviewItems([
+      ai({ key: "D1", item: "Door D1", quantity: 10, source: { documentId: "doc-1", page: 7, evidence: [] } }),
+      ai({ key: "D1", item: "Door D1", quantity: 20, source: { documentId: "doc-1", page: 7, evidence: [] } }),
+    ]);
+    expect(differingQty[1].duplicateOf).toBeUndefined();
+
+    const differingDimension = buildReviewItems([
+      ai({ key: "D1", item: "Door D1", quantity: 10, dimension: "900x2100", source: { documentId: "doc-1", page: 7, evidence: [] } }),
+      ai({ key: "D1", item: "Door D1", quantity: 10, dimension: "750x2100", source: { documentId: "doc-1", page: 7, evidence: [] } }),
+    ]);
+    expect(differingDimension[1].duplicateOf).toBeUndefined();
+  });
+
+  it("ACKNOWLEDGED LIMITATION: three genuinely distinct physical instances with identical measured facts and NO source tracking at all are still indistinguishable from a repeat — the schema has no further signal, and this is documented rather than silently accepted", () => {
+    const items = buildReviewItems([
+      ai({ key: "D1", item: "Door D1", quantity: 10, dimension: "900x2100", specification: "Flush panel" }), // a different floor, in reality
+      ai({ key: "D1", item: "Door D1", quantity: 10, dimension: "900x2100", specification: "Flush panel" }), // a different floor, in reality
+    ]);
+    // This is NOT the desired outcome — it is the documented boundary of
+    // what this representation can safely decide. Closing it needs richer
+    // identity evidence than this schema carries today (see
+    // unlocatedFingerprint's own doc comment) — never invented here.
+    expect(items[1].duplicateOf).toBe("D1");
+  });
+});
+
 describe("orderQueue — attention first, nothing discarded", () => {
   it("puts pending/low-confidence/duplicate/inferred before normal measured, and reviewed last", () => {
     const items = buildReviewItems([
