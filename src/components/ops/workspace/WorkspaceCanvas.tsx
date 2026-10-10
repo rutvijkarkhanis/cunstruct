@@ -14,7 +14,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { signedDrawingUrl } from "@/lib/review/drawingStorage";
 import PdfEvidenceViewer from "@/components/review/PdfEvidenceViewer";
-import { FileText } from "lucide-react";
+import { FileText, Loader2 } from "lucide-react";
 
 export interface WorkspaceCanvasProps {
   documentId: string | null;
@@ -24,8 +24,17 @@ export interface WorkspaceCanvasProps {
   page: number | null;
 }
 
+/** The message shown when the current revision has resolved but genuinely
+ *  has no file — e.g. a revision added via "Add revision" with a label but
+ *  no URL/upload (useDocumentManagement.ts's addRevision allows this; the
+ *  URL field is optional). PdfEvidenceViewer's own fallback for `fileUrl:
+ *  null` assumes an AI-analysis context ("This item has no drawing source in
+ *  the analysis") that doesn't apply here, so this passes its existing
+ *  `unavailableReason` prop instead — see that prop's own doc comment. */
+const NO_FILE_REASON = "No file has been uploaded for this revision yet.";
+
 export default function WorkspaceCanvas({ documentId, page }: WorkspaceCanvasProps) {
-  const { data: doc } = useQuery({
+  const { data: doc, isLoading: docLoading } = useQuery({
     queryKey: ["workspace-canvas-doc", documentId],
     enabled: !!documentId,
     queryFn: async () => {
@@ -42,7 +51,7 @@ export default function WorkspaceCanvas({ documentId, page }: WorkspaceCanvasPro
     },
   });
 
-  const { data: fileUrl } = useQuery({
+  const { data: fileUrl, isLoading: fileUrlLoading } = useQuery({
     queryKey: ["workspace-canvas-url", doc?.filePath],
     enabled: !!doc?.filePath,
     queryFn: () => signedDrawingUrl(doc!.filePath!),
@@ -57,6 +66,22 @@ export default function WorkspaceCanvas({ documentId, page }: WorkspaceCanvasPro
     );
   }
 
+  // Loading is still underway in one of two windows: the doc/revision
+  // metadata fetch itself, or — once that resolves WITH a file path — the
+  // signed-URL fetch that follows it. A resolved revision with no file path
+  // at all never enables the second query (see its `enabled` above), so it
+  // correctly falls through to the NO_FILE_REASON branch below rather than
+  // being mistaken for "still loading".
+  const isLoadingDrawing = docLoading || (!!doc?.filePath && fileUrlLoading);
+  if (isLoadingDrawing) {
+    return (
+      <div className="flex-1 min-w-0 flex flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        <span>Loading drawing…</span>
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 min-w-0 min-h-0 h-full p-2">
       <PdfEvidenceViewer
@@ -64,6 +89,7 @@ export default function WorkspaceCanvas({ documentId, page }: WorkspaceCanvasPro
         source={page ? { page, evidence: [] } : undefined}
         documentName={doc?.name ?? null}
         pageTitles={doc?.pageTitles ?? null}
+        unavailableReason={doc && !doc.filePath ? NO_FILE_REASON : null}
       />
     </div>
   );

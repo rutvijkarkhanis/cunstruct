@@ -657,3 +657,33 @@ describe("PdfEvidenceViewer — Find Similar matches", () => {
     expect(screen.queryByText(/Similar matches were found — on another page/)).toBeNull();
   });
 });
+
+// `unavailableReason` lets a caller outside the AI-review context (e.g.
+// WorkspaceCanvas.tsx, opening a document from Documents/Sources with no
+// analysis item involved) override the fallback shown for `fileUrl: null`
+// with its own, context-appropriate message — see WorkspaceCanvas.test.tsx
+// for that caller's own coverage of when it actually sets this prop.
+describe("unavailableReason takes precedence over the no-fileUrl fallback", () => {
+  it("renders the given reason verbatim, even with a fileUrl and a source present — never the Source:/'no drawing source' fallback text", () => {
+    render(
+      <PdfEvidenceViewer
+        fileUrl="https://signed.example/drawing.pdf"
+        source={source}
+        unavailableReason="No file has been uploaded for this revision yet."
+      />,
+    );
+    expect(screen.getByText("No file has been uploaded for this revision yet.")).toBeInTheDocument();
+    expect(screen.queryByText(/Source: test-drawing\.pdf/)).toBeNull();
+    expect(screen.queryByText(/no drawing source in the analysis/i)).toBeNull();
+  });
+
+  it("falls through to the source-aware fallback when unavailableReason is absent and fileUrl is null", () => {
+    render(<PdfEvidenceViewer fileUrl={null} source={source} />);
+    expect(screen.getByText(/Source: test-drawing\.pdf — Page 5\. No drawing file is stored/)).toBeInTheDocument();
+  });
+
+  it("falls through to the generic 'no drawing source' fallback when unavailableReason and source are both absent and fileUrl is null", () => {
+    render(<PdfEvidenceViewer fileUrl={null} source={undefined} />);
+    expect(screen.getByText("This item has no drawing source in the analysis.")).toBeInTheDocument();
+  });
+});

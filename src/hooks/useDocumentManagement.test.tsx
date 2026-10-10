@@ -225,6 +225,31 @@ describe("useDocumentManagement", () => {
     expect(inserted.document_revision).toBeUndefined();
   });
 
+  // Documents EXISTING behavior, unchanged by the WorkspaceCanvas loading-state
+  // fix: a non-blank label with a blank URL is accepted — the only required
+  // field is the label (see the blank-label rejection above) — and the
+  // inserted revision never gets a file_path at all. This is exactly the
+  // state WorkspaceCanvas.test.tsx's "no file path" cases model: a revision
+  // that resolves successfully but has nothing to render, which the viewer
+  // must show accurately rather than mistake for still-loading.
+  it("addRevision with a non-blank label and a blank URL succeeds, and the inserted revision has no file_path — the only state a viewer can later find genuinely fileless", async () => {
+    const { result } = renderDm();
+    await waitFor(() => expect(result.current.docs).toBeDefined());
+    let ok: boolean | undefined;
+    await act(async () => { ok = await result.current.addRevision("doc-1", "Rev B", ""); });
+    expect(ok).toBe(true);
+    expect(inserted.document_revision).toEqual([
+      { document_id: "doc-1", label: "Rev B", source: "paste", external_url: null, status: "draft" },
+    ]);
+    expect("file_path" in (inserted.document_revision![0] as object)).toBe(false);
+    // Still immediately set as the document's current revision — same code
+    // path as any other added revision, file or not (this mock's
+    // document_revision chain doesn't model per-insert return values, so the
+    // exact id isn't asserted here — see setCurrentRevision's own test for
+    // that update call's shape).
+    expect(updated.project_document).toHaveLength(1);
+  });
+
   it("setCurrentRevision updates project_document.current_revision_id", async () => {
     const { result } = renderDm();
     await waitFor(() => expect(result.current.docs).toBeDefined());
