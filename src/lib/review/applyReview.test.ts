@@ -321,6 +321,51 @@ describe("classifyReviewItem — scoped identity when external_key collides acro
     expect(c.classification).toBe("AMBIGUOUS");
   });
 
+  // ── Audit follow-up: a single scoped line is only an unconditional match
+  // when the item's location genuinely agrees with it. "No location at all"
+  // is NOT agreement — the AI's `location` field is nullable by design, so
+  // an omission here is never trustworthy evidence that the item belongs to
+  // THIS scoped line rather than some other, not-yet-created floor's. ──────
+  it("one candidate WITH a scope_name, item has NO location at all -> no unsafe APPLY match (falls through to NEW_LINE, the existing no-match contract)", () => {
+    const it_ = reviewItem({ ai: ai({ key: "W1", item: "Window W1", quantity: 9, unit: "nos" }), reviewStatus: "VERIFIED" });
+    const c = classifyReviewItem(it_, [line({ id: "line-ground", external_key: "W1", qty: 7, unit: "nos", scope_name: "Ground Floor" })]);
+    expect(c.classification).toBe("NEW_LINE");
+    expect(c.matchedLineId).toBeNull();
+  });
+
+  it("one candidate with NO scope_name, item has no location -> legacy unconditional match is unaffected", () => {
+    const it_ = reviewItem({ ai: ai({ key: "W1", quantity: 9, unit: "nos" }), reviewStatus: "VERIFIED" });
+    const c = classifyReviewItem(it_, [line({ id: "line-only", external_key: "W1", qty: 7, unit: "nos", scope_name: null })]);
+    expect(c.classification).toBe("APPLY");
+    expect(c.matchedLineId).toBe("line-only");
+  });
+
+  it("one candidate WITH a scope_name, item's location agrees -> match remains valid", () => {
+    const it_ = reviewItem({ ai: ai({ key: "W1", quantity: 9, unit: "nos", location: "Ground Floor" }), reviewStatus: "VERIFIED" });
+    const c = classifyReviewItem(it_, [line({ id: "line-ground", external_key: "W1", qty: 7, unit: "nos", scope_name: "Ground Floor" })]);
+    expect(c.classification).toBe("APPLY");
+    expect(c.matchedLineId).toBe("line-ground");
+  });
+
+  it("one candidate WITH a scope_name, item's location disagrees -> no unsafe APPLY match (pre-existing safe behavior, now directly covered)", () => {
+    const it_ = reviewItem({ ai: ai({ key: "W1", item: "Window W1", quantity: 9, unit: "nos", location: "Ground Floor" }), reviewStatus: "VERIFIED" });
+    const c = classifyReviewItem(it_, [line({ id: "line-stilt", external_key: "W1", qty: 1, unit: "nos", scope_name: "Stilt" })]);
+    expect(c.classification).toBe("NEW_LINE");
+    expect(c.matchedLineId).toBeNull();
+  });
+
+  it("two candidates (multi-line ambiguity), item has no location at all -> AMBIGUOUS is unaffected by this fix", () => {
+    const it_ = reviewItem({ ai: ai({ key: "W1", quantity: 7, unit: "nos" }), reviewStatus: "VERIFIED" });
+    const lines = [
+      line({ id: "line-stilt", external_key: "W1", scope_name: "Stilt" }),
+      line({ id: "line-ground", external_key: "W1", scope_name: "Ground Floor" }),
+    ];
+    const c = classifyReviewItem(it_, lines);
+    expect(c.classification).toBe("AMBIGUOUS");
+    expect(c.matchedLineId).toBeNull();
+    expect(c.candidateLineIds).toEqual(["line-stilt", "line-ground"]);
+  });
+
   it("zero candidates: existing NEW_LINE/CANNOT_APPLY behavior is unaffected by Phase 2", () => {
     const it_ = reviewItem({ ai: ai({ key: "W9", item: "Window W9", quantity: 4, unit: "nos" }), reviewStatus: "VERIFIED" });
     const c = classifyReviewItem(it_, [line({ external_key: "W1", scope_name: "Ground Floor" })]);

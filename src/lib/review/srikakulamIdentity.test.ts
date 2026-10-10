@@ -77,3 +77,35 @@ describe("Srikakulam identity-w1-cross-floor — real BOQ-matching layer (classi
     expect(c.candidateLineIds).toEqual(["line-ground-a", "line-ground-b"]);
   });
 });
+
+// ── Audit follow-up: a location-DROPPED variant of this same benchmark
+// case's Ground W1 item — the exact scenario a read-only investigation
+// reproduced as a defect. Ground truth (srikakulamBenchmark.ts) is
+// untouched; only the RUN data fed to classifyReviewItem is varied here, to
+// model the AI's `location` field being nullable by design and genuinely
+// omitted on a pass where the item still has a real floor. Reduced to a
+// SINGLE candidate line (only Ground's BOQ line exists yet — Stilt/Typical
+// not created), the exact single-candidate branch the three-line fixture
+// above cannot exercise (there, the same omission already falls into the
+// multi-candidate AMBIGUOUS path, which was never the defect). ────────────
+describe("Srikakulam identity-w1-cross-floor — location-dropped variant (single existing scoped line)", () => {
+  // qty deliberately differs from groundW1's own quantity (7) so a correct
+  // match produces a real APPLY diff rather than NO_CHANGE — making the
+  // assertion below unambiguous about which line, if any, was matched.
+  const singleGroundLine: BoqLineForApply[] = [
+    { id: "line-ground", external_key: "W1", qty: 1, unit: "nos", quantity_status: "MEASURED", scope_name: "Ground" },
+  ];
+
+  it("Ground W1 with location dropped never silently matches the sole Ground line — falls through to the safe no-match outcome", () => {
+    const groundW1NoLocation = { ...groundW1, location: undefined };
+    const c = classifyReviewItem(asReviewItem(groundW1NoLocation), singleGroundLine);
+    expect(c.classification).not.toBe("APPLY");
+    expect(c.matchedLineId).toBeNull();
+  });
+
+  it("the SAME item, with its real location intact, still matches the Ground line exactly as the benchmark's ground truth expects", () => {
+    const c = classifyReviewItem(asReviewItem(groundW1), singleGroundLine);
+    expect(c.classification).toBe("APPLY");
+    expect(c.matchedLineId).toBe("line-ground");
+  });
+});

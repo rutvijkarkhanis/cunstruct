@@ -213,17 +213,26 @@ export function classifyReviewItem(item: StoredReviewItem, lines: BoqLineForAppl
   if (candidates.length === 1) {
     const only = candidates[0];
     const lineScope = norm(only.scope_name);
-    // The dominant, legacy case (no scope on either side, or no location on
-    // the item) is untouched: match unconditionally. The one exception is a
-    // single existing line that already carries an EXPLICIT scope which
-    // disagrees with this item's EXPLICIT location — e.g. a line scoped to
-    // "Stilt" and an incoming item located on "Ground". That combination was
-    // never possible before scope_id was set at line-creation time; without
-    // this check it would silently overwrite one floor's quantity with
-    // another's just because no second line exists yet to trigger the
-    // multi-candidate disambiguation below. Falling through to "no matching
-    // line" lets it become its own correctly-scoped NEW_LINE instead.
-    if (itemLocation && lineScope && itemLocation !== lineScope) {
+    // The dominant, legacy case — no scope on the line at all — is
+    // untouched: match unconditionally regardless of the item's own
+    // location. Once the line DOES carry an explicit scope, an unconditional
+    // match is only safe when the item's location agrees with it. Two ways
+    // it can fail to agree:
+    //   - EXPLICIT disagreement (item says "Ground", line is scoped "Stilt")
+    //     — never possible before scope_id was set at line-creation time.
+    //   - NO location on the item at all. An AI item can omit location even
+    //     when it genuinely has one (the schema's `location` field is
+    //     nullable by design) — without this check, that omission would
+    //     silently overwrite THIS scoped line's quantity as if it were a
+    //     confirmed match, purely because no second same-key line exists yet
+    //     to trigger the multi-candidate disambiguation below. There is
+    //     nothing here to safely disambiguate against, so it is treated
+    //     exactly like the explicit-disagreement case.
+    // Either way, falling through to "no matching line" lets it become its
+    // own correctly-scoped NEW_LINE instead (or CANNOT_APPLY with no
+    // description) — the same fallback this file already uses for the
+    // explicit-disagreement case, not a new outcome invented for this one.
+    if (lineScope && (!itemLocation || itemLocation !== lineScope)) {
       match = undefined;
     } else {
       match = only;
