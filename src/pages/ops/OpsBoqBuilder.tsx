@@ -551,6 +551,10 @@ export default function OpsBoqBuilder() {
         return { no, code: line.dsr_code, spec: line.description ?? "", qty: line.qty, unit: line.unit ?? "", rate, amount: rate != null ? roundRupee(line.qty * rate) : null, sourceDocument, sourcePage };
       }),
     })).filter((sh) => sh.lines.length > 0);
+    // Real rows can all be unexportable (excluded, or quantity still pending —
+    // reachable right after Apply); same guard as exportExcel, so the user gets
+    // feedback instead of a blank document.
+    if (!subheads.length) return toast.error("Nothing to export yet");
 
     // Pricing basis. Private projects are the default: rates are the operator's own
     // (entered per line / quoted separately) — so the document must NOT claim a
