@@ -1,5 +1,5 @@
 // GENERIC evidence-model coverage — deliberately NOT built around the
-// Srikakulam W1 door/window-schedule shape, and NOT using the "one shared
+// W1 door/window-schedule shape, and NOT using the "one shared
 // bbox for quantity+dimension+specification" pattern every other claim-
 // evidence fixture in this repo uses. The claim-evidence schema and filtering
 // logic never required a shared bbox or that particular drawing's shape —

@@ -160,7 +160,7 @@ describe("applyReviewPlan — source document deleted between analysis and Apply
     expect(plan[0].source).toEqual({ documentId: "doc-1", page: 3 }); // classification itself can't know the document is gone — no I/O
 
     const result = await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-1"]) });
-    expect(result).toEqual({ appliedCount: 1, skippedNoChange: 0, unresolvedCount: 0, conflictedReviewItemIds: [] });
+    expect(result).toEqual({ appliedCount: 1, skippedNoChange: 0, unresolvedCount: 0, conflictedReviewItemIds: [], auditLogFailedReviewItemIds: [] });
 
     const row = calls.find((c) => c.table === "boq_line" && c.op === "insert")!.payload as Record<string, unknown>;
     // The source columns are correctly omitted/null — but nothing else was

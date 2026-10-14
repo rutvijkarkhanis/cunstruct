@@ -90,7 +90,7 @@ export function canonicalUnit(method: QuantityMethod): string {
 
 // Keyword → methodology. First match wins, so specific patterns precede generic
 // ones. These are measurement TYPES only — no ratios, no quantities. The list
-// deliberately covers the items the Srikakulam architectural set surfaces that
+// deliberately covers the items a typical architectural set surfaces that
 // were previously mis-counted as "1 nos" (counters, wardrobes, storage,
 // balconies, greenscape, decks, façade).
 const METHOD_RULES: [RegExp, QuantityMethod][] = [

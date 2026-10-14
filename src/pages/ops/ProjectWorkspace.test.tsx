@@ -33,7 +33,7 @@ vi.mock("@/integrations/supabase/client", () => ({
       ["select", "eq", "single", "order", "not", "gt", "limit"].forEach((m) => { obj[m] = () => obj; });
       (obj as { then: unknown }).then = (resolve: (r: { data: unknown; error: null }) => void) => {
         if (table === "boq") return resolve({ data: boqRowsRef.current, error: null });
-        if (table === "projects") return resolve({ data: { id: "proj-1", name: "Srikakulam Apartment" }, error: null });
+        if (table === "projects") return resolve({ data: { id: "proj-1", name: "Sample Apartment" }, error: null });
         // Backs useMostRecentlyAnalyzedBoqId's own query (project-scoped,
         // item_count > 0, boq_id not null, newest first, limit 1) — the
         // real filtering/ordering happens in reviewStore.ts itself and is

@@ -54,7 +54,7 @@ describe("DocumentLocationObservations — the four states", () => {
     const obs: LocationObservation = {
       id: "obs-1", observationType: "schedule_entry", mark: "W1", scopeHint: "Ground Floor",
       locationText: "Door/Window schedule, Ground floor sheet",
-      attributes: { dimension: "6'x6'9\"", specification: "UPVC" },
+      attributes: { dimension: "5'x6'", specification: "UPVC" },
       evidence: { documentId: "doc-1", page: 8, evidence: [{ bbox: [1, 2, 3, 4], page: 8 }] },
       evidenceCompleteness: "FULL", createdAt: "2026-01-01T00:00:00Z",
     };
@@ -66,7 +66,7 @@ describe("DocumentLocationObservations — the four states", () => {
     expect(screen.getByText("Door/Window schedule, Ground floor sheet")).toBeInTheDocument();
     expect(screen.getByText(/p\.8/)).toBeInTheDocument();
     expect(screen.getByText("FULL")).toBeInTheDocument();
-    expect(screen.getByText(/6'x6'9".*UPVC/)).toBeInTheDocument();
+    expect(screen.getByText(/5'x6'.*UPVC/)).toBeInTheDocument();
   });
 
   it("D. extraction failed — shown as a failure, never a successful zero", async () => {

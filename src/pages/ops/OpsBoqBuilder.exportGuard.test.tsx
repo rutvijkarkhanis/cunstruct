@@ -1,16 +1,17 @@
 // Blank-PDF guard: exportQuote must never open a print document with no line
-// items. A BOQ can hold real rows that are all unexportable (every line
-// excluded, or every quantity still pending — reachable right after Apply);
-// before the guard, the PDF path opened an empty document while Excel already
-// refused with "Nothing to export yet". Same harness shape as
-// OpsBoqBuilder.sourceIndicator.test.tsx, with per-test boq_line fixtures.
+// items. A BOQ can hold real rows that are all excluded; both exports then
+// refuse with "Nothing to export yet". A BOQ whose included lines are all
+// quantity-pending (reachable right after Apply) is NOT blank: both exports
+// list those lines in their pending section — never as a Qty of 0. Same
+// harness shape as OpsBoqBuilder.sourceIndicator.test.tsx, with per-test
+// boq_line fixtures.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { toast } from "sonner";
 import OpsBoqBuilder from "./OpsBoqBuilder";
-import type { QuoteItem } from "@/lib/boqDsrDocument";
+import { downloadCsv, type QuoteItem, type QuotePendingItem } from "@/lib/boqDsrDocument";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() } }));
 
@@ -103,12 +104,13 @@ beforeEach(() => {
   fixtures.state.lines = [];
   fixtures.state.holdLines = false;
   exportSpies.openDsrQuote.mockClear();
+  vi.mocked(downloadCsv).mockClear();
   exportSpies.popupAllowed = true;
   vi.mocked(toast.error).mockClear();
 });
 
 describe("OpsBoqBuilder — blank PDF export guard", () => {
-  it("all lines excluded: both PDF entries show 'Nothing to export yet' and never open a document", async () => {
+  it("all lines excluded: both PDF entries and Excel show 'Nothing to export yet' and nothing opens or downloads", async () => {
     fixtures.state.lines = [
       line({ id: "l1", description: "RCC footing", qty: 10, included: false }),
       line({ id: "l2", description: "Brickwork", qty: 5, included: false }),
@@ -124,30 +126,43 @@ describe("OpsBoqBuilder — blank PDF export guard", () => {
 
     await clickExportItem("PDF");
     await clickExportItem("PDF / Spec & Qty");
+    await clickExportItem("Excel");
 
     expect(exportSpies.openDsrQuote).not.toHaveBeenCalled();
-    expect(toast.error).toHaveBeenCalledTimes(2);
-    expect(toast.error).toHaveBeenNthCalledWith(1, "Nothing to export yet");
-    expect(toast.error).toHaveBeenNthCalledWith(2, "Nothing to export yet");
+    expect(downloadCsv).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledTimes(3);
+    for (const n of [1, 2, 3]) expect(toast.error).toHaveBeenNthCalledWith(n, "Nothing to export yet");
   });
 
   // boq_line.qty is NOT NULL: both writers (evalLinesToRows, applyReviewPlan)
   // persist a pending quantity as qty 0 + quantity_status "PENDING".
-  it("all quantities pending: the PDF export is blocked instead of opening a blank document", async () => {
+  it("all quantities pending: both exports list every line as pending, never as a measured 0", async () => {
     fixtures.state.lines = [
-      line({ id: "l1", description: "Plaster — awaiting qty", qty: 0, quantity_status: "PENDING" }),
-      line({ id: "l2", description: "Flooring — awaiting qty", qty: 0, quantity_status: "PENDING" }),
+      line({ id: "l1", description: "Plaster — awaiting qty", qty: 0, quantity_status: "PENDING", source_document_id: null }),
+      line({ id: "l2", description: "Flooring — awaiting qty", qty: 0, quantity_status: "PENDING", sort: 2 }),
     ];
     renderBoqBuilder();
     await screen.findByText("Plaster — awaiting qty");
 
     await clickExportItem("PDF");
+    await clickExportItem("Excel");
 
-    expect(exportSpies.openDsrQuote).not.toHaveBeenCalled();
-    expect(toast.error).toHaveBeenCalledWith("Nothing to export yet");
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(exportSpies.openDsrQuote).toHaveBeenCalledTimes(1);
+    const [payload] = exportSpies.openDsrQuote.mock.calls[0] as [{ subheads: unknown[]; pendingItems: QuotePendingItem[] }];
+    expect(payload.subheads).toEqual([]);
+    expect(payload.pendingItems.map((p) => [p.spec, p.unit, p.note])).toEqual([
+      ["Plaster — awaiting qty", "cum", "Quantity pending: not yet measured"],
+      ["Flooring — awaiting qty", "cum", "Quantity pending: not yet measured"],
+    ]);
+    expect(downloadCsv).toHaveBeenCalledTimes(1);
+    const csv = vi.mocked(downloadCsv).mock.calls[0][1];
+    expect(csv).toContain("IDENTIFIED — PENDING QUANTIFICATION");
+    expect(csv).toContain("Pending,P.01,,Plaster — awaiting qty — Quantity pending: not yet measured,cum,,");
+    expect(csv.split("\r\n").filter((r) => r.split(",")[5] === "0")).toEqual([]);
   });
 
-  it("valid BOQ: the PDF export opens with exactly the exportable lines, skipping excluded/pending ones", async () => {
+  it("valid BOQ: the PDF export opens with the measured lines priced, the pending line listed as pending, and the excluded line absent", async () => {
     fixtures.state.lines = [
       line({ id: "l1", description: "RCC footing", qty: 10 }),
       line({ id: "l2", description: "Brickwork — excluded", qty: 5, included: false }),
@@ -166,6 +181,8 @@ describe("OpsBoqBuilder — blank PDF export guard", () => {
     const items = payload.subheads.flatMap((sh) => sh.lines);
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({ spec: "RCC footing", qty: 10, unit: "cum", rate: 100, amount: 1000 });
+    // The pending line is listed once as pending; the excluded line is absent.
+    expect((payload as unknown as { pendingItems: QuotePendingItem[] }).pendingItems.map((p) => p.spec)).toEqual(["Plaster — awaiting qty"]);
     expect(toast.error).not.toHaveBeenCalled();
   });
 

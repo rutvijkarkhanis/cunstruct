@@ -4,14 +4,14 @@
 // same way the edge function imports it — so this exercises the real module,
 // not a copy (mirrors preflight.test.ts / claiming.test.ts). Pure, synthetic
 // fixtures; the adversarial mismatched-document case lives here, never in the
-// Srikakulam ground-truth file (which holds only real-drawing-derived facts).
+// benchmark ground-truth fixtures.
 // Never resolves by guessing in a MULTI-file batch: an ambiguous or
 // unattributed reference there is rejected, not defaulted. A single-file
 // batch is the one deliberate exception — see the "single-file override"
 // section below and observationSource.ts's header comment.
 
 import { describe, it, expect } from "vitest";
-import { resolveObservationSource, type ClaimedFile } from "../../../supabase/functions/_shared/observationSource.ts";
+import { resolveObservationSource, pinObservations, type ClaimedFile } from "../../../supabase/functions/_shared/observationSource.ts";
 
 const files: ClaimedFile[] = [
   { documentId: "doc-ground", documentRevisionId: "rev-ground-1", filename: "Ground Floor Plan.pdf" },
@@ -107,5 +107,28 @@ describe("resolveObservationSource — documentId takes priority over filename",
   it("uses documentId even when a (possibly stale) document/filename is also present", () => {
     const r = resolveObservationSource({ documentId: "doc-stilt", document: "Ground Floor Plan.pdf" }, files);
     expect(r).toEqual({ documentId: "doc-stilt", revisionId: "rev-stilt-1" });
+  });
+});
+
+describe("pinObservations — unpinnable observations are reported, not silently lost", () => {
+  const files: ClaimedFile[] = [
+    { documentId: "doc-a", documentRevisionId: "rev-a", filename: "first.pdf" },
+    { documentId: "doc-b", documentRevisionId: "rev-b", filename: "second.pdf" },
+  ];
+  const obs = (mark: string, source: { documentId?: string; document?: string }) => ({ observationType: "room_or_space", mark, source });
+
+  it("multi-file: resolvable observations are pinned; unresolvable ones are returned with what the model claimed", () => {
+    const r = pinObservations([obs("Dining", { documentId: "doc-b" }), obs("W.R", { documentId: "doc-zzz" }), obs("Lift", {})], files);
+    expect(r.pinned.map((p) => [p.obs.mark, p.revisionId])).toEqual([["Dining", "rev-b"]]);
+    expect(r.unpinned).toEqual([
+      { index: 1, observationType: "room_or_space", mark: "W.R", claimedDocumentId: "doc-zzz", claimedDocument: undefined },
+      { index: 2, observationType: "room_or_space", mark: "Lift", claimedDocumentId: undefined, claimedDocument: undefined },
+    ]);
+  });
+
+  it("single file: everything pins to the claimed file, so nothing is ever unpinned", () => {
+    const r = pinObservations([obs("W.R", { documentId: "doc-zzz" }), obs("Lift", {})], [files[0]]);
+    expect(r.pinned).toHaveLength(2);
+    expect(r.unpinned).toEqual([]);
   });
 });

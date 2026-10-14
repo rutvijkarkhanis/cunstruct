@@ -41,7 +41,7 @@ import { handleFindSimilar } from "./findSimilarHandler.ts";
 import { folderBreadcrumb } from "../_shared/folderContext.ts";
 import { buildStaleReclaimFilter } from "../_shared/claiming.ts";
 import { parseObservationsV1 } from "../_shared/observationValidation.ts";
-import { resolveObservationSource, type ClaimedFile } from "../_shared/observationSource.ts";
+import { pinObservations, type ClaimedFile } from "../_shared/observationSource.ts";
 
 // A PROCESSING claim with no completed_at older than this is presumed dead
 // (the edge function that made it crashed/timed out) and becomes reclaimable,
@@ -646,7 +646,10 @@ Deno.serve(async (req) => {
     const parsedObservations = parseObservationsV1(locationResult.rawJson);
     if (!parsedObservations.ok || !parsedObservations.observations) {
       await failClaims(supabase, claimed.map((c) => c.claimId), parsedObservations.error ?? "OpenAI response failed schema validation.");
-      return json({ ok: false, error: "OpenAI response failed validation: " + (parsedObservations.error ?? "unknown error"), skipped }, 502);
+      return json({
+        ok: false, error: "OpenAI response failed validation: " + (parsedObservations.error ?? "unknown error"), skipped,
+        observationDiagnostics: parsedObservations.diagnostics ? { ...parsedObservations.diagnostics, unpinned: [] } : undefined,
+      }, 502);
     }
 
     // Layer B: pin each observation to an exact claimed document/revision.
@@ -660,11 +663,10 @@ Deno.serve(async (req) => {
     const claimedFiles: ClaimedFile[] = claimed.map(({ file }) => ({
       documentId: file.documentId, documentRevisionId: file.documentRevisionId, filename: file.filename,
     }));
-    const pinned: { documentId: string; revisionId: string; obs: (typeof parsedObservations.observations)[number] }[] = [];
-    for (const obs of parsedObservations.observations) {
-      const resolved = resolveObservationSource({ documentId: obs.source.documentId, document: obs.source.document }, claimedFiles);
-      if (resolved) pinned.push({ documentId: resolved.documentId, revisionId: resolved.revisionId, obs });
-    }
+    const { pinned, unpinned } = pinObservations(parsedObservations.observations, claimedFiles);
+    // Everything the parser and pinning refused, returned to the caller (not
+    // persisted — no schema change) so lost observations are visible.
+    const observationDiagnostics = { ...parsedObservations.diagnostics!, unpinned };
 
     // A NON-empty model response where NOTHING could be pinned to a real
     // document/revision is a genuine attribution failure (the model
@@ -677,7 +679,7 @@ Deno.serve(async (req) => {
     // to the caller as a genuine (not fabricated) zero — never this error.
     if (parsedObservations.observations.length > 0 && pinned.length === 0) {
       await failClaims(supabase, claimed.map((c) => c.claimId), "No observation could be pinned to an exact source document/revision.");
-      return json({ ok: false, error: "No observation could be pinned to an exact source document/revision.", skipped }, 502);
+      return json({ ok: false, error: "No observation could be pinned to an exact source document/revision.", skipped, observationDiagnostics }, 502);
     }
 
     const { data: locationRun, error: locationRunErr } = await supabase
@@ -737,6 +739,7 @@ Deno.serve(async (req) => {
       runId: locationRun.id,
       mode,
       observationCount: observationRows.length,
+      observationDiagnostics,
       skipped,
       sourceCoverage: claimed.map((c) => c.file.filename),
     });

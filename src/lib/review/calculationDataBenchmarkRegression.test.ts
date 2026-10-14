@@ -1,13 +1,14 @@
-// SRIKAKULAM SYNTHETIC NON-REGRESSION CHECK (Scope B) — proves that adding
+// BENCHMARK-FIXTURE NON-REGRESSION CHECK (Scope B) — proves that adding
 // calculation_data parsing to parseAnalysisV1 does not change how the
-// existing Srikakulam benchmark fixtures parse. This is a PARSING/SCHEMA
+// existing benchmark fixtures parse. This is a PARSING/SCHEMA
 // regression check only, run entirely synthetically (no live model call,
 // no network) — it is NOT a measurement of real-world drawing accuracy, and
 // is never described as one. A manually verified accuracy gold set does not
 // exist and remains out of scope for this increment.
 import { describe, it, expect } from "vitest";
 import { parseAnalysisV1 } from "./analysisSchemaV1";
-import { SRIKAKULAM_BENCHMARK, perfectRunFor } from "./srikakulamBenchmark";
+import { perfectRunFor } from "./benchmarkTypes";
+import { SYNTHETIC_BENCHMARK } from "./__fixtures__/syntheticBenchmark";
 
 /** Model-shaped (OpenAI structured-output strict-schema) JSON for one
  *  perfectRunFor() item, with calculation_data explicitly null — exactly
@@ -25,8 +26,8 @@ function toModelShapedJson(item: ReturnType<typeof perfectRunFor>[number]) {
   };
 }
 
-describe("Srikakulam benchmark fixtures — parsing/schema non-regression with calculation_data present-but-null", () => {
-  for (const c of SRIKAKULAM_BENCHMARK) {
+describe("Benchmark fixtures — parsing/schema non-regression with calculation_data present-but-null", () => {
+  for (const c of SYNTHETIC_BENCHMARK) {
     it(`${c.id}: every expected item parses with no warnings and calculationData left undefined`, () => {
       const expected = perfectRunFor(c);
       if (expected.length === 0) return; // nothing to assert for a zero-item case

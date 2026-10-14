@@ -87,6 +87,12 @@ vi.mock("@/integrations/supabase/client", () => {
       from: (table: string) => {
         if (table === "boq") return chain({ data: { id: "boq-1", name: "Test BOQ", project_id: "proj-1" }, error: null });
         if (table === "projects") return chain({ data: { id: "proj-1", name: "Test Project", project_type: null }, error: null });
+        // Revision freshness (revisionFreshness.ts): the analysed revision is
+        // recorded and still current, so provenance is confirmed and LOCATION
+        // markers / Identify / Find Similar are enabled.
+        if (table === "project_document") return chain({ data: [{ id: "doc-1", name: "doc-1", current_revision_id: "rev-doc-1" }], error: null });
+        if (table === "document_revision") return chain({ data: [{ id: "rev-doc-1", document_id: "doc-1", label: "Rev A" }], error: null });
+        if (table === "analysis_run_source") return chain({ data: [{ document_id: "doc-1", document_revision_id: "rev-doc-1", status: "SUCCEEDED" }], error: null });
         return chain({ data: [], error: null });
       },
       auth: { getUser: async () => ({ data: { user: { id: "user-1" } } }) },
@@ -132,6 +138,12 @@ function renderPage() {
 }
 
 const identifyToggle = () => screen.getByTitle(/Click a point on the drawing to identify/);
+// The toggle is enabled only once the drawing's revision provenance is
+// confirmed current (revisionFreshness.ts), so wait for that before clicking.
+const clickIdentifyToggle = async () => {
+  await waitFor(() => expect(identifyToggle()).toBeEnabled());
+  fireEvent.click(identifyToggle());
+};
 
 describe("Click-to-Identify — enabling the mode", () => {
   it("starts with Identify mode off: the normal ItemPanel is shown and the drawing viewer gets identifyModeActive=false", async () => {
@@ -145,7 +157,7 @@ describe("Click-to-Identify — enabling the mode", () => {
   it("clicking Identify flips identifyModeActive, passes it into the drawing viewer, and swaps ItemPanel for IdentifyResultPanel", async () => {
     renderPage();
     await screen.findByRole("button", { name: /^Verify$/ });
-    fireEvent.click(identifyToggle());
+    await clickIdentifyToggle();
 
     const probe = await screen.findByTestId("pdf-probe");
     expect(probe.getAttribute("data-identify-active")).toBe("true");
@@ -158,7 +170,7 @@ describe("Click-to-Identify — triggering a result through the drawing viewer",
   it("a click reported by the drawing viewer calls identifyAtPoint and renders the returned candidate in IdentifyResultPanel", async () => {
     renderPage();
     await screen.findByRole("button", { name: /^Verify$/ });
-    fireEvent.click(identifyToggle());
+    await clickIdentifyToggle();
 
     fireEvent.click(await screen.findByText("simulate drawing click"));
 
@@ -179,7 +191,7 @@ describe("Click-to-Identify — Confirm / Change / Dismiss", () => {
   async function getToCandidate() {
     renderPage();
     await screen.findByRole("button", { name: /^Verify$/ });
-    fireEvent.click(identifyToggle());
+    await clickIdentifyToggle();
     fireEvent.click(await screen.findByText("simulate drawing click"));
     await screen.findByText("Door");
   }
@@ -221,7 +233,7 @@ describe("Click-to-Identify — never mutates the BOQ", () => {
   it("confirming, changing, and dismissing an identification never calls saveReviewDecision or applyReviewPlan", async () => {
     renderPage();
     await screen.findByRole("button", { name: /^Verify$/ });
-    fireEvent.click(identifyToggle());
+    await clickIdentifyToggle();
     fireEvent.click(await screen.findByText("simulate drawing click"));
     await screen.findByText("Door");
 

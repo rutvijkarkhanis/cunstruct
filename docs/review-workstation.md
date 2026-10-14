@@ -96,7 +96,7 @@ sharing one schedule-row region and `location` supported by two regions:
   "schema_version": "cunstruct.analysis.v1",
   "items": [
     {
-      "item": "W1", "quantity": 3, "unit": "nos", "dimension": "6' x 6'9\"",
+      "item": "W1", "quantity": 3, "unit": "nos", "dimension": "4' x 6'3\"",
       "location": "First Floor", "confidence": 0.94, "status": "MEASURED",
       "source": {
         "document": "your-uploaded.pdf", "page": 1,

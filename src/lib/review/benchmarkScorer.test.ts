@@ -1,16 +1,17 @@
 import { describe, it, expect } from "vitest";
 import { scoreCase, scoreBenchmark } from "./benchmarkScorer";
-import { SRIKAKULAM_BENCHMARK, perfectRunFor } from "./srikakulamBenchmark";
+import { perfectRunFor } from "./benchmarkTypes";
+import { SYNTHETIC_BENCHMARK } from "./__fixtures__/syntheticBenchmark";
 import type { AnalysisItemV1 } from "./analysisSchemaV1";
 
 const caseById = (id: string) => {
-  const c = SRIKAKULAM_BENCHMARK.find((c) => c.id === id);
+  const c = SYNTHETIC_BENCHMARK.find((c) => c.id === id);
   if (!c) throw new Error(`no such benchmark case: ${id}`);
   return c;
 };
 
 describe("scoreCase — a flawless extraction scores perfectly", () => {
-  for (const c of SRIKAKULAM_BENCHMARK.filter((c) => c.graded)) {
+  for (const c of SYNTHETIC_BENCHMARK.filter((c) => c.graded)) {
     it(`${c.id}: scores 1.0 on every applicable dimension for a perfect run`, () => {
       const result = scoreCase(c, perfectRunFor(c));
       if (result.scopeRecall != null) expect(result.scopeRecall).toBe(1);
@@ -27,8 +28,8 @@ describe("scoreCase — a flawless extraction scores perfectly", () => {
 describe("scoreBenchmark — full report over a perfect run", () => {
   it("averages 1.0 on every dimension, excludes the ungraded case, and surfaces every known gap", () => {
     const runs: Record<string, AnalysisItemV1[]> = {};
-    for (const c of SRIKAKULAM_BENCHMARK) runs[c.id] = perfectRunFor(c);
-    const report = scoreBenchmark(SRIKAKULAM_BENCHMARK, runs);
+    for (const c of SYNTHETIC_BENCHMARK) runs[c.id] = perfectRunFor(c);
+    const report = scoreBenchmark(SYNTHETIC_BENCHMARK, runs);
 
     expect(report.ungradedCaseIds).toEqual(["typical-floor-schedule-digits"]);
     expect(report.gapFlaggedCases.map((g) => g.id).sort()).toEqual(
@@ -72,7 +73,7 @@ describe("scoreCase — sensitivity: the scorer actually catches real failure mo
   it("parking-counts: collapsing two vehicle classes into one row is a real scope-recall failure", () => {
     const c = caseById("parking-counts");
     const collapsed: AnalysisItemV1[] = [
-      { key: "PARKING-ALL", item: "Total parking", quantity: 18, confidence: 0.8, aiStatus: "MEASURED" },
+      { key: "PARKING-ALL", item: "Total parking", quantity: 7, confidence: 0.8, aiStatus: "MEASURED" },
     ];
     const result = scoreCase(c, collapsed);
     expect(result.scopeRecall).toBe(0); // neither expected id key-matches "PARKING-ALL"
@@ -98,7 +99,7 @@ describe("scoreCase — identity correctness (Fix A) on the flagship cross-floor
     // wrongly linked to one another). Fix B (reviewQueue.ts's
     // unlocatedFingerprint) now requires quantity/dimension/specification to
     // ALSO agree before two blank-location occurrences of the same bare key
-    // are linked — stilt (qty 1), ground (qty 7), and typical (qty null) all
+    // are linked — stilt (qty 2), ground (qty 5), and typical (qty null) all
     // disagree, so none of them are linked to each other, while the genuine
     // same-floor repeat (same qty/dimension/specification as ground) still
     // is — see the next test. This must still be attributed to the AI's own

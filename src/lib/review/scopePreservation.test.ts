@@ -6,9 +6,9 @@
 //      line's scope.
 //   2. addReviewItemAsLine created new BOQ lines with no scope_id at all,
 //      even when the review item carried a meaningful location.
-//   3. Net effect: reviewing "W1 / Stilt / qty 1" created an unscoped line;
-//      reviewing "W1 / Ground / qty 7" afterwards saw exactly one candidate
-//      (that same line) and silently overwrote qty 1 -> 7. Stilt's real
+//   3. Net effect: reviewing "W1 / Stilt" created an unscoped line;
+//      reviewing "W1 / Ground" afterwards saw exactly one candidate
+//      (that same line) and silently overwrote the Stilt quantity. Stilt's real
 //      quantity was lost, with no AMBIGUOUS warning at any point.
 //
 // The fix: addReviewItemAsLine now resolves/persists a scope_id from the
@@ -19,7 +19,7 @@
 //
 // This drives the REAL applyReviewPlan/addReviewItemAsLine/classifyReviewItem
 // code through a mocked Supabase boundary (same style as
-// applyReviewPlan.test.ts), using the real Srikakulam W1 cross-floor fixture
+// applyReviewPlan.test.ts), using the synthetic W1 cross-floor fixture
 // rather than a synthetic one.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -88,9 +88,10 @@ vi.mock("@/integrations/supabase/client", () => ({
 
 import { buildApplyPlan, applyReviewPlan } from "./applyReview";
 import type { StoredReviewItem } from "./reviewStore";
-import { SRIKAKULAM_BENCHMARK, perfectRunFor } from "./srikakulamBenchmark";
+import { perfectRunFor } from "./benchmarkTypes";
+import { SYNTHETIC_BENCHMARK } from "./__fixtures__/syntheticBenchmark";
 
-const CASE = SRIKAKULAM_BENCHMARK.find((c) => c.id === "identity-w1-cross-floor")!;
+const CASE = SYNTHETIC_BENCHMARK.find((c) => c.id === "identity-w1-cross-floor")!;
 const [stiltW1, groundW1] = perfectRunFor(CASE);
 
 const asReviewItem = (id: string, ai: (typeof stiltW1)): StoredReviewItem => ({ id, ai, reviewStatus: "VERIFIED" });
@@ -113,6 +114,11 @@ function currentBoqLinesForApply() {
 beforeEach(() => {
   boqLines.length = 0;
   projectScopes.length = 0;
+  // The project's floors exist before Apply — Apply never creates a scope.
+  projectScopes.push(
+    { id: "scope-stilt", project_id: "proj-1", name: "Stilt", kind: "floor" },
+    { id: "scope-ground", project_id: "proj-1", name: "Ground", kind: "floor" },
+  );
   changeLog.length = 0;
   lineIdCounter = 0;
   scopeIdCounter = 0;
@@ -128,7 +134,7 @@ describe("scope preservation — sequential floor-by-floor apply never merges sc
     expect(result.appliedCount).toBe(1);
 
     expect(boqLines).toHaveLength(1);
-    expect(boqLines[0].qty).toBe(1);
+    expect(boqLines[0].qty).toBe(2);
     expect(boqLines[0].scope_id).toBeTruthy();
 
     const scope = projectScopes.find((s) => s.id === boqLines[0].scope_id);
@@ -159,10 +165,10 @@ describe("scope preservation — sequential floor-by-floor apply never merges sc
     const stiltLine = boqLines.find((l) => l.id === stiltLineId)!;
     const groundLine = boqLines.find((l) => l.id !== stiltLineId)!;
 
-    // (e) The Stilt quantity must remain 1.
-    expect(stiltLine.qty).toBe(1);
+    // (e) The Stilt quantity must remain 2.
+    expect(stiltLine.qty).toBe(2);
     // (f) The Ground quantity must not overwrite the Stilt line — it lives on its own line.
-    expect(groundLine.qty).toBe(7);
+    expect(groundLine.qty).toBe(5);
     expect(groundLine.id).not.toBe(stiltLine.id);
 
     const groundScope = projectScopes.find((s) => s.id === groundLine.scope_id);
@@ -177,7 +183,7 @@ describe("scope preservation — sequential floor-by-floor apply never merges sc
     const groundPlan = buildApplyPlan([asReviewItem("ri-ground", groundW1)], linesAfterStilt);
     await applyReviewPlan({ boqId: "boq-1", candidates: groundPlan, selectedIds: new Set(["ri-ground"]) });
 
-    const qtyOverwrite = changeLog.find((r) => r.field === "qty" && r.old_value === "1" && r.new_value === "7");
+    const qtyOverwrite = changeLog.find((r) => r.field === "qty" && r.old_value === "2" && r.new_value === "5");
     expect(qtyOverwrite).toBeUndefined();
   });
 });

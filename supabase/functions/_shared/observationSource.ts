@@ -67,3 +67,35 @@ export function resolveObservationSource(
 
   return null;
 }
+
+/** An observation that could not be pinned to exactly one claimed file — it
+ *  is never persisted, but the caller can report it instead of losing it. */
+export interface UnpinnedObservation {
+  /** 0-based position among the parsed (accepted) observations. */
+  index: number;
+  observationType: string;
+  mark?: string;
+  /** What the model named as its source, for diagnosis. */
+  claimedDocumentId?: string;
+  claimedDocument?: string;
+}
+
+/** resolveObservationSource() over a whole batch, keeping the ones that
+ *  resolve and reporting the ones that don't (multi-file batches only — a
+ *  single claimed file always resolves). */
+export function pinObservations<T extends { observationType: string; mark?: string; source: { documentId?: string; document?: string } }>(
+  observations: T[],
+  claimedFiles: ClaimedFile[],
+): { pinned: { documentId: string; revisionId: string; obs: T }[]; unpinned: UnpinnedObservation[] } {
+  const pinned: { documentId: string; revisionId: string; obs: T }[] = [];
+  const unpinned: UnpinnedObservation[] = [];
+  observations.forEach((obs, index) => {
+    const resolved = resolveObservationSource({ documentId: obs.source.documentId, document: obs.source.document }, claimedFiles);
+    if (resolved) pinned.push({ documentId: resolved.documentId, revisionId: resolved.revisionId, obs });
+    else unpinned.push({
+      index, observationType: obs.observationType, mark: obs.mark,
+      claimedDocumentId: obs.source.documentId, claimedDocument: obs.source.document,
+    });
+  });
+  return { pinned, unpinned };
+}

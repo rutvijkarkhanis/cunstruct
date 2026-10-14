@@ -17,7 +17,7 @@ export const ANALYSIS_SCHEMA_HINT = `{
   "items": [
     {
       "item": "W1", "quantity": 3, "unit": "nos",
-      "dimension": "6' x 6'9\\"", "specification": "UPVC", "location": "First Floor",
+      "dimension": "4' x 6'3\\"", "specification": "UPVC", "location": "First Floor",
       "source": {
         "document": "floor-plan.pdf", "page": 4,
         "evidence": [
@@ -117,7 +117,7 @@ export const OBSERVATION_SCHEMA_HINT = `{
     {
       "observation_type": "schedule_entry", "mark": "W1",
       "scope_hint": "Ground Floor", "location_text": "Door/Window schedule, Ground floor sheet",
-      "attributes": { "dimension": "6' x 6'9\\"", "specification": "UPVC" },
+      "attributes": { "dimension": "4' x 6'3\\"", "specification": "UPVC" },
       "evidence_completeness": "FULL",
       "source": {
         "document_id": "doc-uuid", "page": 8,
@@ -135,6 +135,8 @@ const OBSERVATION_BASE_RULES = [
   "Do NOT report a quantity, a count, or any numeric measure of how many of something exists. LOCATION mode never asserts a quantity — that is a separate, human-reviewed BOQ concern.",
   "attributes may include only: dimension, specification, material — each optional, each a plain string. Omit any you cannot support from the drawing; never invent one.",
   "Include the source document and page for each observation.",
+  "\"scope_hint\" is the floor, level or zone the observation belongs to, taken from the drawing or sheet title (e.g. \"Stilt Floor\", \"First Floor\", \"Terrace\") — never a room or space name. Put a room's name in \"mark\" (for a room_or_space) or in \"location_text\" (for something inside a room). Use null if the drawing does not identify the floor or level.",
+  "A \"dimension\" attribute must be the dimension of that element itself — never the dimension of the room or space that contains it. Omit it if the drawing gives no dimension for that element.",
   "Include evidence coordinates (bbox) whenever the drawing supports them; omit them rather than fabricating.",
   "Evidence coordinates must be given in the page's own RENDERED coordinate space (top-left origin, as the page looks when opened normally) — never the page's raw/unrotated content-stream coordinates. This matters most for a rotated page (e.g. a landscape schedule or detail sheet inside an otherwise-portrait set).",
   "Never invent evidence coordinates. If you cannot pin a reliable region for an observation you are still confident exists, set evidence_completeness to LIMITED and provide an empty evidence array rather than fabricating a box.",

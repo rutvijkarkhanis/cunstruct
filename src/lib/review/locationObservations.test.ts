@@ -242,6 +242,7 @@ describe("loadLocationObservations", () => {
         location_text: "Door/Window schedule", attributes: { dimension: "6x6", specification: "UPVC" },
         evidence: { documentId: "doc-1", page: 8, evidence: [{ bbox: [1, 2, 3, 4], page: 8 }] },
         evidence_completeness: "FULL", created_at: "2026-01-01T00:00:00Z",
+        document_id: "doc-1", revision_id: "rev-1",
       }],
       error: null,
     });
@@ -251,7 +252,22 @@ describe("loadLocationObservations", () => {
       locationText: "Door/Window schedule", attributes: { dimension: "6x6", specification: "UPVC" },
       evidence: { documentId: "doc-1", page: 8, evidence: [{ bbox: [1, 2, 3, 4], page: 8 }] },
       evidenceCompleteness: "FULL", createdAt: "2026-01-01T00:00:00Z",
+      documentId: "doc-1", revisionId: "rev-1",
     }]);
+  });
+
+  it("a document/revision deleted since (columns nulled by on delete set null) loads as unknown provenance, never guessed", async () => {
+    enqueue("analysis_observation", {
+      data: [{
+        id: "obs-2", observation_type: "schedule_entry", mark: "W2", scope_hint: null, location_text: null, attributes: {},
+        evidence: { page: 1, evidence: [] }, evidence_completeness: "FULL", created_at: "2026-01-01T00:00:00Z",
+        document_id: null, revision_id: null,
+      }],
+      error: null,
+    });
+    const [row] = await loadLocationObservations("run-1");
+    expect(row.documentId).toBeNull();
+    expect(row.revisionId).toBeNull();
   });
 
   it("returns an empty array (never null/undefined) for a genuine zero-observation run", async () => {

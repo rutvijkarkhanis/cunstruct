@@ -88,11 +88,11 @@ describe("fitToEvidence — canonical scale calculation", () => {
   // clientWidth — see PdfEvidenceViewer.tsx's fitEvidence). Fixed on two
   // fronts: containment (CSS, not exercised by this pure-function test) and a
   // tighter maxScale for that one automatic call site. This locks in the
-  // second front using the real production values (Srikakulam: pageBase
+  // second front using the production page size (pageBase
   // 842×595) so a small evidence region on a narrow viewport can never
   // reproduce the 6736px-wide canvas seen in production.
   it("an explicit tighter maxScale caps the AUTOMATIC fit-to-evidence call below the function's own default", () => {
-    const pageBase = { width: 842, height: 595 }; // production Srikakulam value
+    const pageBase = { width: 842, height: 595 }; // production page size
     const smallEvidenceBox = box([400, 250, 420, 280]); // a small region relative to the page
     const mobileViewportWidth = 350; // a plausible narrow mobile clientWidth
 
@@ -164,36 +164,36 @@ describe("defaultEvidenceClaim — spatial-review entry point (select item → f
   });
 });
 
-describe("REGRESSION: Srikakulam W1 opening evidence overlay positioning", () => {
+describe("REGRESSION: W1 opening evidence overlay positioning", () => {
   it("positions upper-right W1 window opening correctly on 595×842 page", () => {
-    // Ground Floor upper-right W1 opening at [354, 133, 360, 173] on page 595×842.
+    // Ground Floor upper-right W1 opening at [350, 130, 356, 170] on page 595×842 (synthetic).
     // When rendered at 50% (e.g., 297.5×421), the overlay should maintain proportional positioning.
-    const w1Box = box([354, 133, 360, 173]);
+    const w1Box = box([350, 130, 356, 170]);
     const pageSize = { width: 595, height: 842 };
     const renderedSize = { width: 297, height: 421 }; // ~50% scale
 
     const result = transformBox(w1Box, pageSize, renderedSize);
 
     // Expected: proportional scaling
-    // x: 354 * (297/595) ≈ 176.7, width: 6 * (297/595) ≈ 3
-    // y: 133 * (421/842) ≈ 66.5, height: 40 * (421/842) ≈ 20
+    // x: 350 * (297/595) ≈ 174.7, width: 6 * (297/595) ≈ 3
+    // y: 130 * (421/842) = 65, height: 40 * (421/842) = 20
     expect(result).not.toBeNull();
-    expect(result!.left).toBeCloseTo(176.7, 1);
-    expect(result!.top).toBeCloseTo(66.5, 1);
+    expect(result!.left).toBeCloseTo(174.7, 1);
+    expect(result!.top).toBeCloseTo(65, 1);
     expect(result!.width).toBeCloseTo(3, 1);
     expect(result!.height).toBeCloseTo(20, 1);
   });
 
   it("maintains overlay dimensions at full page scale (1:1)", () => {
     // At 1:1 scale (same as page coordinates), bbox should map directly.
-    const w1Box = box([354, 133, 360, 173]);
+    const w1Box = box([350, 130, 356, 170]);
     const pageSize = { width: 595, height: 842 };
     const renderedSize = { width: 595, height: 842 }; // 1:1 scale
 
     const result = transformBox(w1Box, pageSize, renderedSize);
 
     // At 1:1, output should match input coordinates
-    expect(result).toEqual({ left: 354, top: 133, width: 6, height: 40 });
+    expect(result).toEqual({ left: 350, top: 130, width: 6, height: 40 });
   });
 });
 
@@ -233,7 +233,7 @@ describe("transformPoints — generalized page-space → rendered-pixel mapping 
   });
 
   it("matches transformBox exactly when given a bbox's two corner points", () => {
-    const bbox: [number, number, number, number] = [354, 133, 360, 173];
+    const bbox: [number, number, number, number] = [350, 130, 356, 170];
     const pageSize = { width: 595, height: 842 };
     const renderedSize = { width: 297, height: 421 };
     const asRect = transformBox({ bbox }, pageSize, renderedSize)!;

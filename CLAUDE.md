@@ -2,6 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Standing Instructions — Cunstruct
+
+- Prioritize accurate, complete BOQs from real drawings over feature count or infrastructure.
+- Inspect before changing; distinguish confirmed defects from assumptions.
+- Make the smallest necessary change. Don’t expand scope; record unrelated issues unless they block progress or threaten correctness.
+- Preserve all existing work. No commits, pushes, merges, deployments, migrations, production writes or paid API calls without explicit authorization.
+- Never invent quantities, evidence or provenance. Keep uncertain items unresolved.
+- Test the actual behavior, report exact results and limitations, and distinguish mocks from real-world verification.
+- End with the single highest-priority next step. Don’t claim more than the evidence proves.
+
 ## Commands
 
 ```bash

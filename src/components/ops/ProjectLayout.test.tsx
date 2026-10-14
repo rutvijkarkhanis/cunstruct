@@ -20,7 +20,7 @@ vi.mock("@/integrations/supabase/client", () => ({
       const obj: Record<string, unknown> = {};
       ["select", "eq", "single"].forEach((m) => { obj[m] = () => obj; });
       (obj as { then: unknown }).then = (resolve: (r: { data: unknown; error: null }) => void) =>
-        resolve({ data: { id: "proj-1", name: "Srikakulam Apartment", client_name: null, location: null, project_type: null, status: "active" }, error: null });
+        resolve({ data: { id: "proj-1", name: "Sample Apartment", client_name: null, location: null, project_type: null, status: "active" }, error: null });
       return obj;
     },
   },

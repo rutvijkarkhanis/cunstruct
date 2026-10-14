@@ -26,7 +26,7 @@ are accepted (see below) so existing exports keep working.
 
 ```json
 {
-  "project": { "project_type": "Residential", "name": "Srikakulam Apartments" },
+  "project": { "project_type": "Residential", "name": "Sample Apartments" },
   "items": [
     {
       "scope": "Finishes",

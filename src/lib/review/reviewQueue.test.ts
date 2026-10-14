@@ -83,8 +83,8 @@ describe("buildReviewItems — Fix B: blank-location duplicates require agreeing
 
   it("a genuine same-floor repeat (identical quantity/dimension/specification) is still linked, even with location blank on both", () => {
     const items = buildReviewItems([
-      ai({ key: "W1", item: "Window W1", quantity: 7, dimension: "6'x6'9\"", specification: "UPVC" }),
-      ai({ key: "W1", item: "Window W1", quantity: 7, dimension: "6'x6'9\"", specification: "UPVC" }),
+      ai({ key: "W1", item: "Window W1", quantity: 7, dimension: "5'x6'", specification: "UPVC" }),
+      ai({ key: "W1", item: "Window W1", quantity: 7, dimension: "5'x6'", specification: "UPVC" }),
     ]);
     expect(items[0].duplicateOf).toBeUndefined();
     expect(items[1].duplicateOf).toBe("W1");
@@ -92,10 +92,10 @@ describe("buildReviewItems — Fix B: blank-location duplicates require agreeing
 
   it("the repeat still links correctly even when an EARLIER, differently-fingerprinted occurrence of the same bare key comes first — not dependent on processing order", () => {
     const items = buildReviewItems([
-      ai({ key: "W1", item: "Window W1", quantity: 1, dimension: "4'x5'3\"", specification: "UPVC" }),  // Stilt
-      ai({ key: "W1", item: "Window W1", quantity: 7, dimension: "6'x6'9\"", specification: "UPVC" }),  // Ground
+      ai({ key: "W1", item: "Window W1", quantity: 1, dimension: "4'x4'", specification: "UPVC" }),  // Stilt
+      ai({ key: "W1", item: "Window W1", quantity: 7, dimension: "5'x6'", specification: "UPVC" }),  // Ground
       ai({ key: "W1", item: "Window W1", quantity: null, aiStatus: "PENDING" }),                        // Typical (uncertain)
-      ai({ key: "W1", item: "Window W1", quantity: 7, dimension: "6'x6'9\"", specification: "UPVC" }),  // Ground, repeated
+      ai({ key: "W1", item: "Window W1", quantity: 7, dimension: "5'x6'", specification: "UPVC" }),  // Ground, repeated
     ]);
     expect(items[0].duplicateOf).toBeUndefined();
     expect(items[1].duplicateOf).toBeUndefined();
@@ -105,8 +105,8 @@ describe("buildReviewItems — Fix B: blank-location duplicates require agreeing
 
   it("a differing dimension alone (same quantity) still prevents linking — any disagreement is evidence, not just quantity", () => {
     const items = buildReviewItems([
-      ai({ key: "W1", item: "Window W1", quantity: 7, dimension: "6'x6'9\"" }),
-      ai({ key: "W1", item: "Window W1", quantity: 7, dimension: "4'x5'3\"" }), // same qty, different size
+      ai({ key: "W1", item: "Window W1", quantity: 7, dimension: "5'x6'" }),
+      ai({ key: "W1", item: "Window W1", quantity: 7, dimension: "4'x4'" }), // same qty, different size
     ]);
     expect(items[1].duplicateOf).toBeUndefined();
   });

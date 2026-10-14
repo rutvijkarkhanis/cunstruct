@@ -16,7 +16,7 @@
 // at the outermost boundary — classifyReviewItem, buildApplyPlan,
 // applyReviewPlan, resolveDrawingSource, buildDsrQuoteHtml, buildBoqCsv, and
 // buildProjectQuoteHtml are all the REAL, unmocked functions. Nothing is
-// written to a real database; nothing touches Srikakulam or any live project.
+// written to a real database; nothing touches any live project.
 import { describe, it, expect, vi } from "vitest";
 
 const boqLineStore = new Map<string, Record<string, unknown>>();

@@ -13,7 +13,8 @@ import { Plus, Upload, ChevronUp, ChevronDown, Trash2, Pencil, Check, X, Layers,
 import { SCOPE_KINDS } from "@/lib/projectDocs";
 import { parseBoqImport } from "@/lib/boqImport";
 import { parseBoqEvalJson, evalLinesToRows, pendingCount } from "@/lib/boqEvalJson";
-import { computeCommercials, roundRupee, openProjectQuote, type ProjectQuoteBoq, type QuoteSubHead } from "@/lib/boqDsrDocument";
+import { computeCommercials, roundRupee, openProjectQuote, type ProjectQuoteBoq, type QuotePendingItem, type QuoteSubHead } from "@/lib/boqDsrDocument";
+import { pendingReason, qtyPending } from "@/lib/boqRevision";
 import { useBoqManagement, NEW_SCOPE, type BoqRow } from "@/hooks/useBoqManagement";
 import { loadProjectDrawings, resolveDrawingSource } from "@/lib/review/drawingStorage";
 
@@ -251,14 +252,14 @@ export default function ProjectBoqs() {
       const ids = list.map((b) => b.id);
       const [{ data: specRows }, { data: lineRows, error }] = await Promise.all([
         supabase.from("boq").select("id, spec").in("id", ids),
-        supabase.from("boq_line").select("boq_id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, included, sort, source_document_id, source_page").in("boq_id", ids).order("sort"),
+        supabase.from("boq_line").select("boq_id, section, dsr_code, description, unit, qty, quantity_status, dsr_rate, custom_rate, included, sort, source_document_id, source_page").in("boq_id", ids).order("sort"),
       ]);
       if (error) throw error;
       const specById = new Map<string, Record<string, unknown>>();
       for (const r of (specRows ?? []) as { id: string; spec: Record<string, unknown> | null }[]) specById.set(r.id, r.spec ?? {});
       type Ln = {
         boq_id: string; section: string | null; dsr_code: string | null; description: string | null; unit: string | null;
-        qty: number; dsr_rate: number | null; custom_rate: number | null; included: boolean;
+        qty: number; quantity_status: string | null; dsr_rate: number | null; custom_rate: number | null; included: boolean;
         source_document_id: string | null; source_page: string | null;
       };
       const byBoq = new Map<string, Ln[]>();
@@ -266,9 +267,16 @@ export default function ProjectBoqs() {
 
       const quoteBoqs: ProjectQuoteBoq[] = [];
       for (const b of list) {
-        const lns = (byBoq.get(b.id) ?? []).filter((l) => l.included && l.qty != null && l.qty > 0);
-        const subheads = subheadsFromLines(lns);
-        if (!subheads.length) continue;                         // skip a BOQ with no priced lines
+        // Measured lines are priced; included lines with no established quantity
+        // (the shared qtyPending rule) are listed under the BOQ as pending — never
+        // priced, never dropped. Excluded lines appear in neither.
+        const included = (byBoq.get(b.id) ?? []).filter((l) => l.included);
+        const subheads = subheadsFromLines(included.filter((l) => !qtyPending(l)));
+        const pendingItems: QuotePendingItem[] = included.filter((l) => qtyPending(l)).map((l, i) => ({
+          no: `P.${String(i + 1).padStart(2, "0")}`, spec: l.description ?? "", unit: l.unit ?? "", note: pendingReason(l),
+          ...resolveDrawingSource(l.source_document_id, l.source_page, drawingsById, drawingsLoading),
+        }));
+        if (!subheads.length && !pendingItems.length) continue; // skip a BOQ with nothing included
         const spec = specById.get(b.id) ?? {};
         const pct = (k: string, d: number) => Number(spec[k] ?? d);
         const works = subheads.reduce((s, sh) => s + sh.subtotal, 0);
@@ -276,7 +284,7 @@ export default function ProjectBoqs() {
           costIndexPct: pct("_cost_index_pct", 0), contingencyPct: pct("_contingency_pct", 3),
           overheadPct: pct("_overhead_pct", 15), cessPct: pct("_cess_pct", 1), gstPct: pct("_gst_pct", 18),
         });
-        quoteBoqs.push({ name: b.name, scope: scopeName(b.scope_id), subheads, commercials });
+        quoteBoqs.push({ name: b.name, scope: scopeName(b.scope_id), subheads, commercials, pendingItems });
       }
       if (!quoteBoqs.length) return toast.error("No priced BOQ lines to share yet — add rates first");
 
@@ -583,7 +591,7 @@ export default function ProjectBoqs() {
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">Client name (for the final version)</label>
-              <Input value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder={project?.client_name ?? "e.g. Dr. Sandeep"} />
+              <Input value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder={project?.client_name ?? "e.g. client name"} />
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-muted-foreground">Your firm name (for approval)</label>

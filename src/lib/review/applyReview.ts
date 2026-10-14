@@ -31,7 +31,9 @@
 import { PENDING_BASIS } from "@/lib/boqEvalJson";
 import { addReviewItemAsLine, applyReviewQtyUnit } from "@/lib/applyFinding";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/untypedDb";
 import type { StoredReviewItem } from "./reviewStore";
+import { assertApplyAllowed, assessRunFreshness } from "./revisionFreshness";
 
 /** The subset of a boq_line row needed to classify a review item against it.
  *  `scope_name` is the line's resolved scope (its own boq_line.scope_id, if
@@ -182,8 +184,23 @@ function unsupportedChangesFor(item: StoredReviewItem): UnsupportedChange[] {
   return out;
 }
 
-/** Classify one review item against the BOQ's current lines. Pure; no I/O. */
-export function classifyReviewItem(item: StoredReviewItem, lines: BoqLineForApply[]): ApplyCandidate {
+/** The location this item is filed under: the reviewer's correction when
+ *  they made one (an emptied field clears it), else the AI's own text. */
+function effectiveLocation(item: StoredReviewItem): string {
+  if (item.reviewer && "location" in item.reviewer) return norm(item.reviewer.location);
+  return norm(item.ai.location);
+}
+
+/**
+ * Classify one review item against the BOQ's current lines. Pure; no I/O.
+ *
+ * `scopeNames` — the project's existing project_scope names. When given, a
+ * location is only trusted as a scope if it names one of them: AI free text
+ * ("Various rooms", "Entrance Lobby") never stands for a different floor and
+ * never becomes a new scope. Omitted by callers that predate it; Apply still
+ * refuses to create a scope at write time (see findScopeIdForLocation).
+ */
+export function classifyReviewItem(item: StoredReviewItem, lines: BoqLineForApply[], scopeNames?: readonly string[]): ApplyCandidate {
   const base = { reviewItemId: item.id, itemKey: item.ai.key, itemName: item.ai.item };
 
   if (item.reviewStatus === "PENDING_REVIEW") {
@@ -207,7 +224,8 @@ export function classifyReviewItem(item: StoredReviewItem, lines: BoqLineForAppl
   // and must be disambiguated by scope, never by which one happens to come
   // first.
   const candidates = item.ai.key ? lines.filter((l) => l.external_key && l.external_key === item.ai.key) : [];
-  const itemLocation = norm(item.ai.location);
+  const itemLocation = effectiveLocation(item);
+  const knownScopes = scopeNames ? new Set(scopeNames.map((n) => norm(n))) : null;
 
   let match: BoqLineForApply | undefined;
   if (candidates.length === 1) {
@@ -233,6 +251,20 @@ export function classifyReviewItem(item: StoredReviewItem, lines: BoqLineForAppl
     // description) — the same fallback this file already uses for the
     // explicit-disagreement case, not a new outcome invented for this one.
     if (lineScope && (!itemLocation || itemLocation !== lineScope)) {
+      // Only a location naming ANOTHER existing scope is evidence of a
+      // different floor (its own NEW_LINE). No location, or text that is not
+      // a scope, is not: the same mark already in this BOQ would be counted
+      // twice, so the reviewer decides instead.
+      const otherKnownScope = !!itemLocation && (knownScopes ? knownScopes.has(itemLocation) : true);
+      if (!otherKnownScope) {
+        return {
+          ...base, classification: "AMBIGUOUS", matchedLineId: null, changes: [], unsupportedChanges,
+          candidateLineIds: [only.id],
+          reason: itemLocation
+            ? `This BOQ already has ${item.ai.key} in "${only.scope_name}"; "${itemLocation}" is not a project scope — set the location to confirm whether it is the same line`
+            : `This BOQ already has ${item.ai.key} in "${only.scope_name}" and this item has no location — set the location to confirm whether it is the same line`,
+        };
+      }
       match = undefined;
     } else {
       match = only;
@@ -257,6 +289,11 @@ export function classifyReviewItem(item: StoredReviewItem, lines: BoqLineForAppl
   }
 
   if (match) {
+    // A location that picked this line's scope was used, not lost.
+    const matchedScope = norm(match.scope_name);
+    const unsupported = matchedScope && matchedScope === itemLocation
+      ? unsupportedChanges.filter((u) => u.field !== "location")
+      : unsupportedChanges;
     const changes: FieldChange[] = [];
     const wantPending = qty == null;
     const fromQty = displayQty(match.qty, match.quantity_status);
@@ -271,13 +308,13 @@ export function classifyReviewItem(item: StoredReviewItem, lines: BoqLineForAppl
       // No qty/unit change. If the reviewer nonetheless corrected a field this
       // workflow can't write, that is NOT "no change" — it's a real correction
       // with nowhere to go, and must say so rather than disappear.
-      if (unsupportedChanges.length > 0) {
-        return { ...base, classification: "REVIEWED_NOT_APPLICABLE", matchedLineId: match.id, changes: [], unsupportedChanges };
+      if (unsupported.length > 0) {
+        return { ...base, classification: "REVIEWED_NOT_APPLICABLE", matchedLineId: match.id, changes: [], unsupportedChanges: unsupported };
       }
       return { ...base, classification: "NO_CHANGE", matchedLineId: match.id, changes: [], unsupportedChanges: [] };
     }
     return {
-      ...base, classification: "APPLY", matchedLineId: match.id, changes, unsupportedChanges,
+      ...base, classification: "APPLY", matchedLineId: match.id, changes, unsupportedChanges: unsupported,
       expectedLineState: { qty: match.qty, unit: match.unit },
       source: sourceToPropose(item, match.source_document_id),
     };
@@ -289,6 +326,17 @@ export function classifyReviewItem(item: StoredReviewItem, lines: BoqLineForAppl
   if (!item.ai.item?.trim()) {
     return { ...base, classification: "CANNOT_APPLY", matchedLineId: null, changes: [], unsupportedChanges, reason: "Cannot apply automatically — BOQ line not found" };
   }
+  // A new line is scoped by its location, and only an existing scope may be
+  // used — unverified text never creates one.
+  if (itemLocation && knownScopes && !knownScopes.has(itemLocation)) {
+    return {
+      ...base, classification: "CANNOT_APPLY", matchedLineId: null, changes: [], unsupportedChanges,
+      reason: `Location "${itemLocation}" is not a project scope — edit the location to an existing scope, or clear it`,
+    };
+  }
+  // The location is used here (it picks the scope), so it is not reported
+  // as a correction the BOQ cannot hold.
+  const newLineUnsupported = unsupportedChanges.filter((u) => u.field !== "location");
   return {
     ...base,
     classification: "NEW_LINE",
@@ -297,15 +345,15 @@ export function classifyReviewItem(item: StoredReviewItem, lines: BoqLineForAppl
       { field: "qty", from: "—", to: qty == null ? "pending" : String(qty) },
       { field: "unit", from: "—", to: unit ?? "—" },
     ],
-    unsupportedChanges,
-    newLine: { description: item.ai.item, unit, qty: qty ?? 0, pending: qty == null, location: item.ai.location ?? null },
+    unsupportedChanges: newLineUnsupported,
+    newLine: { description: item.ai.item, unit, qty: qty ?? 0, pending: qty == null, location: itemLocation || null },
     source: sourceToPropose(item, null),
   };
 }
 
 /** Classify every review item. Pure; safe to recompute on every render. */
-export function buildApplyPlan(items: StoredReviewItem[], lines: BoqLineForApply[]): ApplyCandidate[] {
-  return items.map((it) => classifyReviewItem(it, lines));
+export function buildApplyPlan(items: StoredReviewItem[], lines: BoqLineForApply[], scopeNames?: readonly string[]): ApplyCandidate[] {
+  return items.map((it) => classifyReviewItem(it, lines, scopeNames));
 }
 
 export interface ApplyResult {
@@ -325,21 +373,33 @@ export interface ApplyResult {
    * current value.
    */
   conflictedReviewItemIds: string[];
+  /**
+   * Review item ids whose BOQ line WAS written but whose boq_line_change_log
+   * rows could not be (e.g. the table is missing). The quantity change stands;
+   * its audit record does not — reported so the caller never shows a plain
+   * success for an unaudited change.
+   */
+  auditLogFailedReviewItemIds: string[];
+  /**
+   * Source documents whose current revision changed WHILE this call was
+   * writing (after its own pre-write freshness check passed). Only set for a
+   * call with a runId. The lines already written keep the analysed revision
+   * as their source_revision_id, so their provenance stays true; this only
+   * reports that the analysis is now stale so the reviewer can re-analyse.
+   * Nothing is rolled back.
+   */
+  revisionChangedDuringApply?: string[];
 }
 
 /**
- * Resolve (creating if needed) the project_scope row whose name exactly
- * matches a review item's location, so a newly-created BOQ line is scoped
- * from the start rather than left null — the gap that let a later, different
- * -scope item silently overwrite it via classifyReviewItem's single-candidate
- * path (see the comment there). Mirrors the existing select-or-create
- * convention already used for scope creation elsewhere (ProjectBoqs.tsx's
- * "+ New scope…" flow) and the same trimmed, exact-match comparison
- * classifyReviewItem itself relies on — no new scope model, no fuzzy match.
- * Returns null (never throws) on any failure — a scope-resolution problem
- * must never block the line from being created.
+ * The existing project_scope whose name exactly matches a review item's
+ * location (trimmed, exact — the same comparison classifyReviewItem uses), or
+ * null. Never creates one: a location is model or reviewer text, and a
+ * project scope is created only through the scope workflow (ProjectBoqs.tsx's
+ * "+ New scope…"). The caller treats null as "not applicable", never as an
+ * unscoped write.
  */
-async function resolveScopeIdForLocation(projectId: string, location: string): Promise<string | null> {
+async function findScopeIdForLocation(projectId: string, location: string): Promise<string | null> {
   const name = location.trim();
   if (!name) return null;
   const { data: existing } = await supabase
@@ -349,15 +409,7 @@ async function resolveScopeIdForLocation(projectId: string, location: string): P
     .eq("name", name)
     .limit(1)
     .maybeSingle();
-  if (existing) return (existing as { id: string }).id;
-
-  const { data: created, error } = await supabase
-    .from("project_scope")
-    .insert({ project_id: projectId, name, kind: "floor" })
-    .select("id")
-    .single();
-  if (error || !created) return null;
-  return (created as { id: string }).id;
+  return existing ? (existing as { id: string }).id : null;
 }
 
 /**
@@ -421,6 +473,88 @@ export async function resolveAnalyzedRevisionId(runId: string, documentId: strin
     .eq("document_id", documentId)
     .maybeSingle();
   return revision ? revisionId : undefined; // invalid/cross-document → no usable evidence, caller falls back
+}
+
+/** Apply refused because a selected item's source document cannot be
+ *  attributed from verified evidence. Thrown before any write. */
+export class SourceProvenanceError extends Error {
+  readonly reviewItemIds: string[];
+  constructor(message: string, reviewItemIds: string[]) {
+    super(message);
+    this.name = "SourceProvenanceError";
+    this.reviewItemIds = reviewItemIds;
+  }
+}
+
+/**
+ * The selected candidates' source documents, resolved from the run's own
+ * SUCCEEDED analysis_run_source claims (documents of this BOQ's project
+ * only) — the model's `source.documentId` is never persisted on its own word:
+ *   - exactly one claimed document: every selected candidate proposing a
+ *     source — and every NEW_LINE, which has no existing provenance to
+ *     protect — is attributed to it, unless the model named a different
+ *     real document of this project (a contradiction, so unresolved);
+ *     a filename, sheet title or other non-document id is ignored;
+ *   - several claimed documents: the model's id is accepted only as an
+ *     exact match for one of them; anything else (a filename, a sheet title,
+ *     nothing) is ambiguous;
+ *   - no claims (a json_import run): a proposed id must be one of this
+ *     project's documents; candidates proposing nothing are left unchanged.
+ * Throws SourceProvenanceError naming every unresolved item; nothing is
+ * written. An APPLY candidate with no proposal (its line already has
+ * provenance) is never touched.
+ */
+async function resolveRunProvenance(
+  runId: string,
+  projectId: string | null,
+  candidates: ApplyCandidate[],
+  selectedIds: Set<string>,
+): Promise<ApplyCandidate[]> {
+  const selected = candidates.filter((c) => selectedIds.has(c.reviewItemId) && (c.classification === "APPLY" || c.classification === "NEW_LINE"));
+  if (selected.length === 0) return candidates;
+
+  const { data: docRows, error: docErr } = projectId
+    ? await db.from("project_document").select("id").eq("project_id", projectId)
+    : { data: [], error: null };
+  if (docErr) throw docErr;
+  const projectDocIds = new Set(((docRows ?? []) as { id: string }[]).map((d) => d.id));
+
+  const { data: claimRows, error: claimErr } = await db
+    .from("analysis_run_source")
+    .select("document_id")
+    .eq("analysis_run_id", runId)
+    .eq("status", "SUCCEEDED");
+  if (claimErr) throw claimErr;
+  const claimed = [...new Set(((claimRows ?? []) as { document_id: string | null }[]).map((r) => r.document_id))]
+    .filter((id): id is string => !!id && projectDocIds.has(id));
+
+  const unresolved: ApplyCandidate[] = [];
+  const resolved = candidates.map((c) => {
+    if (!selected.includes(c)) return c;
+    const proposes = !!c.source || c.classification === "NEW_LINE";
+    if (!proposes) return c;
+    let documentId: string | undefined;
+    if (claimed.length === 1) {
+      // A model id naming a DIFFERENT real document of this project
+      // contradicts the run's evidence — never silently re-attributed.
+      const names = c.source?.documentId;
+      documentId = names && projectDocIds.has(names) && names !== claimed[0] ? undefined : claimed[0];
+    }
+    else if (claimed.length > 1) documentId = c.source && claimed.includes(c.source.documentId) ? c.source.documentId : undefined;
+    else if (!c.source) return c;
+    else documentId = projectDocIds.has(c.source.documentId) ? c.source.documentId : undefined;
+    if (!documentId) { unresolved.push(c); return c; }
+    return { ...c, source: { documentId, page: c.source?.page ?? null } };
+  });
+
+  if (unresolved.length) {
+    const names = unresolved.map((c) => c.itemName || c.itemKey).join(", ");
+    const why = claimed.length > 1
+      ? "this analysis read several drawings and the item does not identify which one"
+      : "its source drawing is not a document of this project";
+    throw new SourceProvenanceError(`Nothing was applied: the source drawing for ${names} cannot be verified (${why}). Re-link the drawing or re-analyse before applying.`, unresolved.map((c) => c.reviewItemId));
+  }
+  return resolved;
 }
 
 /**
@@ -511,8 +645,24 @@ export async function applyReviewPlan(args: {
    *  never coexist there). Passed through to resolveSourceRevisionId so it
    *  can try the exact analyzed revision before falling back to "current
    *  revision at Apply time." Optional so every existing caller/fixture that
-   *  predates this parameter keeps compiling and behaving unchanged. */
+   *  predates this parameter keeps compiling and behaving unchanged.
+   *
+   *  When given, Apply is also gated on revision freshness
+   *  (revisionFreshness.ts): before ANY write, every source document of this
+   *  run — its analysis_run_source claims, every selected candidate's source
+   *  document, and `referencedDocumentIds` — is re-read, and the call throws
+   *  AnalysisRevisionBlockedError unless each one's recorded analysed
+   *  revision is still its current revision. Unknown provenance blocks too:
+   *  it is never attributed to whatever revision is current now. */
   runId?: string | null;
+  /** Further documents the reviewer's evidence was resolved against (by
+   *  filename, or the run's re-linked drawing) — assessed alongside the
+   *  candidates' own sources. Only used with `runId`. */
+  referencedDocumentIds?: string[];
+  /** documentId -> current revision id the reviewer was shown as fresh. If
+   *  any assessed source's current revision differs (or the source wasn't in
+   *  the snapshot), nothing is written. Only used with `runId`. */
+  expectedCurrentRevisionIds?: Record<string, string | null>;
 }): Promise<ApplyResult> {
   const { data: userData } = await supabase.auth.getUser();
   const changedBy = userData?.user?.id ?? null;
@@ -548,6 +698,7 @@ export async function applyReviewPlan(args: {
   // duplicating the BOQ entry (and double-counting its quantity).
   const createdNewLineIdentities = new Set<string>();
   const conflictedReviewItemIds: string[] = [];
+  const auditLogFailedReviewItemIds: string[] = [];
   // Resolved at most once per distinct documentId in this call (see
   // resolveSourceRevisionId) — never re-looked-up per candidate. Cached by
   // documentId alone, never by (runId, documentId): args.runId is a single
@@ -628,7 +779,30 @@ export async function applyReviewPlan(args: {
     };
   }
 
-  for (const c of args.candidates) {
+  // Revision freshness gate — before any write. Re-read here, not trusted
+  // from the screen: the reviewer's check may be minutes old.
+  const toWrite = args.candidates.filter((c) => args.selectedIds.has(c.reviewItemId) && (c.classification === "APPLY" || c.classification === "NEW_LINE"));
+  let assessedSources: { documentId: string; documentName: string | null; currentRevisionId: string | null }[] = [];
+  if (args.runId && toWrite.length > 0) {
+    const freshness = await assessRunFreshness({
+      runId: args.runId,
+      projectId: await resolveBoqProjectId(),
+      referencedDocumentIds: [...(args.referencedDocumentIds ?? []), ...toWrite.flatMap((c) => (c.source ? [c.source.documentId] : []))],
+    });
+    assertApplyAllowed(freshness, args.expectedCurrentRevisionIds);
+    assessedSources = freshness.sources.map((s) => ({ documentId: s.documentId, documentName: s.documentName, currentRevisionId: s.currentRevision?.id ?? null }));
+  }
+
+  // Source provenance — before any write. With a runId, the document a line
+  // is attributed to comes from the run's own verified analysis_run_source
+  // claims, never from the model's output alone (which can name a filename,
+  // a sheet title or nothing at all). Unresolvable → throws, nothing written.
+  // After the freshness gate, which already assesses every claimed document.
+  const candidates = args.runId
+    ? await resolveRunProvenance(args.runId, await resolveBoqProjectId(), args.candidates, args.selectedIds)
+    : args.candidates;
+
+  for (const c of candidates) {
     if (!args.selectedIds.has(c.reviewItemId)) continue;
     if (c.classification !== "APPLY" && c.classification !== "NEW_LINE") continue;
 
@@ -709,7 +883,13 @@ export async function applyReviewPlan(args: {
       const location = (c.newLine.location ?? "").trim();
       if (location) {
         const boqProjectId = await resolveBoqProjectId();
-        if (boqProjectId) scopeId = await resolveScopeIdForLocation(boqProjectId, location);
+        if (boqProjectId) scopeId = await findScopeIdForLocation(boqProjectId, location);
+        if (!scopeId) {
+          // Not an existing scope of this project: never written unscoped
+          // and never creates a scope — left for the reviewer to resolve.
+          conflictedReviewItemIds.push(c.reviewItemId);
+          continue;
+        }
       }
       // Source-traceability (Scope C) — a brand-new line has no existing
       // provenance to protect, so this is always included when the item
@@ -749,7 +929,10 @@ export async function applyReviewPlan(args: {
       continue;
     }
 
-    if (logRows.length) await supabase.from("boq_line_change_log").insert(logRows);
+    if (logRows.length) {
+      const { error: logErr } = await supabase.from("boq_line_change_log").insert(logRows);
+      if (logErr) auditLogFailedReviewItemIds.push(c.reviewItemId);
+    }
     appliedCount++;
   }
 
@@ -764,5 +947,19 @@ export async function applyReviewPlan(args: {
   // replacing it — the two sets never overlap (a conflicted candidate was
   // always classified APPLY, never one of the four classifications above).
   const unresolvedCount = staticUnresolvedCount + conflictedReviewItemIds.length;
-  return { appliedCount, skippedNoChange, unresolvedCount, conflictedReviewItemIds };
+  const result: ApplyResult = { appliedCount, skippedNoChange, unresolvedCount, conflictedReviewItemIds, auditLogFailedReviewItemIds };
+
+  // The pre-write gate cannot be atomic with the writes (no transaction spans
+  // them), so re-read afterwards and report — never hide — a change that
+  // landed in between.
+  if (assessedSources.length > 0) {
+    const changed: string[] = [];
+    for (const s of assessedSources) {
+      const { data, error } = await db.from("project_document").select("current_revision_id").eq("id", s.documentId).maybeSingle();
+      const now = error ? undefined : ((data as { current_revision_id: string | null } | null)?.current_revision_id ?? null);
+      if (now !== s.currentRevisionId) changed.push(s.documentName ?? s.documentId);
+    }
+    result.revisionChangedDuringApply = changed;
+  }
+  return result;
 }

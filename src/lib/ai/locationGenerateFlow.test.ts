@@ -71,7 +71,7 @@ describe("LOCATION generate flow — end-to-end composition (OpenAI wire -> pars
         {
           observation_type: "schedule_entry", mark: "W1", scope_hint: "Ground Floor",
           location_text: "Door/Window schedule, Ground floor sheet",
-          attributes: { dimension: "6'x6'9\"", specification: "UPVC", material: null },
+          attributes: { dimension: "5'x6'", specification: "UPVC", material: null },
           evidence_completeness: "FULL",
           source: { document_id: "doc-ground", document: null, page: 8, evidence: [{ bbox: [1, 2, 3, 4], page: 8, label: null, claim: "general" }] },
         },
@@ -114,7 +114,7 @@ describe("LOCATION generate flow — end-to-end composition (OpenAI wire -> pars
       document_id: "doc-ground", revision_id: "rev-ground-1",
       observation_type: "schedule_entry", mark: "W1", scope_hint: "Ground Floor",
       location_text: "Door/Window schedule, Ground floor sheet",
-      attributes: { dimension: "6'x6'9\"", specification: "UPVC" },
+      attributes: { dimension: "5'x6'", specification: "UPVC" },
       evidence: { documentId: "doc-ground", document: undefined, page: 8, evidence: [{ bbox: [1, 2, 3, 4], page: 8, label: undefined, claim: "general" }], pageSize: undefined },
       evidence_completeness: "FULL",
     });
@@ -132,7 +132,7 @@ describe("LOCATION generate flow — end-to-end composition (OpenAI wire -> pars
         {
           observation_type: "opening", mark: "W1", scope_hint: "Ground Floor",
           location_text: "Door/Window schedule, Ground floor sheet",
-          attributes: { dimension: "6'x6'9\"", specification: "UPVC", material: null },
+          attributes: { dimension: "5'x6'", specification: "UPVC", material: null },
           evidence_completeness: "FULL",
           // The model's own source reference is WRONG/unfulfillable (it was
           // never told the real document_id) — this must not affect the page/

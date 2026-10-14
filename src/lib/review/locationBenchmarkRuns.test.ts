@@ -1,68 +1,67 @@
 // MULTI-RUN LOCATION BENCHMARK — proves scoreLocationBenchmark() correctly
-// scores a REGISTRY of independently audited LOCATION runs, each against
+// scores a REGISTRY of independently "audited" LOCATION runs, each against
 // only its own actual output, never contaminating one run's result with
 // another's expected facts or actual observations.
 //
-// The second "run" used below (SYNTHETIC_RUN) is deliberately NOT a real
-// document's ground truth — it exists only to prove the multi-run MECHANISM
-// (independence, aggregation, graded/gap plumbing) the same way the existing
-// observationBenchmarkScorer.test.ts's "collapsedRun"/"oneObservationOnly"
-// fixtures are synthetic proofs of the single-run matcher's mechanics, never
-// a claim about a real drawing. No ground truth is fabricated for any real
-// document here.
+// Runs A, B and C (__fixtures__/syntheticLocationRuns.ts) and their actual
+// outputs below are SYNTHETIC: invented sizes and materials, shaped like real
+// runs (a known classification error, a known material error, coverage misses,
+// a different scope-hint convention). SYNTHETIC_RUN is a further one-entry run
+// for the aggregation tests. None of this describes a real drawing.
 import { describe, it, expect } from "vitest";
 import { scoreObservations, scoreLocationBenchmark } from "./observationBenchmarkScorer";
+import { buildLocationBenchmarkReport } from "./locationBenchmarkReport";
 import {
-  LOCATION_BENCHMARK_RUNS,
-  SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928,
-  SRIKAKULAM_SECOND_FLOOR_LOCATION_RUN,
-  SRIKAKULAM_THIRD_LOCATION_RUN_20260928,
-  type ExpectedObservation,
-  type LocationBenchmarkRun,
-} from "./srikakulamObservationBenchmark";
+  SYNTHETIC_LOCATION_RUNS,
+  SYNTHETIC_APARTMENT_RUN,
+  SYNTHETIC_SECOND_FLOOR_RUN,
+  SYNTHETIC_THIRD_RUN,
+} from "./__fixtures__/syntheticLocationRuns";
+import type { ExpectedObservation, LocationBenchmarkRun } from "./benchmarkTypes";
 import type { ObservationV1 } from "./observationSchemaV1";
 
-const SRIKAKULAM_RUN = LOCATION_BENCHMARK_RUNS.find((r) => r.id === "srikakulam-apartment-20260928")!;
-const SECOND_FLOOR_RUN = LOCATION_BENCHMARK_RUNS.find((r) => r.id === "srikakulam-second-floor")!;
-const THIRD_RUN = LOCATION_BENCHMARK_RUNS.find((r) => r.id === "srikakulam-third-run-20260928")!;
 
-/** The real, audited 2026-09-28 production output — identical to the fixture
+const RUN_A = SYNTHETIC_LOCATION_RUNS.find((r) => r.id === "apartment-run-a")!;
+const SECOND_FLOOR_RUN = SYNTHETIC_LOCATION_RUNS.find((r) => r.id === "second-floor-run-b")!;
+const THIRD_RUN = SYNTHETIC_LOCATION_RUNS.find((r) => r.id === "two-floor-run-c")!;
+
+/** Run A's synthetic actual output — identical to the fixture
  *  already used in observationBenchmarkScorer.test.ts's dedicated describe
  *  block, reused here (not redefined differently) to prove this run's score
  *  is IDENTICAL whether scored alone or through the multi-run registry. */
-const SRIKAKULAM_ACTUAL_RUN: ObservationV1[] = [
-  { observationType: "room_or_space", mark: "Living", scopeHint: "Ground Floor", attributes: { dimension: "24'2\"x21'4\"" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
-  { observationType: "room_or_space", mark: "Dining", scopeHint: "Ground Floor", attributes: { dimension: "29'10\"x15'8\"" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
-  { observationType: "equipment", mark: "Lift", scopeHint: "Ground Floor", attributes: { dimension: "7'x6'6\"" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
-  { observationType: "opening", mark: "Main Entrance", scopeHint: "Stilt Floor", attributes: { dimension: "15'2\" wide" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
-  { observationType: "fixture", mark: "Maid Room-1", scopeHint: "Stilt Floor", attributes: { dimension: "5'6\"x6'3\"" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
-  { observationType: "other_construction_fact", mark: "Security Gate", scopeHint: "Stilt Floor", attributes: { dimension: "10' wide" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
-  { observationType: "dimension_annotation", mark: "Main Entrance", scopeHint: "Ground Floor", attributes: { dimension: "6'6\" wide" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
-  { observationType: "structural_element", mark: "Car Parking", scopeHint: "Stilt Floor", attributes: { dimension: "19'4\"x37'" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
-  { observationType: "room_or_space", mark: "Gym", scopeHint: "Ground Floor", attributes: { dimension: "15'3\"x12'8\"" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
+const RUN_A_ACTUAL: ObservationV1[] = [
+  { observationType: "room_or_space", mark: "Living", scopeHint: "Ground Floor", attributes: { dimension: "45'1\"x47'11\"" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
+  { observationType: "room_or_space", mark: "Dining", scopeHint: "Ground Floor", attributes: { dimension: "24'5\"x51'7\"" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
+  { observationType: "equipment", mark: "Lift", scopeHint: "Ground Floor", attributes: { dimension: "21'x4'9\"" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
+  { observationType: "opening", mark: "Main Entrance", scopeHint: "Stilt Floor", attributes: { dimension: "51'1\" wide" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+  { observationType: "fixture", mark: "Maid Room-1", scopeHint: "Stilt Floor", attributes: { dimension: "40'9\"x4'6\"" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+  { observationType: "other_construction_fact", mark: "Security Gate", scopeHint: "Stilt Floor", attributes: { dimension: "19' wide" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+  { observationType: "dimension_annotation", mark: "Main Entrance", scopeHint: "Ground Floor", attributes: { dimension: "4'9\" wide" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
+  { observationType: "structural_element", mark: "Car Parking", scopeHint: "Stilt Floor", attributes: { dimension: "13'11\"x54'" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+  { observationType: "room_or_space", mark: "Gym", scopeHint: "Ground Floor", attributes: { dimension: "51'6\"x53'7\"" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
 ];
 
-/** The real, audited Second Floor production output — exactly the 8
- *  observations the real run persisted (field-for-field, including the
+/** Run B's synthetic actual output — exactly the 8
+ *  observations the run produced (field-for-field, including the
  *  actual "Wood" material misreport on D1 — this is the ACTUAL output, not
  *  the corrected expectation). The 11 manually verified coverage misses
  *  (Pooja, Lift, Utility, Wet Kitchen, Storage, Children Bedroom-1/2, Great
  *  Room, W.I.C, W.R, Dress) are deliberately NOT represented here — they were
  *  never extracted, so there is no actual observation for them at all. */
 const SECOND_FLOOR_ACTUAL_RUN: ObservationV1[] = [
-  { observationType: "room_or_space", mark: "Dining", scopeHint: "Second Floor", attributes: { dimension: "17'8\"x15'4\"" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
-  { observationType: "room_or_space", mark: "Master Bedroom", scopeHint: "Second Floor", attributes: { dimension: "16'6\"x13'3\"" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
-  { observationType: "room_or_space", mark: "Kitchen", scopeHint: "Second Floor", attributes: { dimension: "22'2\"x11'" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
-  { observationType: "room_or_space", mark: "Guest Bedroom", scopeHint: "Second Floor", attributes: { dimension: "18'6\"x14'" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
-  { observationType: "room_or_space", mark: "Media Room", scopeHint: "Second Floor", attributes: { dimension: "15'7\"x10'6\"" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
-  { observationType: "room_or_space", mark: "Living", scopeHint: "Second Floor", attributes: { dimension: "17'8\"x15'6\"" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
-  { observationType: "opening", mark: "W1", scopeHint: "Second Floor", attributes: { dimension: "5'x5'3\"", specification: "UPVC" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
+  { observationType: "room_or_space", mark: "Dining", scopeHint: "Second Floor", attributes: { dimension: "32'7\"x51'11\"" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+  { observationType: "room_or_space", mark: "Master Bedroom", scopeHint: "Second Floor", attributes: { dimension: "15'9\"x17'6\"" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+  { observationType: "room_or_space", mark: "Kitchen", scopeHint: "Second Floor", attributes: { dimension: "11'1\"x36'" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+  { observationType: "room_or_space", mark: "Guest Bedroom", scopeHint: "Second Floor", attributes: { dimension: "49'9\"x34'" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+  { observationType: "room_or_space", mark: "Media Room", scopeHint: "Second Floor", attributes: { dimension: "51'2\"x19'9\"" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+  { observationType: "room_or_space", mark: "Living", scopeHint: "Second Floor", attributes: { dimension: "32'7\"x51'9\"" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+  { observationType: "opening", mark: "W1", scopeHint: "Second Floor", attributes: { dimension: "40'x40'6\"", specification: "Aluminium" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
   // The ACTUAL misreport: material "Wood" — the confirmed gap this run exists
   // to represent. Dimension is correctly reported.
-  { observationType: "opening", mark: "D1", scopeHint: "Second Floor", attributes: { dimension: "3'6\"x7'9\"", material: "Wood" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
+  { observationType: "opening", mark: "D1", scopeHint: "Second Floor", attributes: { dimension: "6'9\"x21'0\"", material: "Wood" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
 ];
 
-/** The real, third production run's output — exactly the 5 observations
+/** Run C's synthetic actual output — exactly the 5 observations
  *  supplied, field-for-field, never reinterpreted. Notably, every mark/
  *  scopeHint pair here uses a DIFFERENT convention than runs #1/#2: scopeHint
  *  names the room/context a fixture belongs to ("Master Bedroom", "Dining
@@ -74,14 +73,14 @@ const SECOND_FLOOR_ACTUAL_RUN: ObservationV1[] = [
  *  still don't, because no expected entry exists for either mark at all
  *  (see the tests below). */
 const THIRD_RUN_ACTUAL: ObservationV1[] = [
-  { observationType: "room_or_space", mark: "W.R", scopeHint: "Master Bedroom", attributes: { dimension: "16'6\"x13'3\"" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
-  { observationType: "room_or_space", mark: "Dining", scopeHint: "Dining Room", attributes: { dimension: "17'8\"x15'4\"" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
-  { observationType: "room_or_space", mark: "Kitchen", scopeHint: "Kitchen", attributes: { dimension: "22'2\"x11'" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
+  { observationType: "room_or_space", mark: "W.R", scopeHint: "Master Bedroom", attributes: { dimension: "15'9\"x17'6\"" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+  { observationType: "room_or_space", mark: "Dining", scopeHint: "Dining Room", attributes: { dimension: "32'7\"x51'11\"" }, evidenceCompleteness: "FULL", source: { page: 1, evidence: [] } },
+  { observationType: "room_or_space", mark: "Kitchen", scopeHint: "Kitchen", attributes: { dimension: "11'1\"x36'" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
   // "Plasma TV Installation" is the source's own descriptive text — carried in
   // locationText, the free-text field for exactly this, never fabricated into
   // a dimension or specification the source didn't give it.
   { observationType: "finish_or_material", mark: "Plasma", scopeHint: "Living Room", locationText: "Plasma TV Installation", attributes: {}, evidenceCompleteness: "LIMITED", source: { page: 1, evidence: [] } },
-  { observationType: "equipment", mark: "Lift", scopeHint: "Building Lift", attributes: { dimension: "7'x6'6\"" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
+  { observationType: "equipment", mark: "Lift", scopeHint: "Building Lift", attributes: { dimension: "21'x4'9\"" }, evidenceCompleteness: "FULL", source: { page: 2, evidence: [] } },
 ];
 
 // A second, SYNTHETIC run — a different (fictional) document, one audited
@@ -89,7 +88,7 @@ const THIRD_RUN_ACTUAL: ObservationV1[] = [
 // aggregate-averages test below can prove ungraded entries don't leak
 // across runs either.
 const SYNTHETIC_EXPECTED: ExpectedObservation[] = [
-  { id: "synthetic-kitchen-obs", observationType: "room_or_space", mark: "Kitchen", scopeHint: "Ground Floor", attributes: { dimension: "10'x12'" }, sourcePage: "p.3 (synthetic fixture, not a real document)" },
+  { id: "synthetic-kitchen-obs", observationType: "room_or_space", mark: "Kitchen", scopeHint: "Ground Floor", attributes: { dimension: "19'x53'" }, sourcePage: "p.3 (synthetic fixture, not a real document)" },
   {
     id: "synthetic-not-yet-audited-obs",
     observationType: "fixture",
@@ -108,10 +107,10 @@ const SYNTHETIC_RUN: LocationBenchmarkRun = {
   distinctnessPairs: [],
 };
 
-describe("scoreLocationBenchmark — existing Srikakulam benchmark scores unchanged", () => {
-  it("scoring the Srikakulam run through the registry produces IDENTICAL results to calling scoreObservations() directly", () => {
-    const direct = scoreObservations(SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928, SRIKAKULAM_ACTUAL_RUN, SRIKAKULAM_RUN.distinctnessPairs);
-    const report = scoreLocationBenchmark([SRIKAKULAM_RUN], { [SRIKAKULAM_RUN.id]: SRIKAKULAM_ACTUAL_RUN });
+describe("scoreLocationBenchmark — run A scores unchanged", () => {
+  it("scoring run A through the registry produces IDENTICAL results to calling scoreObservations() directly", () => {
+    const direct = scoreObservations(SYNTHETIC_APARTMENT_RUN, RUN_A_ACTUAL, RUN_A.distinctnessPairs);
+    const report = scoreLocationBenchmark([RUN_A], { [RUN_A.id]: RUN_A_ACTUAL });
     const wrapped = report.results[0];
 
     expect(wrapped.scopeRecall).toBe(direct.scopeRecall);
@@ -125,7 +124,7 @@ describe("scoreLocationBenchmark — existing Srikakulam benchmark scores unchan
   });
 
   it("still shows full coverage (9/9), 8/9 classification accuracy, and the Maid Room-1 gap — the exact same numbers as the single-run test", () => {
-    const report = scoreLocationBenchmark([SRIKAKULAM_RUN], { [SRIKAKULAM_RUN.id]: SRIKAKULAM_ACTUAL_RUN });
+    const report = scoreLocationBenchmark([RUN_A], { [RUN_A.id]: RUN_A_ACTUAL });
     const r = report.results[0];
     expect(r.scopeRecall).toBe(1);
     expect(r.observationTypeAccuracy).toBeCloseTo(8 / 9);
@@ -137,56 +136,56 @@ describe("scoreLocationBenchmark — existing Srikakulam benchmark scores unchan
 describe("scoreLocationBenchmark — each run is scored independently", () => {
   it("a perfect second run and an imperfect first run produce two independent, correct results — not averaged together at the per-run level", () => {
     const syntheticActual: ObservationV1[] = [
-      { observationType: "room_or_space", mark: "Kitchen", scopeHint: "Ground Floor", attributes: { dimension: "10'x12'" }, evidenceCompleteness: "FULL", source: { evidence: [] } },
+      { observationType: "room_or_space", mark: "Kitchen", scopeHint: "Ground Floor", attributes: { dimension: "19'x53'" }, evidenceCompleteness: "FULL", source: { evidence: [] } },
     ];
     const report = scoreLocationBenchmark(
-      [SRIKAKULAM_RUN, SYNTHETIC_RUN],
-      { [SRIKAKULAM_RUN.id]: SRIKAKULAM_ACTUAL_RUN, [SYNTHETIC_RUN.id]: syntheticActual },
+      [RUN_A, SYNTHETIC_RUN],
+      { [RUN_A.id]: RUN_A_ACTUAL, [SYNTHETIC_RUN.id]: syntheticActual },
     );
-    const srikakulamResult = report.results.find((r) => r.runId === SRIKAKULAM_RUN.id)!;
+    const runAResult = report.results.find((r) => r.runId === RUN_A.id)!;
     const syntheticResult = report.results.find((r) => r.runId === SYNTHETIC_RUN.id)!;
 
-    // The Srikakulam run's known classification miss is untouched by the
+    // Run A's known classification miss is untouched by the
     // synthetic run being perfect.
-    expect(srikakulamResult.observationTypeAccuracy).toBeCloseTo(8 / 9);
+    expect(runAResult.observationTypeAccuracy).toBeCloseTo(8 / 9);
     // The synthetic run's one graded entry is perfectly matched — untouched
-    // by the Srikakulam run's own miss.
+    // by run A's own miss.
     expect(syntheticResult.scopeRecall).toBe(1);
     expect(syntheticResult.observationTypeAccuracy).toBe(1);
   });
 });
 
 describe("scoreLocationBenchmark — one run's expected facts can never become false negatives for another run", () => {
-  it("the synthetic run's actual output being completely EMPTY does not affect the Srikakulam run's own (perfect) coverage", () => {
+  it("the synthetic run's actual output being completely EMPTY does not affect run A's own (perfect) coverage", () => {
     const report = scoreLocationBenchmark(
-      [SRIKAKULAM_RUN, SYNTHETIC_RUN],
-      { [SRIKAKULAM_RUN.id]: SRIKAKULAM_ACTUAL_RUN, [SYNTHETIC_RUN.id]: [] },
+      [RUN_A, SYNTHETIC_RUN],
+      { [RUN_A.id]: RUN_A_ACTUAL, [SYNTHETIC_RUN.id]: [] },
     );
-    const srikakulamResult = report.results.find((r) => r.runId === SRIKAKULAM_RUN.id)!;
+    const runAResult = report.results.find((r) => r.runId === RUN_A.id)!;
     const syntheticResult = report.results.find((r) => r.runId === SYNTHETIC_RUN.id)!;
 
-    // Srikakulam's own 9 facts are all still found — the synthetic run
+    // run A's own 9 facts are all still found — the synthetic run
     // producing nothing has zero effect on it.
-    expect(srikakulamResult.scopeRecall).toBe(1);
-    expect(srikakulamResult.unmatchedExpectedIds).toEqual([]);
+    expect(runAResult.scopeRecall).toBe(1);
+    expect(runAResult.unmatchedExpectedIds).toEqual([]);
     // The synthetic run's own graded fact is correctly reported as missing —
-    // for ITSELF, never smeared into the Srikakulam run's result.
+    // for ITSELF, never smeared into run A's result.
     expect(syntheticResult.unmatchedExpectedIds).toEqual(["synthetic-kitchen-obs"]);
     expect(syntheticResult.scopeRecall).toBe(0);
   });
 
   it("a run with NO entry at all in actualByRunId scores as an empty run for itself, never falls back to another run's actual output", () => {
-    const report = scoreLocationBenchmark([SRIKAKULAM_RUN, SYNTHETIC_RUN], { [SRIKAKULAM_RUN.id]: SRIKAKULAM_ACTUAL_RUN });
+    const report = scoreLocationBenchmark([RUN_A, SYNTHETIC_RUN], { [RUN_A.id]: RUN_A_ACTUAL });
     const syntheticResult = report.results.find((r) => r.runId === SYNTHETIC_RUN.id)!;
     expect(syntheticResult.unmatchedExpectedIds).toEqual(["synthetic-kitchen-obs"]);
-    expect(syntheticResult.falsePositiveCount).toBe(0); // never "matched" against Srikakulam's actual observations
+    expect(syntheticResult.falsePositiveCount).toBe(0); // never "matched" against run A's actual observations
   });
 });
 
 describe("scoreLocationBenchmark — ungraded facts do not affect accuracy ratios, at the aggregate level too", () => {
   it("the synthetic run's not-yet-audited entry is excluded from its own ratios AND from the cross-run averages", () => {
     const syntheticActual: ObservationV1[] = [
-      { observationType: "room_or_space", mark: "Kitchen", scopeHint: "Ground Floor", attributes: { dimension: "10'x12'" }, evidenceCompleteness: "FULL", source: { evidence: [] } },
+      { observationType: "room_or_space", mark: "Kitchen", scopeHint: "Ground Floor", attributes: { dimension: "19'x53'" }, evidenceCompleteness: "FULL", source: { evidence: [] } },
       // The model reports the not-yet-audited Water Heater fact too, but
       // with the WRONG observationType relative to what's on file
       // ("equipment" vs. the expected "fixture") — deliberately, so that if
@@ -197,8 +196,8 @@ describe("scoreLocationBenchmark — ungraded facts do not affect accuracy ratio
       { observationType: "equipment", mark: "Water Heater", scopeHint: "Ground Floor", attributes: {}, evidenceCompleteness: "FULL", source: { evidence: [] } },
     ];
     const report = scoreLocationBenchmark(
-      [SRIKAKULAM_RUN, SYNTHETIC_RUN],
-      { [SRIKAKULAM_RUN.id]: SRIKAKULAM_ACTUAL_RUN, [SYNTHETIC_RUN.id]: syntheticActual },
+      [RUN_A, SYNTHETIC_RUN],
+      { [RUN_A.id]: RUN_A_ACTUAL, [SYNTHETIC_RUN.id]: syntheticActual },
     );
     const syntheticResult = report.results.find((r) => r.runId === SYNTHETIC_RUN.id)!;
 
@@ -211,7 +210,7 @@ describe("scoreLocationBenchmark — ungraded facts do not affect accuracy ratio
     expect(syntheticResult.ungradedIds).toEqual(["synthetic-not-yet-audited-obs"]);
 
     // Cross-run averages: a simple average of each run's OWN ratio — the
-    // Srikakulam run's pre-existing 8/9 classification miss (unrelated to
+    // run A's pre-existing 8/9 classification miss (unrelated to
     // this test) is still there, and the synthetic run contributes a clean
     // 1 (never dragged down by its excluded ungraded entry).
     expect(report.averages.scopeRecall).toBe(1);
@@ -220,37 +219,36 @@ describe("scoreLocationBenchmark — ungraded facts do not affect accuracy ratio
 });
 
 describe("scoreLocationBenchmark — confirmed gaps remain visible, per run", () => {
-  it("gapFlaggedByRun attributes the Maid Room-1 gap to the Srikakulam run only — the synthetic run's own gap goes to its own entry", () => {
+  it("gapFlaggedByRun attributes the Maid Room-1 gap to run A only — the synthetic run's own gap goes to its own entry", () => {
     const report = scoreLocationBenchmark(
-      [SRIKAKULAM_RUN, SYNTHETIC_RUN],
-      { [SRIKAKULAM_RUN.id]: SRIKAKULAM_ACTUAL_RUN, [SYNTHETIC_RUN.id]: [] },
+      [RUN_A, SYNTHETIC_RUN],
+      { [RUN_A.id]: RUN_A_ACTUAL, [SYNTHETIC_RUN.id]: [] },
     );
-    const srikakulamGaps = report.gapFlaggedByRun.find((g) => g.runId === SRIKAKULAM_RUN.id)!;
+    const runAGaps = report.gapFlaggedByRun.find((g) => g.runId === RUN_A.id)!;
     const syntheticGaps = report.gapFlaggedByRun.find((g) => g.runId === SYNTHETIC_RUN.id)!;
 
-    expect(srikakulamGaps.gaps.map((g) => g.id)).toEqual(["stilt-maid-room-1-obs"]);
+    expect(runAGaps.gaps.map((g) => g.id)).toEqual(["stilt-maid-room-1-obs"]);
     expect(syntheticGaps.gaps.map((g) => g.id)).toEqual(["synthetic-not-yet-audited-obs"]);
   });
 
   it("ungradedByRun likewise never mixes runs", () => {
     const report = scoreLocationBenchmark(
-      [SRIKAKULAM_RUN, SYNTHETIC_RUN],
-      { [SRIKAKULAM_RUN.id]: SRIKAKULAM_ACTUAL_RUN, [SYNTHETIC_RUN.id]: [] },
+      [RUN_A, SYNTHETIC_RUN],
+      { [RUN_A.id]: RUN_A_ACTUAL, [SYNTHETIC_RUN.id]: [] },
     );
-    const srikakulamUngraded = report.ungradedByRun.find((u) => u.runId === SRIKAKULAM_RUN.id)!;
+    const runAUngraded = report.ungradedByRun.find((u) => u.runId === RUN_A.id)!;
     const syntheticUngraded = report.ungradedByRun.find((u) => u.runId === SYNTHETIC_RUN.id)!;
-    expect(srikakulamUngraded.ids).toEqual([]); // nothing ungraded in the real run
+    expect(runAUngraded.ids).toEqual([]); // nothing ungraded in run A
     expect(syntheticUngraded.ids).toEqual(["synthetic-not-yet-audited-obs"]);
   });
 });
 
-// ── The SECOND real production run (Srikakulam Second Floor) — scored on its
-// own, and together with the FIRST real run, to prove genuine cross-document
-// independence with two real, manually audited data sets (not a synthetic
-// stand-in). Total expected entries for this run: 8 extracted-and-audited +
+// ── Run B (synthetic second floor) — scored on its
+// own, and together with run A, to prove cross-document
+// independence with two independently specified data sets. Total expected entries for this run: 8 extracted-and-audited +
 // 11 manually verified coverage misses (8 with a confirmed dimension, 3
 // identity-only) = 19. ───────────────────────────────────────────────────
-describe("scoreLocationBenchmark — the real Second Floor production run scores independently", () => {
+describe("scoreLocationBenchmark — run B (second floor) scores independently", () => {
   const result = scoreObservations(SECOND_FLOOR_RUN.expectedObservations, SECOND_FLOOR_ACTUAL_RUN, SECOND_FLOOR_RUN.distinctnessPairs);
 
   it("coverage: 8 of 19 audited facts were extracted — the 11 manually verified misses reduce scopeRecall, never silently ignored", () => {
@@ -279,7 +277,7 @@ describe("scoreLocationBenchmark — the real Second Floor production run scores
   it("D1's material gap is visible in attributeAccuracy without being counted as a coverage or classification failure", () => {
     // 18 attribute checks total (6 room dimensions + W1 dimension+spec + D1
     // dimension+material + 8 coverage-miss dimensions); only D1's material
-    // fails (production said "Wood", audited value is "Granite/Marble") —
+    // fails (the run said "Wood", audited value is "Stone") —
     // every other attribute check, including D1's own dimension, is correct.
     expect(result.attributeAccuracy).toBeCloseTo(9 / 18);
     expect(result.gapFlaggedIds).toEqual([{
@@ -287,7 +285,7 @@ describe("scoreLocationBenchmark — the real Second Floor production run scores
       gap: { category: "A_EXTRACTION_FAILURE", note: expect.stringContaining("material") },
     }]);
     // D1 itself IS matched (it was extracted) — its gap is an attribute
-    // problem on a real, found observation, not a coverage miss.
+    // problem on a found observation, not a coverage miss.
     expect(result.unmatchedExpectedIds).not.toContain("secondfloor-d1-obs");
   });
 
@@ -296,40 +294,40 @@ describe("scoreLocationBenchmark — the real Second Floor production run scores
   });
 });
 
-describe("scoreLocationBenchmark — both real runs together: no leakage between documents", () => {
+describe("scoreLocationBenchmark — runs A and B together: no leakage between documents", () => {
   const report = scoreLocationBenchmark(
-    [SRIKAKULAM_RUN, SECOND_FLOOR_RUN],
-    { [SRIKAKULAM_RUN.id]: SRIKAKULAM_ACTUAL_RUN, [SECOND_FLOOR_RUN.id]: SECOND_FLOOR_ACTUAL_RUN },
+    [RUN_A, SECOND_FLOOR_RUN],
+    { [RUN_A.id]: RUN_A_ACTUAL, [SECOND_FLOOR_RUN.id]: SECOND_FLOOR_ACTUAL_RUN },
   );
-  const srikakulamResult = report.results.find((r) => r.runId === SRIKAKULAM_RUN.id)!;
+  const runAResult = report.results.find((r) => r.runId === RUN_A.id)!;
   const secondFloorResult = report.results.find((r) => r.runId === SECOND_FLOOR_RUN.id)!;
 
-  it("Srikakulam Rev A scores EXACTLY as before — unaffected by the Second Floor run's much lower coverage", () => {
-    expect(srikakulamResult.scopeRecall).toBe(1);
-    expect(srikakulamResult.observationTypeAccuracy).toBeCloseTo(8 / 9);
-    expect(srikakulamResult.attributeAccuracy).toBe(1);
-    expect(srikakulamResult.unmatchedExpectedIds).toEqual([]);
+  it("Run A scores EXACTLY as before — unaffected by the Second Floor run's much lower coverage", () => {
+    expect(runAResult.scopeRecall).toBe(1);
+    expect(runAResult.observationTypeAccuracy).toBeCloseTo(8 / 9);
+    expect(runAResult.attributeAccuracy).toBe(1);
+    expect(runAResult.unmatchedExpectedIds).toEqual([]);
   });
 
-  it("Second Floor scores its own (much lower) coverage — unaffected by Rev A being near-perfect", () => {
+  it("Second Floor scores its own (much lower) coverage — unaffected by run A being near-perfect", () => {
     expect(secondFloorResult.scopeRecall).toBeCloseTo(8 / 19);
     expect(secondFloorResult.unmatchedExpectedIds).toHaveLength(11);
   });
 
-  it("no cross-document false positives — Second Floor's actual output never matches a Rev A expected id, or vice versa", () => {
+  it("no cross-document false positives — Second Floor's actual output never matches a run A expected id, or vice versa", () => {
     // Proven structurally: falsePositiveCount for each run counts only
     // ACTUAL observations passed for THAT run's own actualByRunId entry —
-    // Second Floor's 8 real observations were never passed to Rev A's
+    // run B's 8 observations were never passed to run A's
     // scoreObservations call, and vice versa (see scoreLocationBenchmark's
     // own implementation). This assertion is the outward, black-box proof.
-    expect(srikakulamResult.falsePositiveCount).toBe(0);
+    expect(runAResult.falsePositiveCount).toBe(0);
     expect(secondFloorResult.falsePositiveCount).toBe(0);
   });
 
-  it("gaps and ungraded ids stay correctly attributed per run across two real documents", () => {
-    const srikakulamGaps = report.gapFlaggedByRun.find((g) => g.runId === SRIKAKULAM_RUN.id)!;
+  it("gaps and ungraded ids stay correctly attributed per run across two documents", () => {
+    const runAGaps = report.gapFlaggedByRun.find((g) => g.runId === RUN_A.id)!;
     const secondFloorGaps = report.gapFlaggedByRun.find((g) => g.runId === SECOND_FLOOR_RUN.id)!;
-    expect(srikakulamGaps.gaps.map((g) => g.id)).toEqual(["stilt-maid-room-1-obs"]);
+    expect(runAGaps.gaps.map((g) => g.id)).toEqual(["stilt-maid-room-1-obs"]);
     expect(secondFloorGaps.gaps.map((g) => g.id)).toEqual(["secondfloor-d1-obs"]);
   });
 
@@ -340,25 +338,25 @@ describe("scoreLocationBenchmark — both real runs together: no leakage between
 
 // ── Page accuracy — `expectedPage` (backfilled from each entry's own
 // `sourcePage` text, never independently re-derived) compared against the
-// matched actual observation's `source?.page`. Both real fixtures' actual
+// matched actual observation's `source?.page`. Both fixtures' actual
 // runs already carry the correct page per entry, so a perfect 1.0 here is
 // not a new assertion about the drawings — it's proof the new metric reports
 // what was already true. ────────────────────────────────────────────────────
 describe("scoreObservations — page accuracy", () => {
-  it("both real LOCATION runs report page accuracy 1.0", () => {
-    const srikakulamResult = scoreObservations(SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928, SRIKAKULAM_ACTUAL_RUN, SRIKAKULAM_RUN.distinctnessPairs);
+  it("runs A and B both report page accuracy 1.0", () => {
+    const runAResult = scoreObservations(SYNTHETIC_APARTMENT_RUN, RUN_A_ACTUAL, RUN_A.distinctnessPairs);
     const secondFloorResult = scoreObservations(SECOND_FLOOR_RUN.expectedObservations, SECOND_FLOOR_ACTUAL_RUN, SECOND_FLOOR_RUN.distinctnessPairs);
-    expect(srikakulamResult.pageAccuracy).toBe(1);
+    expect(runAResult.pageAccuracy).toBe(1);
     expect(secondFloorResult.pageAccuracy).toBe(1);
   });
 
   it("an intentionally incorrect page is detected and lowers page accuracy", () => {
     // Same actual run as the perfect case above, except Living's page is
     // deliberately wrong (2 -> 3) — every other entry's page is untouched.
-    const actualWithWrongPage: ObservationV1[] = SRIKAKULAM_ACTUAL_RUN.map((o) =>
+    const actualWithWrongPage: ObservationV1[] = RUN_A_ACTUAL.map((o) =>
       o.mark === "Living" ? { ...o, source: { ...o.source, page: 3 } } : o,
     );
-    const result = scoreObservations(SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928, actualWithWrongPage, SRIKAKULAM_RUN.distinctnessPairs);
+    const result = scoreObservations(SYNTHETIC_APARTMENT_RUN, actualWithWrongPage, RUN_A.distinctnessPairs);
     expect(result.pageAccuracy).toBeCloseTo(8 / 9);
   });
 
@@ -408,24 +406,24 @@ describe("scoreObservations — page accuracy", () => {
   });
 });
 
-// ── Duplicate-observation detection on the two REAL production runs —
+// ── Duplicate-observation detection on runs A and B —
 // neither run's actual output has ever contained a repeated fact, so both
-// honestly report zero. This proves the field is wired into the real-run
+// honestly report zero. This proves the field is wired into the run
 // path, not just the synthetic mechanism tests in
 // observationBenchmarkScorer.test.ts. ───────────────────────────────────────
-describe("scoreObservations — duplicate detection on the real runs", () => {
-  it("real Rev A reports zero duplicate observations", () => {
-    const result = scoreObservations(SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928, SRIKAKULAM_ACTUAL_RUN, SRIKAKULAM_RUN.distinctnessPairs);
+describe("scoreObservations — duplicate detection on runs A and B", () => {
+  it("run A reports zero duplicate observations", () => {
+    const result = scoreObservations(SYNTHETIC_APARTMENT_RUN, RUN_A_ACTUAL, RUN_A.distinctnessPairs);
     expect(result.duplicateActualIds).toEqual([]);
   });
 
-  it("real Second Floor reports zero duplicate observations", () => {
+  it("run B reports zero duplicate observations", () => {
     const result = scoreObservations(SECOND_FLOOR_RUN.expectedObservations, SECOND_FLOOR_ACTUAL_RUN, SECOND_FLOOR_RUN.distinctnessPairs);
     expect(result.duplicateActualIds).toEqual([]);
   });
 
-  it("adding duplicate detection left every other real-run metric exactly as it was", () => {
-    const result = scoreObservations(SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928, SRIKAKULAM_ACTUAL_RUN, SRIKAKULAM_RUN.distinctnessPairs);
+  it("adding duplicate detection left every other run metric exactly as it was", () => {
+    const result = scoreObservations(SYNTHETIC_APARTMENT_RUN, RUN_A_ACTUAL, RUN_A.distinctnessPairs);
     expect(result.scopeRecall).toBe(1);
     expect(result.observationTypeAccuracy).toBeCloseTo(8 / 9);
     expect(result.attributeAccuracy).toBe(1);
@@ -435,26 +433,26 @@ describe("scoreObservations — duplicate detection on the real runs", () => {
   });
 });
 
-// ── The THIRD real production run — a separate 2-page Srikakulam drawing
+// ── Run C — a separate synthetic 2-page plan
 // (p.1 First Floor Plan, p.2 Second Floor Plan). Its 26 expected entries and
 // 5 actual observations use a genuinely different scopeHint convention than
 // runs #1/#2 (see THIRD_RUN_ACTUAL's own comment) — the tests below prove
 // that difference surfaces naturally through the EXISTING, unmodified
 // scorer, rather than being smoothed over or requiring a scorer change. ─────
-describe("scoreLocationBenchmark — the third real run is registered correctly", () => {
-  it("srikakulam-third-run-20260928 is in the registry", () => {
+describe("scoreLocationBenchmark — run C is registered correctly", () => {
+  it("two-floor-run-c is in the registry", () => {
     expect(THIRD_RUN).toBeDefined();
-    expect(THIRD_RUN.expectedObservations).toBe(SRIKAKULAM_THIRD_LOCATION_RUN_20260928);
+    expect(THIRD_RUN.expectedObservations).toBe(SYNTHETIC_THIRD_RUN);
   });
 
   it("has exactly 26 graded expected observations", () => {
-    expect(SRIKAKULAM_THIRD_LOCATION_RUN_20260928).toHaveLength(26);
-    expect(SRIKAKULAM_THIRD_LOCATION_RUN_20260928.filter((e) => e.graded === false)).toHaveLength(0);
+    expect(SYNTHETIC_THIRD_RUN).toHaveLength(26);
+    expect(SYNTHETIC_THIRD_RUN.filter((e) => e.graded === false)).toHaveLength(0);
   });
 
   it("every First Floor entry has expectedPage 1 and every Second Floor entry has expectedPage 2", () => {
-    const firstFloor = SRIKAKULAM_THIRD_LOCATION_RUN_20260928.filter((e) => e.scopeHint === "First Floor");
-    const secondFloor = SRIKAKULAM_THIRD_LOCATION_RUN_20260928.filter((e) => e.scopeHint === "Second Floor");
+    const firstFloor = SYNTHETIC_THIRD_RUN.filter((e) => e.scopeHint === "First Floor");
+    const secondFloor = SYNTHETIC_THIRD_RUN.filter((e) => e.scopeHint === "Second Floor");
     expect(firstFloor).toHaveLength(13);
     expect(secondFloor).toHaveLength(13);
     expect(firstFloor.every((e) => e.expectedPage === 1)).toBe(true);
@@ -462,7 +460,7 @@ describe("scoreLocationBenchmark — the third real run is registered correctly"
   });
 
   it("no other scopeHint value slipped in — every entry is First Floor or Second Floor", () => {
-    const scopeHints = new Set(SRIKAKULAM_THIRD_LOCATION_RUN_20260928.map((e) => e.scopeHint));
+    const scopeHints = new Set(SYNTHETIC_THIRD_RUN.map((e) => e.scopeHint));
     expect(scopeHints).toEqual(new Set(["First Floor", "Second Floor"]));
   });
 });
@@ -498,10 +496,10 @@ describe("scoreLocationBenchmark — scoring the supplied third-run actuals agai
     expect(result.falsePositiveCount).toBe(2);
   });
 
-  it("observationTypeAccuracy is 2/3 — Lift's matched pair surfaces a real classification mismatch (actual equipment vs. this fixture's room_or_space)", () => {
+  it("observationTypeAccuracy is 2/3 — Lift's matched pair surfaces a classification mismatch (actual equipment vs. this fixture's room_or_space)", () => {
     // Not a benchmark bug: this fixture types Lift as room_or_space per
-    // explicit instruction (unlike runs #1/#2's equipment), so a genuinely
-    // matched Lift observation typed "equipment" by production shows up as a
+    // explicit instruction (unlike runs #1/#42's equipment), so a genuinely
+    // matched Lift observation typed "equipment" by the run shows up as a
     // mismatch here — an honest, visible consequence of that fixture choice.
     expect(result.observationTypeAccuracy).toBeCloseTo(2 / 3);
   });
@@ -524,8 +522,8 @@ describe("scoreLocationBenchmark — scoring the supplied third-run actuals agai
 });
 
 describe("scoreLocationBenchmark — adding the third run left runs #1 and #2 exactly as they were", () => {
-  it("Rev A's score is unchanged", () => {
-    const result = scoreObservations(SRIKAKULAM_APARTMENT_LOCATION_RUN_20260928, SRIKAKULAM_ACTUAL_RUN, SRIKAKULAM_RUN.distinctnessPairs);
+  it("run A's score is unchanged", () => {
+    const result = scoreObservations(SYNTHETIC_APARTMENT_RUN, RUN_A_ACTUAL, RUN_A.distinctnessPairs);
     expect(result.scopeRecall).toBe(1);
     expect(result.observationTypeAccuracy).toBeCloseTo(8 / 9);
     expect(result.attributeAccuracy).toBe(1);
@@ -545,15 +543,15 @@ describe("scoreLocationBenchmark — adding the third run left runs #1 and #2 ex
 
   it("all three runs score independently through the shared registry — no cross-run leakage", () => {
     const report = scoreLocationBenchmark(
-      LOCATION_BENCHMARK_RUNS,
+      SYNTHETIC_LOCATION_RUNS,
       {
-        [SRIKAKULAM_RUN.id]: SRIKAKULAM_ACTUAL_RUN,
+        [RUN_A.id]: RUN_A_ACTUAL,
         [SECOND_FLOOR_RUN.id]: SECOND_FLOOR_ACTUAL_RUN,
         [THIRD_RUN.id]: THIRD_RUN_ACTUAL,
       },
     );
     expect(report.results).toHaveLength(3);
-    const r1 = report.results.find((r) => r.runId === SRIKAKULAM_RUN.id)!;
+    const r1 = report.results.find((r) => r.runId === RUN_A.id)!;
     const r2 = report.results.find((r) => r.runId === SECOND_FLOOR_RUN.id)!;
     const r3 = report.results.find((r) => r.runId === THIRD_RUN.id)!;
     expect(r1.scopeRecall).toBe(1);
@@ -563,3 +561,5 @@ describe("scoreLocationBenchmark — adding the third run left runs #1 and #2 ex
     expect(report.totalFalsePositives).toBe(2);
   });
 });
+
+

@@ -15,7 +15,7 @@ import {
 
 function deps(overrides: Partial<ShareReadDeps> = {}): ShareReadDeps {
   return {
-    getProject: vi.fn(async (projectId: string) => ({ id: projectId, name: "Srikakulam Apartment" })),
+    getProject: vi.fn(async (projectId: string) => ({ id: projectId, name: "Sample Apartment" })),
     listDocuments: vi.fn(async () => []),
     listScopes: vi.fn(async () => []),
     listBoqs: vi.fn(async () => []),
@@ -38,7 +38,7 @@ describe("handleBootstrap", () => {
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
     if (res.body.ok) {
-      expect(res.body.project).toEqual({ id: "proj-1", name: "Srikakulam Apartment" });
+      expect(res.body.project).toEqual({ id: "proj-1", name: "Sample Apartment" });
       expect(res.body.documents).toHaveLength(1);
       expect(res.body.scopes).toHaveLength(1);
       expect(res.body.boqs).toHaveLength(1);

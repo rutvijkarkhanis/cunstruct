@@ -74,6 +74,9 @@ function seedRunSource(runId: string, documentId: string, revisionId: string | n
 function selectBuilder(table: string, filters: Record<string, unknown> = {}, excludeNullRevision = false) {
   return {
     eq: (col: string, val: unknown) => selectBuilder(table, { ...filters, [col]: val }, excludeNullRevision),
+    // Revision freshness (revisionFreshness.ts): document_revision rows are
+    // listed with .in("document_id", ids).
+    in: (col: string, vals: unknown[]) => selectBuilder(table, { ...filters, [col]: vals }, excludeNullRevision),
     not: (_col: string, _op: string, _val: unknown) => selectBuilder(table, filters, true),
     // Only the "boq" table's project_id lookup (documentStillExists's
     // resolveBoqProjectId, applyReview.ts) is ever terminated with .single()
@@ -112,7 +115,22 @@ function selectBuilder(table: string, filters: Record<string, unknown> = {}, exc
           && (filters.status === undefined || r.status === filters.status)
           && (!excludeNullRevision || r.document_revision_id != null),
         );
-        return resolve({ data: rows.map((r) => ({ document_revision_id: r.document_revision_id })), error: null });
+        return resolve({ data: rows.map((r) => ({ document_id: r.document_id, status: r.status, document_revision_id: r.document_revision_id })), error: null });
+      }
+      // Revision freshness: the project's documents (listed by project_id)
+      // and the revisions owned by the listed documents.
+      if (table === "project_document" && filters.project_id !== undefined) {
+        const rows = [...projectDocumentStore.entries()]
+          .filter(([, d]) => d.project_id === filters.project_id)
+          .map(([id, d]) => ({ id, name: id, current_revision_id: d.current_revision_id }));
+        return resolve({ data: rows, error: null });
+      }
+      if (table === "document_revision" && Array.isArray(filters.document_id)) {
+        const ids = filters.document_id as string[];
+        const rows = [...documentRevisionOwner.entries()]
+          .filter(([, owner]) => ids.includes(owner))
+          .map(([id, owner]) => ({ id, document_id: owner, label: id, file_path: null }));
+        return resolve({ data: rows, error: null });
       }
       return resolve({ data: [], error: null });
     },
@@ -175,6 +193,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 }));
 
 import { buildApplyPlan, applyReviewPlan } from "./applyReview";
+import { AnalysisRevisionBlockedError } from "./revisionFreshness";
 import type { StoredReviewItem } from "./reviewStore";
 import type { AnalysisItemV1 } from "./analysisSchemaV1";
 
@@ -661,7 +680,7 @@ describe("applyReviewPlan — source traceability (Scope C)", () => {
 // ── Scope E — exact analyzed revision, resolved from analysis_run_source,
 // preferred over the Scope C current-revision-at-apply-time fallback. ───────
 describe("applyReviewPlan — exact analyzed revision (Scope E)", () => {
-  it("revision drift: the run's analyzed revision (A) is persisted even though the document's current revision is now B", async () => {
+  it("revision drift: a run that analysed revision A is refused before any write once the document's current revision is B", async () => {
     seedDocument("doc-e1", "rev-e1-B"); // B is CURRENT at apply time
     seedRevision("rev-e1-A", "doc-e1"); // the revision actually analyzed — no longer current
     seedRevision("rev-e1-B", "doc-e1");
@@ -674,16 +693,15 @@ describe("applyReviewPlan — exact analyzed revision (Scope E)", () => {
     const plan = buildApplyPlan([it_], []);
     expect(plan[0].classification).toBe("NEW_LINE");
 
-    await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-e1"]), runId: "run-e1" });
-
-    const row = calls.find((c) => c.table === "boq_line" && c.op === "insert")!.payload as Record<string, unknown>;
-    expect(row.source_revision_id).toBe("rev-e1-A");
-    expect(row.source_revision_id).not.toBe("rev-e1-B");
-    expect(row.source_document_id).toBe("doc-e1");
-    expect(row.source_page).toBe("2");
+    const err = await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-e1"]), runId: "run-e1" }).catch((e) => e);
+    expect(err).toBeInstanceOf(AnalysisRevisionBlockedError);
+    expect((err as AnalysisRevisionBlockedError).freshness.sources).toMatchObject([
+      { documentId: "doc-e1", state: "superseded", analyzedRevision: { id: "rev-e1-A" }, currentRevision: { id: "rev-e1-B" } },
+    ]);
+    expect(calls).toHaveLength(0); // no boq_line write, no change log
   });
 
-  it("a run-source claim naming a revision owned by a DIFFERENT document is rejected — never persisted, never used in place of the (absent) fallback", async () => {
+  it("a run-source claim naming a revision owned by a DIFFERENT document is unknown provenance — Apply is refused before any write", async () => {
     seedDocument("doc-e2", null); // no current revision either — isolates the ownership rejection
     seedRevision("rev-e2-foreign", "doc-OTHER"); // exists, but NOT owned by doc-e2
     seedRunSource("run-e2", "doc-e2", "rev-e2-foreign");
@@ -694,16 +712,13 @@ describe("applyReviewPlan — exact analyzed revision (Scope E)", () => {
     });
     const plan = buildApplyPlan([it_], []);
 
-    await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-e2"]), runId: "run-e2" });
-
-    const row = calls.find((c) => c.table === "boq_line" && c.op === "insert")!.payload as Record<string, unknown>;
-    expect(row.source_revision_id).toBeNull();
-    expect(row.source_revision_id).not.toBe("rev-e2-foreign");
-    expect(row.source_document_id).toBe("doc-e2");
-    expect(row.source_page).toBe("5");
+    const err = await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-e2"]), runId: "run-e2" }).catch((e) => e);
+    expect(err).toBeInstanceOf(AnalysisRevisionBlockedError);
+    expect((err as AnalysisRevisionBlockedError).freshness.sources).toMatchObject([{ documentId: "doc-e2", state: "unknown", analyzedRevision: null }]);
+    expect(calls).toHaveLength(0); // never attributed to the current (or any) revision — nothing written
   });
 
-  it("no analysis_run_source record at all: the existing current-revision fallback behaves exactly as before Scope E", async () => {
+  it("no analysis_run_source record at all (e.g. a json_import run): unknown provenance — never attributed to the current revision; Apply is refused", async () => {
     seedDocument("doc-e3", "rev-e3-current");
     seedRevision("rev-e3-current", "doc-e3");
     // Deliberately no seedRunSource call — models a json_import run, or an
@@ -715,13 +730,13 @@ describe("applyReviewPlan — exact analyzed revision (Scope E)", () => {
     });
     const plan = buildApplyPlan([it_], []);
 
-    await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-e3"]), runId: "run-e3-unclaimed" });
-
-    const row = calls.find((c) => c.table === "boq_line" && c.op === "insert")!.payload as Record<string, unknown>;
-    expect(row.source_revision_id).toBe("rev-e3-current");
+    const err = await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-e3"]), runId: "run-e3-unclaimed" }).catch((e) => e);
+    expect(err).toBeInstanceOf(AnalysisRevisionBlockedError);
+    expect((err as AnalysisRevisionBlockedError).freshness.sources).toMatchObject([{ documentId: "doc-e3", state: "unknown", analyzedRevision: null }]);
+    expect(calls).toHaveLength(0); // never attributed to the current (or any) revision — nothing written
   });
 
-  it("a run-source claim with no SUCCEEDED status is never trusted, even if it names an otherwise-valid revision — falls back safely", async () => {
+  it("a run-source claim with no SUCCEEDED status is never trusted, even if it names an otherwise-valid revision — unknown provenance, Apply refused", async () => {
     seedDocument("doc-e4", "rev-e4-current");
     seedRevision("rev-e4-current", "doc-e4");
     seedRevision("rev-e4-failed-claim", "doc-e4"); // a real, owned revision — but the claim for it never succeeded
@@ -733,16 +748,13 @@ describe("applyReviewPlan — exact analyzed revision (Scope E)", () => {
     });
     const plan = buildApplyPlan([it_], []);
 
-    await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-e4"]), runId: "run-e4" });
-
-    const row = calls.find((c) => c.table === "boq_line" && c.op === "insert")!.payload as Record<string, unknown>;
-    // The FAILED claim's revision is never used — the safe fallback (current
-    // revision) is used instead, exactly as if no claim existed at all.
-    expect(row.source_revision_id).toBe("rev-e4-current");
-    expect(row.source_revision_id).not.toBe("rev-e4-failed-claim");
+    const err = await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-e4"]), runId: "run-e4" }).catch((e) => e);
+    expect(err).toBeInstanceOf(AnalysisRevisionBlockedError);
+    expect((err as AnalysisRevisionBlockedError).freshness.sources).toMatchObject([{ documentId: "doc-e4", state: "unknown", analyzedRevision: null }]);
+    expect(calls).toHaveLength(0); // never attributed to the current (or any) revision — nothing written
   });
 
-  it("conflicting run-source records (two DIFFERENT revisions for the same run+document) never arbitrarily pick one, and never fall back to current-revision either", async () => {
+  it("conflicting run-source records (two DIFFERENT revisions for the same run+document) never arbitrarily pick one — Apply is refused", async () => {
     seedDocument("doc-e5", "rev-e5-current");
     seedRevision("rev-e5-current", "doc-e5");
     seedRevision("rev-e5-X", "doc-e5");
@@ -756,23 +768,15 @@ describe("applyReviewPlan — exact analyzed revision (Scope E)", () => {
     });
     const plan = buildApplyPlan([it_], []);
 
-    await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-e5"]), runId: "run-e5" });
-
-    const row = calls.find((c) => c.table === "boq_line" && c.op === "insert")!.payload as Record<string, unknown>;
-    expect(row.source_revision_id).toBeNull();
-    expect(row.source_revision_id).not.toBe("rev-e5-X");
-    expect(row.source_revision_id).not.toBe("rev-e5-Y");
-    // Critically, NOT the fallback either — conflicting evidence stops here,
-    // it does not quietly resolve to "whatever is current right now."
-    expect(row.source_revision_id).not.toBe("rev-e5-current");
-    // Document/page provenance is still preserved despite the revision conflict.
-    expect(row.source_document_id).toBe("doc-e5");
-    expect(row.source_page).toBe("9");
+    const err = await applyReviewPlan({ boqId: "boq-1", candidates: plan, selectedIds: new Set(["ri-e5"]), runId: "run-e5" }).catch((e) => e);
+    expect(err).toBeInstanceOf(AnalysisRevisionBlockedError);
+    expect((err as AnalysisRevisionBlockedError).freshness.sources).toMatchObject([{ documentId: "doc-e5", state: "conflicting", analyzedRevision: null }]);
+    expect(calls).toHaveLength(0); // never attributed to the current (or any) revision — nothing written
   });
 
   it("APPLY (matched line ALREADY has a source): preserved under Scope E exactly as under Scope C — the update patch carries no source keys at all, even with a perfectly valid run-source claim available", async () => {
-    seedDocument("doc-e6", "rev-e6-current");
-    seedRevision("rev-e6-current", "doc-e6");
+    seedDocument("doc-e6", "rev-e6-analyzed"); // the analysed revision is still current, so Apply is allowed
+    seedRevision("rev-e6-older", "doc-e6");
     seedRevision("rev-e6-analyzed", "doc-e6");
     seedRunSource("run-e6", "doc-e6", "rev-e6-analyzed"); // a valid, resolvable claim — but must still be ignored
 
@@ -798,8 +802,8 @@ describe("applyReviewPlan — exact analyzed revision (Scope E)", () => {
   });
 
   it("NEW_LINE: document, page, and the exact analyzed revision are all persisted together", async () => {
-    seedDocument("doc-e7", "rev-e7-current");
-    seedRevision("rev-e7-current", "doc-e7");
+    seedDocument("doc-e7", "rev-e7-analyzed"); // the analysed revision is still current, so Apply is allowed
+    seedRevision("rev-e7-older", "doc-e7");
     seedRevision("rev-e7-analyzed", "doc-e7");
     seedRunSource("run-e7", "doc-e7", "rev-e7-analyzed");
 
@@ -819,8 +823,7 @@ describe("applyReviewPlan — exact analyzed revision (Scope E)", () => {
   });
 
   it("multiple analysis runs over the SAME document: a review item from run A never uses run B's analyzed-revision record", async () => {
-    seedDocument("doc-e8", "rev-e8-current");
-    seedRevision("rev-e8-current", "doc-e8");
+    seedDocument("doc-e8", "rev-e8-A"); // run A analysed the then-current revision A
     seedRevision("rev-e8-A", "doc-e8");
     seedRevision("rev-e8-B", "doc-e8");
     seedRunSource("run-e8-A", "doc-e8", "rev-e8-A");
@@ -840,6 +843,7 @@ describe("applyReviewPlan — exact analyzed revision (Scope E)", () => {
       ai: ai({ key: "W-e8-B", item: "Window — run B", quantity: 1, source: { documentId: "doc-e8", page: 1, evidence: [] } }),
     });
     const planB = buildApplyPlan([itemB], []);
+    seedDocument("doc-e8", "rev-e8-B"); // revision B became current and run B analysed it
     await applyReviewPlan({ boqId: "boq-1", candidates: planB, selectedIds: new Set(["ri-e8-B"]), runId: "run-e8-B" });
     const rowB = calls.filter((c) => c.table === "boq_line" && c.op === "insert").at(-1)!.payload as Record<string, unknown>;
     expect(rowB.source_revision_id).toBe("rev-e8-B");

@@ -28,7 +28,7 @@ vi.mock("@/lib/boqDsrDocument", async () => {
 });
 
 const fixtures = vi.hoisted(() => {
-  const PROJECT_ROW = { name: "Srikakulam Apartment", client_name: "Dr. Sandeep", location: null, project_type: null, floors: null, area_sqft: null };
+  const PROJECT_ROW = { name: "Sample Apartment", client_name: "A. Client", location: null, project_type: null, floors: null, area_sqft: null };
   const BOQS = [
     { id: "boq-1", name: "Floor 1", description: null, scope_id: null, sort: 0, status: "active", spec: {}, discipline: "civil" },
     { id: "boq-2", name: "Terrace", description: null, scope_id: null, sort: 1, status: "active", spec: {}, discipline: "civil" },

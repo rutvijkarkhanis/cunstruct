@@ -64,11 +64,11 @@ vi.mock("@/lib/review/locationObservations", () => ({
   loadLocationObservations: vi.fn(async () => [
     {
       id: "obs-1", observationType: "opening", mark: "W1", scopeHint: "East wing", locationText: null,
-      attributes: {}, evidence: { evidence: [{ bbox: [10, 10, 20, 20], page: 1 }] }, evidenceCompleteness: "FULL", createdAt: "2026-01-01T00:00:00Z",
+      attributes: {}, evidence: { evidence: [{ bbox: [10, 10, 20, 20], page: 1 }] }, evidenceCompleteness: "FULL", createdAt: "2026-01-01T00:00:00Z", documentId: "doc-1", revisionId: "rev-doc-1",
     },
     {
       id: "obs-2", observationType: "opening", mark: "W1", scopeHint: "West wing", locationText: null,
-      attributes: {}, evidence: { evidence: [{ bbox: [30, 30, 40, 40], page: 1 }] }, evidenceCompleteness: "FULL", createdAt: "2026-01-01T00:00:00Z",
+      attributes: {}, evidence: { evidence: [{ bbox: [30, 30, 40, 40], page: 1 }] }, evidenceCompleteness: "FULL", createdAt: "2026-01-01T00:00:00Z", documentId: "doc-1", revisionId: "rev-doc-1",
     },
   ]),
 }));
@@ -85,6 +85,12 @@ vi.mock("@/integrations/supabase/client", () => {
       from: (table: string) => {
         if (table === "boq") return chain({ data: { id: "boq-1", name: "Test BOQ", project_id: "proj-1" }, error: null });
         if (table === "projects") return chain({ data: { id: "proj-1", name: "Test Project", project_type: null }, error: null });
+        // Revision freshness (revisionFreshness.ts): the analysed revision is
+        // recorded and still current, so provenance is confirmed and LOCATION
+        // markers / Identify / Find Similar are enabled.
+        if (table === "project_document") return chain({ data: [{ id: "doc-1", name: "doc-1", current_revision_id: "rev-doc-1" }], error: null });
+        if (table === "document_revision") return chain({ data: [{ id: "rev-doc-1", document_id: "doc-1", label: "Rev A" }], error: null });
+        if (table === "analysis_run_source") return chain({ data: [{ document_id: "doc-1", document_revision_id: "rev-doc-1", status: "SUCCEEDED" }], error: null });
         return chain({ data: [], error: null });
       },
       auth: { getUser: async () => ({ data: { user: { id: "user-1" } } }) },

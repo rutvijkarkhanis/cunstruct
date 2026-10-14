@@ -283,8 +283,10 @@ function OnboardWizard({ onDone }: { onDone: () => void }) {
   const [location, setLocation] = useState("");
   const [projectType, setProjectType] = useState("Residential");
   const [scope, setScope] = useState("Turnkey");
-  const [floors, setFloors] = useState(1);
-  const [areaSqft, setAreaSqft] = useState(1000);
+  // Blank until entered: a placeholder saved here is later printed on BOQ
+  // exports as the project's real size.
+  const [floors, setFloors] = useState<number | null>(null);
+  const [areaSqft, setAreaSqft] = useState<number | null>(null);
   const [stageId, setStageId] = useState<string>("");
   const [progress, setProgress] = useState(0);
   const [estCompletion, setEstCompletion] = useState("");
@@ -405,11 +407,11 @@ function OnboardWizard({ onDone }: { onDone: () => void }) {
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label>Floors</Label>
-          <Input type="number" value={floors} onChange={(e) => setFloors(+e.target.value)} />
+          <Input type="number" value={floors ?? ""} onChange={(e) => setFloors(e.target.value === "" ? null : +e.target.value)} />
         </div>
         <div>
           <Label>Built-up area (sqft)</Label>
-          <Input type="number" value={areaSqft} onChange={(e) => setAreaSqft(+e.target.value)} />
+          <Input type="number" value={areaSqft ?? ""} onChange={(e) => setAreaSqft(e.target.value === "" ? null : +e.target.value)} />
         </div>
       </div>
       <div>

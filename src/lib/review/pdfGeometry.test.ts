@@ -90,6 +90,12 @@ describe("extractPageGeometry — vector-geometry.pdf", () => {
     expect(windowLabel.y).toBe(142);
   });
 
+  it("records each run's reading direction in page space", async () => {
+    const page = await loadPage("vector-geometry.pdf");
+    const result = await extractPageGeometry(page, 1);
+    expect(result.textRuns.map((t) => t.direction)).toEqual([[1, 0], [1, 0], [1, 0]]);
+  });
+
   it("reports geometryAvailable: true and the page's own scale-1 size", async () => {
     const page = await loadPage("vector-geometry.pdf");
     const result = await extractPageGeometry(page, 1);

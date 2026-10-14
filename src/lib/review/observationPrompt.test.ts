@@ -43,3 +43,26 @@ describe("observation prompt — evidence honesty, same discipline as the BOQ pr
     expect(p).toMatch(/limited/i);
   });
 });
+
+// Regression — a real LOCATION run (shaped as run C in
+// locationBenchmarkRuns.test.ts) returned scope_hint values that
+// were room names ("Master Bedroom", "Dining Room", "Kitchen", "Building
+// Lift"), never the floor its two sheets are titled with (First / Second
+// Floor), so floor identity was lost for every observation. It also reported
+// the wardrobe "W.R" with scope_hint "Master Bedroom" and the bedroom's own
+// dimension. The prompt never said what scope_hint means.
+describe("observation prompt — scope_hint semantics", () => {
+  const p = buildObservationPrompt();
+
+  it("defines scope_hint as the floor/level/zone the drawing covers", () => {
+    expect(p).toMatch(/"scope_hint" (is|must be) the (floor|level)/i);
+  });
+
+  it("forbids putting a room or space name in scope_hint", () => {
+    expect(p).toMatch(/never (a|the) room/i);
+  });
+
+  it("requires a dimension to belong to the observation's own element, not its containing room", () => {
+    expect(p).toMatch(/dimension.*(own|that) element/i);
+  });
+});

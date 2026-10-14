@@ -51,9 +51,9 @@ vi.mock("@/lib/review/drawingStorage", () => ({
 vi.mock("@/lib/review/locationObservations", () => ({
   latestLocationRunForDocument: vi.fn(async () => ({ status: "SUCCEEDED", runId: "loc-run-1", claimedAt: null, completedAt: null, error: null })),
   loadLocationObservations: vi.fn(async () => [
-    { id: "obs-1", observationType: "opening", mark: "D1", scopeHint: "East wing", locationText: null, attributes: {}, evidence: { evidence: [] }, evidenceCompleteness: "FULL", createdAt: "2026-01-01T00:00:00Z" },
-    { id: "obs-2", observationType: "opening", mark: "D1", scopeHint: "West wing", locationText: null, attributes: {}, evidence: { evidence: [] }, evidenceCompleteness: "FULL", createdAt: "2026-01-01T00:00:00Z" },
-    { id: "obs-3", observationType: "opening", mark: "COLUMN-7", scopeHint: null, locationText: null, attributes: {}, evidence: { evidence: [] }, evidenceCompleteness: "FULL", createdAt: "2026-01-01T00:00:00Z" },
+    { id: "obs-1", observationType: "opening", mark: "D1", scopeHint: "East wing", locationText: null, attributes: {}, evidence: { evidence: [] }, evidenceCompleteness: "FULL", createdAt: "2026-01-01T00:00:00Z", documentId: "doc-1", revisionId: "rev-doc-1" },
+    { id: "obs-2", observationType: "opening", mark: "D1", scopeHint: "West wing", locationText: null, attributes: {}, evidence: { evidence: [] }, evidenceCompleteness: "FULL", createdAt: "2026-01-01T00:00:00Z", documentId: "doc-1", revisionId: "rev-doc-1" },
+    { id: "obs-3", observationType: "opening", mark: "COLUMN-7", scopeHint: null, locationText: null, attributes: {}, evidence: { evidence: [] }, evidenceCompleteness: "FULL", createdAt: "2026-01-01T00:00:00Z", documentId: "doc-1", revisionId: "rev-doc-1" },
   ]),
 }));
 
@@ -106,6 +106,12 @@ vi.mock("@/integrations/supabase/client", () => {
       from: (table: string) => {
         if (table === "boq") return chain({ data: { id: "boq-1", name: "Test BOQ", project_id: "proj-1" }, error: null });
         if (table === "projects") return chain({ data: { id: "proj-1", name: "Test Project", project_type: null }, error: null });
+        // Revision freshness (revisionFreshness.ts): the analysed revision is
+        // recorded and still current, so provenance is confirmed and LOCATION
+        // markers / Identify / Find Similar are enabled.
+        if (table === "project_document") return chain({ data: [{ id: "doc-1", name: "doc-1", current_revision_id: "rev-doc-1" }], error: null });
+        if (table === "document_revision") return chain({ data: [{ id: "rev-doc-1", document_id: "doc-1", label: "Rev A" }], error: null });
+        if (table === "analysis_run_source") return chain({ data: [{ document_id: "doc-1", document_revision_id: "rev-doc-1", status: "SUCCEEDED" }], error: null });
         return chain({ data: [], error: null });
       },
       auth: { getUser: async () => ({ data: { user: { id: "user-1" } } }) },
@@ -138,11 +144,17 @@ function renderPage() {
 }
 
 const identifyToggle = () => screen.getByTitle(/Click a point on the drawing to identify/);
+// The toggle is enabled only once the drawing's revision provenance is
+// confirmed current (revisionFreshness.ts), so wait for that before clicking.
+const clickIdentifyToggle = async () => {
+  await waitFor(() => expect(identifyToggle()).toBeEnabled());
+  fireEvent.click(identifyToggle());
+};
 
 async function getToResults() {
   renderPage();
   await screen.findByRole("button", { name: /^Verify$/ });
-  fireEvent.click(identifyToggle());
+  await clickIdentifyToggle();
   fireEvent.click(await screen.findByText("simulate drawing click"));
   await screen.findByText("Door");
   fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));

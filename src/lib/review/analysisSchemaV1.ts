@@ -143,6 +143,10 @@ export interface AnalysisProjectV1 {
 export interface AnalysisV1 {
   schemaVersion: string;
   project?: AnalysisProjectV1;
+  /** The exact file the analysis was extracted from (SHA-256 of its bytes),
+   *  when the producer states it — e.g. the local drawing extractor. Lets an
+   *  import be tied to one stored drawing revision instead of none. */
+  sourceDrawing?: { sha256: string; filename?: string; extractor?: string };
   items: AnalysisItemV1[];
 }
 
@@ -355,6 +359,7 @@ export function parseAnalysisV1(text: string): AnalysisParseV1 {
 
   let arr: unknown;
   let project: AnalysisProjectV1 | undefined;
+  let sourceDrawing: AnalysisV1["sourceDrawing"];
   let schemaVersion = SCHEMA_V1;
   if (Array.isArray(parsed)) {
     arr = parsed;
@@ -366,6 +371,14 @@ export function parseAnalysisV1(text: string): AnalysisParseV1 {
     const projectType = str(p.project_type ?? p.projectType ?? p.type) || undefined;
     const name = str(p.name) || undefined;
     if (projectType || name) project = { projectType, name };
+    const sd = asObj(obj.source_drawing);
+    const sha = str(sd.sha256).toLowerCase();
+    if (obj.source_drawing !== undefined) {
+      if (!/^[0-9a-f]{64}$/.test(sha)) {
+        return { ok: false, error: 'source_drawing.sha256 must be the 64-character SHA-256 of the drawing file.', warnings, calculationDataDroppedCount: 0 };
+      }
+      sourceDrawing = { sha256: sha, filename: str(sd.filename) || undefined, extractor: str(sd.extractor) || undefined };
+    }
   }
 
   if (!Array.isArray(arr)) {
@@ -441,5 +454,5 @@ export function parseAnalysisV1(text: string): AnalysisParseV1 {
   }
   if (missingFields.length) warnings.push(...missingFields);
 
-  return { ok: true, analysis: { schemaVersion, project, items }, warnings, calculationDataDroppedCount };
+  return { ok: true, analysis: { schemaVersion, project, ...(sourceDrawing ? { sourceDrawing } : {}), items }, warnings, calculationDataDroppedCount };
 }
