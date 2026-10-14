@@ -64,7 +64,7 @@ if (isMain) {
     process.exit(1);
   }
 
-  const files = STAGING_MIGRATIONS.map((f) => path.join(root, "supabase", "migrations", f));
+  const files = STAGING_MIGRATIONS.map((f) => path.join(root, "supabase", "deferred-migrations", f));
   const missing = files.filter((f) => !fs.existsSync(f));
   if (missing.length) {
     console.error(`Missing migration file(s):\n  - ${missing.map((f) => path.basename(f)).join("\n  - ")}`);

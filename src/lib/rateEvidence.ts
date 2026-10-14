@@ -1,6 +1,6 @@
 // RATE EVIDENCE — current market-rate sourcing for a BOQ line. Pure model for
 // vendor_quotation / boq_line_rate_review
-// (supabase/migrations/20261004000000_boq_line_rate_evidence.sql) plus
+// (supabase/deferred-migrations/20261004000000_boq_line_rate_evidence.sql) plus
 // historical rates read from the firm's other BOQs.
 //
 // Evidence is never pricing: nothing here reads or writes the line's

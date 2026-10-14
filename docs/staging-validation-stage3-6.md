@@ -43,6 +43,10 @@ separate staging Supabase project.
 
 ## 2. Apply, in this exact order
 
+The files are in `supabase/deferred-migrations/` (deferred from V1), not
+`supabase/migrations/`, so neither `supabase db push` nor the Supabase GitHub
+integration can pick them up; only `scripts/staging-migrate.mjs` applies them.
+
 | # | File | Depends on |
 |---|------|-----------|
 | 1 | `20261003000000_boq_line_dsr_mapping.sql` | `boq`, `boq_line`, `dsr_item`, `projects`, `is_staff()` |
@@ -68,8 +72,9 @@ already in your environment (e.g. `PGSERVICE`, `PGHOSTADDR`) is dropped, and SSL
 is always at least `require`. `STAGING_DB_URL` must be a direct
 `db.<ref>.supabase.co` host or a `*.pooler.supabase.com` host with user
 `postgres.<ref>`, and every ref in it must be the staging ref. It does not record
-Supabase's migration history, so a later `supabase db push` would re-run these
-files (harmless — they are re-runnable). Do **not** use `supabase link` /
+Supabase's migration history (when these files are later moved back into
+`supabase/migrations/`, a `db push` would re-run them — harmless, they are
+re-runnable). Do **not** use `supabase link` /
 `db push` for this: `supabase/config.toml` is pinned to production.
 
 ## 3. Post-apply checks (SQL editor, staging)

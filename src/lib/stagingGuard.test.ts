@@ -155,7 +155,7 @@ describe("staging-migrate", () => {
       "20261005000000_boq_line_rate_adoption.sql",
       "20261006000000_boq_commercial_revision.sql",
     ]);
-    for (const f of STAGING_MIGRATIONS) expect(fs.existsSync(path.join(__dirname, "../../supabase/migrations", f))).toBe(true);
+    for (const f of STAGING_MIGRATIONS) expect(fs.existsSync(path.join(__dirname, "../../supabase/deferred-migrations", f))).toBe(true);
   });
 
   it("never lets the URL weaken SSL below 'require' (keeps stricter modes)", () => {

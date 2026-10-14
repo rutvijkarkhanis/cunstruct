@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const SQL = readFileSync(
-  join(__dirname, "../../supabase/migrations/20261004000000_boq_line_rate_evidence.sql"), "utf8",
+  join(__dirname, "../../supabase/deferred-migrations/20261004000000_boq_line_rate_evidence.sql"), "utf8",
 ).toLowerCase().replace(/--.*$/gm, "");
 
 describe("boq_line_rate_evidence migration", () => {

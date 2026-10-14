@@ -1,5 +1,5 @@
 // BOQ LINE → DSR SPECIFICATION MAPPING — pure model for boq_line_dsr_mapping
-// (supabase/migrations/20261003000000_boq_line_dsr_mapping.sql). A mapping is a
+// (supabase/deferred-migrations/20261003000000_boq_line_dsr_mapping.sql). A mapping is a
 // reviewer's decision about which DSR item a BOQ line corresponds to, kept as
 // a REFERENCE BENCHMARK only. Nothing here reads or writes boq_line's
 // commercial fields (dsr_rate / custom_rate) — see indicativeCosting.ts.

@@ -1,5 +1,5 @@
 // COMMERCIAL BOQ REVISIONS — pure model for boq_commercial_revision(_line)
-// (supabase/migrations/20261006000000_boq_commercial_revision.sql).
+// (supabase/deferred-migrations/20261006000000_boq_commercial_revision.sql).
 //
 // One line model, two uses:
 //   • buildRevisionLines turns the working BOQ (as OpsBoqBuilder groups and
