@@ -14,7 +14,7 @@ export default function Auth() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const returnUrl = searchParams.get("returnUrl");
-  const { user, loading, isStaff, roles } = useAuth();
+  const { user, loading, isStaff, rolesReady } = useAuth();
   const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -32,13 +32,12 @@ export default function Auth() {
   useEffect(() => {
     if (!loading && user && mode !== "reset") {
       if (returnUrl) { navigate(returnUrl); return; }
-      if (roles.length === 0 && !isStaff) {
-        const t = setTimeout(() => navigate(isStaff ? "/ops" : "/my-projects"), 300);
-        return () => clearTimeout(t);
-      }
+      // Roles load after the session: until they have, isStaff is unknown,
+      // and redirecting would send staff to the contractor home.
+      if (!rolesReady) return;
       navigate(isStaff ? "/ops" : "/my-projects");
     }
-  }, [user, loading, isStaff, roles, returnUrl, navigate, mode]);
+  }, [user, loading, isStaff, rolesReady, returnUrl, navigate, mode]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();

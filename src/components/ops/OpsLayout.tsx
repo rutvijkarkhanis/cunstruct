@@ -52,7 +52,7 @@ const NAV = [
 ];
 
 export default function OpsLayout() {
-  const { user, loading, isStaff, signOut } = useAuth();
+  const { user, loading, rolesReady, isStaff, signOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const isReviewMode = REVIEW_MODE_RE.test(location.pathname) || WORKSPACE_MODE_RE.test(location.pathname);
@@ -76,6 +76,8 @@ export default function OpsLayout() {
 
   if (loading) return <div className="p-8 text-muted-foreground">Loading…</div>;
   if (!user) return null;
+  // Not "access required" while roles are still loading — that is unknown, not denied.
+  if (!rolesReady) return <div className="p-8 text-muted-foreground">Loading…</div>;
 
   if (!isStaff) {
     return (
