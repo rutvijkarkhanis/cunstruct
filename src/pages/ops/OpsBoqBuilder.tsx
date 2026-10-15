@@ -12,6 +12,7 @@ import { buildRevisionLines, csvRowsFrom, pendingItemsFrom, qtyPending, quoteSub
 import { openIntakeForm } from "@/lib/boqIntakeForm";
 import { sanityForCode, countFlagged } from "@/lib/boqSanity";
 import { parseBoqEvalJson, evalLinesToRows, pendingCount, PENDING_BASIS } from "@/lib/boqEvalJson";
+import { quantityEditPatch } from "@/lib/quantityEdit";
 import { loadProjectDrawings, resolveDrawingSource } from "@/lib/review/drawingStorage";
 import { latestRunForBoq, loadReviewItems } from "@/lib/review/reviewStore";
 import BoqDocumentsPanel from "@/components/ops/BoqDocumentsPanel";
@@ -473,20 +474,8 @@ export default function OpsBoqBuilder() {
     const { error } = await supabase.from("boq_line").update(patch).eq("id", lineId);
     if (error) toast.error(error.message); else refetchLines();
   };
-  /**
-   * The patch for a quantity typed into the editor. A positive quantity typed
-   * into a quantity-pending line is the confirmation this screen asks for ("enter
-   * a quantity to price this line"), so it also clears the pending marker — the
-   * same transition setLineQty makes when an audit finding is resolved with a
-   * quantity (COUNTED for a count methodology, else MEASURED). Zero or a negative
-   * number is not a confirmation: the line stays pending. A line that isn't
-   * pending changes only its quantity. Undo restores every field in the patch.
-   */
-  const quantityEdit = (line: BoqLine, qty: number): Partial<BoqLine> => {
-    const markedPending = line.basis === PENDING_BASIS || String(line.quantity_status ?? "").toUpperCase() === "PENDING";
-    if (!markedPending || !(qty > 0)) return { qty };
-    return { qty, basis: null, quantity_status: (line.measurement_method ?? "").toUpperCase() === "COUNT" ? "COUNTED" : "MEASURED" };
-  };
+  /** See quantityEditPatch (shared with the project journey's BOQ table). */
+  const quantityEdit = (line: BoqLine, qty: number): Partial<BoqLine> => quantityEditPatch(line, qty);
   const updateLine = async (lineId: string, patch: Partial<BoqLine>) => {
     const line = lines.find((l) => l.id === lineId);
     if (!line) { await applyLinePatch(lineId, patch); return; }
