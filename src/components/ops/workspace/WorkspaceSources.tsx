@@ -76,6 +76,7 @@ export default function WorkspaceSources({ projectId, activeDocumentId, onSelect
                     key={d.id}
                     type="button"
                     onClick={() => onSelectDocument(d.id)}
+                    aria-current={active ? "true" : undefined}
                     className={cn(
                       "w-full flex items-center gap-2 px-2 py-1.5 text-left text-xs rounded-sm border-l-[3px] transition-colors",
                       active ? "bg-primary/10 border-l-primary font-semibold text-foreground" : "border-l-transparent hover:bg-muted/50 text-foreground/90",
