@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -50,6 +50,8 @@ import { fetchPreflight } from "@/lib/ai/analysisClient";
 import { markersForAll, markersForCategory, markersForType, markersForInstance, type DrawingMarker } from "@/lib/review/drawingMarkers";
 import { validateItemCalculation, calculationAdvisoryText } from "@/lib/review/calculationAdvisory";
 import PdfEvidenceViewer from "@/components/review/PdfEvidenceViewer";
+import ApplyReceiptPanel from "@/components/review/ApplyReceiptPanel";
+import { clearReceipt, loadReceipt, saveReceipt, type ApplyReceipt } from "@/lib/review/applyReceipt";
 import DocumentSelector from "@/components/review/DocumentSelector";
 import AiApiPanel from "@/components/review/AiApiPanel";
 import AiStateBadge from "@/components/review/AiStateBadge";
@@ -172,6 +174,10 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
   const [cursor, setCursor] = useState(0);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
+  // The last Apply's outcome for this BOQ, kept on screen until dismissed
+  // (and across reloads in this tab) instead of only a 4-second toast.
+  const [receipt, setReceipt] = useState<ApplyReceipt | null>(() => loadReceipt(boqId));
+  useEffect(() => { setReceipt(loadReceipt(boqId)); }, [boqId]);
   const [showRelinkModal, setShowRelinkModal] = useState(false);
   const [relinking, setRelinking] = useState(false);
   const [selectedApplyIds, setSelectedApplyIds] = useState<Set<string>>(new Set());
@@ -662,16 +668,35 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
     }
   }, [runId]);
 
+  // appliedCount/unresolvedCount are the exact counts ApplyResult already
+  // returns — carried through so the BOQ screen can show a truthful "just
+  // applied" banner even when no individual line can be marked (every
+  // NEW_LINE candidate; see justAppliedLineIds). Reviewed/Verified are the
+  // review session's own `summary` totals at the time of Apply.
+  const viewUpdatedBoq = useCallback((r: ApplyReceipt) => navigate(`../boqs/${boqId}`, {
+    state: {
+      justAppliedLineIds: r.justAppliedLineIds, appliedCount: r.appliedCount, unresolvedCount: r.unresolvedCount,
+      correctedCount: r.correctedCount, reviewedCount: r.reviewedCount, verifiedCount: r.verifiedCount,
+    },
+  }), [navigate, boqId]);
+
   const applyMut = useMutation({
     // runId (Scope E): the analysis run `items`/`applyPlan` were built from —
     // see applyReviewPlan's own doc comment on why passing it is safe (this
     // component only ever holds items from one run at a time; importing a
     // new analysis replaces `items`/`runId` together, never merges runs).
-    mutationFn: () => applyReviewPlan({
+    mutationFn: () => {
+      // Never apply an unfinished review — the dialog already disables Apply;
+      // this refuses any other path to the same call.
+      if (summary.remaining > 0) {
+        return Promise.reject(new Error(`Review not finished: ${summary.remaining} item${summary.remaining === 1 ? "" : "s"} still need review before applying.`));
+      }
+      return applyReviewPlan({
       boqId, candidates: applyPlan, selectedIds: selectedApplyIds, runId,
       referencedDocumentIds,
       expectedCurrentRevisionIds: freshness ? currentRevisionSnapshot(freshness) : {},
-    }),
+      });
+    },
     onSuccess: (res) => {
       if (res.revisionChangedDuringApply?.length) {
         toast.warning(`A source drawing changed while applying (${res.revisionChangedDuringApply.join(", ")}). The applied lines record the revision that was analysed. Re-analyse before applying anything else.`);
@@ -702,26 +727,20 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
       // A written line whose change-log row failed is saved but unaudited —
       // never reported as a plain success.
       const unaudited = res.auditLogFailedReviewItemIds?.length ?? 0;
+      // The same figures, kept on screen as a receipt until dismissed.
+      const applied: ApplyReceipt = {
+        boqId, runId, appliedAt: new Date().toISOString(),
+        appliedCount: res.appliedCount, unresolvedCount: res.unresolvedCount, correctedCount,
+        reviewedCount: summary.total - summary.remaining, verifiedCount: summary.verified,
+        unauditedCount: unaudited, conflictedCount: res.conflictedReviewItemIds.length,
+        revisionChanged: res.revisionChangedDuringApply ?? [], justAppliedLineIds,
+      };
+      saveReceipt(applied);
+      setReceipt(applied);
       const notify = unaudited ? toast.warning : toast.success;
       notify(`Applied ${res.appliedCount} to the BOQ` + (res.unresolvedCount ? ` · ${res.unresolvedCount} unresolved` : "")
         + (unaudited ? ` · change history NOT recorded for ${unaudited} item${unaudited === 1 ? "" : "s"} (the quantities are saved)` : ""), {
-        action: {
-          label: "View updated BOQ",
-          // appliedCount/unresolvedCount are the exact counts ApplyResult
-          // already returns — carried through so the BOQ screen can show a
-          // truthful "just applied" banner even when no individual line can
-          // be marked (every NEW_LINE candidate; see justAppliedLineIds above).
-          onClick: () => navigate(`../boqs/${boqId}`, {
-            state: {
-              justAppliedLineIds, appliedCount: res.appliedCount, unresolvedCount: res.unresolvedCount, correctedCount,
-              // Real, already-computed review-session totals (same `summary`
-              // this screen already renders) — carried through so the BOQ
-              // payoff screen can show Reviewed/Verified alongside
-              // Applied/Corrected without inventing a new figure.
-              reviewedCount: summary.total - summary.remaining, verifiedCount: summary.verified,
-            },
-          }),
-        },
+        action: { label: "View updated BOQ", onClick: () => viewUpdatedBoq(applied) },
       });
       qc.invalidateQueries({ queryKey: ["rw-lines", boqId] });
       qc.invalidateQueries({ queryKey: ["boq-lines", boqId] });
@@ -897,6 +916,11 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
         </button>
       )}
 
+      {receipt && (
+        <ApplyReceiptPanel receipt={receipt} onViewBoq={() => viewUpdatedBoq(receipt)}
+          onDismiss={() => { clearReceipt(boqId); setReceipt(null); }} />
+      )}
+
       {/* THREE-PANE WORKSPACE — matches the reference's own composition
           exactly: a permanent navigator rail (left — the reference's file/
           plan tree, translated for Cunstruct into Category/Type, since a
@@ -1039,7 +1063,8 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
 
       {/* Import new analysis modal */}
       <Dialog open={showImportModal} onOpenChange={setShowImportModal}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" aria-describedby={undefined}>
+          <DialogTitle className="sr-only">Import new analysis</DialogTitle>
           <ImportGate
             boqName={boq?.name}
             projectType={project?.project_type ?? null}
@@ -1070,16 +1095,25 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
           state; nothing here is a new number. */}
       <Dialog open={showApplyModal} onOpenChange={setShowApplyModal}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 -mt-1">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-primary">Review complete</div>
-            <p className="text-sm mt-0.5">
-              <b>{summary.total - summary.remaining}</b> reviewed · <b>{summary.edited}</b> corrected · <b>{applyableCandidates.length}</b> ready to enter the BOQ
-            </p>
-          </div>
-          <h2 className="font-semibold">Apply reviewed quantities</h2>
-          <p className="text-xs text-muted-foreground -mt-2">
+          {reviewComplete ? (
+            <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 -mt-1">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-primary">Review complete</div>
+              <p className="text-sm mt-0.5">
+                <b>{summary.total - summary.remaining}</b> reviewed · <b>{summary.edited}</b> corrected · <b>{applyableCandidates.length}</b> ready to enter the BOQ
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 -mt-1 text-amber-950 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-50">
+              <div className="text-[10px] font-semibold uppercase tracking-wide">Review not finished</div>
+              <p className="text-sm mt-0.5">
+                <b>{summary.total - summary.remaining}</b> of <b>{summary.total}</b> reviewed · <b>{summary.remaining}</b> still need review
+              </p>
+            </div>
+          )}
+          <DialogTitle className="text-base font-semibold">Apply reviewed quantities</DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground -mt-2">
             Only verified/edited items that differ from the current BOQ are applied. Flagged and unreviewed items are never touched.
-          </p>
+          </DialogDescription>
           <ApplyToBoqDialog
             candidates={applyPlan}
             selectedIds={selectedApplyIds}
@@ -1092,7 +1126,8 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
             onApply={() => applyMut.mutate()}
             applying={applyMut.isPending}
             blockedNotice={
-              freshnessQuery.isLoading ? <p className="text-xs text-muted-foreground">Checking that the analysed drawings are still current…</p>
+              !reviewComplete ? <ReviewNotFinishedNotice remaining={summary.remaining} onContinue={() => setShowApplyModal(false)} />
+              : freshnessQuery.isLoading ? <p className="text-xs text-muted-foreground">Checking that the analysed drawings are still current…</p>
               : freshnessQuery.isError || !freshness ? (
                 <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 space-y-1.5">
                   <p>The source drawing revisions could not be checked, so nothing can be applied.</p>
@@ -1114,11 +1149,11 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
           leaves the mapping exactly as it was. */}
       <Dialog open={showRelinkModal} onOpenChange={setShowRelinkModal}>
         <DialogContent className="max-w-lg">
-          <h2 className="font-semibold">Re-link drawing</h2>
-          <p className="text-xs text-muted-foreground -mt-2">
+          <DialogTitle className="text-base font-semibold">Re-link drawing</DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground -mt-2">
             Choose the project document this analysis's evidence should resolve against. This applies to every item
             in this analysis, not just the one you're currently reviewing.
-          </p>
+          </DialogDescription>
           <DocumentSelector
             searchedFor={current?.ai.source?.document ?? null}
             availableDrawings={drawings.map((d) => ({ documentId: d.documentId, name: d.name, originalFilename: d.originalFilename }))}
@@ -1437,6 +1472,18 @@ export function ApplyToBoqDialog({ candidates, selectedIds, onToggle, onSelectAl
           {applying ? "Applying…" : `Apply ${selectedCount} to BOQ`}
         </Button>
       </div>
+    </div>
+  );
+}
+
+/** Apply is blocked until every item has a review decision — an unfinished
+ *  review is never applied (unreviewed items would silently stay out). */
+export function ReviewNotFinishedNotice({ remaining, onContinue }: { remaining: number; onContinue: () => void }) {
+  return (
+    <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 space-y-1.5 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-50">
+      <p className="font-medium">Apply is blocked: the review is not finished.</p>
+      <p>{remaining} item{remaining === 1 ? " still needs" : "s still need"} a review decision (verify, edit, flag or mark pending) before anything can be applied.</p>
+      <Button size="sm" variant="outline" className="bg-background" onClick={onContinue}>Continue reviewing</Button>
     </div>
   );
 }
