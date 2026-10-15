@@ -69,6 +69,16 @@ describe("WorkspaceSources", () => {
     expect(otherRow.className).not.toContain("font-semibold");
   });
 
+  it("announces the open drawing and keeps its page count readable on the active tint", async () => {
+    renderRail("doc-1");
+    const activeRow = (await screen.findByText("Ground Floor Plan")).closest("button")!;
+    expect(activeRow).toHaveAttribute("aria-current", "true");
+    // Muted grey on the active row's tint measured 4.0:1 in the browser (axe), below AA.
+    const count = await screen.findByText("6p");
+    expect(count.className).toContain("text-foreground");
+    expect(count.className).not.toContain("text-muted-foreground");
+  });
+
   it("Stage C4 — no longer links out to a separate Documents page (that route now redirects back into this same drawer)", async () => {
     renderRail(null);
     await screen.findByText("Ground Floor Plan");

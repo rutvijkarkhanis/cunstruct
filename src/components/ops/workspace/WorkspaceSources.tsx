@@ -84,7 +84,8 @@ export default function WorkspaceSources({ projectId, activeDocumentId, onSelect
                   >
                     <FileText className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
                     <span className="truncate flex-1">{d.name}</span>
-                    {d.pageCount != null && <span className="text-muted-foreground shrink-0 tabular-nums">{d.pageCount}p</span>}
+                    {/* Muted grey on the active row's tint is only 4.0:1 — below WCAG AA. */}
+                    {d.pageCount != null && <span className={cn("shrink-0 tabular-nums", active ? "text-foreground" : "text-muted-foreground")}>{d.pageCount}p</span>}
                   </button>
                 );
               })}
