@@ -8,7 +8,7 @@ import path from "node:path";
 import {
   assertStaging, checkStagingTarget, parseEnv, readProduction, readStagingTarget, refFromSupabaseUrl, refsFromDbUrl,
 } from "../../scripts/staging-guard.mjs";
-import { pgEnvFromUrl, psqlEnv, STAGING_MIGRATIONS } from "../../scripts/staging-migrate.mjs";
+import { listBaseMigrations, pgEnvFromUrl, psqlEnv, STAGING_MIGRATIONS } from "../../scripts/staging-migrate.mjs";
 
 const PROD = "prodprodprodprodprod";
 const STAGE = "stagestagestagestage";
@@ -156,6 +156,15 @@ describe("staging-migrate", () => {
       "20261006000000_boq_commercial_revision.sql",
     ]);
     for (const f of STAGING_MIGRATIONS) expect(fs.existsSync(path.join(__dirname, "../../supabase/deferred-migrations", f))).toBe(true);
+  });
+
+  it("--base lists every supabase/migrations file in version order, and none of the deferred ones", () => {
+    const base = listBaseMigrations(path.join(__dirname, "../.."));
+    expect(base).toEqual([...base].sort());
+    expect(base).toContain("20260921000000_boq_review_apply.sql");
+    expect(base).toContain("20260929000000_boq_line_identity_constraint.sql");
+    expect(base.length).toBe(fs.readdirSync(path.join(__dirname, "../../supabase/migrations")).filter((f) => f.endsWith(".sql")).length);
+    for (const f of STAGING_MIGRATIONS) expect(base).not.toContain(f);
   });
 
   it("never lets the URL weaken SSL below 'require' (keeps stricter modes)", () => {

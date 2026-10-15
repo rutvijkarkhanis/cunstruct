@@ -29,7 +29,11 @@ separate staging Supabase project.
 
 - A staging Supabase project whose schema already has every migration up to
   and including `20261002000000_boq_audit_finding_signal_key.sql` (the current
-  `main` schema).
+  `main` schema). For a new, empty staging project:
+  `npm run staging:migrate -- --base` (dry run), then
+  `node scripts/staging-migrate.mjs --base --apply --confirm-ref=<staging-ref>`.
+  It applies every file in `supabase/migrations/` in order through the same
+  guard, and refuses if `public.boq` already exists.
 - Reference data: `dsr_item` populated (DSR mapping searches it). Without it,
   mapping still works but finds no candidates.
 - Two users in staging:

@@ -18,6 +18,22 @@ Evidence bboxes overlaid on the page · V / E / F / P to review, auto-advance
 Importing an analysis never changes the BOQ; reviewer corrections live in
 `analysis_review_item.reviewer_json`, separate from the immutable `ai_json`.
 
+## V1 product boundary (reviewer responsibility)
+
+Cunstruct's AI proposes quantities. A reviewer must check each proposed
+quantity against the drawing and individually verify or correct it before it
+can be applied to the BOQ. The reviewer is responsible for the quantities
+applied. Cunstruct's extraction accuracy has not been independently
+demonstrated, and no accuracy claim is made.
+
+What the application enforces (`src/lib/review/applyReview.ts`): only items
+marked VERIFIED or EDITED are eligible for Apply; PENDING_REVIEW, FLAGGED and
+MARKED_PENDING items are never applied. Each item needs its own verify or edit
+action; "Select all" in the Apply step selects only already-eligible items.
+This is an application rule, not a database constraint. The application
+records that a reviewer acted on each item; it cannot prove that the reviewer
+checked the drawing. That check is the reviewer's responsibility.
+
 ## Coordinate convention (single source of truth)
 
 Analysis `bbox = [x1, y1, x2, y2]` uses a **top-left origin** (x right, y down) in
