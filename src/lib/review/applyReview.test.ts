@@ -190,13 +190,13 @@ describe("classifyReviewItem — dimension/specification/location corrections ar
 
   it("a dimension-only correction is surfaced as REVIEWED_NOT_APPLICABLE, not dropped", () => {
     const it_ = reviewItem({
-      ai: ai({ key: "W1", quantity: 9, unit: "nos", dimension: "6' x 6'9\"" }),
+      ai: ai({ key: "W1", quantity: 9, unit: "nos", dimension: "5' x 6'" }),
       reviewStatus: "EDITED",
       reviewer: { dimension: "6' x 7'0\"" },
     });
     const c = classifyReviewItem(it_, [line({ external_key: "W1", qty: 9, unit: "nos" })]);
     expect(c.classification).toBe("REVIEWED_NOT_APPLICABLE");
-    expect(c.unsupportedChanges).toEqual([{ field: "dimension", from: "6' x 6'9\"", to: "6' x 7'0\"" }]);
+    expect(c.unsupportedChanges).toEqual([{ field: "dimension", from: "5' x 6'", to: "6' x 7'0\"" }]);
   });
 
   it("a location-only correction is surfaced as REVIEWED_NOT_APPLICABLE, not dropped", () => {
@@ -326,10 +326,11 @@ describe("classifyReviewItem — scoped identity when external_key collides acro
   // is NOT agreement — the AI's `location` field is nullable by design, so
   // an omission here is never trustworthy evidence that the item belongs to
   // THIS scoped line rather than some other, not-yet-created floor's. ──────
-  it("one candidate WITH a scope_name, item has NO location at all -> no unsafe APPLY match (falls through to NEW_LINE, the existing no-match contract)", () => {
+  it("one candidate WITH a scope_name, item has NO location at all -> no unsafe APPLY match, and no second line either (AMBIGUOUS — a NEW_LINE would count the mark twice)", () => {
     const it_ = reviewItem({ ai: ai({ key: "W1", item: "Window W1", quantity: 9, unit: "nos" }), reviewStatus: "VERIFIED" });
     const c = classifyReviewItem(it_, [line({ id: "line-ground", external_key: "W1", qty: 7, unit: "nos", scope_name: "Ground Floor" })]);
-    expect(c.classification).toBe("NEW_LINE");
+    expect(c.classification).toBe("AMBIGUOUS");
+    expect(c.candidateLineIds).toEqual(["line-ground"]);
     expect(c.matchedLineId).toBeNull();
   });
 

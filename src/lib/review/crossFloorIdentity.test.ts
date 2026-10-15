@@ -1,5 +1,5 @@
-// SRIKAKULAM IDENTITY REGRESSION — extends the existing
-// `identity-w1-cross-floor` benchmark case (srikakulamBenchmark.ts) past
+// CROSS-FLOOR IDENTITY REGRESSION — extends the existing
+// `identity-w1-cross-floor` benchmark case (__fixtures__/syntheticBenchmark.ts) past
 // reviewQueue.buildReviewItems()'s in-run duplicate detection (already
 // covered by benchmarkScorer.ts) and into the actual BOQ-matching layer,
 // applyReview.classifyReviewItem — the layer that previously had NO scope
@@ -11,9 +11,10 @@
 import { describe, it, expect } from "vitest";
 import { classifyReviewItem, type BoqLineForApply } from "./applyReview";
 import type { StoredReviewItem } from "./reviewStore";
-import { SRIKAKULAM_BENCHMARK, perfectRunFor } from "./srikakulamBenchmark";
+import { perfectRunFor } from "./benchmarkTypes";
+import { SYNTHETIC_BENCHMARK } from "./__fixtures__/syntheticBenchmark";
 
-const CASE = SRIKAKULAM_BENCHMARK.find((c) => c.id === "identity-w1-cross-floor")!;
+const CASE = SYNTHETIC_BENCHMARK.find((c) => c.id === "identity-w1-cross-floor")!;
 const [stiltW1, groundW1, typicalW1, groundW1Repeat] = perfectRunFor(CASE);
 
 const asReviewItem = (ai: (typeof stiltW1)): StoredReviewItem => ({
@@ -22,14 +23,14 @@ const asReviewItem = (ai: (typeof stiltW1)): StoredReviewItem => ({
   reviewStatus: "VERIFIED",
 });
 
-describe("Srikakulam identity-w1-cross-floor — real BOQ-matching layer (classifyReviewItem)", () => {
-  // One BOQ line per floor the drawing set actually distinguishes, exactly as
+describe("identity-w1-cross-floor — real BOQ-matching layer (classifyReviewItem)", () => {
+  // One BOQ line per floor the fixture distinguishes, exactly as
   // a consolidated multi-floor BOQ would store them today: same external_key,
   // scope_name carrying the floor. This is the fixture reproducing the bug
   // `applyReview.ts`'s bare `external_key === key` match could not resolve.
   const lines: BoqLineForApply[] = [
-    { id: "line-stilt", external_key: "W1", qty: 1, unit: "nos", quantity_status: "MEASURED", scope_name: "Stilt" },
-    { id: "line-ground", external_key: "W1", qty: 7, unit: "nos", quantity_status: "MEASURED", scope_name: "Ground" },
+    { id: "line-stilt", external_key: "W1", qty: 2, unit: "nos", quantity_status: "MEASURED", scope_name: "Stilt" },
+    { id: "line-ground", external_key: "W1", qty: 5, unit: "nos", quantity_status: "MEASURED", scope_name: "Ground" },
     { id: "line-typical", external_key: "W1", qty: 0, unit: "nos", quantity_status: "PENDING", scope_name: "Typical Floor 1" },
   ];
 
@@ -68,8 +69,8 @@ describe("Srikakulam identity-w1-cross-floor — real BOQ-matching layer (classi
 
   it("two same-scope Ground W1 candidates with no further discriminator -> AMBIGUOUS, never first-match", () => {
     const ambiguousLines: BoqLineForApply[] = [
-      { id: "line-ground-a", external_key: "W1", qty: 7, unit: "nos", quantity_status: "MEASURED", scope_name: "Ground" },
-      { id: "line-ground-b", external_key: "W1", qty: 7, unit: "nos", quantity_status: "MEASURED", scope_name: "Ground" },
+      { id: "line-ground-a", external_key: "W1", qty: 5, unit: "nos", quantity_status: "MEASURED", scope_name: "Ground" },
+      { id: "line-ground-b", external_key: "W1", qty: 5, unit: "nos", quantity_status: "MEASURED", scope_name: "Ground" },
     ];
     const c = classifyReviewItem(asReviewItem(groundW1), ambiguousLines);
     expect(c.classification).toBe("AMBIGUOUS");
@@ -80,7 +81,7 @@ describe("Srikakulam identity-w1-cross-floor — real BOQ-matching layer (classi
 
 // ── Audit follow-up: a location-DROPPED variant of this same benchmark
 // case's Ground W1 item — the exact scenario a read-only investigation
-// reproduced as a defect. Ground truth (srikakulamBenchmark.ts) is
+// reproduced as a defect. Ground truth (__fixtures__/syntheticBenchmark.ts) is
 // untouched; only the RUN data fed to classifyReviewItem is varied here, to
 // model the AI's `location` field being nullable by design and genuinely
 // omitted on a pass where the item still has a real floor. Reduced to a
@@ -88,8 +89,8 @@ describe("Srikakulam identity-w1-cross-floor — real BOQ-matching layer (classi
 // not created), the exact single-candidate branch the three-line fixture
 // above cannot exercise (there, the same omission already falls into the
 // multi-candidate AMBIGUOUS path, which was never the defect). ────────────
-describe("Srikakulam identity-w1-cross-floor — location-dropped variant (single existing scoped line)", () => {
-  // qty deliberately differs from groundW1's own quantity (7) so a correct
+describe("identity-w1-cross-floor — location-dropped variant (single existing scoped line)", () => {
+  // qty deliberately differs from groundW1's own quantity (5) so a correct
   // match produces a real APPLY diff rather than NO_CHANGE — making the
   // assertion below unambiguous about which line, if any, was matched.
   const singleGroundLine: BoqLineForApply[] = [

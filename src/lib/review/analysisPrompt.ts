@@ -17,7 +17,7 @@ export const ANALYSIS_SCHEMA_HINT = `{
   "items": [
     {
       "item": "W1", "quantity": 3, "unit": "nos",
-      "dimension": "6' x 6'9\\"", "specification": "UPVC", "location": "First Floor",
+      "dimension": "4' x 6'3\\"", "specification": "UPVC", "location": "First Floor",
       "source": {
         "document": "floor-plan.pdf", "page": 4,
         "evidence": [
@@ -117,7 +117,7 @@ export const OBSERVATION_SCHEMA_HINT = `{
     {
       "observation_type": "schedule_entry", "mark": "W1",
       "scope_hint": "Ground Floor", "location_text": "Door/Window schedule, Ground floor sheet",
-      "attributes": { "dimension": "6' x 6'9\\"", "specification": "UPVC" },
+      "attributes": { "dimension": "4' x 6'3\\"", "specification": "UPVC" },
       "evidence_completeness": "FULL",
       "source": {
         "document_id": "doc-uuid", "page": 8,

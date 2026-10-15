@@ -29,7 +29,7 @@ describe("claimLabel", () => {
 });
 
 describe("formatClaimValue", () => {
-  const ai = { item: "D1", quantity: 7, unit: "nos", dimension: "6' x 6'9\"", specification: "UPVC", location: "Ground Floor" };
+  const ai = { item: "D1", quantity: 7, unit: "nos", dimension: "5' x 6'", specification: "UPVC", location: "Ground Floor" };
 
   it("formats quantity with its unit", () => {
     expect(formatClaimValue(ai, "quantity")).toBe("7 nos");
@@ -38,7 +38,7 @@ describe("formatClaimValue", () => {
     expect(formatClaimValue({ ...ai, quantity: null }, "quantity")).toBe("—");
   });
   it("formats dimension/specification/location verbatim", () => {
-    expect(formatClaimValue(ai, "dimension")).toBe("6' x 6'9\"");
+    expect(formatClaimValue(ai, "dimension")).toBe("5' x 6'");
     expect(formatClaimValue(ai, "specification")).toBe("UPVC");
     expect(formatClaimValue(ai, "location")).toBe("Ground Floor");
   });

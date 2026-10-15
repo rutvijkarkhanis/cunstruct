@@ -60,9 +60,9 @@ vi.mock("@/lib/review/drawingStorage", () => ({
 vi.mock("@/lib/review/locationObservations", () => ({
   latestLocationRunForDocument: vi.fn(async () => ({ status: "SUCCEEDED", runId: "loc-run-1", claimedAt: null, completedAt: null, error: null })),
   loadLocationObservations: vi.fn(async () => [
-    { id: "obs-1", observationType: "opening", mark: "D1", scopeHint: "East wing", locationText: null, attributes: {}, evidence: { evidence: [] }, evidenceCompleteness: "FULL", createdAt: "2026-01-01T00:00:00Z" },
-    { id: "obs-2", observationType: "opening", mark: "D1", scopeHint: "West wing", locationText: null, attributes: {}, evidence: { evidence: [] }, evidenceCompleteness: "FULL", createdAt: "2026-01-01T00:00:00Z" },
-    { id: "obs-3", observationType: "opening", mark: "SKYLIGHT-9", scopeHint: null, locationText: null, attributes: {}, evidence: { evidence: [] }, evidenceCompleteness: "FULL", createdAt: "2026-01-01T00:00:00Z" },
+    { id: "obs-1", observationType: "opening", mark: "D1", scopeHint: "East wing", locationText: null, attributes: {}, evidence: { evidence: [] }, evidenceCompleteness: "FULL", createdAt: "2026-01-01T00:00:00Z", documentId: "doc-1", revisionId: "rev-doc-1" },
+    { id: "obs-2", observationType: "opening", mark: "D1", scopeHint: "West wing", locationText: null, attributes: {}, evidence: { evidence: [] }, evidenceCompleteness: "FULL", createdAt: "2026-01-01T00:00:00Z", documentId: "doc-1", revisionId: "rev-doc-1" },
+    { id: "obs-3", observationType: "opening", mark: "SKYLIGHT-9", scopeHint: null, locationText: null, attributes: {}, evidence: { evidence: [] }, evidenceCompleteness: "FULL", createdAt: "2026-01-01T00:00:00Z", documentId: "doc-1", revisionId: "rev-doc-1" },
   ]),
 }));
 
@@ -109,6 +109,12 @@ vi.mock("@/integrations/supabase/client", () => {
       from: (table: string) => {
         if (table === "boq") return chain({ data: { id: "boq-1", name: "Test BOQ", project_id: "proj-1" }, error: null });
         if (table === "projects") return chain({ data: { id: "proj-1", name: "Test Project", project_type: null }, error: null });
+        // Revision freshness (revisionFreshness.ts): the analysed revision is
+        // recorded and still current, so provenance is confirmed and LOCATION
+        // markers / Identify / Find Similar are enabled.
+        if (table === "project_document") return chain({ data: [{ id: "doc-1", name: "doc-1", current_revision_id: "rev-doc-1" }], error: null });
+        if (table === "document_revision") return chain({ data: [{ id: "rev-doc-1", document_id: "doc-1", label: "Rev A" }], error: null });
+        if (table === "analysis_run_source") return chain({ data: [{ document_id: "doc-1", document_revision_id: "rev-doc-1", status: "SUCCEEDED" }], error: null });
         return chain({ data: [], error: null });
       },
       auth: { getUser: async () => ({ data: { user: { id: "user-1" } } }) },
@@ -138,6 +144,12 @@ function renderPage() {
 }
 
 const identifyToggle = () => screen.getByTitle(/Click a point on the drawing to identify/);
+// The toggle is enabled only once the drawing's revision provenance is
+// confirmed current (revisionFreshness.ts), so wait for that before clicking.
+const clickIdentifyToggle = async () => {
+  await waitFor(() => expect(identifyToggle()).toBeEnabled());
+  fireEvent.click(identifyToggle());
+};
 const reviewedCounter = () => screen.getByText(/\d+ \/ \d+ reviewed/).textContent;
 
 describe("M6 — complete Find Similar flow is BOQ-untouchable end to end", () => {
@@ -154,7 +166,7 @@ describe("M6 — complete Find Similar flow is BOQ-untouchable end to end", () =
 
     // 1. User clicks a drawing location (simulated via the mocked viewer).
     // 2. Click-to-Identify produces candidates.
-    fireEvent.click(identifyToggle());
+    await clickIdentifyToggle();
     fireEvent.click(await screen.findByText("simulate drawing click"));
     expect(await screen.findByText("Door")).toBeInTheDocument();
 
@@ -210,7 +222,7 @@ describe("M6 — LOCATION boundary: AI matches stay authoritative, LOCATION only
   it("AI match + matching LOCATION observation -> enrichment only, the match itself is unchanged", async () => {
     renderPage();
     await screen.findByRole("button", { name: /^Verify$/ });
-    fireEvent.click(identifyToggle());
+    await clickIdentifyToggle();
     fireEvent.click(await screen.findByText("simulate drawing click"));
     await screen.findByText("Door");
     fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
@@ -227,7 +239,7 @@ describe("M6 — LOCATION boundary: AI matches stay authoritative, LOCATION only
   it("a LOCATION observation with no corresponding AI match (SKYLIGHT-9) never appears as its own entry", async () => {
     renderPage();
     await screen.findByRole("button", { name: /^Verify$/ });
-    fireEvent.click(identifyToggle());
+    await clickIdentifyToggle();
     fireEvent.click(await screen.findByText("simulate drawing click"));
     await screen.findByText("Door");
     fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
@@ -248,7 +260,7 @@ describe("M6 — LOCATION boundary: AI matches stay authoritative, LOCATION only
     });
     renderPage();
     await screen.findByRole("button", { name: /^Verify$/ });
-    fireEvent.click(identifyToggle());
+    await clickIdentifyToggle();
     fireEvent.click(await screen.findByText("simulate drawing click"));
     await screen.findByText("Door");
     fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
@@ -264,7 +276,7 @@ describe("M6 — LOCATION boundary: AI matches stay authoritative, LOCATION only
   it("multiple distinct AI matches remain independent after enrichment — confirming one never confirms or alters the other", async () => {
     renderPage();
     await screen.findByRole("button", { name: /^Verify$/ });
-    fireEvent.click(identifyToggle());
+    await clickIdentifyToggle();
     fireEvent.click(await screen.findByText("simulate drawing click"));
     await screen.findByText("Door");
     fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
@@ -282,7 +294,7 @@ describe("M6 — LOCATION boundary: AI matches stay authoritative, LOCATION only
   it("an ambiguous LOCATION association (two observations share mark D1) is reported as a count, never resolved into two separate matches or merged away", async () => {
     renderPage();
     await screen.findByRole("button", { name: /^Verify$/ });
-    fireEvent.click(identifyToggle());
+    await clickIdentifyToggle();
     fireEvent.click(await screen.findByText("simulate drawing click"));
     await screen.findByText("Door");
     fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
@@ -302,7 +314,7 @@ describe("M6 — existing Click-to-Identify behaviour is not regressed", () => {
   it("Confirm, Change, Dismiss, and candidate selection all still work exactly as before", async () => {
     renderPage();
     await screen.findByRole("button", { name: /^Verify$/ });
-    fireEvent.click(identifyToggle());
+    await clickIdentifyToggle();
     fireEvent.click(await screen.findByText("simulate drawing click"));
     await screen.findByText("Door");
 
@@ -354,7 +366,7 @@ describe("M6 — structural audit: no Find-Similar-related file has a route to B
     const source = readFileSync(join(__dirname, "BoqReviewWorkstation.tsx"), "utf-8");
     const start = source.indexOf("const handleFindSimilar = useCallback");
     expect(start).toBeGreaterThanOrEqual(0);
-    const end = source.indexOf("}, [identifyConfirmed, identifyCandidates, identifyDocumentId, boq?.project_id, observationsByDoc]);", start);
+    const end = source.indexOf("}, [identifyConfirmed, identifyCandidates, identifyDocumentId, boq?.project_id, displayedObservationsByDoc]);", start);
     expect(end).toBeGreaterThan(start);
     const handlerSource = source.slice(start, end);
     expect(handlerSource).not.toMatch(WRITE_PATTERN);

@@ -64,11 +64,52 @@ export interface ObservationV1 {
   source: AnalysisSource;
 }
 
+/** Why the parser refused one model-reported observation. */
+export type ObservationRejectionReason =
+  | "not_an_object"                 // the array entry isn't an object at all
+  | "missing_or_unrecognized_type"  // no observation_type from OBSERVATION_TYPES
+  | "no_valid_evidence";            // FULL/PARTIAL claimed, but no usable evidence box survived
+
+/** One observation the parser refused, with whatever context it carried —
+ *  so a caller can see what was lost instead of only a warning string. */
+export interface RejectedObservation {
+  /** 0-based position in the model's observations array. */
+  index: number;
+  reason: ObservationRejectionReason;
+  /** true when the fact itself is identifiable (a valid type) and only its
+   *  evidence is missing — a reviewer could locate it on the drawing. false
+   *  when there is no reliable fact to recover. Never auto-persisted either way. */
+  recoverable: boolean;
+  observationType?: string;
+  mark?: string;
+  scopeHint?: string;
+  page?: number;
+  declaredCompleteness?: EvidenceCompleteness;
+  /** Evidence boxes the model supplied that failed validation. */
+  droppedEvidenceBoxes: number;
+}
+
+/** What happened to every entry of the model's observations array. */
+export interface ObservationParseDiagnostics {
+  /** Entries in the model's observations array. */
+  received: number;
+  /** Kept with at least one valid evidence box (FULL or PARTIAL). */
+  accepted: number;
+  /** Kept with evidence_completeness LIMITED — no reliable region; needs review. */
+  needsReview: number;
+  rejected: RejectedObservation[];
+  /** Invalid evidence boxes dropped from observations that were kept. */
+  droppedEvidenceBoxesFromKept: number;
+}
+
 export interface ObservationParseV1 {
   ok: boolean;
   error?: string;
   observations?: ObservationV1[];
   warnings: string[];
+  /** Present whenever an observations array was found (including when every
+   *  entry was rejected and ok is false). Absent for unparseable JSON. */
+  diagnostics?: ObservationParseDiagnostics;
 }
 
 const SCHEMA_V1 = "cunstruct.observation.v1";
@@ -144,18 +185,40 @@ export function parseObservationsV1(text: string): ObservationParseV1 {
   }
   // A genuinely empty array is a valid, honest zero-result — never fabricate
   // something to fill it, and never treat it as a validation failure either.
+  const diagnostics: ObservationParseDiagnostics = {
+    received: arr.length, accepted: 0, needsReview: 0, rejected: [], droppedEvidenceBoxesFromKept: 0,
+  };
   if (arr.length === 0) {
-    return { ok: true, observations: [], warnings };
+    return { ok: true, observations: [], warnings, diagnostics };
   }
 
   const observations: ObservationV1[] = [];
   arr.forEach((raw, idx) => {
     const o = asObj(raw);
     const label = `observation ${idx + 1}`;
+    const context = () => {
+      const src = asObj(o.source);
+      const page = Number(src.page);
+      return {
+        mark: str(o.mark) || undefined,
+        scopeHint: str(o.scope_hint ?? o.scopeHint) || undefined,
+        page: Number.isFinite(page) && src.page != null ? page : undefined,
+      };
+    };
+
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      warnings.push(`"${label}": not an object — skipped.`);
+      diagnostics.rejected.push({ index: idx, reason: "not_an_object", recoverable: false, droppedEvidenceBoxes: 0 });
+      return;
+    }
 
     const typeStr = str(o.observation_type ?? o.observationType);
     if (!typeStr || !isObservationType(typeStr)) {
       warnings.push(`"${label}": missing or unrecognized observation_type "${typeStr}" — skipped (never invented).`);
+      diagnostics.rejected.push({
+        index: idx, reason: "missing_or_unrecognized_type", recoverable: false,
+        observationType: typeStr || undefined, ...context(), droppedEvidenceBoxes: 0,
+      });
       return;
     }
 
@@ -163,11 +226,20 @@ export function parseObservationsV1(text: string): ObservationParseV1 {
     // Reuses the EXISTING parseSource (analysisSchemaV1.ts) verbatim — same
     // per-box validation, same "drop the box, warn, never fabricate" rule.
     const source = parseSource(o.source, warnings, label) ?? { evidence: [] };
+    const rawBoxes = Array.isArray(asObj(o.source).evidence) ? (asObj(o.source).evidence as unknown[]).length : 0;
+    const droppedBoxes = Math.max(0, rawBoxes - source.evidence.length);
 
     if (source.evidence.length === 0 && evidenceCompleteness !== "LIMITED") {
       warnings.push(`"${label}": no valid evidence and evidence_completeness is not LIMITED — skipped (never persisted as apparently-verified evidence it doesn't have).`);
+      diagnostics.rejected.push({
+        index: idx, reason: "no_valid_evidence", recoverable: true, observationType: typeStr, ...context(),
+        declaredCompleteness: evidenceCompleteness, droppedEvidenceBoxes: droppedBoxes,
+      });
       return;
     }
+    if (evidenceCompleteness === "LIMITED") diagnostics.needsReview++;
+    else diagnostics.accepted++;
+    diagnostics.droppedEvidenceBoxesFromKept += droppedBoxes;
 
     observations.push({
       observationType: typeStr,
@@ -181,8 +253,8 @@ export function parseObservationsV1(text: string): ObservationParseV1 {
   });
 
   if (observations.length === 0) {
-    return { ok: false, error: "No valid observations found.", warnings };
+    return { ok: false, error: "No valid observations found.", warnings, diagnostics };
   }
 
-  return { ok: true, observations, warnings };
+  return { ok: true, observations, warnings, diagnostics };
 }

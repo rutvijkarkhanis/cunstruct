@@ -1,6 +1,6 @@
 // OBSERVATION BENCHMARK SCORER — deterministic, pure. Scores a simulated or
-// real LOCATION-mode observation set against srikakulamObservationBenchmark.ts's
-// ground truth. Mirrors benchmarkScorer.ts's exact matching discipline (each
+// real LOCATION-mode observation set against an audited ground truth
+// (ExpectedObservation, benchmarkTypes.ts). Mirrors benchmarkScorer.ts's exact matching discipline (each
 // actual observation matched to at most one expected one) rather than a new
 // algorithm — the one-to-one match is itself the proof of cross-floor
 // distinctness: two expected observations can never both claim the same
@@ -12,7 +12,7 @@
 // pass left unmatched. The fallback exists because `scopeHint` is only
 // USUALLY the floor: the LOCATION prompt never documents scope_hint's
 // semantics in prose (only a single "Ground Floor" example), and a real run
-// (the third Srikakulam run) reported room/context strings there instead
+// reported room/context strings there instead
 // ("Dining Room", "Building Lift") with floor recoverable only via `page`.
 // The fallback never touches an expected entry or actual observation the
 // primary pass already resolved, so it cannot change any run whose actual
@@ -21,20 +21,72 @@
 // dedicated regression tests).
 
 import type { ObservationV1 } from "./observationSchemaV1";
-import type { ExpectedObservation, LocationBenchmarkRun } from "./srikakulamObservationBenchmark";
+import type { ExpectedObservation, LocationBenchmarkRun } from "./benchmarkTypes";
 
 const norm = (s: string | null | undefined) => (s ?? "").toLowerCase().trim();
+
+/** Dimension text compared on content only: whitespace, the separator (x, X,
+ *  ×) and typographic quote marks are ignored; numbers and their order are not.
+ *  `14'2" X 12'4"` (as printed) equals `14'2"x12'4"`. */
+export function normalizeDimension(s: string | null | undefined): string {
+  return (s ?? "").toLowerCase().replace(/[’′‘]/g, "'").replace(/[”″“]/g, '"').replace(/×/g, "x").replace(/\s+/g, "");
+}
+
+/** Box centre as a fraction of its page, so boxes in different declared page
+ *  spaces compare directly. */
+function centre(bbox: [number, number, number, number], page: { width: number; height: number }): [number, number] {
+  return [(bbox[0] + bbox[2]) / 2 / page.width, (bbox[1] + bbox[3]) / 2 / page.height];
+}
 
 function matchObservations(expected: ExpectedObservation[], actual: ObservationV1[]) {
   const usedActual = new Set<number>();
   const matchOf = new Map<string, ObservationV1>();
   const indexOf = new Map<string, number>();
 
+  // Pass 0 — LOCATION: expected entries with a recorded label position
+  // (`expectedBox`) are paired with same-mark observations boxed on the same
+  // page, nearest first — so repeated labels (several W.R on one floor) pair
+  // by where they are, not by array order. A no-op for fixtures without
+  // expectedBox (runs #1/#2/#3 v1). Everything left falls through to pass 1.
+  const located: { e: ExpectedObservation; i: number; d: number }[] = [];
+  for (const e of expected) {
+    if (!e.expectedBox || e.expectedPage === undefined) continue;
+    const box0 = e.expectedBox;
+    const ec = centre(box0.bbox, box0.pageSize);
+    actual.forEach((a, i) => {
+      if (norm(a.mark) !== norm(e.mark)) return;
+      for (const box of a.source?.evidence ?? []) {
+        if ((box.page ?? a.source?.page) !== e.expectedPage) continue;
+        const ac = centre(box.bbox, a.source?.pageSize ?? box0.pageSize);
+        located.push({ e, i, d: Math.hypot(ec[0] - ac[0], ec[1] - ac[1]) });
+      }
+    });
+  }
+  // An observation may only pair with the label it is nearest to: a second
+  // copy reported at an already-claimed label is a duplicate, never credit
+  // for a different, farther room of the same name.
+  const nearestFor = new Map<number, { id: string; d: number }>();
+  for (const { e, i, d } of located) {
+    const cur = nearestFor.get(i);
+    if (!cur || d < cur.d) nearestFor.set(i, { id: e.id, d });
+  }
+  located.sort((p, q) => p.d - q.d);
+  for (const { e, i } of located) {
+    if (nearestFor.get(i)!.id !== e.id || matchOf.has(e.id) || usedActual.has(i)) continue;
+    usedActual.add(i);
+    matchOf.set(e.id, actual[i]);
+    indexOf.set(e.id, i);
+  }
+  // Observations placed by location are decided here: one left unpaired must
+  // not be re-paired by array order below.
+  const locationDecided = new Set(nearestFor.keys());
+
   // Pass 1 — PRIMARY identity: (mark, scopeHint). Exactly the original,
   // single-pass matcher — untouched.
   for (const e of expected) {
+    if (matchOf.has(e.id)) continue;
     const idx = actual.findIndex(
-      (a, i) => !usedActual.has(i) && norm(a.mark) === norm(e.mark) && norm(a.scopeHint) === norm(e.scopeHint),
+      (a, i) => !usedActual.has(i) && !locationDecided.has(i) && norm(a.mark) === norm(e.mark) && norm(a.scopeHint) === norm(e.scopeHint),
     );
     if (idx !== -1) {
       usedActual.add(idx);
@@ -52,7 +104,7 @@ function matchObservations(expected: ExpectedObservation[], actual: ObservationV
   for (const e of expected) {
     if (matchOf.has(e.id) || e.expectedPage === undefined) continue;
     const idx = actual.findIndex(
-      (a, i) => !usedActual.has(i) && norm(a.mark) === norm(e.mark) && a.source?.page === e.expectedPage,
+      (a, i) => !usedActual.has(i) && !locationDecided.has(i) && norm(a.mark) === norm(e.mark) && a.source?.page === e.expectedPage,
     );
     if (idx !== -1) {
       usedActual.add(idx);
@@ -86,11 +138,33 @@ function duplicateIdentityKey(o: ObservationV1): string {
   return `${norm(o.observationType)}|${norm(o.mark)}|${norm(o.scopeHint)}`;
 }
 
+/** True only when both observations have evidence boxes and none of one's
+ *  boxes overlaps any of the other's on the same page. */
+function atSeparateLocations(a: ObservationV1, b: ObservationV1): boolean {
+  // Compare as fractions of the declared page space when both declare one;
+  // when only one does, the two spaces can't be related, so nothing is proved.
+  const sa = a.source?.pageSize, sb = b.source?.pageSize;
+  if (!!sa !== !!sb) return false;
+  const boxes = (o: ObservationV1) => {
+    const s = o.source?.pageSize ?? { width: 1, height: 1 };
+    return (o.source?.evidence ?? []).map((e) => ({
+      page: e.page ?? o.source?.page,
+      bbox: [e.bbox[0] / s.width, e.bbox[1] / s.height, e.bbox[2] / s.width, e.bbox[3] / s.height],
+    }));
+  };
+  const ba = boxes(a), bb = boxes(b);
+  if (ba.length === 0 || bb.length === 0) return false;
+  return !ba.some((p) => bb.some((q) =>
+    p.page === q.page &&
+    p.bbox[0] < q.bbox[2] && q.bbox[0] < p.bbox[2] && p.bbox[1] < q.bbox[3] && q.bbox[1] < p.bbox[3]));
+}
+
 /** Finds duplicate observations WITHIN a single ACTUAL array — never
  *  compared against `expected`, never affecting matching or
  *  falsePositiveCount. Two or more actual observations that collide on
  *  `duplicateIdentityKey` mean the run reported the same real-world fact
- *  more than once; every one of them (not just the "extra" copies) is
+ *  more than once — unless their evidence boxes show separate drawing
+ *  locations (see atSeparateLocations); every one of them (not just the "extra" copies) is
  *  reported, since which copy is the "original" is arbitrary. Returns ids
  *  sorted by ascending original array index — deterministic, independent of
  *  Map iteration order. */
@@ -103,10 +177,21 @@ function findDuplicateActualIds(actual: ObservationV1[]): string[] {
     else indicesByKey.set(key, [i]);
   });
 
-  const duplicateIndices: number[] = [];
+  // Within an identity group, a pair is a duplicate unless their evidence
+  // proves two separate drawing locations (a repeated label such as two W.R
+  // rooms on one floor). No box on either side proves nothing.
+  const duplicate = new Set<number>();
   for (const indices of indicesByKey.values()) {
-    if (indices.length > 1) duplicateIndices.push(...indices);
+    for (let x = 0; x < indices.length; x++) {
+      for (let y = x + 1; y < indices.length; y++) {
+        if (!atSeparateLocations(actual[indices[x]], actual[indices[y]])) {
+          duplicate.add(indices[x]);
+          duplicate.add(indices[y]);
+        }
+      }
+    }
   }
+  const duplicateIndices = [...duplicate];
   duplicateIndices.sort((a, b) => a - b);
   return duplicateIndices.map(actualObservationId);
 }
@@ -131,6 +216,9 @@ export interface ObservationCaseResult {
    *  — reported, never assumed. */
   duplicateActualIds: string[];
   unmatchedExpectedIds: string[];
+  /** Which actual observation (by array index) each matched expected entry
+   *  was paired with — for per-room reporting. */
+  matchedPairs: { expectedId: string; actualIndex: number }[];
   /** Pairs from OBSERVATION_DISTINCTNESS_PAIRS that incorrectly matched the
    *  SAME actual observation index — should always be empty. */
   distinctnessFailures: { a: string; b: string }[];
@@ -140,8 +228,8 @@ export interface ObservationCaseResult {
    *  silently dropped. */
   ungradedIds: string[];
   /** Every `expected` entry that carries a `gap` (a known, already-classified
-   *  discrepancy — see srikakulamObservationBenchmark.ts's audit-status
-   *  convention), whether or not it's graded. */
+   *  discrepancy — see ExpectedObservation's audit-status fields in
+   *  benchmarkTypes.ts), whether or not it's graded. */
   gapFlaggedIds: { id: string; gap: NonNullable<ExpectedObservation["gap"]> }[];
 }
 
@@ -174,13 +262,13 @@ export function scoreObservations(
     }
     if (e.attributes?.dimension) {
       attrTotal++;
-      if (a && norm(a.attributes.dimension) === norm(e.attributes.dimension)) attrOk++;
+      if (a && normalizeDimension(a.attributes.dimension) === normalizeDimension(e.attributes.dimension)) attrOk++;
     }
     if (e.attributes?.specification) {
       attrTotal++;
       if (a && norm(a.attributes.specification) === norm(e.attributes.specification)) attrOk++;
     }
-    // Added for the Srikakulam Second Floor run's D1 case: a confirmed
+    // Added for a run's D1 case: a confirmed
     // material-only discrepancy (existence/type/scope/dimension all correct;
     // only the material attribute is wrong) had no way to surface in
     // attributeAccuracy before this, since `material` was never checked —
@@ -205,6 +293,7 @@ export function scoreObservations(
     falsePositiveCount: falsePositives.length,
     duplicateActualIds: findDuplicateActualIds(actual),
     unmatchedExpectedIds,
+    matchedPairs: expected.filter((e) => indexOf.has(e.id)).map((e) => ({ expectedId: e.id, actualIndex: indexOf.get(e.id)! })),
     distinctnessFailures,
     ungradedIds: expected.filter((e) => e.graded === false).map((e) => e.id),
     gapFlaggedIds: expected.filter((e): e is ExpectedObservation & { gap: NonNullable<ExpectedObservation["gap"]> } => !!e.gap)

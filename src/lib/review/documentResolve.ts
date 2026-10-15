@@ -15,7 +15,7 @@ export interface StoredDrawing {
   /** Storage path of the current revision's uploaded file, or null if none. */
   filePath?: string | null;
   pageCount?: number | null;
-  /** Printed sheet title per page number, e.g. { "8": "DOOR/WINDOW SCHEDULE / GROUND FLOOR PLAN" }.
+  /** Printed sheet title per page number, e.g. { "8": "OPENINGS SCHEDULE / GROUND FLOOR" }.
    *  Keys are page numbers as strings (JSON object keys). Optional — most
    *  revisions won't have this populated yet. Never invented by the client. */
   pageTitles?: Record<string, string> | null;

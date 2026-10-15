@@ -215,7 +215,7 @@ describe("buildProjectQuoteHtml (combined client quote)", () => {
     commercials: computeCommercials(works, { costIndexPct: 0, contingencyPct: 0, overheadPct: 0, cessPct: 0, gstPct: 18 }),
   });
   const boqs = [mkBoq("Floor 1", "Floor 1", 100000), mkBoq("Terrace", "Terrace", 50000)];
-  const base = { projectName: "Srikakulam", clientName: "Dr. Sandeep", generatedOn: "1 Sep 2026" } as const;
+  const base = { projectName: "Sample Apartment", clientName: "A. Client", generatedOn: "1 Sep 2026" } as const;
 
   it("firm version shows the firm letterhead and not the client-addressed line", () => {
     const html = buildProjectQuoteHtml({ ...base, branding: "firm", firmName: "The Grid Architects", firmTagline: "architects" }, boqs, { autoPrint: false });
@@ -226,7 +226,7 @@ describe("buildProjectQuoteHtml (combined client quote)", () => {
   it("client version shows the client name and drops all firm branding", () => {
     const html = buildProjectQuoteHtml({ ...base, branding: "client", firmName: "The Grid Architects" }, boqs, { autoPrint: false });
     expect(html).toContain("Prepared for:");
-    expect(html).toContain("Dr. Sandeep");
+    expect(html).toContain("A. Client");
     expect(html).not.toContain("The Grid Architects");   // no firm logo on the final
     expect(html).not.toMatch(/cun<span>/);               // no Cunstruct brand
   });

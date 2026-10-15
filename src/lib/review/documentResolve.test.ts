@@ -16,8 +16,8 @@ const drawings: StoredDrawing[] = [
   },
   {
     documentId: "doc-002",
-    name: "Srikakulam Drawing",
-    originalFilename: "Srikakulam.pdf",
+    name: "Sample drawing",
+    originalFilename: "sample-plans.pdf",
     filePath: "proj-a/doc-002/rev-2.pdf",
     pageCount: 10,
   },
@@ -249,17 +249,16 @@ describe("computeDrawingLinkStatus", () => {
 });
 
 describe("resolvePageTitle", () => {
-  // Verified directly against the real Srikakulam PDF (9 pages) — see
-  // evidenceDisplay.test.ts for the full set. Only a subset is populated here
-  // on purpose: a real drawing set won't have every page titled.
+  // Synthetic sheet titles. Only a subset is populated on purpose: a real
+  // drawing set won't have every page titled.
   const pageTitles: Record<string, string> = {
-    "1": "STILT FLOOR PLAN",
-    "5": "BRICKWORK DRAWING / GROUND FLOOR PLAN",
-    "8": "DOOR/WINDOW SCHEDULE / GROUND FLOOR PLAN",
+    "1": "SITE PLAN",
+    "5": "GROUND FLOOR PLAN",
+    "8": "OPENINGS SCHEDULE / GROUND FLOOR",
   };
 
   it("returns the title for a page that has one", () => {
-    expect(resolvePageTitle(pageTitles, 8)).toBe("DOOR/WINDOW SCHEDULE / GROUND FLOOR PLAN");
+    expect(resolvePageTitle(pageTitles, 8)).toBe("OPENINGS SCHEDULE / GROUND FLOOR");
   });
 
   it("returns null for a page with no title entry (never fabricated)", () => {

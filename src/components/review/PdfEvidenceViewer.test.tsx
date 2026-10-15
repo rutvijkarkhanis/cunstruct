@@ -60,14 +60,14 @@ beforeAll(() => {
   HTMLCanvasElement.prototype.getContext = vi.fn(() => ({})) as any;
 });
 
-// Verified: page-5 W1 opening, real Srikakulam PDF coordinate (PR #102) — unchanged.
+// Synthetic page-5 W1 opening coordinate (the shape of the PR #102 regression case).
 // Page 8 evidence below is a clearly SYNTHETIC test fixture (like claimEvidence.test.ts's
-// page 998/999 convention) — not a real, measured Srikakulam page-8 coordinate.
+// page 998/999 convention) — not a real, measured page-8 coordinate.
 const source: AnalysisSource = {
   document: "test-drawing.pdf",
   page: 5,
   evidence: [
-    { page: 5, bbox: [354, 133, 360, 173], claim: "general", label: "W1 plan view" },
+    { page: 5, bbox: [350, 130, 356, 170], claim: "general", label: "W1 plan view" },
     { page: 8, bbox: [400, 400, 500, 420], claim: "quantity", label: "Synthetic schedule row (qty)" },
     { page: 8, bbox: [400, 400, 500, 420], claim: "dimension", label: "Synthetic schedule row (dim)" },
     { page: 8, bbox: [400, 400, 500, 420], claim: "specification", label: "Synthetic schedule row (spec)" },
@@ -163,7 +163,7 @@ describe("PdfEvidenceViewer — claim navigation (Fix 1)", () => {
     expect((await overlays()).queryByText("Synthetic schedule row (spec)")).toBeNull();
   });
 
-  // REGRESSION: production bug found live after the Srikakulam mobile-sizing
+  // REGRESSION: production bug found live after the mobile-sizing
   // fix. The old code split page navigation across two effects — one keyed on
   // `source`, one keyed on `selectedClaim` — so switching to a new item while
   // the SAME claim stayed selected (carried over, or reselected before
@@ -364,34 +364,33 @@ describe("PdfEvidenceViewer — evidence context banner (P0-1)", () => {
 });
 
 describe("PdfEvidenceViewer — sheet identity (page title)", () => {
-  // Verified directly against the real Srikakulam PDF (9 pages) — see the
-  // full page-by-page map in evidenceDisplay.test.ts. Deliberately left
+  // Synthetic sheet titles for a 9-page set. Deliberately left
   // sparse (no entry for page 2) to exercise the no-title fallback below.
-  const srikakulamPageTitles: Record<string, string> = {
-    "1": "STILT FLOOR PLAN",
-    "5": "BRICKWORK DRAWING / GROUND FLOOR PLAN",
-    "8": "DOOR/WINDOW SCHEDULE / GROUND FLOOR PLAN",
-    "9": "DOOR/WINDOW SCHEDULE / TYPICAL FLOOR PLAN (1st, 2nd, 3rd & 4th)",
+  const samplePageTitles: Record<string, string> = {
+    "1": "SITE PLAN",
+    "5": "GROUND FLOOR PLAN",
+    "8": "OPENINGS SCHEDULE / GROUND FLOOR",
+    "9": "OPENINGS SCHEDULE / TYPICAL FLOOR",
   };
 
   it("shows the current page's title alongside its position when known (p.5)", async () => {
-    render(<Viewer src={source} selectedClaim={null} pageTitles={srikakulamPageTitles} />);
+    render(<Viewer src={source} selectedClaim={null} pageTitles={samplePageTitles} />);
     expect(await screen.findByText(`5 / ${NUM_PAGES}`)).toBeInTheDocument();
-    expect(await screen.findByText("BRICKWORK DRAWING / GROUND FLOOR PLAN")).toBeInTheDocument();
+    expect(await screen.findByText("GROUND FLOOR PLAN")).toBeInTheDocument();
     expect(await screen.findByText("Sheet 5 of 9")).toBeInTheDocument();
   });
 
   it("updates the sheet identity when navigation moves to a different titled page (p.8)", async () => {
-    render(<Viewer src={source} selectedClaim="quantity" pageTitles={srikakulamPageTitles} />);
+    render(<Viewer src={source} selectedClaim="quantity" pageTitles={samplePageTitles} />);
     expect(await screen.findByText(`8 / ${NUM_PAGES}`)).toBeInTheDocument();
-    expect(await screen.findByText("DOOR/WINDOW SCHEDULE / GROUND FLOOR PLAN")).toBeInTheDocument();
+    expect(await screen.findByText("OPENINGS SCHEDULE / GROUND FLOOR")).toBeInTheDocument();
     expect(await screen.findByText("Sheet 8 of 9")).toBeInTheDocument();
     // The old page-5 title must not linger.
-    expect(screen.queryByText("BRICKWORK DRAWING / GROUND FLOOR PLAN")).toBeNull();
+    expect(screen.queryByText("GROUND FLOOR PLAN")).toBeNull();
   });
 
   it("shows only the bare position — never an invented title — for a page with no title entry", async () => {
-    render(<Viewer src={source} selectedClaim={null} pageTitles={srikakulamPageTitles} />);
+    render(<Viewer src={source} selectedClaim={null} pageTitles={samplePageTitles} />);
     expect(await screen.findByText(`5 / ${NUM_PAGES}`)).toBeInTheDocument();
 
     // Page 5 -> 6 -> ... has no entry for page 2 in this fixture; navigate
@@ -401,8 +400,8 @@ describe("PdfEvidenceViewer — sheet identity (page title)", () => {
     expect(await screen.findByText(`6 / ${NUM_PAGES}`)).toBeInTheDocument();
     expect(await screen.findByText("Sheet 6 of 9")).toBeInTheDocument();
     // No title text rendered for the untitled page.
-    expect(screen.queryByText("BRICKWORK DRAWING / GROUND FLOOR PLAN")).toBeNull();
-    expect(screen.queryByText(/STILT FLOOR PLAN|DOOR\/WINDOW SCHEDULE/)).toBeNull();
+    expect(screen.queryByText("GROUND FLOOR PLAN")).toBeNull();
+    expect(screen.queryByText(/SITE PLAN|OPENINGS SCHEDULE/)).toBeNull();
   });
 
   it("shows only 'Sheet N of M' when pageTitles is absent entirely", async () => {

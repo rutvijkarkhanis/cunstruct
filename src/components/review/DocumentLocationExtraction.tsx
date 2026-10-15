@@ -85,7 +85,14 @@ export default function DocumentLocationExtraction({
           if ((res.observationCount ?? 0) === 0) {
             return <span className="text-emerald-700">LOCATION extraction complete — no observations found</span>;
           }
-          return <span className="text-emerald-700">LOCATION extraction complete — {res.observationCount} observation(s) persisted</span>;
+          const d = res.observationDiagnostics;
+          const refused = d ? d.rejected.length + d.unpinned.length : 0;
+          return (
+            <span className="text-emerald-700">
+              LOCATION extraction complete — {res.observationCount} observation(s) persisted
+              {refused > 0 && <span className="text-amber-700"> · {refused} returned by the model but not kept ({d!.rejected.length} failed validation, {d!.unpinned.length} not attributable to this file)</span>}
+            </span>
+          );
         })()}
       </div>
 

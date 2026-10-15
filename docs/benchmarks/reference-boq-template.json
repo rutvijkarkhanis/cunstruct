@@ -1,0 +1,44 @@
+{
+  "schema_version": "cunstruct.reference-boq.v1",
+  "project": "<project name, as on the title block>",
+  "drawing": {
+    "sha256": "<64 hex characters: the drawing's SHA-256>",
+    "pages": [1]
+  },
+  "preparedBy": "",
+  "preparedAt": "",
+  "preparedWithoutCunstructOutput": false,
+  "measurementConventions": "<copy the fixed convention from the brief, plus anything else you decided>",
+  "lines": [
+    {
+      "id": "R-P1-001",
+      "status": "measured",
+      "item": "Floor area — <ROOM LABEL AS PRINTED>",
+      "aliases": [],
+      "unit": "sqm",
+      "floor": "First Floor",
+      "sourcePage": 1,
+      "evidence": { "page": 1, "bbox": [0, 0, 0, 0], "pageSize": { "width": 595, "height": 842 } },
+      "measurementRule": ""
+    },
+    {
+      "id": "R-P1-002",
+      "status": "unmeasurable",
+      "item": "Floor area — <ROOM LABEL AS PRINTED>",
+      "unit": "sqm",
+      "floor": "First Floor",
+      "sourcePage": 1,
+      "measurementRule": "",
+      "note": "<why no quantity can be measured from these sheets>"
+    },
+    {
+      "id": "R-OOS-001",
+      "status": "out_of_scope",
+      "item": "<item needing other drawings>",
+      "unit": "sqm",
+      "floor": null,
+      "measurementRule": "",
+      "note": "<which drawing it would need>"
+    }
+  ]
+}

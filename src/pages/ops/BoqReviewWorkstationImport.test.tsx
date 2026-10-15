@@ -1,6 +1,6 @@
 // IMPORT-TIME RESOLUTION — regression tests for the evidence-resolution fix.
 //
-// Three real-world failure modes, all traced from the actual Srikakulam project:
+// Three real-world failure modes, all traced from a real pilot project:
 //   1. An item referencing a document only by `document_id` (no filename) used
 //      to be invisible to resolution-detection (`needsDocResolution` only
 //      checked `source.document`) and got imported silently unresolved.

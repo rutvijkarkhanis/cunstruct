@@ -18,6 +18,8 @@ dist-ssr
 # or the deploy platform's secret store — both ignored here. See docs/SECURITY.md.
 .env.local
 .env.*.local
+# Staging targets live only in `.env.staging.local` (template: .env.staging.example).
+.env.staging
 .env.development.local
 .env.production.local
 .env.server
@@ -43,3 +45,11 @@ supabase/.temp/
 *.njsproj
 *.sln
 *.sw?
+
+# Third-party benchmark drawings, and anything derived from them, are never
+# committed; authorized copies are supplied locally (see
+# benchmark-inputs/external-20261013/INPUTS.md).
+benchmark-inputs/**/*.pdf
+benchmark-inputs/**/engine-output/drawing-*
+# Local-only evaluations on drawings without redistribution permission.
+src/lib/review/__local__/

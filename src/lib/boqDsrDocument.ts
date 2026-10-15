@@ -58,6 +58,9 @@ export interface QuotePendingItem {
   unit: string;
   note?: string;         // location / reason it is pending
   scope?: string;        // works | equipment | needs_confirmation
+  /** The drawing the line came from, when known — shown like a priced line's source. */
+  sourceDocument?: string | null;
+  sourcePage?: string | null;
 }
 /** Loose client equipment identified on the drawing (TV, fridge, projector screen…)
  *  — not contractor works, shown for reference so it is never silently dropped, but
@@ -104,6 +107,10 @@ export interface DsrQuotePayload {
   /** Drawing requirements excluded from this BOQ because they belong to another
    *  allocation (Common Area / other floor) — shown for audit, never priced. */
   excludedItems?: QuoteExcludedItem[];
+  /** Drawing-review items for this BOQ that are still pending or flagged —
+   *  never applied, so absent from every table here. Stated so the document
+   *  is not read as the drawing's complete scope. */
+  unresolvedReviewCount?: number | null;
 }
 
 const esc = (s: unknown) =>
@@ -117,7 +124,7 @@ const qtyFmt = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits:
  *  contract-table line's spec cell. Never shown at all when the caller resolved no
  *  `sourceDocument`; `sourcePage` is only ever appended alongside a resolved name
  *  (the caller's own contract — see QuoteItem), never on its own. */
-const srcRef = (l: QuoteItem) =>
+const srcRef = (l: Pick<QuoteItem, "sourceDocument" | "sourcePage">) =>
   l.sourceDocument ? `<span class="srcref"> · ${esc(l.sourceDocument)}${l.sourcePage ? `, p.${esc(l.sourcePage)}` : ""}</span>` : "";
 
 const ONES = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
@@ -173,6 +180,15 @@ export function computeCommercials(works: number, i: CommercialInputs): QuoteCom
     ...i, works: w, costIndexAmt, worksAdjusted, contingencyAmt, overheadAmt,
     subTotal, cessAmt, gstAmt, grandTotal, grandTotalWords: amountInWords(grandTotal),
   };
+}
+
+const INCOMPLETE_SCOPE = "Incomplete scope.";
+/** The one incomplete-scope statement every BOQ view and export uses: drawing-review
+ *  items never applied are stated, never implied absent. Null when none are unresolved. */
+export function incompleteScopeNotice(unresolvedReviewCount: number | null | undefined): string | null {
+  const n = unresolvedReviewCount ?? 0;
+  if (n <= 0) return null;
+  return `${INCOMPLETE_SCOPE} ${n} drawing-review item${n === 1 ? " is" : "s are"} still pending or flagged and ${n === 1 ? "is" : "are"} not included in this BOQ.`;
 }
 
 export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boolean }): string {
@@ -253,6 +269,10 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
   // Identified-but-unquantified drawing requirements — listed, never priced. A row
   // per requirement so nothing the drawing identified is dropped from the document;
   // the quantity column reads "—" (pending), never a fabricated 0.
+  const notice = incompleteScopeNotice(p.unresolvedReviewCount);
+  const reviewNotice = notice
+    ? `<div class="foot" style="margin-top:14px;color:#b06d08"><b>${INCOMPLETE_SCOPE}</b>${esc(notice.slice(INCOMPLETE_SCOPE.length))}</div>`
+    : "";
   const pendingSection = pending.length ? `
     <h2>Identified — Pending Quantification (not priced)</h2>
     <table class="pending">
@@ -260,7 +280,7 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
       <tbody>${pending.map((it) => `
         <tr>
           <td class="no">${esc(it.no)}</td>
-          <td class="spec">${esc(it.spec)}${it.note ? `<span class="pnote"> — ${esc(it.note)}</span>` : ""}</td>
+          <td class="spec">${esc(it.spec)}${it.note ? `<span class="pnote"> — ${esc(it.note)}</span>` : ""}${srcRef(it)}</td>
           <td class="unit">${esc(it.unit)}</td>
           <td>${esc(scopeLabel(it.scope))}</td>
           <td class="num pend">pending</td>
@@ -384,6 +404,8 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
     <tbody>${rows || `<tr><td colspan="6">No items.</td></tr>`}</tbody>
   </table>
 
+  ${reviewNotice}
+
   ${drawingSection}
 
   ${pendingSection}
@@ -422,15 +444,15 @@ export interface CsvRow {
   sourceDocument?: string | null;
   sourcePage?: string | null;
 }
-const csvCell = (v: unknown) => {
+export const csvCell = (v: unknown) => {
   const s = String(v ?? "");
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
 export function buildBoqCsv(
   rows: CsvRow[],
-  meta: { boqName: string; project?: string | null; generatedOn: string },
-  pending?: { spec: string; unit: string; note?: string }[],
+  meta: { boqName: string; project?: string | null; generatedOn: string; unresolvedReviewCount?: number | null },
+  pending?: { spec: string; unit: string; note?: string; sourceDocument?: string | null; sourcePage?: string | null }[],
 ): string {
   const HEADER_LINE = 4;
   // Scope H — "Source Document"/"Source Page" are appended AFTER the existing 9
@@ -441,7 +463,9 @@ export function buildBoqCsv(
   const lines: string[] = [
     csvCell(`Bill of Quantities — ${meta.boqName}`),
     csvCell(`${meta.project ?? "Standalone"}  ·  ${meta.generatedOn}  ·  Quantities from drawings; enter "Your rate" (excl. GST)`),
-    "",
+    // The incomplete-scope notice takes the spacer row, so HEADER_LINE and every
+    // row's Amount formula stay where they were.
+    csvCell(incompleteScopeNotice(meta.unresolvedReviewCount) ?? ""),
     head.map(csvCell).join(","),
   ];
   rows.forEach((r, i) => {
@@ -459,7 +483,8 @@ export function buildBoqCsv(
     lines.push("", csvCell("IDENTIFIED — PENDING QUANTIFICATION (not priced; confirm a quantity to price)"));
     pending.forEach((p, i) => {
       lines.push([
-        "Pending", `P.${String(i + 1).padStart(2, "0")}`, "", p.note ? `${p.spec} — ${p.note}` : p.spec, p.unit, "", "", "", "", "", "",
+        "Pending", `P.${String(i + 1).padStart(2, "0")}`, "", p.note ? `${p.spec} — ${p.note}` : p.spec, p.unit, "", "", "", "",
+        p.sourceDocument ?? "", p.sourceDocument ? (p.sourcePage ?? "") : "",
       ].map(csvCell).join(","));
     });
   }
@@ -495,6 +520,9 @@ export interface ProjectQuoteBoq {
   scope?: string | null;
   subheads: QuoteSubHead[];
   commercials: QuoteCommercials;   // computed from this BOQ's own commercial percentages
+  /** Included lines with no established quantity — listed under this BOQ's table as
+   *  pending, never priced and never shown as a Qty of 0. Optional; absent = none. */
+  pendingItems?: QuotePendingItem[];
 }
 export interface ProjectQuotePayload {
   projectName: string;
@@ -540,12 +568,26 @@ export function buildProjectQuoteHtml(p: ProjectQuotePayload, boqs: ProjectQuote
     const c = b.commercials;
     const wrow = (label: string, amt: number, show: boolean) =>
       show ? `<tr><td>${label}</td><td class="num">${inr(amt)}</td></tr>` : "";
+    // Same rows as the single-BOQ document's pending section: Qty reads "pending".
+    const pending = b.pendingItems ?? [];
+    const pendingTable = pending.length ? `
+      <table class="pending">
+        <thead><tr><th>Sl. No</th><th>Pending quantification — not priced</th><th>Unit</th><th class="num">Qty</th></tr></thead>
+        <tbody>${pending.map((it) => `
+          <tr>
+            <td class="no">${esc(it.no)}</td>
+            <td class="spec">${esc(it.spec)}${it.note ? `<span class="pnote"> — ${esc(it.note)}</span>` : ""}${srcRef(it)}</td>
+            <td class="unit">${esc(it.unit)}</td>
+            <td class="num pend">pending</td>
+          </tr>`).join("")}
+        </tbody>
+      </table>` : "";
     return `
       <h2>${i + 1}. ${esc(b.name)}${b.scope ? ` <span style="color:#889;font-weight:400;text-transform:none">— ${esc(b.scope)}</span>` : ""}</h2>
       <table>
         <thead><tr><th>Sl. No</th><th>Description</th><th class="num">Qty</th><th>Unit</th><th class="num">Rate (excl. GST)</th><th class="num">Amount (excl. GST)</th></tr></thead>
         <tbody>${rows || `<tr><td colspan="6">No priced items.</td></tr>`}</tbody>
-      </table>
+      </table>${pendingTable}
       <table class="summary">
         <tr><td>Cost of works (excl. GST)</td><td class="num">${inr(c.works)}</td></tr>
         ${wrow(`Add: Cost index @ ${c.costIndexPct}%`, c.costIndexAmt, c.costIndexPct !== 0)}
@@ -605,6 +647,9 @@ export function buildProjectQuoteHtml(p: ProjectQuotePayload, boqs: ProjectQuote
   .summary tr.words td { font-style:italic; color:#556; font-size:11.5px; padding-top:2px; }
   .abstract { max-width:520px; }
   .abstract td { font-size:12.5px; }
+  .pending { margin-top:10px; }
+  .pending td.pend { color:#b06d08; font-weight:600; font-style:italic; }
+  .pending .pnote { color:#889; font-style:italic; }
   .foot { margin-top:26px; font-size:10px; color:#99a; border-top:1px solid #eee; padding-top:10px; line-height:1.5; }
   .toolbar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; background:#1b2233; color:#fff; padding:10px 14px; border-radius:8px; margin-bottom:18px; font-size:12.5px; }
   .toolbar button { background:#f7c877; color:#1b2233; border:none; border-radius:6px; padding:8px 16px; font-size:13px; font-weight:700; cursor:pointer; }

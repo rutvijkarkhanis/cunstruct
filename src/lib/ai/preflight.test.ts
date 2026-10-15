@@ -184,8 +184,8 @@ describe("computePreflight — mode", () => {
 });
 
 // ── resolveRequestedToSend — the fix for the production identity-mismatch
-// bug: three real documents (eb2fd669-cd47-41bf-ac08-785e00e9bf8a,
-// cbcfd9c1-3d40-40b6-9761-6cc5e313d541, 2cc3d480-b50f-453b-918f-aaefa301f26e)
+// bug: three documents (0a1b2c3d-0000-4000-8000-000000000005,
+// 0a1b2c3d-0000-4000-8000-000000000003, 0a1b2c3d-0000-4000-8000-000000000004)
 // shared one content hash with ZERO analysis_run_source rows for it. The
 // LOCATION document-level entry point requested the middle document by its
 // own documentId; `willSend`'s single, project-wide, order-picked
@@ -272,19 +272,19 @@ describe("resolveRequestedToSend — per-document resolution against a shared-ha
 
   it("10. REGRESSION — the exact production case: three documents share one content hash, zero ledger rows, requesting the MIDDLE document by id sends it", () => {
     const files = [
-      file({ documentId: "eb2fd669-cd47-41bf-ac08-785e00e9bf8a", contentHash: "prod-shared-hash" }),
-      file({ documentId: "cbcfd9c1-3d40-40b6-9761-6cc5e313d541", contentHash: "prod-shared-hash" }),
-      file({ documentId: "2cc3d480-b50f-453b-918f-aaefa301f26e", contentHash: "prod-shared-hash" }),
+      file({ documentId: "0a1b2c3d-0000-4000-8000-000000000005", contentHash: "prod-shared-hash" }),
+      file({ documentId: "0a1b2c3d-0000-4000-8000-000000000003", contentHash: "prod-shared-hash" }),
+      file({ documentId: "0a1b2c3d-0000-4000-8000-000000000004", contentHash: "prod-shared-hash" }),
     ];
     const r = computePreflight(3, files, [], opts);
     expect(r.alreadyAnalysed).toEqual([]);
     expect(r.inFlight).toEqual([]);
     // Reproduces the bug's precondition: the project-wide representative is
     // NOT the middle document.
-    expect(r.willSend.map((f) => f.documentId)).toEqual(["eb2fd669-cd47-41bf-ac08-785e00e9bf8a"]);
-    const toSend = resolveRequestedToSend(r.newEligible, ["cbcfd9c1-3d40-40b6-9761-6cc5e313d541"]);
+    expect(r.willSend.map((f) => f.documentId)).toEqual(["0a1b2c3d-0000-4000-8000-000000000005"]);
+    const toSend = resolveRequestedToSend(r.newEligible, ["0a1b2c3d-0000-4000-8000-000000000003"]);
     expect(toSend).toHaveLength(1);
-    expect(toSend[0].documentId).toBe("cbcfd9c1-3d40-40b6-9761-6cc5e313d541");
+    expect(toSend[0].documentId).toBe("0a1b2c3d-0000-4000-8000-000000000003");
     expect(toSend[0].contentHash).toBe("prod-shared-hash");
   });
 });

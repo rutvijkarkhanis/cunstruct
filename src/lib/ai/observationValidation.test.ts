@@ -30,7 +30,7 @@ describe("an OpenAI structured-output shaped observation response parses cleanly
         {
           observation_type: "schedule_entry", mark: "W1", scope_hint: "Ground Floor",
           location_text: "Door/Window schedule, Ground floor sheet",
-          attributes: { dimension: "6'x6'9\"", specification: "UPVC", material: null },
+          attributes: { dimension: "5'x6'", specification: "UPVC", material: null },
           evidence_completeness: "FULL",
           source: {
             document_id: "doc-1", document: null, page: 8,
@@ -43,7 +43,7 @@ describe("an OpenAI structured-output shaped observation response parses cleanly
     expect(result.ok).toBe(true);
     expect(result.warnings).toEqual([]);
     expect(result.observations![0].observationType).toBe("schedule_entry");
-    expect(result.observations![0].attributes).toEqual({ dimension: "6'x6'9\"", specification: "UPVC" });
+    expect(result.observations![0].attributes).toEqual({ dimension: "5'x6'", specification: "UPVC" });
   });
 
   it("a LIMITED observation with no evidence round-trips (retained, per Phase 4's evidence rules)", () => {

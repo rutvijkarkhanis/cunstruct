@@ -72,6 +72,10 @@ async function insertLineResilient(row: NewLine): Promise<string> {
 interface UpdateExpected {
   qty?: number;
   unit?: string | null;
+  /** Rate adoption (applyAdoptedRate) — guards the commercial rate fields the
+   *  reviewer previewed, so a rate edited elsewhere since is never overwritten. */
+  custom_rate?: number | null;
+  dsr_rate?: number | null;
 }
 
 /** Chain the compare-and-swap `.eq()`/`.is()` filters for whichever of
@@ -87,6 +91,9 @@ function withExpectedFilters(query: any, expected: UpdateExpected): any {
   let q = query;
   if (expected.qty !== undefined) q = q.eq("qty", expected.qty);
   if ("unit" in expected) q = expected.unit == null ? q.is("unit", null) : q.eq("unit", expected.unit);
+  for (const col of ["custom_rate", "dsr_rate"] as const) {
+    if (col in expected) q = expected[col] == null ? q.is(col, null) : q.eq(col, expected[col]);
+  }
   return q;
 }
 
@@ -106,7 +113,8 @@ async function updateLineResilient(
   patch: Record<string, unknown>,
   expected?: UpdateExpected,
 ): Promise<boolean> {
-  const guarded = expected != null && (expected.qty !== undefined || "unit" in expected);
+  const guarded = expected != null &&
+    (expected.qty !== undefined || "unit" in expected || "custom_rate" in expected || "dsr_rate" in expected);
 
   if (!guarded) {
     let { error } = await supabase.from("boq_line").update(patch).eq("id", lineId);
@@ -208,7 +216,7 @@ export interface AddReviewLineArgs {
   externalKey: string;
   sort?: number;
   /** The project_scope id already resolved for this item's location, if any
-   *  (see applyReview.ts's resolveScopeIdForLocation) — never resolved here,
+   *  (see applyReview.ts's findScopeIdForLocation) — never resolved here,
    *  only persisted. A line created with no scope behaves exactly as before. */
   scopeId?: string | null;
   /** Scope C — drawing-evidence traceability, already resolved by the caller
@@ -234,11 +242,14 @@ export interface AddReviewLineArgs {
  * caller (applyReview.ts's applyReviewPlan) must treat that as a conflict,
  * never a fabricated success. Any other error still throws.
  */
+/** The section every line added from drawing review gets: a provenance label, not a trade. */
+export const DRAWING_REVIEW_SECTION = "Drawing review — added";
+
 export async function addReviewItemAsLine(args: AddReviewLineArgs): Promise<string | null> {
   try {
     return await insertLineResilient({
       boq_id: args.boqId,
-      section: "Drawing review — added",
+      section: DRAWING_REVIEW_SECTION,
       description: args.description,
       unit: args.unit ?? null,
       qty: args.qty,
@@ -272,6 +283,36 @@ export async function addReviewItemAsLine(args: AddReviewLineArgs): Promise<stri
  * (applyReview.ts's applyReviewPlan) must treat that as a conflict, never a
  * fabricated success.
  */
+/**
+ * Rate adoption's write across the same Apply boundary as applyReviewQtyUnit:
+ * sets ONLY custom_rate (the commercial override every total/quote/export
+ * reads via custom_rate ?? dsr_rate), conditional on the line's custom_rate,
+ * dsr_rate and unit still being exactly what the reviewer previewed. Returns
+ * false — no write — when anything drifted. Quantity, unit, description,
+ * scope and source evidence are never in the patch.
+ */
+export async function applyAdoptedRate(
+  lineId: string,
+  rate: number,
+  expected: { custom_rate: number | null; dsr_rate: number | null; unit: string | null },
+): Promise<boolean> {
+  return updateLineResilient(lineId, { custom_rate: rate }, expected);
+}
+
+/**
+ * A manual commercial-rate edit from the BOQ editor, across the same
+ * compare-and-swap boundary: sets ONLY custom_rate (null = fall back to the
+ * line's DSR rate), conditional on custom_rate/dsr_rate/unit still being what
+ * the editor showed. Returns false — no write — when anything drifted.
+ */
+export async function applyManualRate(
+  lineId: string,
+  rate: number | null,
+  expected: { custom_rate: number | null; dsr_rate: number | null; unit: string | null },
+): Promise<boolean> {
+  return updateLineResilient(lineId, { custom_rate: rate }, expected);
+}
+
 export async function applyReviewQtyUnit(
   lineId: string,
   patch: {

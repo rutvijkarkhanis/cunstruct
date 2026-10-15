@@ -64,7 +64,7 @@ vi.mock("@/lib/review/drawingStorage", () => ({
   signedDrawingUrl: vi.fn(async () => "https://signed.example/drawing.pdf"),
 }));
 
-// W1 evidence: verified page-5 bbox (real Srikakulam PDF, PR #102) plus
+// W1 evidence: synthetic page-5 bbox (shape of the PR #102 case) plus
 // synthetic quantity/dimension/specification/location fixtures (pages 999/998,
 // clearly not real PDF geometry — see src/lib/review/claimEvidence.test.ts).
 const w1Item: StoredReviewItem = {
@@ -75,7 +75,7 @@ const w1Item: StoredReviewItem = {
     item: "W1 — Ground Floor Upper-Right Opening",
     quantity: 7,
     unit: "nos",
-    dimension: "6' × 6'9\"",
+    dimension: "4' × 6'3\"",
     specification: "UPVC",
     location: "Ground Floor",
     confidence: 0.9,
@@ -85,7 +85,7 @@ const w1Item: StoredReviewItem = {
       document: "test-drawing.pdf",
       page: 5,
       evidence: [
-        { page: 5, bbox: [354, 133, 360, 173], claim: "general", label: "W1 plan view" },
+        { page: 5, bbox: [350, 130, 356, 170], claim: "general", label: "W1 plan view" },
         { page: 999, bbox: [50, 100, 450, 130], claim: "quantity", label: "Synthetic schedule row" },
         { page: 999, bbox: [50, 100, 450, 130], claim: "dimension", label: "Synthetic schedule row" },
         { page: 999, bbox: [50, 100, 450, 130], claim: "specification", label: "Synthetic schedule row" },
@@ -98,8 +98,8 @@ const w1Item: StoredReviewItem = {
 const drawings: StoredDrawing[] = [
   {
     documentId: "doc-1", name: "test-drawing.pdf", filePath: "proj/doc-1/rev-1.pdf", pageCount: 12,
-    // Verified against the real Srikakulam PDF — see documentResolve.test.ts.
-    pageTitles: { "5": "BRICKWORK DRAWING / GROUND FLOOR PLAN", "8": "DOOR/WINDOW SCHEDULE / GROUND FLOOR PLAN" },
+    // Synthetic sheet titles — see documentResolve.test.ts.
+    pageTitles: { "5": "GROUND FLOOR PLAN", "8": "OPENINGS SCHEDULE / GROUND FLOOR" },
   },
 ];
 
@@ -210,7 +210,7 @@ describe("ResolvedEvidenceViewer — selectedClaim wiring", () => {
     const viewer = await screen.findByTestId("pdf-viewer");
     // No claim selected → all evidence passes through unfiltered, including the verified box.
     const boxes = await screen.findAllByTestId("evidence-box");
-    expect(boxes.map((b) => b.textContent)).toContain(JSON.stringify([354, 133, 360, 173]));
+    expect(boxes.map((b) => b.textContent)).toContain(JSON.stringify([350, 130, 356, 170]));
     expect(viewer.getAttribute("data-box-count")).toBe("5");
   });
 
@@ -225,13 +225,13 @@ describe("ResolvedEvidenceViewer — selectedClaim wiring", () => {
     render(<ResolvedEvidenceViewer item={w1Item} drawings={drawings} resolvedDocumentId={null} selectedClaim={null} />);
     const viewer = await screen.findByTestId("pdf-viewer");
     expect(JSON.parse(viewer.getAttribute("data-page-titles") || "{}")).toEqual({
-      "5": "BRICKWORK DRAWING / GROUND FLOOR PLAN",
-      "8": "DOOR/WINDOW SCHEDULE / GROUND FLOOR PLAN",
+      "5": "GROUND FLOOR PLAN",
+      "8": "OPENINGS SCHEDULE / GROUND FLOOR",
     });
   });
 });
 
-describe("ResolvedEvidenceViewer — re-link reactivity (Srikakulam evidence-resolution fix)", () => {
+describe("ResolvedEvidenceViewer — re-link reactivity (evidence-resolution fix)", () => {
   // Reproduces the reported bug: an item whose source.documentId doesn't match
   // any stored drawing (a stale id / pre-mapping-infra run) falls back to the
   // coordinate-plot viewer. Re-linking sets resolvedDocumentId on the run —
@@ -470,7 +470,7 @@ describe("ItemPanel — Edit form: Specification field, pre-filled values (items
     fireEvent.click(screen.getByRole("button", { name: /^Edit$/ }));
     expect(screen.getByLabelText(/Quantity \(AI: 7\)/)).toHaveValue(7);
     expect(screen.getByLabelText(/Unit \(AI: nos\)/)).toHaveValue("nos");
-    expect(screen.getByLabelText(/^Dimension/)).toHaveValue("6' × 6'9\"");
+    expect(screen.getByLabelText(/^Dimension/)).toHaveValue("4' × 6'3\"");
     expect(screen.getByLabelText(/Specification \(AI: UPVC\)/)).toHaveValue("UPVC");
     expect(screen.getByLabelText(/^Location/)).toHaveValue("Ground Floor");
   });

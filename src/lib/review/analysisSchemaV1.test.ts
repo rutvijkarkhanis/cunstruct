@@ -7,7 +7,7 @@ const V1 = JSON.stringify({
   project: { project_type: "Residential" },
   items: [
     {
-      item: "W1", quantity: 3, unit: "nos", dimension: "6' x 6'9\"",
+      item: "W1", quantity: 3, unit: "nos", dimension: "5' x 6'",
       specification: "UPVC casement", location: "First Floor",
       source: { document: "floor-plan.pdf", page: 4, evidence: [{ bbox: [1240, 850, 1370, 980] }, { bbox: [1400, 850, 1530, 980] }] },
       confidence: 0.94, status: "MEASURED",

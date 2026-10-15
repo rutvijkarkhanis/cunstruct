@@ -21,7 +21,7 @@
 // unscoped identity (boq_id, external_key) when scope_id is null — so these
 // tests exercise the real classifyReviewItem/buildApplyPlan/applyReviewPlan/
 // addReviewItemAsLine code against a faithful stand-in for the constraint,
-// using the real Srikakulam W1 cross-floor fixture.
+// using the synthetic W1 cross-floor fixture.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -115,10 +115,11 @@ vi.mock("@/integrations/supabase/client", () => ({
 
 import { buildApplyPlan, applyReviewPlan } from "./applyReview";
 import type { StoredReviewItem } from "./reviewStore";
-import { SRIKAKULAM_BENCHMARK, perfectRunFor } from "./srikakulamBenchmark";
+import { perfectRunFor } from "./benchmarkTypes";
+import { SYNTHETIC_BENCHMARK } from "./__fixtures__/syntheticBenchmark";
 import type { AnalysisItemV1 } from "./analysisSchemaV1";
 
-const CASE = SRIKAKULAM_BENCHMARK.find((c) => c.id === "identity-w1-cross-floor")!;
+const CASE = SYNTHETIC_BENCHMARK.find((c) => c.id === "identity-w1-cross-floor")!;
 // [stiltW1, groundW1, typicalW1, groundW1Repeat]
 const [stiltW1, groundW1] = perfectRunFor(CASE);
 const asReviewItem = (id: string, ai: AnalysisItemV1): StoredReviewItem => ({ id, ai, reviewStatus: "VERIFIED" });
@@ -126,6 +127,11 @@ const asReviewItem = (id: string, ai: AnalysisItemV1): StoredReviewItem => ({ id
 beforeEach(() => {
   boqLines.length = 0;
   projectScopes.length = 0;
+  // The project's floors exist before Apply — Apply never creates a scope.
+  projectScopes.push(
+    { id: "scope-stilt", project_id: "proj-1", name: "Stilt", kind: "floor" },
+    { id: "scope-ground", project_id: "proj-1", name: "Ground", kind: "floor" },
+  );
   changeLog.length = 0;
   lineIdCounter = 0;
   scopeIdCounter = 0;
@@ -155,12 +161,12 @@ describe("boq_line identity constraint — cross-call NEW_LINE duplication is re
     // Only one boq_line row exists; quantity is not doubled.
     const w1Lines = boqLines.filter((l) => l.external_key === "W1");
     expect(w1Lines).toHaveLength(1);
-    expect(w1Lines[0].qty).toBe(7);
+    expect(w1Lines[0].qty).toBe(5);
 
     // No fabricated audit entry for the rejected second candidate.
     const qtyRows = changeLog.filter((r) => r.field === "qty");
     expect(qtyRows).toHaveLength(1);
-    expect(qtyRows[0]).toEqual(expect.objectContaining({ old_value: null, new_value: "7", review_item_id: "ri-ground-1" }));
+    expect(qtyRows[0]).toEqual(expect.objectContaining({ old_value: null, new_value: "5", review_item_id: "ri-ground-1" }));
   });
 
   it("(2) different scopes: same external_key, different resolved scopes — both lines allowed, each correctly scoped", async () => {
@@ -177,8 +183,8 @@ describe("boq_line identity constraint — cross-call NEW_LINE duplication is re
 
     const w1Lines = boqLines.filter((l) => l.external_key === "W1");
     expect(w1Lines).toHaveLength(2);
-    const stiltLine = w1Lines.find((l) => l.qty === 1)!;
-    const groundLine = w1Lines.find((l) => l.qty === 7)!;
+    const stiltLine = w1Lines.find((l) => l.qty === 2)!;
+    const groundLine = w1Lines.find((l) => l.qty === 5)!;
     expect(projectScopes.find((s) => s.id === stiltLine.scope_id)?.name).toBe("Stilt");
     expect(projectScopes.find((s) => s.id === groundLine.scope_id)?.name).toBe("Ground");
   });

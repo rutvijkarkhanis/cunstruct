@@ -122,6 +122,12 @@ vi.mock("@/integrations/supabase/client", () => {
       from: (table: string) => {
         if (table === "boq") return chain({ data: { id: "boq-1", name: "Test BOQ", project_id: "proj-1" }, error: null });
         if (table === "projects") return chain({ data: { id: "proj-1", name: "Test Project", project_type: null }, error: null });
+        // Revision freshness (revisionFreshness.ts): the analysed revision is
+        // recorded and still current, so provenance is confirmed and LOCATION
+        // markers / Identify / Find Similar are enabled.
+        if (table === "project_document") return chain({ data: [{ id: "doc-1", name: "doc-1", current_revision_id: "rev-doc-1" }, { id: "doc-2", name: "doc-2", current_revision_id: "rev-doc-2" }], error: null });
+        if (table === "document_revision") return chain({ data: [{ id: "rev-doc-1", document_id: "doc-1", label: "Rev A" }, { id: "rev-doc-2", document_id: "doc-2", label: "Rev A" }], error: null });
+        if (table === "analysis_run_source") return chain({ data: [{ document_id: "doc-1", document_revision_id: "rev-doc-1", status: "SUCCEEDED" }, { document_id: "doc-2", document_revision_id: "rev-doc-2", status: "SUCCEEDED" }], error: null });
         return chain({ data: [], error: null });
       },
       auth: { getUser: async () => ({ data: { user: { id: "user-1" } } }) },
@@ -164,6 +170,12 @@ function renderPage() {
 }
 
 const identifyToggle = () => screen.getByTitle(/Click a point on the drawing to identify/);
+// The toggle is enabled only once the drawing's revision provenance is
+// confirmed current (revisionFreshness.ts), so wait for that before clicking.
+const clickIdentifyToggle = async () => {
+  await waitFor(() => expect(identifyToggle()).toBeEnabled());
+  fireEvent.click(identifyToggle());
+};
 const clickProbe = async () => fireEvent.click(await screen.findByText("simulate drawing click"));
 const confirmCandidate = async (label = "Door") => {
   await screen.findByText(label);
@@ -174,7 +186,7 @@ const confirmCandidate = async (label = "Door") => {
 async function getToConfirmedCandidate() {
   renderPage();
   await screen.findByRole("button", { name: /^Verify$/ });
-  fireEvent.click(identifyToggle());
+  await clickIdentifyToggle();
   await clickProbe();
   await confirmCandidate();
 }
@@ -307,7 +319,7 @@ describe("M7.2/M7.4 — Identify lifecycle: out-of-order response guard", () => 
   it("two Identify requests resolved in reverse order: the most recent click's candidates win, and the stale one never appears", async () => {
     renderPage();
     await screen.findByRole("button", { name: /^Verify$/ });
-    fireEvent.click(identifyToggle());
+    await clickIdentifyToggle();
 
     const first = deferred<{ ok: boolean; result?: unknown; error?: string }>();
     const second = deferred<{ ok: boolean; result?: unknown; error?: string }>();
@@ -331,7 +343,7 @@ describe("M7.2/M7.4 — Identify lifecycle: out-of-order response guard", () => 
   it("exiting Identify mode while a request is pending: the eventual success cannot restore stale state", async () => {
     renderPage();
     await screen.findByRole("button", { name: /^Verify$/ });
-    fireEvent.click(identifyToggle());
+    await clickIdentifyToggle();
 
     const pending = deferred<{ ok: boolean; result?: unknown; error?: string }>();
     vi.mocked(identifyAtPoint).mockImplementationOnce(() => pending.promise as ReturnType<typeof identifyAtPoint>);
@@ -351,7 +363,7 @@ describe("M7.2/M7.4 — Identify lifecycle: out-of-order response guard", () => 
     // identifyCandidates — IdentifyResultPanel renders its candidate list
     // whenever one is non-empty, regardless of hasPoint, so this is the
     // one place the leak would actually become visible.
-    fireEvent.click(identifyToggle());
+    await clickIdentifyToggle();
     expect(screen.queryByText("Stale door")).toBeNull();
     expect(screen.getByText(/Click anywhere on the drawing to identify what's there\./)).toBeInTheDocument();
   });
@@ -359,7 +371,7 @@ describe("M7.2/M7.4 — Identify lifecycle: out-of-order response guard", () => 
   it("exiting Identify mode while a request is pending: the eventual FAILURE also cannot restore stale state", async () => {
     renderPage();
     await screen.findByRole("button", { name: /^Verify$/ });
-    fireEvent.click(identifyToggle());
+    await clickIdentifyToggle();
 
     const pending = deferred<{ ok: boolean; result?: unknown; error?: string }>();
     vi.mocked(identifyAtPoint).mockImplementationOnce(() => pending.promise as ReturnType<typeof identifyAtPoint>);
@@ -373,7 +385,7 @@ describe("M7.2/M7.4 — Identify lifecycle: out-of-order response guard", () => 
     expect(screen.getByRole("button", { name: /^Verify$/ })).toBeInTheDocument();
 
     // Same leak check as the success case above, via the error branch.
-    fireEvent.click(identifyToggle());
+    await clickIdentifyToggle();
     expect(screen.queryByText("stale identify failure")).toBeNull();
     expect(screen.getByText(/Click anywhere on the drawing to identify what's there\./)).toBeInTheDocument();
   });
@@ -381,7 +393,7 @@ describe("M7.2/M7.4 — Identify lifecycle: out-of-order response guard", () => 
   it("a stale request's finally cannot clear a newer request's loading state", async () => {
     renderPage();
     await screen.findByRole("button", { name: /^Verify$/ });
-    fireEvent.click(identifyToggle());
+    await clickIdentifyToggle();
 
     const older = deferred<{ ok: boolean; result?: unknown; error?: string }>();
     const newer = deferred<{ ok: boolean; result?: unknown; error?: string }>();
@@ -413,7 +425,7 @@ describe("M7.3/M7.4 — cross-document overlay isolation", () => {
     renderPage();
     await screen.findByRole("button", { name: /^Verify$/ });
     selectW1();
-    fireEvent.click(identifyToggle());
+    await clickIdentifyToggle();
     await clickProbe();
     await screen.findByText("Door");
 
@@ -437,7 +449,7 @@ describe("M7.3/M7.4 — cross-document overlay isolation", () => {
     renderPage();
     await screen.findByRole("button", { name: /^Verify$/ });
     selectW1();
-    fireEvent.click(identifyToggle());
+    await clickIdentifyToggle();
     await clickProbe();
     await confirmCandidate();
     fireEvent.click(screen.getByRole("button", { name: /Find Similar/i }));
@@ -459,7 +471,7 @@ describe("M7.3/M7.4 — cross-document overlay isolation", () => {
     renderPage();
     await screen.findByRole("button", { name: /^Verify$/ });
     selectW1();
-    fireEvent.click(identifyToggle());
+    await clickIdentifyToggle();
     await clickProbe();
     await confirmCandidate();
 

@@ -48,7 +48,7 @@ const fixtures = vi.hoisted(() => {
     project_id: "proj-1", spec: {}, discipline: "civil", contractor_id: null,
   };
   const PROJECT_ROW = {
-    id: "proj-1", name: "Srikakulam Apartment", area_sqft: null, floors: null,
+    id: "proj-1", name: "Sample Apartment", area_sqft: null, floors: null,
     client_name: null, location: null, project_type: null, scope: null,
   };
   const DOCS = [{ id: "doc-1", name: "Ground Floor Plan", current_revision_id: "rev-1" }];

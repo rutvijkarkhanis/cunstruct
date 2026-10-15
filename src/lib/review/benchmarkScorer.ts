@@ -1,5 +1,5 @@
 // BENCHMARK SCORER — deterministic, pure. Scores a simulated or real analysis
-// run against one Srikakulam benchmark case (srikakulamBenchmark.ts).
+// run against one benchmark case (BenchmarkCase, benchmarkTypes.ts).
 //
 // Identity correctness is measured by running the case's items through the
 // REAL, production buildReviewItems() from reviewQueue.ts — not a
@@ -9,12 +9,12 @@
 //
 // A gap-classified case (case.gap set) is never folded into the pass/fail
 // averages for the dimension its gap concerns — see BenchmarkCase.gap in
-// srikakulamBenchmark.ts. An ungraded case (graded:false) is excluded from
+// benchmarkTypes.ts. An ungraded case (graded:false) is excluded from
 // every average entirely and only reported by id.
 
 import type { AnalysisItemV1 } from "./analysisSchemaV1";
 import { buildReviewItems } from "./reviewQueue";
-import type { BenchmarkCase, CaseGap, ExpectedItem } from "./srikakulamBenchmark";
+import type { BenchmarkCase, CaseGap, ExpectedItem } from "./benchmarkTypes";
 
 const norm = (s: string | null | undefined) => (s ?? "").toLowerCase().trim();
 
@@ -114,7 +114,7 @@ export function scoreCase(c: BenchmarkCase, actual: AnalysisItemV1[]): CaseResul
       // Pairwise-linked when either later item's duplicateOf traces to the
       // earlier item's key. Assumes no third item in the case shares the same
       // scoped (key+location) identity as this pair — true for every case in
-      // srikakulamBenchmark.ts today.
+      // the benchmark fixtures today.
       const linked =
         (ib > ia && reviewItems[ib].duplicateOf === aKey) ||
         (ia > ib && reviewItems[ia].duplicateOf === bKey);

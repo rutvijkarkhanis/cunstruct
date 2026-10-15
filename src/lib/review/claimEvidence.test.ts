@@ -5,7 +5,7 @@ import type { ClaimType } from "./analysisSchemaV1";
 
 describe("Claim-level evidence support", () => {
   // Test data: W1 with evidence supporting different claims.
-  // Page 5 W1 coordinate [354, 133, 360, 173] is verified from actual Srikakulam PDF (PR #102).
+  // Page 5 W1 coordinate [350, 130, 356, 170] is synthetic (the shape of the PR #102 case).
   // Page 999 and 998 coordinates are synthetic test fixtures (not real PDF pages).
   const w1WithClaimedEvidence = {
     schema_version: "cunstruct.analysis.v1",
@@ -15,7 +15,7 @@ describe("Claim-level evidence support", () => {
         item: "W1 — Ground Floor Upper-Right Opening",
         quantity: 7,
         unit: "nos",
-        dimension: "6' × 6'9\"",
+        dimension: "4' × 6'3\"",
         specification: "UPVC",
         location: "Ground Floor",
         source: {
@@ -23,10 +23,10 @@ describe("Claim-level evidence support", () => {
           page: 5,
           pageSize: { width: 595, height: 842 },
           evidence: [
-            // Verified: Page 5 W1 plan opening from actual Srikakulam PDF (PR #102 regression test)
+            // Synthetic page 5 W1 plan opening (PR #102 regression test)
             {
               page: 5,
-              bbox: [354, 133, 360, 173],
+              bbox: [350, 130, 356, 170],
               claim: "general",
               label: "W1 plan view",
             },
@@ -145,7 +145,7 @@ describe("Claim-level evidence support", () => {
 
       const generalEv = getEvidenceForClaim(evidence, "general");
       expect(generalEv).toHaveLength(1);
-      expect(generalEv[0].bbox).toEqual([354, 133, 360, 173]);
+      expect(generalEv[0].bbox).toEqual([350, 130, 356, 170]);
 
       const qtyEv = getEvidenceForClaim(evidence, "quantity");
       expect(qtyEv).toHaveLength(1);

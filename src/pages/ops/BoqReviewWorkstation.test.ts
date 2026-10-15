@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 describe("BoqReviewWorkstation - resolvedDocumentId import flow", () => {
   const mockBoqId = "test-boq-123";
   const mockRunId = "test-run-456";
-  const mockDocumentId = "doc-srikakulam-789";
+  const mockDocumentId = "doc-sample-789";
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -91,8 +91,8 @@ describe("BoqReviewWorkstation - resolvedDocumentId import flow", () => {
     const drawings = [
       {
         documentId: mockDocumentId,
-        name: "Apartment at Srikakulam",
-        originalFilename: "Srikakulam-Floor-Plans.pdf",
+        name: "Sample Apartment",
+        originalFilename: "sample-floor-plans.pdf",
         filePath: "proj-123/doc-789/rev-001.pdf",
         pageCount: 10,
       },

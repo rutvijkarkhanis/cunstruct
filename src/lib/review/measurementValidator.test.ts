@@ -9,7 +9,7 @@
 // analysis_review_item row. A manually verified gold set (explicitly out of
 // scope for Scope A) would be required for any real-world accuracy claim.
 //
-// The existing srikakulamBenchmark.ts ExpectedItem fixtures were inspected
+// The existing benchmark ExpectedItem fixtures were inspected
 // (this session's design-review history) and confirmed to carry NO
 // structured calculation inputs — they are not reused here; every fixture
 // below is newly authored for this file.
@@ -704,10 +704,10 @@ describe("measurementValidator — safety boundary (no I/O, no persistence respo
     expect(result).not.toBeInstanceOf(Promise);
   });
 
-  it("the module's only exported value surface is the validator function and its types — nothing resembling a client/connection export", async () => {
+  it("the module's only exported value surface is its two pure functions and its types — nothing resembling a client/connection export", async () => {
     const mod = await import("./measurementValidator");
     const valueExports = Object.keys(mod).filter((k) => typeof (mod as Record<string, unknown>)[k] !== "undefined");
-    expect(valueExports).toEqual(["validateCalculation"]);
+    expect(valueExports.sort()).toEqual(["computeCalculation", "validateCalculation"]);
   });
 });
 

@@ -36,6 +36,7 @@
 // call for the same check.
 import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
+import DrawingCoveragePanel from "./DrawingCoveragePanel";
 import {
   latestLocationRunForDocument, loadLocationObservations, type LocationObservation,
 } from "@/lib/review/locationObservations";
@@ -106,6 +107,7 @@ export default function DocumentLocationObservations({
           {run.completedAt && (
             <div>Extraction completed {new Date(run.completedAt).toLocaleString()} — 0 observations persisted.</div>
           )}
+          <DrawingCoveragePanel documentId={documentId} observations={observations} />
         </div>
       )}
 
@@ -116,6 +118,7 @@ export default function DocumentLocationObservations({
             document, independent of any BOQ.
           </div>
           {observations.map((o) => <ObservationRow key={o.id} obs={o} />)}
+          <DrawingCoveragePanel documentId={documentId} observations={observations} />
         </div>
       )}
     </div>

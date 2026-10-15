@@ -49,6 +49,10 @@ export interface ExtractedTextRun {
   y: number;
   width: number;
   height: number;
+  /** Unit vector of the text's reading direction in page space ([1,0] for
+   *  ordinary left-to-right text; [0,-1] for text running bottom-to-top, as
+   *  on a vertical room label). `width` is measured along this direction. */
+  direction?: [number, number];
 }
 
 export interface PageGeometryExtraction {
@@ -168,6 +172,8 @@ function classifySubpath(sp: RawSubpath): GeometryType {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Viewport = { convertToViewportPoint(x: number, y: number): any[] };
 
+const round6 = (v: number) => Math.round(v * 1e6) / 1e6 + 0;
+
 function toPageSpace(points: [number, number][], viewport: Viewport): [number, number][] {
   return points.map(([x, y]) => {
     const [vx, vy] = viewport.convertToViewportPoint(x, y);
@@ -215,7 +221,13 @@ export async function extractPageGeometry(pdfPage: PDFPageProxy, pageNumber: num
     // The text item's own transform already encodes its origin in raw PDF
     // space; convert that one point the same way shape points are converted.
     const [originX, originY] = toPageSpace([[e, f]], viewport)[0];
+    // Reading direction: map the run's own x-axis (a, b) through the same
+    // viewport transform, so page rotation is accounted for.
+    const along = Math.hypot(a, b) || 1;
+    const [dirX, dirY] = toPageSpace([[e + a / along, f + b / along]], viewport)[0];
+    const dLen = Math.hypot(dirX - originX, dirY - originY) || 1;
     textRuns.push({
+      direction: [round6((dirX - originX) / dLen), round6((dirY - originY) / dLen)],
       page: pageNumber,
       text: item.str,
       x: originX,

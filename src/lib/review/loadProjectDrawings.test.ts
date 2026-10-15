@@ -9,9 +9,8 @@
 // and because neither query's `error` was checked, the failure silently
 // degraded to `[]`, blanking filePath for EVERY document in the project.
 //
-// This broke Srikakulam in production: analysis_run.resolved_document_id
-// correctly identified document 08ce8b70-d5be-4b3e-b1a5-045e29f42908 (current
-// revision 7868100c-2f37-4dc5-9f3e-e54d47f3b54f, file_path present and
+// This broke a pilot project in production: analysis_run.resolved_document_id
+// correctly identified the document (its current revision had file_path present and
 // retrievable per the Documents page), yet Review Workstation resolved
 // filePath: MISSING for it — because the OTHER document in the project had a
 // current_revision_id that didn't survive the id-based batch.
@@ -104,36 +103,36 @@ describe("loadProjectDrawings — FK-safe revision lookup", () => {
     await expect(loadProjectDrawings("proj-1")).rejects.toThrow("malformed filter");
   });
 
-  it("reproduces the live Srikakulam case: the real document/revision now resolves a filePath", async () => {
-    const srikakulamDocId = "08ce8b70-d5be-4b3e-b1a5-045e29f42908";
-    const srikakulamRevId = "7868100c-2f37-4dc5-9f3e-e54d47f3b54f";
+  it("reproduces the live pilot case: the document/revision now resolves a filePath", async () => {
+    const docId = "0a1b2c3d-0000-4000-8000-000000000001";
+    const revId = "0a1b2c3d-0000-4000-8000-000000000002";
     projectDocumentResult.current = {
       data: [
-        { id: srikakulamDocId, name: "Srikakulam architectural drawing", current_revision_id: srikakulamRevId },
-        { id: "other-doc-id", name: "Other Srikakulam Drawing", current_revision_id: "other-rev-id" },
+        { id: docId, name: "Architectural drawing", current_revision_id: revId },
+        { id: "other-doc-id", name: "Other drawing", current_revision_id: "other-rev-id" },
       ],
       error: null,
     };
     documentRevisionResult.current = {
       data: [
-        { id: srikakulamRevId, document_id: srikakulamDocId, file_path: `${srikakulamDocId}/${srikakulamRevId}.pdf`, original_filename: "Srikakulam.pdf", page_count: 12, page_titles: null },
+        { id: revId, document_id: docId, file_path: `${docId}/${revId}.pdf`, original_filename: "sample-plans.pdf", page_count: 12, page_titles: null },
         { id: "other-rev-id", document_id: "other-doc-id", file_path: "other-doc-id/other-rev-id.pdf", original_filename: "Other.pdf", page_count: 4, page_titles: null },
       ],
       error: null,
     };
 
-    const drawings = await loadProjectDrawings("srikakulam-project-id");
+    const drawings = await loadProjectDrawings("sample-project-id");
 
-    const srikakulam = drawings.find((d) => d.documentId === srikakulamDocId);
-    expect(srikakulam).toBeDefined();
-    expect(srikakulam?.filePath).toBe(`${srikakulamDocId}/${srikakulamRevId}.pdf`);
+    const drawing = drawings.find((d) => d.documentId === docId);
+    expect(drawing).toBeDefined();
+    expect(drawing?.filePath).toBe(`${docId}/${revId}.pdf`);
 
     // End-to-end: resolveItemDrawing (untouched) must now resolve this item via
     // the resolved_document_id override, exactly as analysis_run recorded it,
     // with a non-null filePath — the exact chain that was broken in production.
     const { resolveItemDrawing } = await import("./documentResolve");
-    const resolved = resolveItemDrawing({ evidence: [] }, drawings, srikakulamDocId);
+    const resolved = resolveItemDrawing({ evidence: [] }, drawings, docId);
     expect(resolved?.matchedBy).toBe("explicit_override");
-    expect(resolved?.filePath).toBe(`${srikakulamDocId}/${srikakulamRevId}.pdf`);
+    expect(resolved?.filePath).toBe(`${docId}/${revId}.pdf`);
   });
 });

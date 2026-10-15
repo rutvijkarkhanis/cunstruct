@@ -48,7 +48,7 @@ const first = (els: HTMLElement[]) => els[0];
 const OK_BOOTSTRAP = {
   data: {
     ok: true,
-    project: { id: "proj-1", name: "Srikakulam Apartment" },
+    project: { id: "proj-1", name: "Sample Apartment" },
     documents: [{ id: "doc-1", name: "Sheet 1.pdf", docType: null, discipline: "Architectural", status: "uploaded", pageCount: 3 }],
     scopes: [],
     boqs: [{ id: "boq-1", name: "Floor 1", scopeId: null, lineCount: 52 }],
@@ -60,7 +60,7 @@ describe("PublicWorkspaceShare — bootstrap orchestration", () => {
   it("renders Sources/Canvas/BOQ from the bootstrap payload", async () => {
     invoke.mockResolvedValueOnce(OK_BOOTSTRAP);
     renderShare("/share/tok-1");
-    expect(await screen.findByText("Srikakulam Apartment")).toBeInTheDocument();
+    expect(await screen.findByText("Sample Apartment")).toBeInTheDocument();
     expect(first(screen.getAllByTestId("share-sources"))).toHaveTextContent("count:1");
     expect(first(screen.getAllByTestId("share-boq"))).toHaveTextContent("boqs:1");
     expect(invoke).toHaveBeenCalledWith("workspace-share", { body: { token: "tok-1", action: "bootstrap" } });
@@ -69,7 +69,7 @@ describe("PublicWorkspaceShare — bootstrap orchestration", () => {
   it("selecting a source updates the active document shown in the canvas, never navigates into /ops/*", async () => {
     invoke.mockResolvedValueOnce(OK_BOOTSTRAP);
     renderShare("/share/tok-1");
-    await screen.findByText("Srikakulam Apartment");
+    await screen.findByText("Sample Apartment");
     fireEvent.click(first(screen.getAllByText("pick doc-1")));
     expect(first(await screen.findAllByTestId("share-canvas"))).toHaveTextContent("doc:doc-1");
   });
@@ -98,7 +98,7 @@ describe("PublicWorkspaceShare — DOM regression guard: no write/CRUD/navigatio
   it("never shows Add source, Upload, Create BOQ, Review/Open BOQ, or Manage BOQs controls", async () => {
     invoke.mockResolvedValueOnce(OK_BOOTSTRAP);
     renderShare("/share/tok-1");
-    await screen.findByText("Srikakulam Apartment");
+    await screen.findByText("Sample Apartment");
     for (const forbidden of [/add source/i, /upload a drawing/i, /create boq/i, /review this boq/i, /^open boq$/i, /manage all boqs/i]) {
       expect(screen.queryByText(forbidden)).not.toBeInTheDocument();
     }

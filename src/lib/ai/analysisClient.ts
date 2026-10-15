@@ -79,6 +79,13 @@ export interface GenerateResponse {
    *  review items produced" and is always 0 for a LOCATION run) rather than
    *  overloading it — see the Phase 4 design review. */
   observationCount?: number;
+  /** LOCATION only: what the parser and pinning refused (never persisted). */
+  observationDiagnostics?: {
+    received: number; accepted: number; needsReview: number;
+    rejected: { index: number; reason: string; mark?: string; page?: number; recoverable: boolean }[];
+    droppedEvidenceBoxesFromKept: number;
+    unpinned: { index: number; observationType: string; mark?: string }[];
+  };
   itemCount?: number;
   allAlreadyAnalysed?: boolean;
   message?: string;

@@ -63,6 +63,14 @@ export interface LocationObservation {
   evidence: AnalysisSource;
   evidenceCompleteness: EvidenceCompleteness;
   createdAt: string;
+  /** The exact document/revision the edge function pinned this observation
+   *  to (analysis_observation.document_id/revision_id). Null when that
+   *  document/revision was since deleted (on delete set null), or absent on
+   *  an observation not loaded from the table: either way its source
+   *  revision is unknown and it must not be shown as belonging to whichever
+   *  revision is on screen. */
+  documentId?: string | null;
+  revisionId?: string | null;
 }
 
 const NOT_RUN: LocationRunState = { status: "NOT_RUN", runId: null, claimedAt: null, completedAt: null, error: null };
@@ -190,7 +198,7 @@ export async function latestLocationRunForDocument(
 export async function loadLocationObservations(runId: string): Promise<LocationObservation[]> {
   const { data, error } = await supabase
     .from("analysis_observation")
-    .select("id, observation_type, mark, scope_hint, location_text, attributes, evidence, evidence_completeness, created_at")
+    .select("id, observation_type, mark, scope_hint, location_text, attributes, evidence, evidence_completeness, created_at, document_id, revision_id")
     .eq("run_id", runId)
     .order("created_at", { ascending: true });
   if (error || !data) return [];
@@ -204,5 +212,7 @@ export async function loadLocationObservations(runId: string): Promise<LocationO
     evidence: r.evidence as AnalysisSource,
     evidenceCompleteness: r.evidence_completeness as EvidenceCompleteness,
     createdAt: r.created_at as string,
+    documentId: (r as unknown as { document_id?: string | null }).document_id ?? null,
+    revisionId: (r as unknown as { revision_id?: string | null }).revision_id ?? null,
   }));
 }

@@ -47,6 +47,7 @@ const OpsBoqTemplates = lazy(() => import("./pages/ops/OpsBoqTemplates.tsx"));
 const OpsBoqList = lazy(() => import("./pages/ops/OpsBoqList.tsx"));
 const OpsBoqBuilder = lazy(() => import("./pages/ops/OpsBoqBuilder.tsx"));
 const BoqReviewWorkstation = lazy(() => import("./pages/ops/BoqReviewWorkstation.tsx"));
+const BoqDsrMapping = lazy(() => import("./pages/ops/BoqDsrMapping.tsx"));
 
 // ── Public, unauthenticated share link (reachable on EITHER subdomain) ──────
 const PublicWorkspaceShare = lazy(() => import("./pages/PublicWorkspaceShare.tsx"));
@@ -159,6 +160,7 @@ function AppRoutes() {
           <Route path="boqs/manage" element={<ProjectBoqs />} />
           <Route path="boqs/:boqId" element={<OpsBoqBuilder />} />
           <Route path="boqs/:boqId/review" element={<BoqReviewWorkstation />} />
+          <Route path="boqs/:boqId/dsr-mapping" element={<BoqDsrMapping />} />
           <Route path="procurement" element={<ProjectProcurement />} />
           <Route path="activity" element={<OpsProjectDetail />} />
           <Route path="workspace" element={<ProjectWorkspace />} />
@@ -173,6 +175,7 @@ function AppRoutes() {
         <Route path="boq-templates" element={<OpsBoqTemplates />} />
         <Route path="boq" element={<OpsBoqList />} />
         <Route path="boq/:id" element={<OpsBoqBuilder />} />
+        <Route path="boq/:id/dsr-mapping" element={<BoqDsrMapping />} />
       </Route>
       {/* Anything else (storefront paths) → back to the main domain */}
       <Route path="*" element={<CrossDomainRedirect base={main} />} />

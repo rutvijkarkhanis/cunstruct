@@ -326,7 +326,7 @@ function computeUnitConversion(inputs: CalculationInput[]): CalculationResult {
   return { formulaSupported: true, inputsValid: true, evidenceValid, recomputed: true, resultValue: toCanonicalValue(input.value, input.unit), resultUnit: CANONICAL_UNIT[def.dimension] };
 }
 
-function dispatchFormula(request: CalculationRequest): CalculationResult {
+function dispatchFormula(request: Pick<CalculationRequest, "formula" | "inputs">): CalculationResult {
   switch (request.formula) {
     case "SUM_OF_SEGMENTS": return computeSumOfSegments(request.inputs);
     case "LENGTH_TIMES_WIDTH": return computeLengthTimesWidth(request.inputs);
@@ -345,7 +345,9 @@ function dispatchFormula(request: CalculationRequest): CalculationResult {
  *  (overflow). This is the single place that guarantees a non-finite
  *  result is never returned as a successful calculation, regardless of
  *  which formula produced it. */
-function computeCalculation(request: CalculationRequest): CalculationResult {
+/** The calculation half of validateCalculation(), on its own — for callers
+ *  that need the recomputed value (no stated quantity is compared). */
+export function computeCalculation(request: Pick<CalculationRequest, "formula" | "inputs">): CalculationResult {
   const result = dispatchFormula(request);
   if (result.recomputed && !isFiniteNumber(result.resultValue)) {
     return invalidCalculation("The computed result is not a finite number (arithmetic overflow) — never returned as a successful calculation.");

@@ -21,7 +21,7 @@
 //
 // This drives the REAL applyReviewPlan/addReviewItemAsLine/classifyReviewItem
 // code through a mocked Supabase boundary (same style as
-// scopePreservation.test.ts), using the real Srikakulam W1 cross-floor
+// scopePreservation.test.ts), using the synthetic W1 cross-floor
 // fixture rather than a synthetic one.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -89,10 +89,11 @@ vi.mock("@/integrations/supabase/client", () => ({
 
 import { buildApplyPlan, applyReviewPlan } from "./applyReview";
 import type { StoredReviewItem } from "./reviewStore";
-import { SRIKAKULAM_BENCHMARK, perfectRunFor } from "./srikakulamBenchmark";
+import { perfectRunFor } from "./benchmarkTypes";
+import { SYNTHETIC_BENCHMARK } from "./__fixtures__/syntheticBenchmark";
 import type { AnalysisItemV1 } from "./analysisSchemaV1";
 
-const CASE = SRIKAKULAM_BENCHMARK.find((c) => c.id === "identity-w1-cross-floor")!;
+const CASE = SYNTHETIC_BENCHMARK.find((c) => c.id === "identity-w1-cross-floor")!;
 // perfectRunFor -> [stiltW1, groundW1, typicalW1, groundW1Repeat]. groundW1Repeat
 // is the benchmark's own "genuine same-floor repeat" positive control: same
 // key, same location, same qty/dimension/spec as groundW1.
@@ -103,6 +104,11 @@ const asReviewItem = (id: string, ai: AnalysisItemV1): StoredReviewItem => ({ id
 beforeEach(() => {
   boqLines.length = 0;
   projectScopes.length = 0;
+  // The project's floors exist before Apply — Apply never creates a scope.
+  projectScopes.push(
+    { id: "scope-stilt", project_id: "proj-1", name: "Stilt", kind: "floor" },
+    { id: "scope-ground", project_id: "proj-1", name: "Ground", kind: "floor" },
+  );
   changeLog.length = 0;
   lineIdCounter = 0;
   scopeIdCounter = 0;
@@ -133,13 +139,13 @@ describe("duplicate NEW_LINE prevention — same-batch identical identity is nev
     // (2) Only one boq_line row exists for this identity.
     const w1Lines = boqLines.filter((l) => l.external_key === "W1");
     expect(w1Lines).toHaveLength(1);
-    // (3) The quantity is NOT doubled — it's the real Ground W1 count (7), once.
-    expect(w1Lines[0].qty).toBe(7);
+    // (3) The quantity is NOT doubled — it's the Ground W1 count (5), once.
+    expect(w1Lines[0].qty).toBe(5);
 
     // No insert/audit trace of a second line for the rejected candidate.
     const qtyLogRows = changeLog.filter((r) => r.field === "qty");
     expect(qtyLogRows).toHaveLength(1);
-    expect(qtyLogRows[0]).toEqual(expect.objectContaining({ old_value: null, new_value: "7" }));
+    expect(qtyLogRows[0]).toEqual(expect.objectContaining({ old_value: null, new_value: "5" }));
   });
 
   it("different identities (different keys) create separate lines normally", async () => {
@@ -177,10 +183,10 @@ describe("duplicate NEW_LINE prevention — same-batch identical identity is nev
 
     const w1Lines = boqLines.filter((l) => l.external_key === "W1");
     expect(w1Lines).toHaveLength(2);
-    expect(w1Lines.map((l) => l.qty).sort()).toEqual([1, 7]);
+    expect(w1Lines.map((l) => l.qty).sort()).toEqual([2, 5]);
 
-    const stiltScope = projectScopes.find((s) => s.id === w1Lines.find((l) => l.qty === 1)?.scope_id);
-    const groundScope = projectScopes.find((s) => s.id === w1Lines.find((l) => l.qty === 7)?.scope_id);
+    const stiltScope = projectScopes.find((s) => s.id === w1Lines.find((l) => l.qty === 2)?.scope_id);
+    const groundScope = projectScopes.find((s) => s.id === w1Lines.find((l) => l.qty === 5)?.scope_id);
     expect(stiltScope?.name).toBe("Stilt");
     expect(groundScope?.name).toBe("Ground");
   });

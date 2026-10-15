@@ -30,13 +30,19 @@ import {
 import { transformBoxes, unionBox, hasPlaceableEvidence } from "@/lib/review/evidenceCoords";
 import { claimLabel, formatClaimValue, summarizeClaimEvidence, type EvidenceSummary } from "@/lib/review/evidenceDisplay";
 import { defaultInputMode, isProviderConfigured, PROVIDERS, type InputMode } from "@/lib/review/analysisProviders";
+import { attributeItemsToDrawing, findDrawingRevisionByHash, recordImportedRunSource, type DrawingRevisionMatch } from "@/lib/review/importProvenance";
 import { createAnalysisRun, loadReviewItems, latestRunForBoq, saveReviewDecision, updateResolvedDocument, type StoredReviewItem } from "@/lib/review/reviewStore";
+import { db } from "@/lib/untypedDb";
 import { buildApplyPlan, applyReviewPlan, type ApplyCandidate, type BoqLineForApply, type UnsupportedChange } from "@/lib/review/applyReview";
 import {
   resolveItemDrawing, resolveDrawingWithDiagnostics, needsDocumentResolution, computeDrawingLinkStatus,
   type StoredDrawing, type DrawingLinkStatus,
 } from "@/lib/review/documentResolve";
 import { signedDrawingUrl, loadProjectDrawings } from "@/lib/review/drawingStorage";
+import {
+  AnalysisRevisionBlockedError, assessRunFreshness, currentRevisionSnapshot, describeSourceFreshness,
+  drawingsAsAnalyzed, evidenceProvenanceNotice, observationsForDisplayedRevision, provenanceConfirmedCurrent, type RunFreshness,
+} from "@/lib/review/revisionFreshness";
 import { groupByCategory, isCountableUnit, type CategoryGroup, type TypeCard, type ElementCategory } from "@/lib/review/typeGrouping";
 import { instancesForType, type TypeInstance } from "@/lib/review/typeInstances";
 import { latestLocationRunForDocument, loadLocationObservations, type LocationObservation } from "@/lib/review/locationObservations";
@@ -115,6 +121,19 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
   // falls back to the pre-Phase-2 select with scope_name left null, which is
   // exactly today's behavior for the (only) case that matters when it's
   // missing: a single-candidate match is unaffected either way.
+  // The project's existing scopes — the only locations Apply may file a line
+  // under (classifyReviewItem). Undefined until loaded or if the read fails;
+  // Apply itself still never creates a scope.
+  const { data: scopeNames } = useQuery({
+    queryKey: ["rw-scopes", boq?.project_id],
+    enabled: !!boq?.project_id,
+    queryFn: async (): Promise<string[]> => {
+      const { data, error } = await db.from("project_scope").select("name").eq("project_id", boq!.project_id!);
+      if (error) throw error;
+      return ((data ?? []) as { name: string }[]).map((r) => r.name);
+    },
+  });
+
   const { data: boqLines = [] } = useQuery({
     queryKey: ["rw-lines", boqId],
     enabled: !!boqId,
@@ -218,6 +237,12 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
   // own captured id at the moment it resolves.
   const identifyRequestIdRef = useRef(0);
   const findSimilarRequestIdRef = useRef(0);
+  // The latest revision-freshness result (assigned each render, below, once
+  // it is computed). Identify / Find Similar read the document's CURRENT
+  // revision server-side, so they may only run for a document whose
+  // provenance is confirmed current — checked at request time through this
+  // ref, since the handlers are declared before the freshness query.
+  const freshnessRef = useRef<RunFreshness | undefined>(undefined);
 
   const resetFindSimilar = () => {
     findSimilarRequestIdRef.current += 1;
@@ -250,6 +275,10 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
     const requestId = (identifyRequestIdRef.current += 1);
     if (!args.documentId || !boq?.project_id) {
       setIdentifyError("This drawing isn't linked to a stored document yet, so it can't be identified.");
+      return;
+    }
+    if (!provenanceConfirmedCurrent(args.documentId, freshnessRef.current)) {
+      setIdentifyError("Identify is unavailable: this drawing is not confirmed to be the revision that was analysed.");
       return;
     }
     setIdentifyPoint({ page: args.page, x: args.point.x, y: args.point.y });
@@ -381,6 +410,27 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
     return map;
   }, [items, drawings, resolvedDocumentId]);
 
+  // Revision freshness (revisionFreshness.ts): every document this run's
+  // evidence is attributed to — items' resolved drawings and the run's
+  // re-linked drawing; the run's own analysis_run_source claims are added by
+  // the assessment itself. Apply re-runs the same assessment before writing.
+  const referencedDocumentIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const id of docIdByItemId.values()) if (id) ids.add(id);
+    if (resolvedDocumentId) ids.add(resolvedDocumentId);
+    return [...ids].sort();
+  }, [docIdByItemId, resolvedDocumentId]);
+  const freshnessQuery = useQuery({
+    queryKey: ["rw-freshness", runId, boq?.project_id ?? null, referencedDocumentIds.join(",")],
+    enabled: !!runId && !!boq,
+    queryFn: (): Promise<RunFreshness> => assessRunFreshness({ runId: runId!, projectId: boq?.project_id ?? null, referencedDocumentIds }),
+  });
+  const freshness = freshnessQuery.data;
+  freshnessRef.current = freshness;
+  // The evidence is drawn on the revision the analysis read, never silently
+  // on a newer one (unknown provenance is labelled in the viewer instead).
+  const reviewDrawings = useMemo(() => drawingsAsAnalyzed(drawings, freshness), [drawings, freshness]);
+
   // The document the CURRENTLY SELECTED item actually resolves to — the
   // same resolution drawingMarkers already uses (below) to keep one
   // document's markings off another's page. Identify/Find Similar overlays
@@ -391,6 +441,15 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
   // against THIS (the document on screen right now) is what decides
   // whether an overlay may render, never a page-number coincidence alone.
   const currentDocId = current ? docIdByItemId.get(current.id) ?? null : null;
+  // LOCATION markers and Identify / Find Similar refer to the document's
+  // current revision; they are only shown or enabled when that is confirmed
+  // to be the revision on screen (see provenanceConfirmedCurrent).
+  const currentDocOverlaysAllowed = provenanceConfirmedCurrent(currentDocId, freshness);
+  const exitIdentifyModeRef = useRef(exitIdentifyMode);
+  exitIdentifyModeRef.current = exitIdentifyMode;
+  useEffect(() => {
+    if (identifyModeActive && !currentDocOverlaysAllowed) exitIdentifyModeRef.current();
+  }, [identifyModeActive, currentDocOverlaysAllowed]);
 
   const resolvedDocIds = useMemo(
     () => [...new Set([...docIdByItemId.values()].filter((id): id is string => id != null))].sort(),
@@ -428,6 +487,14 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
       return Object.fromEntries(entries);
     },
   });
+  // Only observations pinned to exactly the revision on screen, and only
+  // when that revision's provenance is confirmed current — every LOCATION
+  // consumer below (instances, markers, Find Similar enrichment) reads this,
+  // never observationsByDoc directly.
+  const displayedObservationsByDoc = useMemo(
+    () => Object.fromEntries(Object.entries(observationsByDoc).map(([docId, obs]) => [docId, observationsForDisplayedRevision(obs, docId, freshness)])),
+    [observationsByDoc, freshness],
+  );
 
   // Find Similar — builds DIRECTLY on the confirmed candidate (never an
   // unconfirmed guess): label is the reviewer's own confirmed label (which
@@ -444,6 +511,7 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
     if (!identifyConfirmed || !identifyDocumentId || !boq?.project_id) return;
     const candidate = identifyCandidates[identifyConfirmed.index];
     if (!candidate) return;
+    if (!provenanceConfirmedCurrent(identifyDocumentId, freshnessRef.current)) return;
 
     // Captured now, at request start — never re-read from the (possibly
     // since-changed) identifyDocumentId state once the response arrives, so
@@ -480,7 +548,7 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
       // fetched reviewer-accessibly for the existing instance-display
       // feature (no new network call), and never adds, removes, or
       // reorders a match — see findSimilarLocationEnrichment.ts.
-      const locationObservations = requestDocumentId ? (observationsByDoc[requestDocumentId] ?? []) : [];
+      const locationObservations = requestDocumentId ? (displayedObservationsByDoc[requestDocumentId] ?? []) : [];
       const enrichment = enrichMatchesWithLocation(res.result.matches, locationObservations);
       setFindSimilarMatches(res.result.matches.map((m, i) => ({ ...m, id: `similar-${i}`, status: "pending" as const, location: enrichment[i] })));
       setFindSimilarStatus("success");
@@ -489,17 +557,20 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
       setFindSimilarStatus("error");
       setFindSimilarError(e instanceof Error ? e.message : "Couldn't search the document. Please try again.");
     }
-  }, [identifyConfirmed, identifyCandidates, identifyDocumentId, boq?.project_id, observationsByDoc]);
+  }, [identifyConfirmed, identifyCandidates, identifyDocumentId, boq?.project_id, displayedObservationsByDoc]);
 
   const instancesByItemId = useMemo(() => {
     const map = new Map<string, TypeInstance[]>();
     for (const it of items) {
       const docId = docIdByItemId.get(it.id);
-      const observations = docId ? (observationsByDoc[docId] ?? []) : [];
+      // Only observations pinned to the revision on screen (see
+      // displayedObservationsByDoc); with none, no instances and so no
+      // LOCATION markers — the item's own evidence still shows.
+      const observations = docId ? (displayedObservationsByDoc[docId] ?? []) : [];
       map.set(it.id, instancesForType({ key: it.ai.key, dimension: it.ai.dimension, specification: it.ai.specification }, observations));
     }
     return map;
-  }, [items, docIdByItemId, observationsByDoc]);
+  }, [items, docIdByItemId, displayedObservationsByDoc]);
 
   const currentInstances: TypeInstance[] = useMemo(
     () => (current ? (instancesByItemId.get(current.id) ?? []) : []),
@@ -551,7 +622,7 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
 
   // Apply-to-BOQ: pure classification, recomputed against the CURRENT BOQ lines
   // every render — never automatic, only acted on when the reviewer confirms.
-  const applyPlan = useMemo(() => buildApplyPlan(items, boqLines), [items, boqLines]);
+  const applyPlan = useMemo(() => buildApplyPlan(items, boqLines, scopeNames), [items, boqLines, scopeNames]);
   const applyableCandidates = useMemo(
     () => applyPlan.filter((c) => c.classification === "APPLY" || c.classification === "NEW_LINE"),
     [applyPlan],
@@ -560,7 +631,10 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
   const openApplyModal = useCallback(() => {
     setSelectedApplyIds(new Set(applyableCandidates.map((c) => c.reviewItemId)));
     setShowApplyModal(true);
-  }, [applyableCandidates]);
+    // Show the reviewer today's revision state, not a cached one (Apply
+    // re-checks again itself before writing).
+    if (runId) void freshnessQuery.refetch();
+  }, [applyableCandidates, runId, freshnessQuery]);
 
   // Actual per-item resolution state for this run — never inferred from
   // resolved_document_id alone, since a null override can still mean every
@@ -593,8 +667,16 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
     // see applyReviewPlan's own doc comment on why passing it is safe (this
     // component only ever holds items from one run at a time; importing a
     // new analysis replaces `items`/`runId` together, never merges runs).
-    mutationFn: () => applyReviewPlan({ boqId, candidates: applyPlan, selectedIds: selectedApplyIds, runId }),
+    mutationFn: () => applyReviewPlan({
+      boqId, candidates: applyPlan, selectedIds: selectedApplyIds, runId,
+      referencedDocumentIds,
+      expectedCurrentRevisionIds: freshness ? currentRevisionSnapshot(freshness) : {},
+    }),
     onSuccess: (res) => {
+      if (res.revisionChangedDuringApply?.length) {
+        toast.warning(`A source drawing changed while applying (${res.revisionChangedDuringApply.join(", ")}). The applied lines record the revision that was analysed. Re-analyse before applying anything else.`);
+        qc.invalidateQueries({ queryKey: ["rw-freshness"] });
+      }
       // Honest, best-effort provenance for the BOQ screen: only existing lines
       // this exact call is known to have modified — matchedLineId comes from
       // the pure classification computed before the call, and any review item
@@ -617,7 +699,12 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
       const correctedCount = appliedCandidates.filter((c) =>
         items.find((it) => it.id === c.reviewItemId)?.reviewStatus === "EDITED",
       ).length;
-      toast.success(`Applied ${res.appliedCount} to the BOQ` + (res.unresolvedCount ? ` · ${res.unresolvedCount} unresolved` : ""), {
+      // A written line whose change-log row failed is saved but unaudited —
+      // never reported as a plain success.
+      const unaudited = res.auditLogFailedReviewItemIds?.length ?? 0;
+      const notify = unaudited ? toast.warning : toast.success;
+      notify(`Applied ${res.appliedCount} to the BOQ` + (res.unresolvedCount ? ` · ${res.unresolvedCount} unresolved` : "")
+        + (unaudited ? ` · change history NOT recorded for ${unaudited} item${unaudited === 1 ? "" : "s"} (the quantities are saved)` : ""), {
         action: {
           label: "View updated BOQ",
           // appliedCount/unresolvedCount are the exact counts ApplyResult
@@ -640,7 +727,10 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
       qc.invalidateQueries({ queryKey: ["boq-lines", boqId] });
       setShowApplyModal(false);
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to apply to the BOQ"),
+    onError: (e) => {
+      if (e instanceof AnalysisRevisionBlockedError) qc.invalidateQueries({ queryKey: ["rw-freshness"] });
+      toast.error(e instanceof Error ? e.message : "Failed to apply to the BOQ");
+    },
   });
 
   // NOTE on the drawing's default focus: this used to auto-select the
@@ -747,6 +837,10 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
           <Button
             variant={identifyModeActive ? "default" : "ghost"} size="sm" className="h-8 gap-1.5"
             onClick={() => (identifyModeActive ? exitIdentifyMode() : setIdentifyModeActive(true))}
+            // Unavailable unless the drawing on screen is confirmed to be the
+            // current revision (the one Identify analyses server-side); the
+            // evidence viewer's provenance notice says why.
+            disabled={!identifyModeActive && !currentDocOverlaysAllowed}
             title="Click a point on the drawing to identify what's there"
           >
             <Crosshair className="w-4 h-4" /><span className="hidden sm:inline">Identify</span>
@@ -847,12 +941,14 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
             <div className="flex-1 min-w-0 mt-2 lg:mt-0 lg:h-full">
               <ResolvedEvidenceViewer
                 item={current}
-                drawings={drawings}
+                drawings={reviewDrawings}
+                freshness={freshness}
+                freshnessChecking={freshnessQuery.isLoading}
                 resolvedDocumentId={resolvedDocumentId}
                 selectedClaim={selectedClaim}
                 markers={drawingMarkers}
                 markerContextLabel={markerContextLabel}
-                identifyModeActive={identifyModeActive}
+                identifyModeActive={identifyModeActive && currentDocOverlaysAllowed}
                 onIdentifyPoint={handleIdentifyPoint}
                 /* Document-scoped (M7): an identify click or Find Similar
                    run on document A must never render on document B just
@@ -932,7 +1028,7 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
                   onNext={() => go(1)}
                   keyboardEnabled
                   onSelectClaim={(c) => { setSelectedClaim(c); setFocusedInstanceId(null); }}
-                  drawings={drawings}
+                  drawings={reviewDrawings}
                   resolvedDocumentId={resolvedDocumentId}
                 />
               )}
@@ -947,13 +1043,18 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
           <ImportGate
             boqName={boq?.name}
             projectType={project?.project_type ?? null}
-            onImported={(rid, its) => {
+            onImported={async (rid, its) => {
               setRunId(rid);
               setItems(its);
               setRunCreatedAt(new Date().toISOString());
               setCursor(0);
               setShowImportModal(false);
               toast.success("New analysis imported successfully");
+              // The previous run's re-linked drawing must not carry over to
+              // this run's evidence or freshness check.
+              setResolvedDocumentId(null);
+              const run = await latestRunForBoq(boqId);
+              if (run?.id === rid) setResolvedDocumentId(run.resolved_document_id ?? null);
             }}
             boqId={boqId}
             projectId={boq?.project_id ?? null}
@@ -990,6 +1091,19 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
             onSelectAll={(checked) => setSelectedApplyIds(checked ? new Set(applyableCandidates.map((c) => c.reviewItemId)) : new Set())}
             onApply={() => applyMut.mutate()}
             applying={applyMut.isPending}
+            blockedNotice={
+              freshnessQuery.isLoading ? <p className="text-xs text-muted-foreground">Checking that the analysed drawings are still current…</p>
+              : freshnessQuery.isError || !freshness ? (
+                <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 space-y-1.5">
+                  <p>The source drawing revisions could not be checked, so nothing can be applied.</p>
+                  <Button size="sm" variant="outline" onClick={() => freshnessQuery.refetch()}>Check again</Button>
+                </div>
+              )
+              : freshness.applyBlocked ? (
+                <AnalysisFreshnessNotice freshness={freshness} onReanalyse={() => { setShowApplyModal(false); setShowImportModal(true); }} />
+              )
+              : null
+            }
           />
         </DialogContent>
       </Dialog>
@@ -1213,13 +1327,16 @@ const UNSUPPORTED_FIELD_LABEL: Record<UnsupportedChange["field"], string> = {
   dimension: "Dimension", specification: "Specification", location: "Location",
 };
 
-export function ApplyToBoqDialog({ candidates, selectedIds, onToggle, onSelectAll, onApply, applying }: {
+export function ApplyToBoqDialog({ candidates, selectedIds, onToggle, onSelectAll, onApply, applying, blockedNotice }: {
   candidates: ApplyCandidate[];
   selectedIds: Set<string>;
   onToggle: (id: string) => void;
   onSelectAll: (checked: boolean) => void;
   onApply: () => void;
   applying: boolean;
+  /** When set, shown above the plan and Apply is disabled (e.g. the analysed
+   *  drawing revision is no longer current — see revisionFreshness.ts). */
+  blockedNotice?: React.ReactNode;
 }) {
   const applyable = candidates.filter((c) => c.classification === "APPLY" || c.classification === "NEW_LINE");
   const noChange = candidates.filter((c) => c.classification === "NO_CHANGE");
@@ -1235,6 +1352,7 @@ export function ApplyToBoqDialog({ candidates, selectedIds, onToggle, onSelectAl
 
   return (
     <div className="space-y-4">
+      {blockedNotice}
       <div>
         <div className="flex items-center justify-between mb-1.5">
           <h3 className="text-sm font-semibold">Ready to apply ({applyable.length})</h3>
@@ -1315,10 +1433,25 @@ export function ApplyToBoqDialog({ candidates, selectedIds, onToggle, onSelectAl
 
       <div className="flex items-center justify-end gap-2 pt-2 border-t">
         <span className="text-xs text-muted-foreground mr-auto">{selectedCount} selected</span>
-        <Button size="sm" disabled={selectedCount === 0 || applying} onClick={onApply}>
+        <Button size="sm" disabled={selectedCount === 0 || applying || !!blockedNotice} onClick={onApply}>
           {applying ? "Applying…" : `Apply ${selectedCount} to BOQ`}
         </Button>
       </div>
+    </div>
+  );
+}
+
+/** Why Apply is blocked: one line per source document that is not current,
+ *  plus the existing re-analysis entry point (the Import / AI analysis gate). */
+export function AnalysisFreshnessNotice({ freshness, onReanalyse }: { freshness: RunFreshness; onReanalyse: () => void }) {
+  const blocked = freshness.sources.filter((s) => s.state !== "current");
+  return (
+    <div role="alert" className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 space-y-1.5">
+      <p className="font-medium">Apply is blocked: this analysis does not match the current drawings.</p>
+      <ul className="list-disc pl-4 text-xs space-y-0.5">
+        {blocked.map((s) => <li key={s.documentId}>{describeSourceFreshness(s)}</li>)}
+      </ul>
+      <Button size="sm" variant="outline" onClick={onReanalyse}>Re-analyse current drawings</Button>
     </div>
   );
 }
@@ -1340,7 +1473,28 @@ export function ImportGate({ boqId, projectId, projectType, boqName, onImported,
   const doImport = async (analysis: AnalysisV1, resolvedDocumentId?: string | null) => {
     setBusy(true);
     try {
-      const { runId } = await createAnalysisRun({ boqId, projectId, analysis, source: "json_import", resolvedDocumentId: resolvedDocumentId ?? null });
+      // An analysis that states its source drawing (by SHA-256) is imported
+      // only against that exact stored revision, and records it as the run's
+      // source — never guessed, never imported without it.
+      let toImport = analysis;
+      let drawing: DrawingRevisionMatch | null = null;
+      if (analysis.sourceDrawing) {
+        if (!projectId) throw new Error("This BOQ has no project to match the analysed drawing against.");
+        const found = await findDrawingRevisionByHash(projectId, analysis.sourceDrawing.sha256);
+        if ("reason" in found) throw new Error(`Not imported: ${found.reason}`);
+        const attributed = attributeItemsToDrawing(analysis, found.match.documentId);
+        if ("reason" in attributed) throw new Error(`Not imported: ${attributed.reason}`);
+        toImport = attributed.analysis;
+        drawing = found.match;
+      }
+      const { runId } = await createAnalysisRun({ boqId, projectId, analysis: toImport, source: "json_import", resolvedDocumentId: resolvedDocumentId ?? null });
+      if (drawing && projectId) {
+        try {
+          await recordImportedRunSource({ runId, projectId, boqId, sha256: analysis.sourceDrawing!.sha256, match: drawing, extractor: analysis.sourceDrawing!.extractor });
+        } catch {
+          toast.error("Loaded, but the drawing source could not be recorded — Apply will stay blocked for this analysis.");
+        }
+      }
       const items = await loadReviewItems(runId);
       setPendingAnalysis(null);
       setDocumentSelectorState(null);
@@ -1354,6 +1508,15 @@ export function ImportGate({ boqId, projectId, projectType, boqName, onImported,
   const handleImportClick = async () => {
     const parsed = parseAnalysisV1(text);
     if (!parsed.ok || !parsed.analysis) return toast.error(parsed.error ?? "Invalid analysis JSON");
+
+    // An analysis that states its source drawing (SHA-256) is attributed by
+    // that hash in doImport — exactly one stored revision or nothing — never
+    // by a manual pick that could name a different drawing.
+    if (parsed.analysis.sourceDrawing) {
+      parsed.warnings.slice(0, 3).forEach((w) => toast.warning(w));
+      await doImport(parsed.analysis);
+      return;
+    }
 
     // Any item referencing a document (by id or filename) needs resolution
     // attempted — including when the project has no drawings uploaded yet:
@@ -1911,8 +2074,13 @@ export function ItemPanel({
 }
 
 // ── Right panel: resolve the real drawing, else fall back to the coord plot ────
-export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, selectedClaim, markers, onSelectMarker, markerContextLabel, identifyModeActive, onIdentifyPoint, identifyHighlight, similarMatches }: {
+export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, selectedClaim, markers, onSelectMarker, markerContextLabel, identifyModeActive, onIdentifyPoint, identifyHighlight, similarMatches, freshness, freshnessChecking }: {
   item: StoredReviewItem; drawings: StoredDrawing[]; resolvedDocumentId?: string | null; selectedClaim?: ClaimType | null;
+  /** Revision provenance for the resolved drawing (revisionFreshness.ts).
+   *  `drawings` should already show analysed revisions (drawingsAsAnalyzed);
+   *  this adds the visible notice for a superseded or unknown source. When
+   *  neither prop is given, nothing is shown (legacy callers). */
+  freshness?: RunFreshness; freshnessChecking?: boolean;
   markers?: DrawingMarker[]; onSelectMarker?: (id: string) => void; markerContextLabel?: string | null;
   /** Click-to-Identify (additive, backward compatible — see PdfEvidenceViewer's
    *  own prop doc). `onIdentifyPoint` here omits `documentId`; this component
@@ -1979,9 +2147,17 @@ export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, sel
   // Tailwind's grid-cols-N utilities only guard against that with an explicit
   // minmax(0, 1fr) track. See PdfEvidenceViewer's containerRef for the other
   // half of this fix.
+  const provenanceNotice = freshness !== undefined || freshnessChecking !== undefined
+    ? evidenceProvenanceNotice(resolved?.documentId, freshness, !!freshnessChecking)
+    : null;
+  const provenanceBanner = provenanceNotice
+    ? <div role="note" data-testid="evidence-provenance" className="mb-1 rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-900">{provenanceNotice}</div>
+    : null;
+
   if (resolved?.filePath) {
     return (
       <div className="min-w-0 lg:h-full">
+        {provenanceBanner}
         <PdfEvidenceViewer
           fileUrl={signed}
           source={item.ai.source}
@@ -2004,7 +2180,7 @@ export function ResolvedEvidenceViewer({ item, drawings, resolvedDocumentId, sel
 
   // Matched a document but it has no uploaded file, or nothing matched → keep the
   // existing page-coordinate plot / non-positional fallback (never fabricated).
-  return <EvidenceViewer item={item} />;
+  return provenanceBanner ? <div className="min-w-0">{provenanceBanner}<EvidenceViewer item={item} /></div> : <EvidenceViewer item={item} />;
 }
 
 // ── Right evidence viewer (page-coordinate plot fallback) ──────────────────────
