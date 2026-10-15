@@ -7,13 +7,15 @@
 // atomically without a new migration, so a failed audit insert is compensated:
 // the rate is put back (guarded on the new value), and the caller is told
 // exactly what happened — an unaudited change is never reported as success.
+// If the audit table doesn't exist on this database yet (migration
+// 20260921000000_boq_review_apply.sql not applied), nothing is written at all.
 //
 // Adoption history (boq_line_rate_adoption) is never touched. A line whose
 // custom_rate no longer equals its latest adopted rate is reported as
 // "changed after adoption"; the adoption record stays as history.
 
 import { applyManualRate } from "@/lib/applyFinding";
-import { db } from "@/lib/untypedDb";
+import { db, isMissingTable } from "@/lib/untypedDb";
 
 export interface RateEditLine {
   id: string;
@@ -48,6 +50,8 @@ export function adoptionStateFor(line: Pick<RateEditLine, "id" | "custom_rate">,
 export type ManualRateResult =
   | { status: "applied" }
   | { status: "conflict" }
+  /** The audit table isn't on this database yet; nothing was written. */
+  | { status: "audit_unavailable" }
   /** The rate was written but its audit row wasn't; `reverted` says whether the rate was put back. */
   | { status: "audit_failed"; reverted: boolean; message: string };
 
@@ -58,6 +62,11 @@ export async function applyManualRateEdit(args: {
   changedBy: string | null;
 }): Promise<ManualRateResult> {
   const { line, newRate } = args;
+  // Read-only check first, so a database without audit history never sees an
+  // unaudited write (not even one that would be reverted).
+  const probe = await db.from("boq_line_change_log").select("id").limit(0);
+  if (isMissingTable("boq_line_change_log", probe.error)) return { status: "audit_unavailable" };
+
   const ok = await applyManualRate(line.id, newRate, { custom_rate: line.custom_rate, dsr_rate: line.dsr_rate, unit: line.unit });
   if (!ok) return { status: "conflict" };
 
@@ -85,6 +94,7 @@ const fmt = (n: number | null) => (n == null ? "the DSR rate" : "₹" + n.toLoca
 /** The user-facing outcome of a non-successful edit. */
 export function manualRateFailureMessage(r: Exclude<ManualRateResult, { status: "applied" }>, newRate: number | null): string {
   if (r.status === "conflict") return "This line's rate was changed elsewhere since you opened it — nothing was saved. The current rate is shown.";
+  if (r.status === "audit_unavailable") return "Rate not changed: rate edits are audited, and audit history is not set up on this database yet (migration 20260921000000_boq_review_apply.sql has not been applied). Nothing was saved.";
   return r.reverted
     ? `Rate not changed: its audit record couldn't be saved (${r.message}). The previous rate was kept.`
     : `The rate was changed to ${fmt(newRate)} but its audit record couldn't be saved (${r.message}), and restoring the previous rate failed. Check this line.`;

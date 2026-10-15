@@ -5,6 +5,8 @@ const io = vi.hoisted(() => ({
   results: [] as (boolean | Error)[],
   inserts: [] as { table: string; payload: Record<string, unknown> }[],
   insertError: null as null | { message: string },
+  probes: [] as string[],
+  probeError: null as null | { message: string; code?: string },
 }));
 vi.mock("@/lib/applyFinding", () => ({
   applyManualRate: (...args: unknown[]) => {
@@ -13,8 +15,12 @@ vi.mock("@/lib/applyFinding", () => ({
     return r instanceof Error ? Promise.reject(r) : Promise.resolve(r);
   },
 }));
-vi.mock("@/lib/untypedDb", () => ({
-  db: { from: (table: string) => ({ insert: (payload: Record<string, unknown>) => { io.inserts.push({ table, payload }); return Promise.resolve({ data: null, error: io.insertError }); } }) },
+vi.mock("@/lib/untypedDb", async (importOriginal) => ({
+  isMissingTable: (await importOriginal<typeof import("@/lib/untypedDb")>()).isMissingTable,
+  db: { from: (table: string) => ({
+    insert: (payload: Record<string, unknown>) => { io.inserts.push({ table, payload }); return Promise.resolve({ data: null, error: io.insertError }); },
+    select: () => ({ limit: () => { io.probes.push(table); return Promise.resolve({ data: [], error: io.probeError }); } }),
+  }) },
 }));
 
 import { adoptionStateFor, applyManualRateEdit, manualRateFailureMessage, type AdoptionSummary } from "./manualRateEdit";
@@ -22,7 +28,7 @@ import { adoptionStateFor, applyManualRateEdit, manualRateFailureMessage, type A
 const LINE = { id: "l1", custom_rate: 1150, dsr_rate: 900, unit: "sqm" };
 const edit = (newRate: number | null = 1200) => applyManualRateEdit({ boqId: "boq-1", line: LINE, newRate, changedBy: "user-1" });
 
-beforeEach(() => { io.writes = []; io.results = []; io.inserts = []; io.insertError = null; });
+beforeEach(() => { io.writes = []; io.results = []; io.inserts = []; io.insertError = null; io.probes = []; io.probeError = null; });
 
 describe("applyManualRateEdit", () => {
   it("writes the rate through the guarded update, then logs before/after with actor", async () => {
@@ -31,6 +37,31 @@ describe("applyManualRateEdit", () => {
     expect(io.inserts).toEqual([{ table: "boq_line_change_log", payload: {
       boq_id: "boq-1", boq_line_id: "l1", review_item_id: null, field: "custom_rate", old_value: "1150", new_value: "1200", changed_by: "user-1",
     } }]);
+  });
+
+  it("checks the audit table (read-only) before writing anything", async () => {
+    await edit();
+    expect(io.probes).toEqual(["boq_line_change_log"]);
+  });
+
+  it.each([
+    ["PostgREST schema cache", { code: "PGRST205", message: "Could not find the table 'public.boq_line_change_log' in the schema cache" }],
+    ["Postgres undefined table", { code: "42P01", message: 'relation "public.boq_line_change_log" does not exist' }],
+  ])("writes NOTHING when the audit table is missing (%s) and says why", async (_n, err) => {
+    io.probeError = err;
+    const r = await edit();
+    expect(r).toEqual({ status: "audit_unavailable" });
+    expect(io.writes).toHaveLength(0);
+    expect(io.inserts).toHaveLength(0);
+    expect(manualRateFailureMessage(r as Exclude<typeof r, { status: "applied" }>, 1200))
+      .toBe("Rate not changed: rate edits are audited, and audit history is not set up on this database yet (migration 20260921000000_boq_review_apply.sql has not been applied). Nothing was saved.");
+  });
+
+  it("any other probe error falls through to the guarded write + audit path (never a silent unaudited save)", async () => {
+    io.probeError = { message: "network" };
+    io.insertError = { message: "network" };
+    io.results = [true, true];
+    await expect(edit()).resolves.toEqual({ status: "audit_failed", reverted: true, message: "network" });
   });
 
   it("logs clearing the override (back to the DSR rate) as new_value null", async () => {
