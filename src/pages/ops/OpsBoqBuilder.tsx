@@ -4,15 +4,16 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { disciplineByKey } from "@/lib/disciplines";
 import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
-import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, roundRupee, incompleteScopeNotice } from "@/lib/boqDsrDocument";
+import { openDsrQuote, downloadCsv, roundRupee, incompleteScopeNotice } from "@/lib/boqDsrDocument";
 import { buildWorkPackages, buildWorkPackageCsv } from "@/lib/workPackages";
 import { DRAWING_REVIEW_SECTION } from "@/lib/applyFinding";
 import { db } from "@/lib/untypedDb";
-import { buildRevisionLines, csvRowsFrom, pendingItemsFrom, qtyPending, quoteSubheadsFrom, type RevisionQuoteContext, type WorkingSubhead } from "@/lib/boqRevision";
+import { buildRevisionLines, qtyPending, type RevisionQuoteContext, type WorkingSubhead } from "@/lib/boqRevision";
 import { openIntakeForm } from "@/lib/boqIntakeForm";
 import { sanityForCode, countFlagged } from "@/lib/boqSanity";
 import { parseBoqEvalJson, evalLinesToRows, pendingCount, PENDING_BASIS } from "@/lib/boqEvalJson";
 import { quantityEditPatch } from "@/lib/quantityEdit";
+import { commercialsFor, effRate, groupSubheads as groupSubheadsOf, includedTotal, lineAmount, liveCsv, liveFileStem, liveQuotePayload, quoteContextFor, workingSubheadsFrom } from "@/lib/boqLiveExport";
 import { loadProjectDrawings, resolveDrawingSource } from "@/lib/review/drawingStorage";
 import { latestRunForBoq, loadReviewItems } from "@/lib/review/reviewStore";
 import BoqDocumentsPanel from "@/components/ops/BoqDocumentsPanel";
@@ -57,12 +58,7 @@ interface BoqLine {
   scope_id?: string | null;
 }
 
-/** The rate in effect: the estimator's case-specific override, else the DSR reference. */
-const effRate = (l: BoqLine) => l.custom_rate ?? l.dsr_rate;
-/** A single line's amount in whole rupees (0 when unrated, or when its quantity is
- *  still pending — see qtyPending). All money aggregates are sums of THIS value so
- *  the printed figures add up exactly (see roundRupee). */
-const lineAmount = (l: BoqLine) => (qtyPending(l) ? 0 : roundRupee(l.qty * (effRate(l) ?? 0)));
+// effRate / lineAmount: see lib/boqLiveExport (shared with the project journey's Export step).
 /** The amount to display for one line: "—" when unrated or quantity-pending. */
 const lineAmountText = (l: BoqLine, rate: number | null) => (rate != null && !qtyPending(l) ? inr(l.qty * rate) : "—");
 
@@ -230,14 +226,7 @@ export default function OpsBoqBuilder() {
     const { data } = await supabase.from("boq").select("spec").eq("id", id).single();
     return (data?.spec ?? {}) as Spec;
   };
-  const commercialsOf = (ls: BoqLine[], sp: Spec) => {
-    const works = ls.filter((l) => l.included).reduce((s, l) => s + lineAmount(l), 0);
-    const pct = (k: string, d: number) => Number(sp[k] ?? d);
-    return computeCommercials(works, {
-      costIndexPct: pct("_cost_index_pct", 0), contingencyPct: pct("_contingency_pct", 3),
-      overheadPct: pct("_overhead_pct", 15), cessPct: pct("_cess_pct", 1), gstPct: pct("_gst_pct", 18),
-    });
-  };
+  const commercialsOf = (ls: BoqLine[], sp: Spec) => commercialsFor(includedTotal(ls), sp);
   const grandOf = (ls: BoqLine[], sp: Spec) => commercialsOf(ls, sp).grandTotal;
   const setSpecKeys = async (patch: Spec): Promise<Spec> => {
     const newSpec = { ...(await fetchSpecNow()), ...patch };
@@ -550,35 +539,13 @@ export default function OpsBoqBuilder() {
     });
   };
 
-  const sumIncl = (ls: BoqLine[]) => ls.filter((l) => l.included).reduce((s, l) => s + lineAmount(l), 0);
-
   // Group by DSR sub-head (type of work), ordered by chapter number — which is also
   // the construction sequence. Each sub-head gets a number; items within are numbered
   // <sub-head>.01, .02 … like a real tender BOQ. NS/uncoded lines last.
   // Sub-head grouping/numbering for any line set (the rendered lines, or lines
   // freshly re-read for a commercial revision).
-  const groupSubheads = (source: BoqLine[]) => {
-    const groups = new Map<string, BoqLine[]>();
-    for (const l of source) {
-      const sec = l.section ?? "Other";
-      if (!groups.has(sec)) groups.set(sec, []);
-      groups.get(sec)!.push(l);
-    }
-    const chapterNo = (ls: BoqLine[]) => {
-      const coded = ls.find((l) => l.dsr_code);
-      return coded ? parseInt(coded.dsr_code!.split(".")[0], 10) || 900 : 999;  // uncoded/NS last
-    };
-    return [...groups.entries()]
-      .sort((a, b) => chapterNo(a[1]) - chapterNo(b[1]) || a[0].localeCompare(b[0]))
-      .map(([name, ls], gi) => {
-        const no = gi + 1;
-        let item = 0;
-        const rows = ls.map((l) => ({ line: l, no: `${no}.${String(++item).padStart(2, "0")}` }));
-        return { no, name, rows, subtotal: sumIncl(ls) };
-      });
-  };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- groupSubheads is a pure function of `lines`
-  const bySubhead = useMemo(() => groupSubheads(lines), [lines]);
+  const groupSubheads = (source: BoqLine[]) => groupSubheadsOf(source);
+  const bySubhead = useMemo(() => groupSubheadsOf(lines), [lines]);
 
   const total = useMemo(() =>
     lines.filter((l) => l.included).reduce((sum, l) => sum + lineAmount(l), 0),
@@ -602,16 +569,7 @@ export default function OpsBoqBuilder() {
   // Commercials (cost index, contingency, overhead, cess, GST) live in boq.spec so
   // no migration is needed. Defaults follow common CPWD practice.
   const spec = useMemo(() => (boq?.spec ?? {}) as Spec, [boq?.spec]);
-  const commercials = useMemo(() => {
-    const pct = (k: string, d: number) => Number(spec[k] ?? d);
-    return computeCommercials(total, {
-      costIndexPct: pct("_cost_index_pct", 0),
-      contingencyPct: pct("_contingency_pct", 3),
-      overheadPct: pct("_overhead_pct", 15),
-      cessPct: pct("_cess_pct", 1),
-      gstPct: pct("_gst_pct", 18),
-    });
-  }, [total, spec]);
+  const commercials = useMemo(() => commercialsFor(total, spec), [total, spec]);
   const displayGrand = useCountUp(commercials.grandTotal);
   const netDelta = firstTotal != null ? commercials.grandTotal - firstTotal : 0;
 
@@ -649,57 +607,21 @@ export default function OpsBoqBuilder() {
   // single input to the live exports AND to a frozen commercial revision
   // (lib/boqRevision), so a revision exports exactly what the live export
   // produced when it was frozen.
-  const workingSubheads = (groups = bySubhead): WorkingSubhead[] => groups.map((sh) => ({
-    no: sh.no, name: sh.name,
-    rows: sh.rows.map(({ line, no }) => ({
-      line, no, source: { ...resolveLineSource(line), sourceDocumentId: line.source_document_id ?? null },
-    })),
-  }));
+  const workingSubheads = (groups = bySubhead): WorkingSubhead[] => workingSubheadsFrom(groups, resolveLineSource);
 
-  // Pricing basis. Private projects are the default: rates are the operator's own
-  // (entered per line / quoted separately) — so the document must NOT claim a
-  // Delhi-Schedule-of-Rates basis. Only when the operator has explicitly selected
-  // DSR pricing (spec._pricing_basis === "dsr") do we stamp "Basis: DSR <year>".
-  const quoteContext = (sp: Spec = spec): RevisionQuoteContext => {
-    const useDsrBasis = String(sp._pricing_basis ?? "").toLowerCase() === "dsr";
-    return {
-      projectName: project?.name, clientName: project?.client_name, location: project?.location,
-      builtUpSqft: project?.area_sqft, floors: project?.floors, projectType: project?.project_type,
-      flatsPerFloor: Number(sp._flats_per_floor ?? sp.flats_per_floor) || null,
-      firmName: String(sp._firm_name ?? "").trim() || null,
-      firmTagline: String(sp._firm_tagline ?? "").trim() || null,
-      rateYear: useDsrBasis ? "2023" : null,
-    };
-  };
+  // Pricing basis: see quoteContextFor (lib/boqLiveExport).
+  const quoteContext = (sp: Spec = spec): RevisionQuoteContext => quoteContextFor(project, sp);
 
+  // See lib/boqLiveExport for what the live export includes (and why).
   const exportQuote = (blankRates = false, autoPrint = false) => {
-    // THE BOQ IS ORGANISED AROUND QUANTITY, NOT AROUND WHETHER A RATE EXISTS. Any
-    // included line with a defensible quantity is a first-class BOQ line — priced or
-    // not. A missing rate leaves Rate/Amount blank ("—"); it never hides the line.
-    // The priced subtotal counts only rated lines (lineAmount is 0 when unrated), so
-    // the abstract stays honest. (See quoteSubheadsFrom.)
-    // Included lines with no established quantity are listed in the document's
-    // pending section — never as a measured 0, never silently dropped.
-    const revisionLines = buildRevisionLines(workingSubheads());
-    const subheads = quoteSubheadsFrom(revisionLines);
-    const pendingItems = pendingItemsFrom(revisionLines);
+    const payload = liveQuotePayload({
+      boqName: boq!.name, context: quoteContext(), generatedOn: gen(), blankRates,
+      subheads: workingSubheads(), commercials, unresolvedReviewCount,
+    });
     // Every line can be excluded; same guard as exportExcel, so the user gets
     // feedback instead of a blank document. A pending-only BOQ still exports.
-    if (!subheads.length && !pendingItems.length) return toast.error("Nothing to export yet");
-
-    const ok = openDsrQuote({
-      boqName: boq!.name,
-      ...quoteContext(),
-      generatedOn: gen(), blankRates,
-      subheads,
-      abstract: subheads.map((sh) => ({ no: sh.no, name: sh.name, amount: sh.subtotal })),
-      commercials,
-      pendingItems,
-      drawingItems: [],
-      excludedItems: [],
-      unresolvedReviewCount,
-    }, { autoPrint });
-    if (!ok) toast.error("Allow pop-ups to export");
+    if (!payload) return toast.error("Nothing to export yet");
+    if (!openDsrQuote(payload, { autoPrint })) toast.error("Allow pop-ups to export");
   };
 
   const printIntake = (blank: boolean) => {
@@ -713,11 +635,9 @@ export default function OpsBoqBuilder() {
   };
 
   const exportExcel = () => {
-    const revisionLines = buildRevisionLines(workingSubheads());
-    const rows = csvRowsFrom(revisionLines);
-    const pending = pendingItemsFrom(revisionLines);
-    if (!rows.length && !pending.length) return toast.error("Nothing to export yet");
-    downloadCsv(`${boq!.name.replace(/[^\w]+/g, "_")}_BOQ.csv`, buildBoqCsv(rows, { boqName: boq!.name, project: project?.name, generatedOn: gen(), unresolvedReviewCount }, pending));
+    const csv = liveCsv({ boqName: boq!.name, projectName: project?.name, generatedOn: gen(), subheads: workingSubheads(), unresolvedReviewCount });
+    if (!csv) return toast.error("Nothing to export yet");
+    downloadCsv(`${liveFileStem(boq!.name)}_BOQ.csv`, csv);
   };
 
   // Contractor work packages: the same lines, grouped by trade then location,
