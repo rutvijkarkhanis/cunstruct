@@ -590,7 +590,11 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
           whatever the flex parent (Shell, h-full) leaves after the compact
           identity/toolbar row above; on mobile it keeps its own viewport-
           relative height since there's no fixed-height ancestor to fill. */}
-      <div ref={containerRef} className="relative overflow-auto w-full max-w-full min-w-0 h-[60vh] min-h-[360px] max-h-[72vh] lg:h-auto lg:flex-1 lg:min-h-0 lg:max-h-none">
+      {/* A scrollable region must be keyboard-reachable (axe:
+          scrollable-region-focusable): the canvas inside has nothing
+          focusable, so the container itself takes focus and a name. */}
+      <div ref={containerRef} tabIndex={0} role="region" aria-label={documentName ? `Drawing: ${documentName}` : "Drawing"}
+        className="relative overflow-auto w-full max-w-full min-w-0 h-[60vh] min-h-[360px] max-h-[72vh] lg:h-auto lg:flex-1 lg:min-h-0 lg:max-h-none focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
         {status === "loading" && <div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>}
         {status === "error" && (
           <div className="absolute inset-0 flex items-center justify-center p-4">
