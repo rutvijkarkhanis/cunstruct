@@ -56,6 +56,7 @@ const ProjectShell = lazy(() => import("./components/app/ProjectShell.tsx"));
 const ProjectOverview = lazy(() => import("./pages/app/ProjectOverview.tsx"));
 const ProjectDrawings = lazy(() => import("./pages/app/ProjectDrawings.tsx"));
 const ProjectBoq = lazy(() => import("./pages/app/ProjectBoq.tsx"));
+const ProjectExport = lazy(() => import("./pages/app/ProjectExport.tsx"));
 
 // ── Public, unauthenticated share link (reachable on EITHER subdomain) ──────
 const PublicWorkspaceShare = lazy(() => import("./pages/PublicWorkspaceShare.tsx"));
@@ -195,6 +196,7 @@ function AppRoutes() {
           <Route path="overview" element={<ProjectOverview />} />
           <Route path="drawings" element={<ProjectDrawings />} />
           <Route path="boq" element={<ProjectBoq />} />
+          <Route path="export" element={<ProjectExport />} />
           <Route path="*" element={<p className="text-sm text-muted-foreground">This step is not available.</p>} />
         </Route>
       </Route>

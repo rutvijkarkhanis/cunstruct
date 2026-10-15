@@ -11,23 +11,13 @@ import { AlertTriangle, ExternalLink, Undo2 } from "lucide-react";
 import { db } from "@/lib/untypedDb";
 import { loadProjectDrawings, resolveDrawingSource } from "@/lib/review/drawingStorage";
 import { boqTotals, incompleteWarning, inversePatch, pageParam, type BoqTableLine } from "@/lib/app/boqTable";
+import { appBoqLinesKey, loadAppBoqLines } from "@/lib/app/boqLines";
 import { useProjectShell } from "@/components/app/projectShellContext";
 import { useSelectedBoq } from "@/components/app/useSelectedBoq";
 import BoqPicker from "@/components/app/BoqPicker";
 import BoqTable, { type LineSource } from "@/components/app/BoqTable";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-
-const LINE_COLS = "id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, basis, quantity_status, measurement_method, included, sort, source_document_id, source_page";
-const LINE_COLS_BASE = "id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, included, sort";
-const missingCol = (msg?: string) => !!msg && /\b(basis|quantity_status|measurement_method|source_document_id|source_page)\b|schema cache|could not find|does not exist/i.test(msg);
-
-async function loadBoqTableLines(boqId: string): Promise<BoqTableLine[]> {
-  let r = await db.from("boq_line").select(LINE_COLS).eq("boq_id", boqId).order("sort");
-  if (r.error && missingCol(r.error.message)) r = await db.from("boq_line").select(LINE_COLS_BASE).eq("boq_id", boqId).order("sort");
-  if (r.error) throw r.error;
-  return (r.data ?? []) as BoqTableLine[];
-}
 
 interface UndoEntry { lineId: string; label: string; undo: Partial<BoqTableLine> }
 
@@ -50,13 +40,13 @@ export default function ProjectBoq() {
   // Undo is per BOQ: switching BOQs starts a fresh history.
   useEffect(() => { setHistory([]); }, [boqId]);
 
-  const linesQ = useQuery({ queryKey: ["app-boq-lines", boqId], enabled: !!boqId, queryFn: () => loadBoqTableLines(boqId!) });
+  const linesQ = useQuery({ queryKey: appBoqLinesKey(boqId), enabled: !!boqId, queryFn: () => loadAppBoqLines(boqId!) });
   // Same key + loader as the BOQ builder's source badge, so the two share one fetch.
   const drawingsQ = useQuery({ queryKey: ["boq-drawings", projectId], queryFn: () => loadProjectDrawings(projectId) });
   const drawingsById = useMemo(() => new Map((drawingsQ.data ?? []).map((d) => [d.documentId, d])), [drawingsQ.data]);
 
   const refresh = useCallback(() => {
-    qc.invalidateQueries({ queryKey: ["app-boq-lines", boqId] });
+    qc.invalidateQueries({ queryKey: appBoqLinesKey(boqId) });
     qc.invalidateQueries({ queryKey: ["boq-lines", boqId] }); // the builder's cache of the same rows
   }, [qc, boqId]);
 
