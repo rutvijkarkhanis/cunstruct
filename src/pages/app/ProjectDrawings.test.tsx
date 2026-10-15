@@ -16,7 +16,7 @@ vi.mock("@/components/ops/workspace/WorkspaceSources", () => ({
   default: ({ onSelectDocument }: { onSelectDocument: (id: string) => void }) => <button onClick={() => onSelectDocument("d1")}>Ground Floor Plan</button>,
 }));
 vi.mock("@/components/ops/workspace/WorkspaceCanvas", () => ({
-  default: ({ documentId }: { documentId: string | null }) => <div data-testid="canvas">{documentId ?? "none"}</div>,
+  default: ({ documentId, page }: { documentId: string | null; page: number | null }) => <div data-testid="canvas">{documentId ?? "none"}{page ? ` p${page}` : ""}</div>,
 }));
 vi.mock("@/components/ops/workspace/WorkspaceSourceManager", () => ({
   default: ({ open }: { open: boolean }) => (open ? <div role="dialog" aria-label="Manage sources" /> : null),
@@ -39,6 +39,11 @@ describe("ProjectDrawings", () => {
     expect(screen.getByText("Rev A")).toBeInTheDocument();
     expect(screen.queryByText(/Rev Rev/)).toBeNull();
     expect(screen.getByText("· 3 pages")).toBeInTheDocument();
+  });
+
+  it("opens a BOQ source link on its page", () => {
+    render(<MemoryRouter initialEntries={["/x?document=d1&page=3"]}><ProjectDrawings /></MemoryRouter>);
+    expect(screen.getByTestId("canvas")).toHaveTextContent("d1 p3");
   });
 
   it("opens the existing upload/manage drawer", () => {

@@ -18,6 +18,8 @@ export default function ProjectDrawings() {
   const { projectId } = useProjectShell();
   const [params, setParams] = useSearchParams();
   const documentId = params.get("document");
+  // Seeds the viewer's first page (e.g. from a BOQ line's source link).
+  const page = Number(params.get("page")) || null;
   const [managerOpen, setManagerOpen] = useState(false);
   const viewerRef = useRef<HTMLElement>(null);
 
@@ -31,6 +33,7 @@ export default function ProjectDrawings() {
   const select = (id: string) => {
     const next = new URLSearchParams(params);
     next.set("document", id);
+    next.delete("page");
     setParams(next, { replace: true });
   };
   // On narrow screens the viewer sits below the list: bring it into view.
@@ -60,7 +63,7 @@ export default function ProjectDrawings() {
             </div>
           )}
           <div className="flex-1 min-h-[360px] flex min-w-0">
-            <WorkspaceCanvas documentId={documentId} page={null} />
+            <WorkspaceCanvas key={`${documentId}:${page}`} documentId={documentId} page={page} />
           </div>
         </section>
       </div>
