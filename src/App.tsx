@@ -49,6 +49,11 @@ const OpsBoqBuilder = lazy(() => import("./pages/ops/OpsBoqBuilder.tsx"));
 const BoqReviewWorkstation = lazy(() => import("./pages/ops/BoqReviewWorkstation.tsx"));
 const BoqDsrMapping = lazy(() => import("./pages/ops/BoqDsrMapping.tsx"));
 
+// ── Project journey (staff): Projects → Overview → Drawings → BOQ → Export ──
+const AppLayout = lazy(() => import("./components/app/AppLayout.tsx"));
+const AppProjects = lazy(() => import("./pages/app/AppProjects.tsx"));
+const ProjectShell = lazy(() => import("./components/app/ProjectShell.tsx"));
+
 // ── Public, unauthenticated share link (reachable on EITHER subdomain) ──────
 const PublicWorkspaceShare = lazy(() => import("./pages/PublicWorkspaceShare.tsx"));
 
@@ -114,6 +119,8 @@ function StorefrontRoutes() {
       <Route path="/contractor/*" element={<CrossDomainRedirect base={app} />} />
       <Route path="/ops/*" element={<CrossDomainRedirect base={app} />} />
       <Route path="/ops" element={<CrossDomainRedirect base={app} />} />
+      <Route path="/app" element={<CrossDomainRedirect base={app} />} />
+      <Route path="/app/*" element={<CrossDomainRedirect base={app} />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
@@ -176,6 +183,14 @@ function AppRoutes() {
         <Route path="boq" element={<OpsBoqList />} />
         <Route path="boq/:id" element={<OpsBoqBuilder />} />
         <Route path="boq/:id/dsr-mapping" element={<BoqDsrMapping />} />
+      </Route>
+      <Route path="/app" element={<AppLayout />}>
+        <Route index element={<Navigate to="projects" replace />} />
+        <Route path="projects" element={<AppProjects />} />
+        <Route path="projects/:id" element={<ProjectShell />}>
+          <Route index element={<Navigate to="overview" replace />} />
+          <Route path="*" element={<p className="text-sm text-muted-foreground">This step is not available.</p>} />
+        </Route>
       </Route>
       {/* Anything else (storefront paths) → back to the main domain */}
       <Route path="*" element={<CrossDomainRedirect base={main} />} />

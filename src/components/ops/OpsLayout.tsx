@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
+import { Link, NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import {
   LogOut,
   Menu,
   X,
+  FolderKanban,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -168,6 +169,11 @@ export default function OpsLayout() {
           ))}
         </nav>
         <div className="p-3 border-t space-y-2">
+          {/* Entry into the step-by-step project journey (/app). */}
+          <Link to="/app/projects" onClick={() => setNavOpen(false)}
+            className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium border hover:bg-accent">
+            <FolderKanban className="w-4 h-4" aria-hidden="true" /> Project journey
+          </Link>
           <div className="text-xs text-muted-foreground truncate">{user.email}</div>
           <Button variant="outline" size="sm" className="w-full" onClick={signOut}>
             <LogOut className="w-3 h-3 mr-1" /> Sign out
