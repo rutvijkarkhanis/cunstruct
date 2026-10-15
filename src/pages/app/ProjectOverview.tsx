@@ -3,7 +3,7 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRight, FileText, ListChecks } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/untypedDb";
 import { useProjectBoqs } from "@/hooks/useProjectBoqs";
 import { loadProjectDrawings } from "@/lib/review/drawingStorage";
 import { latestRunForBoq, loadReviewItems } from "@/lib/review/reviewStore";
@@ -16,11 +16,11 @@ const LINE_COLS_BASE = "boq_id, qty, dsr_rate, custom_rate, included";
 
 async function loadOverviewLines(boqIds: string[]): Promise<OverviewLine[]> {
   if (!boqIds.length) return [];
-  let r = await supabase.from("boq_line").select(LINE_COLS).in("boq_id", boqIds);
+  let r = await db.from("boq_line").select(LINE_COLS).in("boq_id", boqIds);
   // Same stale-schema fallback as the BOQ builder: older deployments lack the
   // provenance columns; lines are still counted, never dropped.
   if (r.error && /quantity_status|source_document_id|schema cache|does not exist/i.test(r.error.message)) {
-    r = await supabase.from("boq_line").select(LINE_COLS_BASE).in("boq_id", boqIds);
+    r = await db.from("boq_line").select(LINE_COLS_BASE).in("boq_id", boqIds);
   }
   if (r.error) throw r.error;
   return (r.data ?? []) as OverviewLine[];

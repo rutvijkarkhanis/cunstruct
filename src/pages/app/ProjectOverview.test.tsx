@@ -18,8 +18,8 @@ vi.mock("@/lib/review/reviewStore", () => ({
   loadReviewItems: async (runId: string) => reviewStatuses[runId.replace("run-", "")].map((s) => ({ reviewStatus: s })),
 }));
 let lines: unknown[] = [];
-vi.mock("@/integrations/supabase/client", () => ({
-  supabase: { from: () => ({ select: () => ({ in: async () => ({ data: lines, error: null }) }) }) },
+vi.mock("@/lib/untypedDb", () => ({
+  db: { from: () => ({ select: () => ({ in: async () => ({ data: lines, error: null }) }) }) },
 }));
 
 const renderIt = () => render(
