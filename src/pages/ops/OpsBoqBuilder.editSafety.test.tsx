@@ -151,6 +151,13 @@ describe("OpsBoqBuilder — edit safety", () => {
     expect(await screen.findByText("Vitrified tiles")).toBeInTheDocument();
   });
 
+  it("labels the headline total without repeating 'works'", async () => {
+    renderBoqBuilder();
+    await screen.findByText("Vitrified tiles");
+    expect(screen.queryByText(/works works/i)).toBeNull();
+    expect(screen.getAllByText("Civil works").length).toBeGreaterThan(0);
+  });
+
   it("names every line control for assistive technology", async () => {
     renderBoqBuilder();
     await screen.findByText("Vitrified tiles");

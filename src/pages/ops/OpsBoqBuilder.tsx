@@ -727,7 +727,8 @@ export default function OpsBoqBuilder() {
   const TotalSummary = ({ align }: { align: "left" | "right" }) => (
     <div className={align === "right" ? "text-right min-w-[11rem]" : "text-left"}>
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-        {disciplineByKey(boq.discipline).name} works
+        {/* "Civil Works" already says works — never "Civil Works works". */}
+        {disciplineByKey(boq.discipline).name.replace(/\s+works$/i, "")} works
       </div>
       <div className="text-2xl md:text-3xl font-semibold tabular-nums leading-tight">{inr(displayGrand)}</div>
       {(() => {

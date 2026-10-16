@@ -22,6 +22,16 @@ describe("groupSubheads", () => {
   });
 });
 
+describe("subhead names", () => {
+  it("never prints the internal review section as a sub-head", () => {
+    const g = groupSubheads([L({ id: "r", section: "Drawing review — added", dsr_code: null }), L({ id: "b" })]);
+    expect(g.map((s) => s.name)).toEqual(["Brickwork", "Unassigned"]);
+    const csv = liveCsv({ boqName: "B", projectName: null, generatedOn: "", unresolvedReviewCount: 0, subheads: workingSubheadsFrom(g, noSource) })!;
+    expect(csv).not.toContain("Drawing review");
+    expect(csv).toContain("Unassigned");
+  });
+});
+
 describe("commercialsFor / quoteContextFor", () => {
   it("applies CPWD-style defaults when the spec sets none", () => {
     const c = commercialsFor(100000, {});

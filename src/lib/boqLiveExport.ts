@@ -15,6 +15,7 @@ import {
   type RevisionQuoteContext, type WorkingLine, type WorkingSubhead,
 } from "@/lib/boqRevision";
 import type { Spec } from "@/lib/boqSpec";
+import { DRAWING_REVIEW_SECTION } from "@/lib/applyFinding";
 
 type RatedLine = Pick<WorkingLine, "qty" | "dsr_rate" | "custom_rate" | "quantity_status">;
 
@@ -26,6 +27,11 @@ export const effRate = (l: Pick<WorkingLine, "dsr_rate" | "custom_rate">) => l.c
 export const lineAmount = (l: RatedLine) => (qtyPending(l) ? 0 : roundRupee(l.qty * (effRate(l) ?? 0)));
 export const includedTotal = (ls: (RatedLine & { included: boolean })[]) =>
   ls.filter((l) => l.included).reduce((s, l) => s + lineAmount(l), 0);
+
+/** The sub-head title shown in the editor and printed on exports. Apply
+ *  files new review lines under an internal section (DRAWING_REVIEW_SECTION)
+ *  — a storage detail that must not reach a client document. */
+export const subheadName = (section: string) => (section === DRAWING_REVIEW_SECTION ? "Unassigned" : section);
 
 export interface SubheadGroup<L> { no: number; name: string; rows: { line: L; no: string }[]; subtotal: number }
 
@@ -45,11 +51,11 @@ export function groupSubheads<L extends WorkingLine>(source: L[]): SubheadGroup<
   };
   return [...groups.entries()]
     .sort((a, b) => chapterNo(a[1]) - chapterNo(b[1]) || a[0].localeCompare(b[0]))
-    .map(([name, ls], gi) => {
+    .map(([section, ls], gi) => {
       const no = gi + 1;
       let item = 0;
       const rows = ls.map((l) => ({ line: l, no: `${no}.${String(++item).padStart(2, "0")}` }));
-      return { no, name, rows, subtotal: includedTotal(ls) };
+      return { no, name: subheadName(section), rows, subtotal: includedTotal(ls) };
     });
 }
 
