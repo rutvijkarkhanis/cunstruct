@@ -9,6 +9,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AlertTriangle, ExternalLink, Undo2 } from "lucide-react";
 import { db } from "@/lib/untypedDb";
+import { saveErrorMessage } from "@/lib/saveError";
 import { loadProjectDrawings, resolveDrawingSource } from "@/lib/review/drawingStorage";
 import { boqTotals, incompleteWarning, inversePatch, pageParam, type BoqTableLine } from "@/lib/app/boqTable";
 import { appBoqLinesKey, loadAppBoqLines } from "@/lib/app/boqLines";
@@ -62,7 +63,7 @@ export default function ProjectBoq() {
 
   const save = useCallback(async (line: BoqTableLine, patch: Partial<BoqTableLine>) => {
     const { error } = await db.from("boq_line").update(patch).eq("id", line.id);
-    if (error) { toast.error(`Not saved: ${error.message}`); return false; }
+    if (error) { toast.error(`Not saved — ${saveErrorMessage(error)}`); return false; }
     const label = describeEdit(line, patch);
     setHistory((h) => [...h, { lineId: line.id, label, undo: inversePatch(line, patch) }]);
     setAnnouncement(`Saved. ${label}`);
@@ -77,7 +78,7 @@ export default function ProjectBoq() {
     const { error } = await db.from("boq_line").update(last.undo).eq("id", last.lineId);
     setUndoing(false);
     // A failed undo keeps the entry so it can be retried; nothing is assumed reverted.
-    if (error) { toast.error(`Undo failed: ${error.message}`); return; }
+    if (error) { toast.error(`Undo failed — ${saveErrorMessage(error)}`); return; }
     setHistory((h) => h.slice(0, -1));
     setAnnouncement(`Undone. ${last.label}`);
     refresh();

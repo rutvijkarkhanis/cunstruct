@@ -105,7 +105,7 @@ describe("ProjectBoq", () => {
     renderPage();
     failNextUpdate = "permission denied";
     await editQty("Brick wall", "12");
-    expect(toastError).toHaveBeenCalledWith("Not saved: permission denied");
+    expect(toastError).toHaveBeenCalledWith("Not saved — you don't have permission to change this. Ask an admin if you should.");
     expect(updates).toHaveLength(0);
     expect(screen.getByRole("button", { name: "Undo (nothing to undo)" })).toBeDisabled();
   });
@@ -113,9 +113,9 @@ describe("ProjectBoq", () => {
   it("keeps the undo entry when the undo write fails", async () => {
     renderPage();
     await editQty("Brick wall", "12");
-    failNextUpdate = "network";
+    failNextUpdate = "TypeError: Failed to fetch";
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: /^Undo:/ })); });
-    expect(toastError).toHaveBeenCalledWith("Undo failed: network");
+    expect(toastError).toHaveBeenCalledWith("Undo failed — the connection to the server failed. Check your connection and try again.");
     expect(screen.getByRole("button", { name: /^Undo:/ })).toBeEnabled();
   });
 

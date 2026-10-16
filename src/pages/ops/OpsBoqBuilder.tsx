@@ -13,6 +13,7 @@ import { openIntakeForm } from "@/lib/boqIntakeForm";
 import { sanityForCode, countFlagged } from "@/lib/boqSanity";
 import { parseBoqEvalJson, evalLinesToRows, pendingCount, PENDING_BASIS } from "@/lib/boqEvalJson";
 import { quantityEditPatch } from "@/lib/quantityEdit";
+import { saveErrorMessage } from "@/lib/saveError";
 import { commercialsFor, effRate, groupSubheads as groupSubheadsOf, includedTotal, lineAmount, liveCsv, liveFileStem, liveQuotePayload, quoteContextFor, workingSubheadsFrom } from "@/lib/boqLiveExport";
 import { loadProjectDrawings, resolveDrawingSource } from "@/lib/review/drawingStorage";
 import { latestRunForBoq, loadReviewItems } from "@/lib/review/reviewStore";
@@ -339,7 +340,7 @@ export default function OpsBoqBuilder() {
     },
   });
 
-  const { data: lines = [], isLoading: linesLoading } = useQuery({
+  const { data: lines = [], isLoading: linesLoading, isError: linesError, refetch: retryLines } = useQuery({
     queryKey: ["boq-lines", id],
     queryFn: async () => selectBoqLines(id!),
     enabled: !!id,
@@ -459,15 +460,20 @@ export default function OpsBoqBuilder() {
     } finally { setBusy(false); }
   };
 
+  // Throws after reporting, so commit() records no ledger (undo) step for a
+  // write that did not happen — same contract as auditedRateChange.
   const applyLinePatch = async (lineId: string, patch: Partial<BoqLine>) => {
     const { error } = await supabase.from("boq_line").update(patch).eq("id", lineId);
-    if (error) toast.error(error.message); else refetchLines();
+    if (error) { toast.error(`Not saved — ${saveErrorMessage(error)}`); throw error; }
+    refetchLines();
   };
   /** See quantityEditPatch (shared with the project journey's BOQ table). */
   const quantityEdit = (line: BoqLine, qty: number): Partial<BoqLine> => quantityEditPatch(line, qty);
-  const updateLine = async (lineId: string, patch: Partial<BoqLine>) => {
+  /** Saves a line edit as one undoable step. False when it was not saved
+   *  (already reported) — the caller restores what the field showed. */
+  const updateLine = async (lineId: string, patch: Partial<BoqLine>): Promise<boolean> => {
     const line = lines.find((l) => l.id === lineId);
-    if (!line) { await applyLinePatch(lineId, patch); return; }
+    if (!line) { try { await applyLinePatch(lineId, patch); return true; } catch { return false; } }
     const prev: Partial<BoqLine> = {};
     (Object.keys(patch) as (keyof BoqLine)[]).forEach((k) => { (prev as Record<string, unknown>)[k] = line[k]; });
     let detail: string | undefined;
@@ -476,11 +482,16 @@ export default function OpsBoqBuilder() {
     else if ("cost" in patch) detail = `cost ${patch.cost != null ? inr(patch.cost) : "—"}`;
     else if ("included" in patch) detail = patch.included ? "included" : "removed from total";
     else if ("section" in patch) detail = `trade ${line.section ?? "—"} → ${patch.section ?? "—"}`;
-    await commit({
-      kind: "line", label: shortDesc(line), detail,
-      forward: async () => { await applyLinePatch(lineId, patch); },
-      backward: async () => { await applyLinePatch(lineId, prev); },
-    });
+    try {
+      await commit({
+        kind: "line", label: shortDesc(line), detail,
+        forward: async () => { await applyLinePatch(lineId, patch); },
+        backward: async () => { await applyLinePatch(lineId, prev); },
+      });
+      return true;
+    } catch {
+      return false;
+    }
   };
   // Manual rate edits are audited (lib/manualRateEdit): compare-and-swap on the
   // rate shown, then a boq_line_change_log row; an edit whose audit can't be
@@ -496,7 +507,7 @@ export default function OpsBoqBuilder() {
       throw new Error(`manual rate edit: ${result.status}`);
     }
   };
-  const updateRate = async (line: BoqLine, value: number | null) => {
+  const updateRate = async (line: BoqLine, value: number | null, input?: HTMLInputElement) => {
     const r = effRate(line);
     try {
       await commit({
@@ -505,14 +516,22 @@ export default function OpsBoqBuilder() {
         forward: () => auditedRateChange(line, line.custom_rate, value),
         backward: () => auditedRateChange(line, value, line.custom_rate),
       });
-    } catch { /* already reported by auditedRateChange */ }
+    } catch {
+      // Already reported by auditedRateChange. The field must not keep showing
+      // a rate that was not saved.
+      if (input) input.value = String(effRate(line) ?? "");
+    }
   };
   /** From the rate input: replacing a currently adopted rate needs explicit confirmation first. */
   const requestRateEdit = (line: BoqLine, value: number | null, input: HTMLInputElement) => {
-    if (value != null && !Number.isFinite(value)) { input.value = String(effRate(line) ?? ""); return; }
+    if (value != null && (!Number.isFinite(value) || value < 0)) {
+      input.value = String(effRate(line) ?? "");
+      if (value < 0) toast.error("Rate cannot be negative — not saved.");
+      return;
+    }
     const state = adoptionStateFor(line, adoptionRecords);
     if (state.kind === "adopted") { setPendingRate({ line, value, input, record: state.record }); return; }
-    void updateRate(line, value);
+    void updateRate(line, value, input);
   };
   // Functional update: confirming clears the pending edit first, so the dialog's
   // own close callback that follows finds nothing to cancel and never resets
@@ -749,7 +768,7 @@ export default function OpsBoqBuilder() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={cancelPendingRate}>Keep adopted rate</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { const p = pendingRate; setPendingRate(() => null); if (p) void updateRate(p.line, p.value); }}>
+            <AlertDialogAction onClick={() => { const p = pendingRate; setPendingRate(() => null); if (p) void updateRate(p.line, p.value, p.input); }}>
               Replace with manual rate
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -789,7 +808,7 @@ export default function OpsBoqBuilder() {
           <p className="text-sm text-muted-foreground flex items-center gap-1.5 flex-wrap">
             <Badge>{disciplineByKey(boq.discipline).name}</Badge>
             {contractor && <Badge variant="secondary">{contractor.name}</Badge>}
-            {project?.name ?? "Standalone"} · {lines.length} lines ·{" "}
+            {project?.name ?? "Standalone"} · {linesError ? "lines unavailable" : `${lines.length} lines`} ·{" "}
             <BoqStatusControl boqId={boq.id} status={boq.status ?? null} readOnly={present}
               onPersisted={() => qc.invalidateQueries({ queryKey: ["boq", id] })} />
           </p>
@@ -1255,7 +1274,12 @@ export default function OpsBoqBuilder() {
           </CardContent>
         </Card>
       ) : linesLoading ? (
-        <div className="p-8 flex justify-center"><Loader2 className="animate-spin" /></div>
+        <div className="p-8 flex justify-center" role="status" aria-label="Loading BOQ lines"><Loader2 className="animate-spin" /></div>
+      ) : linesError ? (
+        <Card role="alert"><CardContent className="py-8 text-center space-y-3">
+          <p className="text-sm">Couldn't load this BOQ's lines, so nothing is shown and nothing can be exported. The BOQ itself is unchanged.</p>
+          <Button size="sm" variant="outline" onClick={() => void retryLines()}>Try again</Button>
+        </CardContent></Card>
       ) : lines.length === 0 ? (
         <Card><CardContent className="py-10 text-center text-muted-foreground">
           No items yet — add an item from the DSR, add a blank line, run Review Analysis on a project drawing, add lines from a JSON evaluation, or import a BOQ from the project's BOQs tab.
@@ -1367,10 +1391,14 @@ export default function OpsBoqBuilder() {
                   <div key={l.id} className={cn("border-b last:border-0", !l.included && "opacity-40")}>
                     <div className="grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_4.5rem_3rem_5rem_5.5rem_auto] items-start gap-x-3 gap-y-1 py-2">
                       <input type="checkbox" className="mt-1" checked={l.included}
-                        onChange={(e) => updateLine(l.id, { included: e.target.checked })} />
+                        aria-label={`Include ${l.description || "line"} in the BOQ total`}
+                        onChange={(e) => { void updateLine(l.id, { included: e.target.checked }); }} />
                       <div className="min-w-0 cursor-pointer" onClick={() => setExpanded(isExp ? null : l.id)} title="Show how this line is priced">
                         <div className="text-[11px] font-mono text-accent-foreground/70 mb-0.5 flex items-center gap-1 flex-wrap">
-                          <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform", isExp && "rotate-180")} />
+                          <button type="button" aria-expanded={isExp} aria-label={`${isExp ? "Hide" : "Show"} how ${l.description || "this line"} is priced`}
+                            onClick={(e) => { e.stopPropagation(); setExpanded(isExp ? null : l.id); }} className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                            <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform", isExp && "rotate-180")} aria-hidden="true" />
+                          </button>
                           <span className="text-muted-foreground">{itemNo}</span>{l.dsr_code ?? "Priced separately"}
                           {l.basis === PENDING_BASIS && (
                             <span className="text-amber-600 dark:text-amber-500 font-sans" title="Quantity pending — enter a quantity to price this line">quantity pending</span>
@@ -1407,8 +1435,13 @@ export default function OpsBoqBuilder() {
                           )}
                         </div>
                         <Input className="h-8 text-[13px] mb-1" defaultValue={l.description ?? ""} placeholder="Item description"
+                          aria-label={`Description of line ${itemNo}`}
                           onClick={(e) => e.stopPropagation()}
-                          onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== (l.description ?? "")) updateLine(l.id, { description: v }); }} />
+                          onBlur={async (e) => {
+                            const input = e.target; const v = input.value.trim(); const saved = l.description ?? "";
+                            if (!v) { input.value = saved; if (saved) toast.error("Description cannot be empty — not saved."); return; }
+                            if (v !== saved && !(await updateLine(l.id, { description: v }))) input.value = saved;
+                          }} />
                         {/* Trade = the line's section: the BOQ sub-head and the work-package
                             trade. Same persisted field, saved like any other line edit (undoable). */}
                         <Input className="h-7 text-[12px] mb-1" defaultValue={l.section ?? ""} placeholder="Trade (e.g. Masonry)"
@@ -1421,18 +1454,33 @@ export default function OpsBoqBuilder() {
                           {rate != null ? <> · {inr(rate)}/{l.unit} · <b className="text-foreground">{lineAmountText(l, rate)}</b></> : <> · rate not set</>}
                         </div>
                       </div>
-                      <Input type="number" className="h-8 hidden sm:block" defaultValue={l.qty}
-                        onBlur={(e) => { if (e.target.value.trim() === "") { e.target.value = String(l.qty); return; } const v = Number(e.target.value); if (Number.isFinite(v) && v !== l.qty) updateLine(l.id, quantityEdit(l, v)); }} />
+                      <Input type="number" min={0} className="h-8 hidden sm:block" defaultValue={l.qty}
+                        aria-label={`Quantity for ${l.description || `line ${itemNo}`}`} title={String(l.qty)}
+                        onBlur={async (e) => {
+                          const input = e.target; const raw = input.value.trim();
+                          if (raw === "") { input.value = String(l.qty); return; }
+                          const v = Number(raw);
+                          // A negative or unreadable quantity is never saved: put back the saved one and say why.
+                          if (!Number.isFinite(v) || v < 0) { input.value = String(l.qty); toast.error(`Quantity must be zero or more — not saved. It is still ${l.qty} ${l.unit ?? ""}.`.trim()); return; }
+                          if (v !== l.qty && !(await updateLine(l.id, quantityEdit(l, v)))) input.value = String(l.qty);
+                        }} />
                       <Input className="h-8 hidden sm:block px-1 text-xs" defaultValue={l.unit ?? ""} placeholder="unit"
-                        onBlur={(e) => { const v = e.target.value.trim() || null; if (v !== l.unit) updateLine(l.id, { unit: v }); }} />
-                      <Input type="number" className="h-8 hidden sm:block" defaultValue={rate ?? ""} placeholder="rate"
+                        aria-label={`Unit for ${l.description || `line ${itemNo}`}`}
+                        onBlur={async (e) => {
+                          const input = e.target; const v = input.value.trim(); const saved = l.unit ?? "";
+                          if (!v) { input.value = saved; if (saved) toast.error("Unit cannot be empty — not saved."); return; }
+                          if (v !== saved && !(await updateLine(l.id, { unit: v }))) input.value = saved;
+                        }} />
+                      <Input type="number" min={0} className="h-8 hidden sm:block" defaultValue={rate ?? ""} placeholder="rate"
+                        aria-label={`Rate for ${l.description || `line ${itemNo}`}`}
                         title={l.custom_rate != null ? "Your rate (overrides DSR)" : "DSR reference rate — edit to set your rate"}
                         onBlur={(e) => { const v = e.target.value === "" ? null : Number(e.target.value); if (v !== rate) requestRateEdit(l, v, e.target); }} />
                       <span className="text-sm tabular-nums text-right hidden sm:block pt-1.5">
                         {lineAmountText(l, rate)}
                       </span>
-                      <Button size="sm" variant="ghost" className="h-7" onClick={() => removeLine(l.id)}>
-                        <Trash2 className="h-4 w-4 text-muted-foreground" />
+                      <Button size="sm" variant="ghost" className="h-7" onClick={() => removeLine(l.id)}
+                        aria-label={`Remove ${l.description || `line ${itemNo}`} (can be undone)`} title="Remove line (undo with Ctrl+Z)">
+                        <Trash2 className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                       </Button>
                     </div>
                     {isExp && (() => {
