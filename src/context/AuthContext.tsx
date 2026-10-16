@@ -34,16 +34,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [loading, setLoading] = useState(true);
   const [rolesReady, setRolesReady] = useState(false);
-  // The user id whose roles were last requested. A token refresh re-fires
-  // onAuthStateChange for the same user; only a different user resets
-  // rolesReady, and a stale response for a previous user is dropped.
+  // The user id whose roles are loaded or loading. A token refresh re-fires
+  // onAuthStateChange for the same user and changes nothing; a different
+  // user resets roles, and a stale response for a previous user is dropped.
   const rolesFor = useRef<string | null>(null);
 
   useEffect(() => {
-    const loadRoles = async (uid: string) => {
-      if (rolesFor.current === uid) return;
+    // Synchronous, so it lands in the SAME update as setUser: a newly signed-in
+    // user is never seen with the signed-out state's rolesReady === true (or a
+    // previous user's roles). Returns whether a fetch is needed.
+    const beginRoles = (uid: string): boolean => {
+      if (rolesFor.current === uid) return false;
       rolesFor.current = uid;
+      setRoles([]);
       setRolesReady(false);
+      return true;
+    };
+    const fetchRoles = async (uid: string) => {
       const { data } = await supabase.from("user_roles").select("role").eq("user_id", uid);
       if (rolesFor.current !== uid) return;
       setRoles((data ?? []).map((r: { role: AppRole }) => r.role));
@@ -60,7 +67,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setUser(s?.user ?? null);
       if (s?.user) {
         const uid = s.user.id;
-        setTimeout(() => loadRoles(uid), 0);
+        // The query itself is deferred: awaiting Supabase inside this callback can deadlock.
+        if (beginRoles(uid)) setTimeout(() => fetchRoles(uid), 0);
       } else {
         clearRoles();
       }
@@ -68,7 +76,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setUser(data.session?.user ?? null);
-      if (data.session?.user) loadRoles(data.session.user.id);
+      const uid = data.session?.user?.id;
+      if (uid) { if (beginRoles(uid)) fetchRoles(uid); }
       else clearRoles();
       setLoading(false);
     });

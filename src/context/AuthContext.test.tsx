@@ -83,6 +83,42 @@ describe("AuthContext rolesReady", () => {
   });
 });
 
+// Fresh sign-in from a logged-out state: rolesReady starts TRUE (nobody
+// signed in), so it must drop to false in the same update that sets the new
+// user — otherwise a redirect runs in the gap with isStaff still false.
+describe("AuthContext rolesReady on fresh sign-in", () => {
+  it("is never true for a newly signed-in user before their roles load", async () => {
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await waitFor(() => expect(probe()).toMatchObject({ loading: false, rolesReady: true }));
+    const seen: { signedIn: boolean; rolesReady: boolean }[] = [];
+    const Watch = () => { const a = useAuth(); seen.push({ signedIn: !!a.user, rolesReady: a.rolesReady }); return null; };
+    render(<AuthProvider><Watch /></AuthProvider>);
+    await waitFor(() => expect(seen.at(-1)).toMatchObject({ signedIn: false, rolesReady: true }));
+    seen.length = 0;
+    await act(async () => { authListener!("SIGNED_IN", { user: { id: "staff-1" } }); });
+    expect(seen.filter((s) => s.signedIn && s.rolesReady)).toEqual([]);
+    await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+    expect(resolveRoles).not.toBeNull();
+    await act(async () => resolveRoles!(["ops"]));
+    expect(seen.at(-1)).toEqual({ signedIn: true, rolesReady: true });
+  });
+
+  it("resets roles when a different user signs in", async () => {
+    currentSession = { user: { id: "staff-1" } };
+    render(<AuthProvider><Probe /></AuthProvider>);
+    await waitFor(() => expect(resolveRoles).not.toBeNull());
+    await act(async () => resolveRoles!(["ops"]));
+    expect(probe()).toMatchObject({ isStaff: true, rolesReady: true });
+    resolveRoles = null;
+    await act(async () => { authListener!("SIGNED_IN", { user: { id: "contractor-1" } }); });
+    // The previous user's ops role must not carry over to the new user.
+    expect(probe()).toMatchObject({ isStaff: false, rolesReady: false, roles: [] });
+    await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+    await act(async () => resolveRoles!(["contractor"]));
+    expect(probe()).toMatchObject({ isStaff: false, rolesReady: true, roles: ["contractor"] });
+  });
+});
+
 // The real Auth page, driven by the real provider: a staff user whose roles
 // arrive late must land on /ops, never be sent to /my-projects first.
 describe("Auth page redirect waits for roles", () => {
@@ -113,6 +149,25 @@ describe("Auth page redirect waits for roles", () => {
     expect(seen).toEqual([]);
     await act(async () => resolveRoles!(["ops"]));
     await waitFor(() => expect(seen).toEqual(["ops-home"]));
+  });
+
+  it("signing in from logged out as ops lands on /ops, never /my-projects", async () => {
+    const seen = await renderAuth(); // nobody signed in: the sign-in form shows
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    await act(async () => { authListener!("SIGNED_IN", { user: { id: "staff-1" } }); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 400)); });
+    expect(seen).toEqual([]); // still waiting for roles
+    await act(async () => resolveRoles!(["ops"]));
+    await waitFor(() => expect(seen).toEqual(["ops-home"]));
+  });
+
+  it("signing in from logged out as a contractor lands on /my-projects", async () => {
+    const seen = await renderAuth();
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    await act(async () => { authListener!("SIGNED_IN", { user: { id: "contractor-1" } }); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+    await act(async () => resolveRoles!(["contractor"]));
+    await waitFor(() => expect(seen).toEqual(["contractor-home"]));
   });
 
   it("sends a non-staff user to /my-projects once roles are known", async () => {
