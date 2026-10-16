@@ -192,7 +192,7 @@ export default function OpsProjects() {
                   <span>Progress</span>
                   <span>{Number(p.progress_pct).toFixed(0)}%</span>
                 </div>
-                <Progress value={Number(p.progress_pct)} />
+                <Progress value={Number(p.progress_pct)} aria-label={`Progress for ${p.name}`} />
               </div>
               <div className="text-xs text-muted-foreground">
                 {p.floors ?? "—"} floors · {p.area_sqft ? `${p.area_sqft} sqft` : "—"}
@@ -242,8 +242,9 @@ export default function OpsProjects() {
                 size="sm" variant="ghost"
                 className="text-muted-foreground hover:text-destructive"
                 onClick={(e) => { e.preventDefault(); setDeleteTarget({ id: p.id, name: p.name }); }}
+                aria-label={`Delete project ${p.name}`} title="Delete project"
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-4 h-4" aria-hidden="true" />
               </Button>
             </div>
           </Card>
