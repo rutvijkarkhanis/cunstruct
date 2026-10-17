@@ -156,12 +156,31 @@ export interface SaveReviewArgs {
   reviewer?: ReviewerValues | null;
   flagReason?: FlagReason | null;
   reviewNote?: string | null;
+  /** The status the reviewer saw when deciding. When given, the decision is
+   *  saved only if the item still has it (a compare-and-swap), so a decision
+   *  made meanwhile by someone else is never silently overwritten. */
+  expectedStatus?: ReviewStatus;
+  /** When given, the decision is also recorded in boq_line_change_log
+   *  (field "review_decision", from → to) — the durable decision history. */
+  boqId?: string;
 }
 
-/** Save one reviewer decision. Writes ONLY the review row — never a boq_line. */
-export async function saveReviewDecision(args: SaveReviewArgs): Promise<void> {
+/** Whether the decision's history row was written: null when not attempted. */
+export interface SaveReviewResult { historyRecorded: boolean | null }
+
+/** Another reviewer decided this item after it was loaded; nothing was saved. */
+export class ReviewDecisionConflictError extends Error {
+  constructor() {
+    super("This item was decided by someone else since you opened it — nothing was saved. Reload to see the current decision.");
+    this.name = "ReviewDecisionConflictError";
+  }
+}
+
+/** Save one reviewer decision. Writes the review row (and, with boqId, its
+ *  history row) — never a boq_line. */
+export async function saveReviewDecision(args: SaveReviewArgs): Promise<SaveReviewResult> {
   const { data: userData } = await supabase.auth.getUser();
-  const { error } = await supabase
+  const update = supabase
     .from("analysis_review_item")
     .update({
       review_status: args.reviewStatus,
@@ -172,5 +191,22 @@ export async function saveReviewDecision(args: SaveReviewArgs): Promise<void> {
       reviewed_at: new Date().toISOString(),
     })
     .eq("id", args.itemId);
-  if (error) throw error;
+  if (args.expectedStatus === undefined) {
+    const { error } = await update;
+    if (error) throw error;
+  } else {
+    const { data, error } = await update.eq("review_status", args.expectedStatus).select("id");
+    if (error) throw error;
+    if (!data || data.length === 0) throw new ReviewDecisionConflictError();
+  }
+  if (!args.boqId) return { historyRecorded: null };
+  // The decision stands either way; whether its history was kept is reported.
+  const note = args.reviewNote?.trim();
+  const { error: logError } = await (supabase as unknown as { from: (t: string) => { insert: (r: object) => PromiseLike<{ error: unknown }> } })
+    .from("boq_line_change_log").insert({
+      boq_id: args.boqId, boq_line_id: null, review_item_id: args.itemId, field: "review_decision",
+      old_value: args.expectedStatus ?? null, new_value: note ? `${args.reviewStatus} — ${note}` : args.reviewStatus,
+      changed_by: userData?.user?.id ?? null,
+    });
+  return { historyRecorded: !logError };
 }

@@ -26,6 +26,9 @@ export const STAGING_MIGRATIONS = [
   "20261004000000_boq_line_rate_evidence.sql",
   "20261005000000_boq_line_rate_adoption.sql",
   "20261006000000_boq_commercial_revision.sql",
+  // Follow-ups to 20261006 — strictly in this order (re-applying 07 after 08 drops 08's checks).
+  "20261007000000_boq_commercial_revision_provenance.sql",
+  "20261008000000_boq_commercial_revision_line_identity.sql",
 ];
 
 /** The base-schema migrations in supabase/migrations/, in version order. */

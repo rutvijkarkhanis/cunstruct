@@ -30,6 +30,11 @@ const w1: StoredReviewItem = {
   },
 };
 
+// The model is only resolvable for an admin (the server returns `internal`
+// only to admins), so the preflight is only requested for one.
+const authRoles = vi.hoisted(() => ({ roles: ["admin"] as string[] }));
+vi.mock("@/context/AuthContext", () => ({ useAuth: () => ({ user: { id: "user-1" }, roles: authRoles.roles }) }));
+
 vi.mock("@/lib/review/reviewStore", () => ({
   latestRunForBoq: vi.fn(async () => ({ id: "run-1", source: "json_import", item_count: 1, created_at: "2026-01-01T00:00:00Z", resolved_document_id: "doc-1" })),
   loadReviewItems: vi.fn(async () => [w1]),
@@ -122,5 +127,16 @@ describe("BoqReviewWorkstation — LOCATION fallback model resolution", () => {
     await waitFor(() => expect(latestLocationRunForDocument).toHaveBeenCalled());
     const [, , model] = latestLocationRunForDocument.mock.calls[0];
     expect(model).toBe("");
+  });
+
+  it("a non-admin opening the review screen triggers no preflight at all (it could not use the result)", async () => {
+    authRoles.roles = ["ops"];
+    try {
+      renderPage();
+      await screen.findByTestId("pdf-probe");
+      await waitFor(() => expect(latestLocationRunForDocument).toHaveBeenCalled());
+      expect(fetchPreflight).not.toHaveBeenCalled();
+      expect((latestLocationRunForDocument.mock.calls[0] as unknown[])[2]).toBe("");
+    } finally { authRoles.roles = ["admin"]; }
   });
 });

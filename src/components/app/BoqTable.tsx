@@ -3,15 +3,18 @@
 // It owns no persistence — `onSave` does the write (see ProjectBoq.tsx) — and
 // rates are read-only here: rate edits go through the BOQ builder's audited
 // path, never a second one.
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowDown, ArrowUp, ArrowUpDown, FileText, Pencil, Search } from "lucide-react";
 import {
-  BOQ_COLUMNS, DEFAULT_SORT, NO_FILTERS, STATUS_LABEL, effectiveRate, filterLines, lineAmount, lineStatus,
-  parseEdit, sectionOptions, sortLines, type BoqFilters, type BoqSort, type BoqTableLine, type EditableField,
+  BOQ_COLUMNS, DEFAULT_SORT, NO_FILTERS, STATUS_LABEL, effectiveRate, filterLines, lineAmount, lineProvenance, lineStatus,
+  parseEdit, qtyState, sectionOptions, sortLines, type BoqFilters, type BoqSort, type BoqTableLine, type EditableField,
   type LineStatus, type SortKey,
 } from "@/lib/app/boqTable";
 import { sectionLabel } from "@/lib/app/labels";
+import { PROVENANCE_CAVEAT } from "@/lib/quantity";
+import type { LineEvidence, LineEvidenceResult } from "@/lib/lineEvidence";
+import LineEvidencePanel from "./LineEvidencePanel";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -19,6 +22,17 @@ import { cn } from "@/lib/utils";
 export interface LineSource { name: string | null; page: string | null; href: string | null }
 
 const num = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 3 });
+
+/** The quantity cell states which case applies — never a bare 0 for a pending
+ *  line, never "pending" for a confirmed zero. */
+function qtyDisplay(l: BoqTableLine): string {
+  switch (qtyState(l)) {
+    case "established": return num(l.qty);
+    case "confirmed_zero": return "0 (confirmed)";
+    case "unavailable": return "Not available";
+    case "pending": return l.qty > 0 ? `${num(l.qty)} (unconfirmed)` : "Pending";
+  }
+}
 const inr = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
 
 const STATUS_CLASS: Record<LineStatus, string> = {
@@ -131,14 +145,22 @@ function EditableCell({ line, field, display, align, onSave, disabled }: {
   );
 }
 
-export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHref }: {
+export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHref, initialStatus = "", initialQuery = "", evidenceOf, regionHref }: {
   lines: BoqTableLine[];
   sourceOf: (l: BoqTableLine) => LineSource | null;
   onSave: (line: BoqTableLine, patch: Partial<BoqTableLine>) => Promise<boolean>;
   disabled?: boolean;
   rateEditHref: string;
+  /** Status filter to open with (e.g. from a "pending quantities" link). */
+  initialStatus?: LineStatus | "";
+  /** Search to open with (e.g. "Basis not recorded" from a check). */
+  initialQuery?: string;
+  /** The review evidence a line is linked to by its stable key (lib/lineEvidence). */
+  evidenceOf?: (l: BoqTableLine) => LineEvidenceResult | null;
+  regionHref?: (e: LineEvidence) => string | null;
 }) {
-  const [filters, setFilters] = useState<BoqFilters>(NO_FILTERS);
+  const [openEvidence, setOpenEvidence] = useState<string | null>(null);
+  const [filters, setFilters] = useState<BoqFilters>({ ...NO_FILTERS, status: initialStatus, q: initialQuery });
   const [sort, setSort] = useState<BoqSort>(DEFAULT_SORT);
   const searchId = useId(), sectionId = useId(), statusId = useId();
   const sections = useMemo(() => sectionOptions(lines), [lines]);
@@ -227,8 +249,11 @@ export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHr
               const rate = effectiveRate(l);
               const amount = lineAmount(l);
               const src = sourceOf(l);
+              const prov = lineProvenance(l);
+              const ev = evidenceOf?.(l) ?? null;
               return (
-                <tr key={l.id} className={cn(st === "excluded" && "text-muted-foreground")}>
+                <Fragment key={l.id}>
+                <tr className={cn(st === "excluded" && "text-muted-foreground")}>
                   <td className="px-3 py-2 whitespace-nowrap">{sectionLabel(l.section)}</td>
                   <td className="px-3 py-2 whitespace-nowrap font-mono text-xs">{l.dsr_code ?? "—"}</td>
                   <td className="px-3 py-2 min-w-[14rem]">
@@ -236,7 +261,7 @@ export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHr
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
                     <EditableCell line={l} field="qty" align="right" onSave={onSave} disabled={disabled}
-                      display={st === "pending" && !(l.qty > 0) ? "Pending" : num(l.qty)} />
+                      display={qtyDisplay(l)} />
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     <EditableCell line={l} field="unit" display={l.unit || "—"} onSave={onSave} disabled={disabled} />
@@ -248,6 +273,18 @@ export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHr
                   <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">{amount != null ? inr(amount) : "—"}</td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     <span className={cn("inline-block rounded px-1.5 py-0.5 text-xs font-medium", STATUS_CLASS[st])}>{STATUS_LABEL[st]}</span>
+                  </td>
+                  <td className="px-3 py-2 min-w-[9rem]" title={[prov.note, PROVENANCE_CAVEAT].filter(Boolean).join(" — ")}>
+                    <span className={cn(prov.origin === "unknown" || prov.origin === "assumption" ? "text-muted-foreground" : "")}>{prov.label}</span>
+                    {prov.note && <span className="block text-xs text-muted-foreground break-words">{prov.note}</span>}
+                    {ev?.kind === "linked" && (
+                      <button type="button" className="block text-xs underline" aria-expanded={openEvidence === l.id}
+                        aria-label={`${openEvidence === l.id ? "Hide" : "Show"} evidence for ${l.description || "line"}`}
+                        onClick={() => setOpenEvidence((o) => (o === l.id ? null : l.id))}>
+                        {openEvidence === l.id ? "Hide evidence" : "Evidence"}
+                      </button>
+                    )}
+                    {ev?.kind === "ambiguous" && <span className="block text-xs text-muted-foreground">Several review items share this mark — evidence not linked.</span>}
                   </td>
                   <td className="px-3 py-2 min-w-[9rem]">
                     {!src ? (
@@ -263,6 +300,14 @@ export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHr
                     )}
                   </td>
                 </tr>
+                {ev?.kind === "linked" && openEvidence === l.id && (
+                  <tr className="bg-muted/30">
+                    <td colSpan={BOQ_COLUMNS.length} className="px-3 py-3">
+                      <LineEvidencePanel e={ev} regionHref={regionHref?.(ev) ?? null} />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               );
             })}
           </tbody>

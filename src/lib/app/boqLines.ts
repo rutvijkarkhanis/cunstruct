@@ -6,7 +6,7 @@ import type { BoqTableLine } from "./boqTable";
 
 export type AppBoqLine = BoqTableLine & { scope_id?: string | null; external_key?: string | null };
 
-const LINE_COLS = "id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, basis, quantity_status, measurement_method, included, sort, source_document_id, source_page, scope_id, external_key";
+const LINE_COLS = "id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, basis, basis_note, quantity_status, measurement_method, included, sort, source_document_id, source_page, scope_id, external_key";
 const LINE_COLS_BASE = "id, section, dsr_code, description, unit, qty, dsr_rate, custom_rate, included, sort";
 const missingCol = (msg?: string) => !!msg && /\b(basis|quantity_status|measurement_method|source_document_id|source_page|scope_id|external_key)\b|schema cache|could not find|does not exist/i.test(msg);
 

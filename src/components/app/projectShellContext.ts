@@ -8,11 +8,15 @@ export interface ShellProject {
 }
 export interface ProjectShellContext { projectId: string; project: ShellProject }
 
+/** The project home (Overview) and the five Quantity BOQ steps, in order.
+ *  `stage` names the lib/app/journey stage each step is where you work on. */
 export const PROJECT_STEPS = [
-  { to: "overview", label: "Overview" },
-  { to: "drawings", label: "Drawings" },
-  { to: "boq", label: "BOQ" },
-  { to: "export", label: "Export & History" },
+  { to: "overview", label: "Overview", stage: null },
+  { to: "drawings", label: "Project & drawings", stage: "drawings" },
+  { to: "review", label: "Review quantities", stage: "review" },
+  { to: "boq", label: "Build BOQ", stage: "boq" },
+  { to: "check", label: "Check & finalise", stage: "checks" },
+  { to: "export", label: "Export", stage: "export" },
 ] as const;
 
 export const useProjectShell = () => useOutletContext<ProjectShellContext>();

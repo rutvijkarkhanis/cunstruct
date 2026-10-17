@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { Link, useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { journeyPath, safeJourneyReturn } from "@/lib/app/journey";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
@@ -15,22 +16,19 @@ import { parseBoqImport } from "@/lib/boqImport";
 import { parseBoqEvalJson, evalLinesToRows, pendingCount } from "@/lib/boqEvalJson";
 import { computeCommercials, roundRupee, openProjectQuote, type ProjectQuoteBoq, type QuotePendingItem, type QuoteSubHead } from "@/lib/boqDsrDocument";
 import { pendingReason, qtyPending } from "@/lib/boqRevision";
+import { quantityProvenance } from "@/lib/quantity";
+import { throwLineSaveError } from "@/lib/provenanceSave";
 import { useBoqManagement, NEW_SCOPE, type BoqRow } from "@/hooks/useBoqManagement";
 import { loadProjectDrawings, resolveDrawingSource } from "@/lib/review/drawingStorage";
 
 interface MovableBoq { id: string; name: string; project_id: string | null; scope_id: string | null; updated_at: string; }
 type Mode = null | "create" | "import" | "move" | "json" | "share";
 
-// Insert eval-derived boq_line rows, retrying without the optional columns
-// (basis / basis_note / external_key / methodology / status) on a stale DB that
-// hasn't run those migrations.
+// Insert eval-derived boq_line rows with their basis / pending marker /
+// identity intact, or not at all (see provenanceSave.ts).
 async function insertEvalRows(rows: ReturnType<typeof evalLinesToRows>) {
-  let { error } = await supabase.from("boq_line").insert(rows);
-  if (error && /\bbasis\b|external_key|measurement_method|quantity_status|schema cache|could not find|does not exist/i.test(error.message)) {
-    const stripped = rows.map(({ basis, basis_note, external_key, measurement_method, quantity_status, ...r }) => r);
-    ({ error } = await supabase.from("boq_line").insert(stripped));
-  }
-  if (error) throw error;
+  const { error } = await supabase.from("boq_line").insert(rows);
+  if (error) throwLineSaveError(error);
 }
 
 export default function ProjectBoqs() {
@@ -38,6 +36,13 @@ export default function ProjectBoqs() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { user } = useAuth();
+  // Opened from the project journey (?returnTo=…): offer the way back, and
+  // land a newly created BOQ back in the journey, selected. Otherwise the
+  // existing destinations (the BOQ builder) are unchanged.
+  const [searchParams] = useSearchParams();
+  const returnTo = safeJourneyReturn(searchParams.get("returnTo"));
+  const openCreated = (boqId: string) =>
+    navigate(returnTo ? journeyPath(projectId!, "overview", boqId) : `/ops/projects/${projectId}/boqs/${boqId}`);
 
   const { scopes, boqs, counts, scopeName, createBoq: createBoqShared, resolveScopeId: resolveScopeIdShared } = useBoqManagement(projectId);
 
@@ -121,7 +126,7 @@ export default function ProjectBoqs() {
       const boqId = await createBoqShared({ name, description, scopeId, newScopeName, newScopeKind });
       if (!boqId) return;
       resetForm();
-      navigate(`/ops/projects/${projectId}/boqs/${boqId}`);
+      openCreated(boqId);
     } finally { setBusy(false); }
   };
 
@@ -221,7 +226,7 @@ export default function ProjectBoqs() {
   // same resolveDrawingSource() rule OpsBoqBuilder.tsx's single-BOQ export uses,
   // against drawingsById/drawingsLoading already loaded once for the whole
   // project (see above) — never a new per-line or per-BOQ lookup.
-  const subheadsFromLines = (lns: { section: string | null; dsr_code: string | null; description: string | null; unit: string | null; qty: number; dsr_rate: number | null; custom_rate: number | null; source_document_id: string | null; source_page: string | null }[]): QuoteSubHead[] => {
+  const subheadsFromLines = (lns: { section: string | null; dsr_code: string | null; description: string | null; unit: string | null; qty: number; dsr_rate: number | null; custom_rate: number | null; source_document_id: string | null; source_page: string | null; basis: string | null; basis_note: string | null }[]): QuoteSubHead[] => {
     const groups = new Map<string, typeof lns>();
     for (const l of lns) { const sec = l.section ?? "Other"; const a = groups.get(sec) ?? []; a.push(l); groups.set(sec, a); }
     const chapterNo = (g: typeof lns) => { const coded = g.find((l) => l.dsr_code); return coded ? parseInt(coded.dsr_code!.split(".")[0], 10) || 900 : 999; };
@@ -235,7 +240,7 @@ export default function ProjectBoqs() {
           const { sourceDocument, sourcePage } = resolveDrawingSource(l.source_document_id, l.source_page, drawingsById, drawingsLoading);
           return {
             no: `${no}.${String(++item).padStart(2, "0")}`, code: l.dsr_code, spec: l.description ?? "", qty: l.qty, unit: l.unit ?? "",
-            rate, amount: rate != null ? roundRupee(l.qty * rate) : null, sourceDocument, sourcePage,
+            rate, amount: rate != null ? roundRupee(l.qty * rate) : null, sourceDocument, sourcePage, basis: quantityProvenance(l).label,
           };
         });
         const subtotal = lines.reduce((s, l) => s + (l.amount ?? 0), 0);
@@ -252,14 +257,15 @@ export default function ProjectBoqs() {
       const ids = list.map((b) => b.id);
       const [{ data: specRows }, { data: lineRows, error }] = await Promise.all([
         supabase.from("boq").select("id, spec").in("id", ids),
-        supabase.from("boq_line").select("boq_id, section, dsr_code, description, unit, qty, quantity_status, dsr_rate, custom_rate, included, sort, source_document_id, source_page").in("boq_id", ids).order("sort"),
+        supabase.from("boq_line").select("boq_id, section, dsr_code, description, unit, qty, quantity_status, basis, basis_note, dsr_rate, custom_rate, included, sort, source_document_id, source_page").in("boq_id", ids).order("sort"),
       ]);
       if (error) throw error;
       const specById = new Map<string, Record<string, unknown>>();
       for (const r of (specRows ?? []) as { id: string; spec: Record<string, unknown> | null }[]) specById.set(r.id, r.spec ?? {});
       type Ln = {
         boq_id: string; section: string | null; dsr_code: string | null; description: string | null; unit: string | null;
-        qty: number; quantity_status: string | null; dsr_rate: number | null; custom_rate: number | null; included: boolean;
+        qty: number; quantity_status: string | null; basis: string | null; basis_note: string | null;
+        dsr_rate: number | null; custom_rate: number | null; included: boolean;
         source_document_id: string | null; source_page: string | null;
       };
       const byBoq = new Map<string, Ln[]>();
@@ -273,7 +279,8 @@ export default function ProjectBoqs() {
         const included = (byBoq.get(b.id) ?? []).filter((l) => l.included);
         const subheads = subheadsFromLines(included.filter((l) => !qtyPending(l)));
         const pendingItems: QuotePendingItem[] = included.filter((l) => qtyPending(l)).map((l, i) => ({
-          no: `P.${String(i + 1).padStart(2, "0")}`, spec: l.description ?? "", unit: l.unit ?? "", note: pendingReason(l),
+          no: `P.${String(i + 1).padStart(2, "0")}`, spec: l.description ?? "", unit: l.unit ?? "", note: pendingReason(l), basis: quantityProvenance(l).label,
+          ...(l.dsr_code ? { code: l.dsr_code } : {}),
           ...resolveDrawingSource(l.source_document_id, l.source_page, drawingsById, drawingsLoading),
         }));
         if (!subheads.length && !pendingItems.length) continue; // skip a BOQ with nothing included
@@ -311,7 +318,7 @@ export default function ProjectBoqs() {
     qc.invalidateQueries({ queryKey: ["project-boqs", projectId] });
     qc.invalidateQueries({ queryKey: ["project-scopes", projectId] });
     resetForm();
-    navigate(`/ops/projects/${projectId}/boqs/${boqId}`);
+    openCreated(boqId);
   };
 
   const onFile = (file: File | undefined) => {
@@ -416,6 +423,7 @@ export default function ProjectBoqs() {
 
   return (
     <div className="space-y-4">
+      {returnTo && <Link to={returnTo} className="text-sm underline">← Back to project</Link>}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h2 className="text-lg font-semibold">BOQs</h2>

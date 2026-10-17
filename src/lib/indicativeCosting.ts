@@ -14,6 +14,7 @@
 // incompatible units can never be combined.
 
 import { roundRupee } from "@/lib/boqDsrDocument";
+import { quantityEstablished } from "@/lib/quantity";
 import { compareUnits, type DsrMappingRow, type UnitCheck } from "@/lib/dsrMapping";
 
 export const INDICATIVE_LABEL = "Indicative Cost Estimate — Not Final Pricing";
@@ -27,6 +28,10 @@ export interface IndicativeLine {
   qty: number | null;
   included: boolean;
   quantity_status?: string | null;
+  /** Recorded quantity basis — read only for the shared pending rule
+   *  (basis PENDING means no established quantity). Optional: a read without
+   *  the column applies the rule to qty + quantity_status alone. */
+  basis?: string | null;
 }
 
 export type IndicativeStatus =
@@ -73,8 +78,11 @@ export interface IndicativeSummary {
   };
 }
 
-const hasQuantity = (l: IndicativeLine) =>
-  l.qty != null && Number.isFinite(l.qty) && l.qty > 0 && String(l.quantity_status ?? "").toUpperCase() !== "PENDING";
+/** The shared quantity rule (lib/quantity), the same one every BOQ total and
+ *  export uses: pending when marked PENDING (status or basis), when there is no
+ *  usable number, or for a zero nobody confirmed. A confirmed zero (MEASURED /
+ *  COUNTED) is an established quantity and prices at a real ₹0. */
+const hasQuantity = (l: IndicativeLine) => quantityEstablished(l);
 
 const hasRate = (r: number | null | undefined): r is number => r != null && Number.isFinite(r) && r > 0;
 

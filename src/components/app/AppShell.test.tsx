@@ -111,9 +111,36 @@ describe("ProjectShell", () => {
     expect(await screen.findByText("step for Sample Apartment")).toBeInTheDocument();
     const nav = screen.getByRole("navigation", { name: "Project steps" });
     const links = within(nav).getAllByRole("link");
-    expect(links.map((l) => l.textContent)).toEqual(["1Step 1: Overview", "2Step 2: Drawings", "3Step 3: BOQ", "4Step 4: Export & History"]);
-    expect(within(nav).getByRole("link", { name: /BOQ$/ })).toHaveAttribute("aria-current", "page");
+    expect(links.map((l) => l.textContent)).toEqual(["Overview", "1Step 1: Project & drawings", "2Step 2: Review quantities", "3Step 3: Build BOQ", "4Step 4: Check & finalise", "5Step 5: Export"]);
+    expect(within(nav).getByRole("link", { name: /Build BOQ$/ })).toHaveAttribute("aria-current", "page");
     for (const l of links) expect(l.getAttribute("href")).toMatch(/\?boq=b1$/);
+  });
+  it("links the previous and next step under each step, keeping ?boq=", async () => {
+    tableData.projects = { data: projectRow, error: null };
+    renderAt("/app/projects/p1/boq?boq=b1");
+    await screen.findByText("step for Sample Apartment");
+    const stepNav = screen.getByRole("navigation", { name: "Previous and next step" });
+    expect(within(stepNav).getByRole("link", { name: /Back: Review quantities/ })).toHaveAttribute("href", "/app/projects/p1/review?boq=b1");
+    expect(within(stepNav).getByRole("link", { name: /Next: Check & finalise/ })).toHaveAttribute("href", "/app/projects/p1/check?boq=b1");
+  });
+  it("names the BOQ phases: Quantity is current, later phases are marked unavailable and offer no action", async () => {
+    tableData.projects = { data: projectRow, error: null };
+    renderAt("/app/projects/p1/overview");
+    await screen.findByText("step for Sample Apartment");
+    const phases = screen.getByRole("list", { name: "BOQ phases" });
+    const items = within(phases).getAllByRole("listitem");
+    expect(items.map((li) => li.querySelector("div")?.textContent)).toEqual([
+      "1. Quantity BOQ", "2. Specification BOQ", "3. Pricing BOQ", "4. Procurement BOQ", "5. Execution & variations",
+    ]);
+    expect(items[0]).toHaveAttribute("aria-current", "step");
+    expect(items[0]).toHaveTextContent("Current phase");
+    for (const li of items.slice(1)) {
+      expect(li).toHaveTextContent(/Not available yet|Later/);
+      expect(within(li).queryByRole("link")).toBeNull();
+      expect(within(li).queryByRole("button")).toBeNull();
+    }
+    // The first step has no "Back".
+    expect(within(screen.getByRole("navigation", { name: "Previous and next step" })).queryByRole("link", { name: /Back:/ })).toBeNull();
   });
   it("says so when the project does not exist", async () => {
     tableData.projects = { data: null, error: null };

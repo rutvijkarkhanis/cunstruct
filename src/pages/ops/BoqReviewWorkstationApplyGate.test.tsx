@@ -9,7 +9,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import BoqReviewWorkstation from "./BoqReviewWorkstation";
-import { applyReviewPlan } from "@/lib/review/applyReview";
+import { applyReviewPlan, ApplyInterruptedError } from "@/lib/review/applyReview";
 import type { StoredReviewItem } from "@/lib/review/reviewStore";
 import { receiptStorageKey } from "@/lib/review/applyReceipt";
 
@@ -141,5 +141,70 @@ describe("Apply — finished review, persistent receipt", () => {
     await act(async () => { fireEvent.click(apply); });
     const receipt = await screen.findByRole("region", { name: /Applied 1 change/ });
     expect(within(receipt).getByText(/Change history was NOT recorded for 1 item/)).toBeInTheDocument();
+  });
+});
+
+describe("Apply — decisions changed elsewhere since loading", () => {
+  beforeEach(() => { items = [item("i1", "W1", "VERIFIED"), item("i2", "W2", "FLAGGED")]; });
+
+  it("re-reads the decisions first and applies nothing when one changed", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /Review complete.*Apply to BOQ/ }));
+    const apply = within(applyDialog()).getByRole("button", { name: /Apply 1 to BOQ/ });
+    await waitFor(() => expect(apply).toBeEnabled());
+    // Another reviewer flags W1 after this screen loaded it.
+    items = [item("i1", "W1", "FLAGGED"), item("i2", "W2", "FLAGGED")];
+    await act(async () => { fireEvent.click(apply); });
+    expect(applyReviewPlan).not.toHaveBeenCalled();
+    expect(window.sessionStorage.getItem(receiptStorageKey("boq-1"))).toBeNull(); // no "applied" receipt
+  });
+});
+
+describe("Apply — refused or interrupted writes are never shown as a plain success", () => {
+  beforeEach(() => { items = [item("i1", "W1", "VERIFIED"), item("i2", "W2", "VERIFIED")]; });
+  const runApply = async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /Review complete.*Apply to BOQ/ }));
+    const apply = within(applyDialog()).getByRole("button", { name: /Apply 2 to BOQ/ });
+    await waitFor(() => expect(apply).toBeEnabled());
+    await act(async () => { fireEvent.click(apply); });
+  };
+  const stored = () => JSON.parse(window.sessionStorage.getItem(receiptStorageKey("boq-1")) ?? "null");
+
+  it("a conflict is listed once — as refused, not also as unresolved — and the receipt warns", async () => {
+    vi.mocked(applyReviewPlan).mockResolvedValue({
+      appliedCount: 1, skippedNoChange: 0, unresolvedCount: 1, conflictedReviewItemIds: ["i2"], auditLogFailedReviewItemIds: [],
+    });
+    await runApply();
+    const receipt = await screen.findByRole("region", { name: /Applied 1 change/ });
+    expect(within(receipt).getByText(/1 item not applied because the BOQ line changed/)).toBeInTheDocument();
+    expect(within(receipt).queryByText(/not applied \(unresolved\)/)).toBeNull();
+    expect(stored()).toMatchObject({ appliedCount: 1, conflictedCount: 1, unresolvedCount: 0 });
+  });
+
+  it("Apply stopped part-way: the receipt records what was written AND what was not; the error is not swallowed", async () => {
+    vi.mocked(applyReviewPlan).mockRejectedValue(new ApplyInterruptedError(
+      { appliedCount: 1, skippedNoChange: 0, unresolvedCount: 0, conflictedReviewItemIds: [], auditLogFailedReviewItemIds: [] },
+      "i2", [], new Error("connection failure"),
+    ));
+    await runApply();
+    // hidden: the receipt is behind the still-open (modal) dialog.
+    const receipt = await screen.findByRole("region", { name: /Applied 1 change/, hidden: true });
+    expect(within(receipt).getByText(/1 not applied \(unresolved\)/)).toBeInTheDocument();
+    expect(stored()).toMatchObject({
+      appliedCount: 1, unresolvedCount: 1, failedCount: 1,
+      failureMessage: expect.stringMatching(/Apply stopped part-way: 1 item was written to the BOQ, 1 was not \(connection failure\)/),
+    });
+    // Only the line actually written is marked as just applied (none here: both were new lines).
+    expect(stored().justAppliedLineIds).toEqual([]);
+    // The dialog stays open — the reviewer is not told the Apply finished.
+    expect(screen.getByRole("dialog", { name: "Apply reviewed quantities" })).toBeInTheDocument();
+  });
+
+  it("an Apply that failed before writing anything leaves no receipt", async () => {
+    vi.mocked(applyReviewPlan).mockRejectedValue(new Error("connection failure"));
+    await runApply();
+    await waitFor(() => expect(applyReviewPlan).toHaveBeenCalled());
+    expect(window.sessionStorage.getItem(receiptStorageKey("boq-1"))).toBeNull();
   });
 });

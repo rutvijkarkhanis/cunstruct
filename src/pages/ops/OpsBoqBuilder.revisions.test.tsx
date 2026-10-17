@@ -11,12 +11,25 @@ import { revisionQuotePayload, type RevisionLine, type StoredRevision } from "@/
 import type { DsrQuotePayload, QuoteCommercials } from "@/lib/boqDsrDocument";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() } }));
+import { toast } from "sonner";
 vi.mock("@/context/AuthContext", () => ({ useAuth: () => ({ user: { id: "issuer-1" } }) }));
 
-const io = vi.hoisted(() => ({ quotes: [] as unknown[], rpc: [] as { fn: string; args: Record<string, unknown> }[], writes: [] as string[] }));
+const io = vi.hoisted(() => ({
+  quotes: [] as unknown[], rpc: [] as { fn: string; args: Record<string, unknown> }[], writes: [] as string[],
+  /** How the project's drawings load: normally, never (still loading), or with an error. */
+  drawings: "normal" as "normal" | "pending" | "error",
+}));
+vi.mock("@/lib/review/drawingStorage", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/review/drawingStorage")>("@/lib/review/drawingStorage");
+  return {
+    ...actual,
+    loadProjectDrawings: (...a: Parameters<typeof actual.loadProjectDrawings>) =>
+      io.drawings === "pending" ? new Promise(() => {}) : io.drawings === "error" ? Promise.reject(new Error("storage down")) : actual.loadProjectDrawings(...a),
+  };
+});
 vi.mock("@/lib/boqDsrDocument", async () => {
   const actual = await vi.importActual<typeof import("@/lib/boqDsrDocument")>("@/lib/boqDsrDocument");
-  return { ...actual, openDsrQuote: (p: unknown) => { io.quotes.push(p); return true; }, downloadCsv: vi.fn() };
+  return { ...actual, openDsrQuote: (p: unknown) => { io.quotes.push(p); return true; }, openQuoteWindow: () => ({ show: (p: unknown) => { io.quotes.push(p); return true; }, fail: () => {} }), downloadCsv: vi.fn() };
 });
 
 const fx = vi.hoisted(() => {
@@ -54,9 +67,9 @@ vi.mock("@/integrations/supabase/client", () => ({
   },
 }));
 
-function renderBoqBuilder() {
+function renderBoqBuilder(client = new QueryClient()) {
   return render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={["/ops/projects/proj-1/boqs/boq-1"]}>
         <Routes><Route path="/ops/projects/:id/boqs/:boqId" element={<OpsBoqBuilder />} /></Routes>
       </MemoryRouter>
@@ -71,7 +84,7 @@ async function openMenu(name: RegExp) {
   fireEvent.keyDown(trigger, { key: "Enter", code: "Enter" });
 }
 
-beforeEach(() => { io.quotes = []; io.rpc = []; io.writes = []; });
+beforeEach(() => { io.quotes = []; io.rpc = []; io.writes = []; io.drawings = "normal"; vi.mocked(toast.error).mockClear(); });
 
 describe("OpsBoqBuilder — commercial revisions", () => {
   it("freezes the editor's own lines, and the revision exports exactly what the live PDF export produces", async () => {
@@ -156,5 +169,33 @@ describe("OpsBoqBuilder — commercial revisions", () => {
       fx.LINES.splice(0, fx.LINES.length, ...original);
     }
   });
-});
 
+  describe("never freezes drawing sources before the drawings have loaded", () => {
+    async function prepare(client?: QueryClient) {
+      renderBoqBuilder(client);
+      await screen.findByText("Vitrified tiles");
+      await openMenu(/^More$/);
+      await screen.findAllByRole("menuitem");
+      await waitFor(() => {
+        if (!screen.queryByText(/A revision freezes this BOQ/)) fireEvent.click(screen.getByRole("menuitem", { name: /Commercial revisions/ }));
+        expect(screen.getByText(/A revision freezes this BOQ/)).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Prepare a new revision…", hidden: true }));
+    }
+
+    it("drawings still loading: no revision is prepared or frozen, and the person is told why", async () => {
+      io.drawings = "pending";
+      await prepare();
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/drawings are still loading/)));
+      expect(screen.queryByRole("region", { name: "New revision", hidden: true })).toBeNull();
+      expect(io.rpc).toEqual([]);
+    });
+
+    it("drawings failed to load: refused with an honest reason, never frozen as 'unavailable'", async () => {
+      io.drawings = "error";
+      await prepare(new QueryClient({ defaultOptions: { queries: { retry: false } } }));
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/drawings could not be loaded/)));
+      expect(io.rpc).toEqual([]);
+    });
+  });
+});

@@ -168,3 +168,25 @@ describe("OpsBoqBuilder — edit safety", () => {
     expect(rate()).toBeInTheDocument();
   });
 });
+
+describe("OpsBoqBuilder — quantity edits never overwrite a change made elsewhere", () => {
+  it("refuses a quantity edit when the line changed since it was loaded, and records no undo step", async () => {
+    renderBoqBuilder();
+    await screen.findByText("Vitrified tiles");
+    db.lines[0].qty = 41; // saved meanwhile by someone else
+    type(qty(), "55");
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Change not saved: this line was changed elsewhere since it was loaded. The current values are now shown."));
+    expect(db.lines[0].qty).toBe(41);
+    expect(db.writes.filter((w) => w.table === "boq_line" && w.op === "update")).toHaveLength(1); // the guarded attempt, which matched nothing
+    expect(toast).not.toHaveBeenCalled(); // no ledger ("change recorded") step
+  });
+
+  it("records a saved quantity edit in the line's history", async () => {
+    renderBoqBuilder();
+    await screen.findByText("Vitrified tiles");
+    type(qty(), "55");
+    await waitFor(() => expect(db.lines[0].qty).toBe(55));
+    await waitFor(() => expect(db.writes).toContainEqual({ table: "boq_line_change_log", op: "insert",
+      payload: [expect.objectContaining({ boq_line_id: "l1", field: "qty", old_value: "40", new_value: "55", changed_by: "user-1" })] }));
+  });
+});

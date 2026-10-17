@@ -9,9 +9,10 @@
 // the abstract stays honest. Included lines with no established quantity are
 // listed in the document's pending section — never as a measured 0, never
 // silently dropped.
-import { buildBoqCsv, computeCommercials, roundRupee, type DsrQuotePayload, type QuoteCommercials } from "@/lib/boqDsrDocument";
+import { buildBoqCsv, computeCommercials, type DsrQuotePayload, type QuoteCommercials } from "@/lib/boqDsrDocument";
+import { countedAmount, effectiveRate } from "@/lib/quantity";
 import {
-  buildRevisionLines, csvRowsFrom, pendingItemsFrom, qtyPending, quoteSubheadsFrom,
+  buildRevisionLines, csvRowsFrom, pendingItemsFrom, quoteSubheadsFrom,
   type RevisionQuoteContext, type WorkingLine, type WorkingSubhead,
 } from "@/lib/boqRevision";
 import type { Spec } from "@/lib/boqSpec";
@@ -19,12 +20,13 @@ import { DRAWING_REVIEW_SECTION } from "@/lib/applyFinding";
 
 type RatedLine = Pick<WorkingLine, "qty" | "dsr_rate" | "custom_rate" | "quantity_status">;
 
-/** The rate in effect: the estimator's case-specific override, else the DSR reference. */
-export const effRate = (l: Pick<WorkingLine, "dsr_rate" | "custom_rate">) => l.custom_rate ?? l.dsr_rate;
-/** A single line's amount in whole rupees (0 when unrated, or when its quantity is
- *  still pending — see qtyPending). All money aggregates are sums of THIS value so
- *  the printed figures add up exactly (see roundRupee). */
-export const lineAmount = (l: RatedLine) => (qtyPending(l) ? 0 : roundRupee(l.qty * (effRate(l) ?? 0)));
+/** The rate in effect: the estimator's case-specific override, else the DSR
+ *  reference — lib/quantity's effectiveRate, the one rule every view uses. */
+export const effRate = (l: Pick<WorkingLine, "dsr_rate" | "custom_rate">) => effectiveRate(l);
+/** A single line's amount in whole rupees as totals count it (0 when unrated, or
+ *  when its quantity is not established — see lib/quantity countedAmount). All
+ *  money aggregates are sums of THIS value so the printed figures add up exactly. */
+export const lineAmount = (l: RatedLine) => countedAmount(l);
 export const includedTotal = (ls: (RatedLine & { included: boolean })[]) =>
   ls.filter((l) => l.included).reduce((s, l) => s + lineAmount(l), 0);
 

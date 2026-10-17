@@ -11,6 +11,7 @@
 //     exports exactly what the live export would have produced when it was
 //     frozen, and never reads the working BOQ again.
 
+import { QUANTITY_STATE_LABEL, qtyPending, quantityProvenance, quantityState } from "@/lib/quantity";
 import { roundRupee, type CsvRow, type DsrQuotePayload, type QuoteCommercials, type QuotePendingItem, type QuoteSubHead } from "@/lib/boqDsrDocument";
 
 export type RateBasis = "custom" | "dsr" | "none";
@@ -30,6 +31,10 @@ export interface WorkingLine {
   quantity_status?: string | null;
   scope_id?: string | null;
   external_key?: string | null;
+  /** Recorded quantity basis (see lib/quantity). Optional: absent when the line
+   *  was read without these columns, in which case no basis is stated. */
+  basis?: string | null;
+  basis_note?: string | null;
 }
 
 export interface WorkingSubhead {
@@ -87,29 +92,27 @@ export interface RevisionLine {
   adoption_confirmed_by: string | null;
   adoption_confirmed_at: string | null;
   limitations: string[];
+  /** Recorded quantity basis. Stored on frozen lines once
+   *  20261007000000_boq_commercial_revision_provenance.sql is applied; absent
+   *  (no key) when read from a database without those columns, and null on
+   *  lines frozen before it — in both cases no basis is invented. */
+  basis?: string | null;
+  basis_note?: string | null;
 }
 
-/** Statuses that record a quantity a person or a measurement established. */
-const ESTABLISHED_QTY_STATUSES = new Set(["MEASURED", "COUNTED"]);
+/** The quantity basis label an export states for a line, or null when the line
+ *  carries no basis fields at all (nothing is stated rather than guessed). */
+export const basisLabelOf = (l: Pick<RevisionLine, "basis" | "basis_note">): string | null =>
+  "basis" in l || "basis_note" in l ? quantityProvenance(l).label : null;
 
 /**
  * True when a line has no established quantity — the single rule every total,
- * revision and export uses:
- *   - quantity_status PENDING is pending whatever number is stored (a number
- *     typed into a pending line is not a confirmation by itself);
- *   - no usable number is pending;
- *   - a positive quantity is established;
- *   - zero is a confirmed "none required" only when explicitly MEASURED or
- *     COUNTED (e.g. a reviewer verified 0); any other zero is pending, because
- *     boq_line.qty is NOT NULL and stores 0 for "not yet measured".
+ * revision and export uses. Defined once in lib/quantity (shared with the
+ * public-share edge function): pending when marked PENDING (quantity_status or
+ * basis), when there is no usable number, or for a zero nobody confirmed;
+ * a zero is "none required" only when explicitly MEASURED or COUNTED.
  */
-export const qtyPending = (l: { qty: number | null; quantity_status?: string | null }): boolean => {
-  const status = String(l.quantity_status ?? "").toUpperCase();
-  if (status === "PENDING") return true;
-  if (l.qty == null || !Number.isFinite(l.qty)) return true;
-  if (l.qty > 0) return false;
-  return !(l.qty === 0 && ESTABLISHED_QTY_STATUSES.has(status));
-};
+export { qtyPending } from "@/lib/quantity";
 
 export const LINE_LIMITATION = {
   excluded: "Excluded from the BOQ",
@@ -158,9 +161,22 @@ export function buildRevisionLines(subheads: WorkingSubhead[], adoptions: Adopti
       adoption_source_label: adopted?.source_label ?? null, adoption_source_unit: adopted?.source_unit ?? null,
       adoption_source_date: adopted?.source_date ?? null, adoption_confirmed_by: adopted?.confirmed_by ?? null,
       adoption_confirmed_at: adopted?.confirmed_at ?? null, limitations,
+      ...("basis" in l || "basis_note" in l ? { basis: l.basis ?? null, basis_note: l.basis_note ?? null } : {}),
     };
   }));
 }
+
+/**
+ * Pending as a snapshot line states it: the shared rule (qtyPending), OR the
+ * line's own frozen judgement — an included line whose stored limitations say
+ * "Quantity pending". The second part keeps a saved revision's meaning when a
+ * fact behind its judgement was not stored (e.g. basis PENDING frozen on a
+ * database without the basis column): the line stays pending and unpriced in
+ * every re-export, matching its stored amount (null) and the revision's totals.
+ * For freshly built lines both parts agree, so live exports are unaffected.
+ */
+export const linePending = (l: Pick<RevisionLine, "qty" | "quantity_status" | "basis" | "included"> & { limitations?: string[] | null }): boolean =>
+  qtyPending(l) || (l.included && (l.limitations ?? []).includes(LINE_LIMITATION.qtyPending));
 
 /** Group snapshot lines back into ordered sub-heads. */
 function groupBySubhead(lines: RevisionLine[]) {
@@ -173,19 +189,22 @@ function groupBySubhead(lines: RevisionLine[]) {
 }
 
 /** Line amount as the commercial totals count it (0 when unrated or quantity-pending) — same as OpsBoqBuilder's lineAmount. */
-const countedAmount = (l: RevisionLine) => (l.included && !qtyPending(l) ? roundRupee((l.qty ?? 0) * (l.rate ?? 0)) : 0);
+const countedAmount = (l: RevisionLine) => (l.included && !linePending(l) ? roundRupee((l.qty ?? 0) * (l.rate ?? 0)) : 0);
 
 /** An included line with an established quantity — a measured row in every
  *  export. Included lines that are qtyPending are listed by pendingItemsFrom
  *  instead; excluded lines appear in neither. */
-const isMeasuredRow = (l: RevisionLine) => l.included && !qtyPending(l);
+const isMeasuredRow = (l: RevisionLine) => l.included && !linePending(l);
 
 /** Why a pending line has no quantity, from its own stored values only. */
-export function pendingReason(l: Pick<RevisionLine, "qty" | "unit" | "quantity_status">): string {
-  const markedPending = String(l.quantity_status ?? "").toUpperCase() === "PENDING";
-  if (markedPending && l.qty != null && l.qty > 0) {
-    return `Quantity pending: still marked pending; the entered ${l.qty}${l.unit ? ` ${l.unit}` : ""} has not been confirmed`;
-  }
+export function pendingReason(l: Pick<RevisionLine, "qty" | "unit" | "quantity_status"> & { basis?: string | null }): string {
+  const isPending = (v: string | null | undefined) => String(v ?? "").trim().toUpperCase() === "PENDING";
+  const markedPending = isPending(l.quantity_status) || isPending(l.basis);
+  const entered = l.qty != null && Number(l.qty) > 0 ? `${Number(l.qty)}${l.unit ? ` ${l.unit}` : ""}` : null;
+  if (markedPending && entered) return `Quantity pending: still marked pending; the entered ${entered} has not been confirmed`;
+  // Pending only by the line's frozen judgement (see linePending): a number
+  // was stored, but it was not an established quantity when frozen.
+  if (entered) return `Quantity pending: the entered ${entered} had not been confirmed when this was frozen`;
   return markedPending ? "Quantity pending: not yet measured" : "Quantity pending: no quantity recorded";
 }
 
@@ -197,10 +216,10 @@ export function pendingReason(l: Pick<RevisionLine, "qty" | "unit" | "quantity_s
  */
 export function pendingItemsFrom(lines: RevisionLine[]): QuotePendingItem[] {
   return groupBySubhead(lines)
-    .flatMap((g) => g.lines.filter((l) => l.included && qtyPending(l)))
+    .flatMap((g) => g.lines.filter((l) => l.included && linePending(l)))
     .map((l, i) => ({
-      no: `P.${String(i + 1).padStart(2, "0")}`, spec: l.description ?? "", unit: l.unit ?? "",
-      note: pendingReason(l), sourceDocument: l.source_document_name, sourcePage: l.source_page,
+      no: `P.${String(i + 1).padStart(2, "0")}`, spec: l.description ?? "", unit: l.unit ?? "", ...(l.dsr_code ? { code: l.dsr_code } : {}),
+      note: pendingReason(l), sourceDocument: l.source_document_name, sourcePage: l.source_page, basis: basisLabelOf(l),
     }));
 }
 
@@ -217,7 +236,7 @@ export function quoteSubheadsFrom(lines: RevisionLine[]): QuoteSubHead[] {
     lines: g.lines.filter(isMeasuredRow).map((l) => ({
       no: l.item_no, code: l.dsr_code, spec: l.description ?? "", qty: l.qty as number, unit: l.unit ?? "",
       rate: l.rate, amount: l.rate != null ? roundRupee((l.qty as number) * l.rate) : null,
-      sourceDocument: l.source_document_name, sourcePage: l.source_page,
+      sourceDocument: l.source_document_name, sourcePage: l.source_page, basis: basisLabelOf(l),
     })),
   })).filter((sh) => sh.lines.length > 0);
 }
@@ -228,7 +247,7 @@ export function csvRowsFrom(lines: RevisionLine[]): CsvRow[] {
   return groupBySubhead(lines).flatMap((g) => g.lines.filter(isMeasuredRow).map((l) => ({
     subhead: `${g.no}.00 ${g.name}`, itemNo: l.item_no, code: l.dsr_code, spec: l.description ?? "",
     unit: l.unit ?? "", qty: l.qty as number, rate: l.rate,
-    sourceDocument: l.source_document_name, sourcePage: l.source_page,
+    sourceDocument: l.source_document_name, sourcePage: l.source_page, basis: basisLabelOf(l),
   })));
 }
 
@@ -321,7 +340,7 @@ export const revisionFileStem = (rev: Pick<StoredRevision, "boq_name" | "label">
 // Read-only: explains how the working BOQ has moved since a revision was
 // frozen. The revision itself is never re-derived from the working BOQ.
 
-export type RevisionLineChange = { field: "description" | "qty" | "unit" | "rate" | "included"; from: string; to: string };
+export type RevisionLineChange = { field: "description" | "code" | "qty" | "unit" | "rate" | "included" | "quantity status" | "quantity basis" | "source"; from: string; to: string };
 
 export interface RevisionDiff {
   /** Per saved line (by position): "removed" when its working line no longer exists. */
@@ -335,6 +354,34 @@ export interface RevisionDiff {
 const show = (v: string | number | boolean | null | undefined) =>
   v == null || v === "" ? "—" : typeof v === "boolean" ? (v ? "included" : "excluded") : String(v);
 
+/** Text as compared: trimmed, and blank is the same as absent. */
+const text = (v: string | null | undefined) => (v == null ? null : String(v).trim() || null);
+const num = (v: number | string | null | undefined) => {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+/** The drawing name resolveDrawingSource reports for a source it could not load. */
+const UNRESOLVED_SOURCE_NAME = "Source document unavailable";
+/** A page is only known when the drawing itself was resolved: while drawings
+ *  load, or when one is unavailable, the snapshot carries no page (null), which
+ *  says nothing about the line's page. */
+const pageKnown = (l: RevisionLine) =>
+  !!l.source_document_id && !!text(l.source_document_name) && text(l.source_document_name) !== UNRESOLVED_SOURCE_NAME;
+
+/** Quantity state as each side's documents state it (see linePending). */
+const stateOf = (l: RevisionLine) => {
+  const st = quantityState({ qty: num(l.qty), quantity_status: l.quantity_status, basis: l.basis });
+  return st !== "pending" && linePending(l) ? "pending" : st;
+};
+/** The quantity a line shows: a pending line with no number (null or the 0
+ *  boq_line stores for "not yet measured") shows none, whichever was stored. */
+const shownQty = (l: RevisionLine) => {
+  const q = num(l.qty);
+  return stateOf(l) === "pending" && (q == null || q === 0) ? null : q;
+};
+
 export function diffRevisionAgainstWorking(saved: RevisionLine[], working: RevisionLine[]): RevisionDiff {
   const byId = new Map(working.filter((w) => w.source_line_id).map((w) => [w.source_line_id as string, w]));
   const lines: RevisionDiff["lines"] = new Map();
@@ -346,11 +393,37 @@ export function diffRevisionAgainstWorking(saved: RevisionLine[], working: Revis
     const cmp = (field: RevisionLineChange["field"], a: string | number | boolean | null, b: string | number | boolean | null) => {
       if ((a ?? null) !== (b ?? null)) changes.push({ field, from: show(a), to: show(b) });
     };
-    cmp("description", s.description, w.description);
-    cmp("qty", s.qty == null ? null : Number(s.qty), w.qty);
-    cmp("unit", s.unit, w.unit);
-    cmp("rate", s.rate == null ? null : Number(s.rate), w.rate);
+    cmp("description", text(s.description), text(w.description));
+    cmp("code", text(s.dsr_code), text(w.dsr_code));
+    cmp("qty", shownQty(s), shownQty(w));
+    cmp("unit", text(s.unit), text(w.unit));
+    cmp("rate", num(s.rate), num(w.rate));
     cmp("included", s.included, w.included);
+    // Status and source are part of what a quantity means: a line that went
+    // from pending to measured, or now cites a different drawing, has changed
+    // even when the number is the same. Each side's state is what its own
+    // documents state (basis when stored, and a frozen line's own judgement).
+    cmp("quantity status", QUANTITY_STATE_LABEL[stateOf(s)], QUANTITY_STATE_LABEL[stateOf(w)]);
+    // Basis, only when the frozen line recorded one (basis or note) and the
+    // working line was read with the basis columns: revisions frozen before the
+    // basis column existed read back with neither, and no change is invented.
+    const recorded = (l: RevisionLine) => text(l.basis) != null || text(l.basis_note) != null;
+    if (recorded(s) && ("basis" in w || "basis_note" in w)) {
+      const pv = (l: RevisionLine) => quantityProvenance(l);
+      const [a, b] = [pv(s), pv(w)];
+      const codeOf = (p: typeof a) => (p.code ?? "").toUpperCase();
+      if (a.label !== b.label || codeOf(a) !== codeOf(b)) {
+        const label = (p: typeof a) => (a.label === b.label && p.code ? `${p.label} (${p.code})` : p.label);
+        changes.push({ field: "quantity basis", from: label(a), to: label(b) });
+      }
+    }
+    // Same drawing = same document id, and the same page when both pages are
+    // known (a renamed drawing, or one still loading, is not a changed source);
+    // shown by name.
+    const srcText = (l: RevisionLine) => (l.source_document_id ? `${l.source_document_name ?? "Source document"}${l.source_page ? `, p.${l.source_page}` : ""}` : "—");
+    const sameDoc = (s.source_document_id ?? null) === (w.source_document_id ?? null);
+    const samePage = !sameDoc || !pageKnown(s) || !pageKnown(w) || text(s.source_page) === text(w.source_page);
+    if (!sameDoc || !samePage) changes.push({ field: "source", from: srcText(s), to: srcText(w) });
     if (changes.length) changed++;
     lines.set(s.position, { status: changes.length ? "changed" : "unchanged", changes });
   }

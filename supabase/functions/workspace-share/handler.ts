@@ -28,6 +28,8 @@
 // guessed id from a DIFFERENT project ever being served through a link
 // scoped to this one.
 
+import { pricedAmount, quantityProvenance, quantityState, worksTotal, type QuantityState } from "../../../src/lib/quantity.ts";
+
 export interface ShareSourceDoc {
   id: string;
   name: string;
@@ -61,6 +63,12 @@ export interface ShareBoqLineRow {
   sort: number;
   dsrRate: number | null;
   customRate: number | null;
+  /** boq_line.quantity_status / basis / basis_note — read so a pending
+   *  quantity is never priced or shown as a measured number, and the line's
+   *  recorded basis (and only that) is stated. */
+  quantityStatus: string | null;
+  basis: string | null;
+  basisNote: string | null;
 }
 
 export interface CommercialSpec {
@@ -154,15 +162,23 @@ export async function handleBoqLines(
   // supplied, and never a different value than the one getBoqForProject
   // just checked above.
   const rows = await deps.listBoqLines(input.projectId, input.boqId);
-  const included = rows.filter((r) => r.included);
 
   // showPricing: false — these keys are genuinely absent from the response,
   // not zeroed out, so a client can't accidentally display a stale/fake "0".
+  // quantityState / basis come from the shared rule (src/lib/quantity.ts): a
+  // pending line keeps its stored qty for reference but is never priced
+  // (amount null) and adds nothing to the works total.
+  const asQty = (r: ShareBoqLineRow) => ({ qty: r.qty, quantity_status: r.quantityStatus, basis: r.basis });
   const lines = rows.map((r) => {
-    const base = { id: r.id, description: r.description, unit: r.unit, qty: r.qty, included: r.included, section: r.section, sort: r.sort };
+    const quantityStateValue: QuantityState = quantityState(asQty(r));
+    const base = {
+      id: r.id, description: r.description, unit: r.unit, qty: r.qty, included: r.included, section: r.section, sort: r.sort,
+      quantityState: quantityStateValue,
+      basis: quantityProvenance({ basis: r.basis, basis_note: r.basisNote }).label,
+    };
     if (!input.showPricing) return base;
     const rate = r.customRate ?? r.dsrRate;
-    const amount = rate != null ? Math.round(r.qty * rate) : null;
+    const amount = pricedAmount({ ...asQty(r), dsr_rate: r.dsrRate, custom_rate: r.customRate });
     return { ...base, rate, amount };
   });
 
@@ -170,11 +186,8 @@ export async function handleBoqLines(
     return { status: 200, body: { ok: true, boq: { id: boq.id, name: boq.name }, lines } };
   }
 
-  const worksTotal = included.reduce((sum, r) => {
-    const rate = r.customRate ?? r.dsrRate;
-    return sum + (rate != null ? Math.round(r.qty * rate) : 0);
-  }, 0);
-  const commercials = computeCommercialsLocal(worksTotal, boq.spec ?? {});
+  const works = worksTotal(rows.map((r) => ({ ...asQty(r), dsr_rate: r.dsrRate, custom_rate: r.customRate, included: r.included })));
+  const commercials = computeCommercialsLocal(works, boq.spec ?? {});
 
   return { status: 200, body: { ok: true, boq: { id: boq.id, name: boq.name }, lines, commercials } };
 }

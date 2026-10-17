@@ -38,8 +38,8 @@ describe("which lines are measured, pending or excluded", () => {
   it("each included pending line is listed exactly once, with its description, unit, source and reason — and no quantity", () => {
     const pending = pendingItemsFrom(MIXED);
     expect(pending).toEqual([
-      { no: "P.01", spec: "Floor area — CORRIDOR", unit: "sqm", note: "Quantity pending: not yet measured", sourceDocument: "Ground Floor Plan", sourcePage: "3" },
-      { no: "P.02", spec: "Porch", unit: "sqm", note: "Quantity pending: no quantity recorded", sourceDocument: null, sourcePage: null },
+      { no: "P.01", spec: "Floor area — CORRIDOR", unit: "sqm", note: "Quantity pending: not yet measured", sourceDocument: "Ground Floor Plan", sourcePage: "3", basis: null },
+      { no: "P.02", spec: "Porch", unit: "sqm", note: "Quantity pending: no quantity recorded", sourceDocument: null, sourcePage: null, basis: null },
     ]);
     expect(pending.every((p) => !("qty" in p))).toBe(true);
   });
@@ -63,11 +63,11 @@ describe("CSV", () => {
   it("measured rows are unchanged; the pending line is in the pending section with a blank Qty and its source", () => {
     const body = csvBody(buildBoqCsv(csvRowsFrom(MIXED), META, pendingItemsFrom(MIXED)));
     expect(body).toEqual([
-      "1.00 Drawing review — added,1.01,,Floor area — LIFT,sqm,4.23,1000,1000,=F5*H5,Ground Floor Plan,3",
+      "1.00 Drawing review — added,1.01,,Floor area — LIFT,sqm,4.23,1000,1000,=F5*H5,Ground Floor Plan,3,",
       "",
       "IDENTIFIED — PENDING QUANTIFICATION (not priced; confirm a quantity to price)",
-      "Pending,P.01,,Floor area — CORRIDOR — Quantity pending: not yet measured,sqm,,,,,Ground Floor Plan,3",
-      "Pending,P.02,,Porch — Quantity pending: no quantity recorded,sqm,,,,,,",
+      "Pending,P.01,,Floor area — CORRIDOR — Quantity pending: not yet measured,sqm,,,,,Ground Floor Plan,3,",
+      "Pending,P.02,,Porch — Quantity pending: no quantity recorded,sqm,,,,,,,",
     ]);
   });
 
@@ -82,7 +82,7 @@ describe("CSV", () => {
     expect(body).toEqual([
       "",
       "IDENTIFIED — PENDING QUANTIFICATION (not priced; confirm a quantity to price)",
-      "Pending,P.01,,Floor area — CORRIDOR — Quantity pending: not yet measured,sqm,,,,,Ground Floor Plan,3",
+      "Pending,P.01,,Floor area — CORRIDOR — Quantity pending: not yet measured,sqm,,,,,Ground Floor Plan,3,",
     ]);
   });
 });

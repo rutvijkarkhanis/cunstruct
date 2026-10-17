@@ -170,7 +170,7 @@ describe("applyReviewPlan — source document deleted between analysis and Apply
     expect(row.source_revision_id ?? null).toBeNull();
     expect(row.source_page ?? null).toBeNull();
     expect(row.external_key).toBe("W1");
-    expect(row.quantity_status).toBe("MEASURED");
+    expect(row.quantity_status).toBe("COUNTED"); // a count ("nos")
     expect(row.qty).toBe(4);
     expect(row.unit).toBe("nos");
   });

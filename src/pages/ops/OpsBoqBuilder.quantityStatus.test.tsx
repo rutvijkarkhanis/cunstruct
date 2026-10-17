@@ -18,7 +18,7 @@ vi.mock("@/context/AuthContext", () => ({ useAuth: () => ({ user: { id: "user-1"
 const io = vi.hoisted(() => ({ quotes: [] as unknown[] }));
 vi.mock("@/lib/boqDsrDocument", async () => {
   const actual = await vi.importActual<typeof import("@/lib/boqDsrDocument")>("@/lib/boqDsrDocument");
-  return { ...actual, openDsrQuote: (p: unknown) => { io.quotes.push(p); return true; }, downloadCsv: vi.fn() };
+  return { ...actual, openDsrQuote: (p: unknown) => { io.quotes.push(p); return true; }, openQuoteWindow: () => ({ show: (p: unknown) => { io.quotes.push(p); return true; }, fail: () => {} }), downloadCsv: vi.fn() };
 });
 
 const db = vi.hoisted(() => {
@@ -89,7 +89,7 @@ describe("entering a quantity", () => {
     await screen.findByText("quantity pending");
     typeQty(0, "25");
     await waitFor(() => expect(db.updates).toHaveLength(1));
-    expect(db.updates[0]).toEqual({ qty: 25, basis: null, quantity_status: "MEASURED" });
+    expect(db.updates[0]).toEqual({ qty: 25, basis: "MANUAL", quantity_status: "MEASURED" });
   });
 
   it("a counted item is confirmed as COUNTED", async () => {
@@ -98,7 +98,7 @@ describe("entering a quantity", () => {
     await screen.findByText("quantity pending");
     typeQty(0, "6");
     await waitFor(() => expect(db.updates).toHaveLength(1));
-    expect(db.updates[0]).toEqual({ qty: 6, basis: null, quantity_status: "COUNTED" });
+    expect(db.updates[0]).toEqual({ qty: 6, basis: "MANUAL", quantity_status: "COUNTED" });
   });
 
   it("zero or a negative number is not a confirmation: the line stays pending", async () => {
@@ -110,13 +110,13 @@ describe("entering a quantity", () => {
     expect(db.updates[0]).toEqual({ qty: 0 });
   });
 
-  it("editing a measured line changes only its quantity", async () => {
+  it("editing a measured line changes its quantity and records it as entered manually", async () => {
     db.lines = [db.line({ id: "l1", description: "Tiles", qty: 40 })];
     renderBoqBuilder();
     await screen.findByDisplayValue("Tiles");
     typeQty(0, "42");
     await waitFor(() => expect(db.updates).toHaveLength(1));
-    expect(db.updates[0]).toEqual({ qty: 42 });
+    expect(db.updates[0]).toEqual({ qty: 42, basis: "MANUAL" });
   });
 });
 

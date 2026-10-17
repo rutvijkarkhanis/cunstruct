@@ -27,7 +27,9 @@ export function useProjectBoqs(projectId: string) {
     queryKey: ["workspace-project-boqs", projectId],
     enabled: !!projectId,
     queryFn: async (): Promise<ProjectBoqSummary[]> => {
-      const { data } = await supabase.from("boq").select("id, name, created_at, discipline").eq("project_id", projectId).order("created_at", { ascending: false });
+      const { data, error } = await supabase.from("boq").select("id, name, created_at, discipline").eq("project_id", projectId).order("created_at", { ascending: false });
+      // A failed read must not look like "this project has no BOQ".
+      if (error) throw error;
       return (data ?? []) as ProjectBoqSummary[];
     },
   });

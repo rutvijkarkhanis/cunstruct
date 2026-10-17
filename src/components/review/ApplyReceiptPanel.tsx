@@ -11,7 +11,8 @@ const n = (count: number, word: string) => `${count} ${word}${count === 1 ? "" :
 export default function ApplyReceiptPanel({ receipt, onViewBoq, onDismiss }: {
   receipt: ApplyReceipt; onViewBoq: () => void; onDismiss: () => void;
 }) {
-  const warn = receipt.unauditedCount > 0 || receipt.conflictedCount > 0 || receipt.revisionChanged.length > 0;
+  const failed = receipt.failedCount ?? 0;
+  const warn = failed > 0 || receipt.unauditedCount > 0 || receipt.conflictedCount > 0 || receipt.revisionChanged.length > 0;
   return (
     <section aria-labelledby="apply-receipt-title"
       className={warn
@@ -27,6 +28,9 @@ export default function ApplyReceiptPanel({ receipt, onViewBoq, onDismiss }: {
             {n(receipt.reviewedCount, "item")} reviewed · {receipt.verifiedCount} verified · {receipt.correctedCount} corrected
             {receipt.unresolvedCount > 0 && ` · ${receipt.unresolvedCount} not applied (unresolved)`}
           </p>
+          {failed > 0 && (
+            <p role="alert">Apply stopped part-way: {n(failed, "item")} {failed === 1 ? "was" : "were"} not written{receipt.failureMessage ? ` (${receipt.failureMessage})` : ""}. The {n(receipt.appliedCount, "change")} above {receipt.appliedCount === 1 ? "is" : "are"} saved. Apply again to finish — items already applied are not applied twice.</p>
+          )}
           {receipt.conflictedCount > 0 && (
             <p>{n(receipt.conflictedCount, "item")} not applied because the BOQ line changed while applying. Review them again.</p>
           )}

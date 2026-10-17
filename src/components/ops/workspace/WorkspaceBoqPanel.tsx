@@ -19,7 +19,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertTriangle, ClipboardCheck, ExternalLink, Plus } from "lucide-react";
 import { formatINR } from "@/lib/forecastEngine";
-import { computeCommercials, roundRupee } from "@/lib/boqDsrDocument";
+import { computeCommercials } from "@/lib/boqDsrDocument";
+import { effectiveRate, pricedAmount, qtyPending, quantityState, worksTotal } from "@/lib/quantity";
 import AiStateBadge from "@/components/review/AiStateBadge";
 import { useBoqManagement, NEW_SCOPE, type BoqRow } from "@/hooks/useBoqManagement";
 import { SCOPE_KINDS } from "@/lib/projectDocs";
@@ -124,13 +125,19 @@ function NoBoq({ onCreate }: { onCreate: () => void }) {
 interface WorkspaceBoqLine {
   id: string; description: string | null; unit: string | null; qty: number;
   dsr_rate: number | null; custom_rate: number | null; included: boolean;
+  quantity_status: string | null; basis: string | null;
 }
-/** The rate in effect and a line's amount — the SAME formula OpsBoqBuilder's
- *  own (private, unexported) `effRate`/`lineAmount` use, reproduced here
- *  rather than imported since OpsBoqBuilder.tsx is protected/untouched.
- *  `roundRupee` itself IS the shared, exported primitive both sides call. */
-const effRate = (l: WorkspaceBoqLine) => l.custom_rate ?? l.dsr_rate;
-const lineAmount = (l: WorkspaceBoqLine) => roundRupee(l.qty * (effRate(l) ?? 0));
+/** Quantity text that states which case applies (lib/quantity): a pending line
+ *  is never shown as a measured 0, a confirmed zero never as pending. */
+function qtyText(l: WorkspaceBoqLine): string {
+  const unit = l.unit ? ` ${l.unit}` : "";
+  switch (quantityState(l)) {
+    case "established": return `${l.qty}${unit}`;
+    case "confirmed_zero": return `0${unit} (confirmed)`;
+    case "unavailable": return "Quantity not available";
+    case "pending": return l.qty > 0 ? `${l.qty}${unit} (unconfirmed)` : `Pending${unit ? ` (${l.unit})` : ""}`;
+  }
+}
 
 const LINE_PREVIEW_CAP = 6;
 
@@ -142,12 +149,14 @@ const LINE_PREVIEW_CAP = 6;
  *  figures, never one standing in for the other. */
 function ActiveBoqCard({ projectId, boq, onReview, onChange }: { projectId: string; boq: BoqRow; onReview: () => void; onChange: () => void }) {
   const boqId = boq.id;
-  const { data: lines } = useQuery({
+  const { data: lines, isError: linesError } = useQuery({
     queryKey: ["workspace-boq-lines", boqId],
     enabled: !!boqId,
     queryFn: async () => {
-      const { data } = await supabase.from("boq_line")
-        .select("id, description, unit, qty, dsr_rate, custom_rate, included").eq("boq_id", boqId).order("sort");
+      const { data, error } = await supabase.from("boq_line")
+        .select("id, description, unit, qty, dsr_rate, custom_rate, included, quantity_status, basis").eq("boq_id", boqId).order("sort");
+      // A failed read is an error, never an empty BOQ.
+      if (error) throw error;
       return (data ?? []) as WorkspaceBoqLine[];
     },
   });
@@ -157,19 +166,26 @@ function ActiveBoqCard({ projectId, boq, onReview, onChange }: { projectId: stri
   // written exclusively by applyReviewPlan (see applyReview.ts). A manually
   // added or imported line never gets a row here, so it correctly shows no
   // "Reviewed" badge — never a fabricated/inferred link.
-  const { data: reviewedLineIds } = useQuery({
+  // A failed read (including the table not being deployed) is an error, never
+  // "no line was reviewed": the panel says the check could not be made.
+  const { data: reviewedLineIds, isError: reviewedError } = useQuery({
     queryKey: ["workspace-boq-reviewed-lines", boqId],
     enabled: !!boqId,
     queryFn: async () => {
-      const { data } = await supabase.from("boq_line_change_log")
+      const { data, error } = await supabase.from("boq_line_change_log")
         .select("boq_line_id, review_item_id").eq("boq_id", boqId).not("review_item_id", "is", null);
+      if (error) throw error;
       return new Set((data ?? []).map((r) => r.boq_line_id as string | null).filter((id): id is string => !!id));
     },
   });
 
   const lineCount = (lines ?? []).length;
   const includedLines = (lines ?? []).filter((l) => l.included);
-  const total = includedLines.reduce((sum, l) => sum + lineAmount(l), 0);
+  const total = worksTotal(includedLines);
+  const pendingCount = includedLines.filter((l) => qtyPending(l)).length;
+  // Missing rate is distinct from missing quantity: an established quantity
+  // with no rate is also left out of the totals, and said so.
+  const unratedCount = includedLines.filter((l) => !qtyPending(l) && effectiveRate(l) == null).length;
   const spec = boq.spec ?? {};
   const pct = (k: string, d: number) => Number(spec[k] ?? d);
   const commercials = computeCommercials(total, {
@@ -191,7 +207,11 @@ function ActiveBoqCard({ projectId, boq, onReview, onChange }: { projectId: stri
         <div className="text-[11px] text-muted-foreground">{lineCount} line{lineCount === 1 ? "" : "s"}</div>
       </div>
 
-      {lineCount === 0 ? (
+      {linesError ? (
+        <p role="alert" className="text-xs">Couldn't load this BOQ's lines. Nothing is shown rather than an empty BOQ.</p>
+      ) : !lines ? (
+        <p role="status" className="text-xs text-muted-foreground">Loading lines…</p>
+      ) : lineCount === 0 ? (
         <p className="text-xs text-muted-foreground">This BOQ has no line items yet.</p>
       ) : (
         <>
@@ -204,11 +224,27 @@ function ActiveBoqCard({ projectId, boq, onReview, onChange }: { projectId: stri
               <span>Grand Total</span>
               <span className="tabular-nums">{formatINR(commercials.grandTotal)}</span>
             </div>
+            {pendingCount > 0 && (
+              <p className="text-[11px] text-muted-foreground">
+                {pendingCount} line{pendingCount === 1 ? " has" : "s have"} a pending quantity and {pendingCount === 1 ? "is" : "are"} not in these totals.
+              </p>
+            )}
+            {unratedCount > 0 && (
+              <p className="text-[11px] text-muted-foreground">
+                {unratedCount} line{unratedCount === 1 ? " has" : "s have"} no rate yet and {unratedCount === 1 ? "is" : "are"} not in these totals.
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">
+            {reviewedError && (
+              <p role="note" className="text-[11px] text-muted-foreground">
+                Couldn't check which lines came from Review, so no line is marked "Reviewed" here.
+              </p>
+            )}
             {previewLines.map((l) => {
-              const rate = effRate(l);
+              const rate = effectiveRate(l);
+              const amount = pricedAmount(l);
               const reviewed = reviewedLineIds?.has(l.id) ?? false;
               return (
                 <div key={l.id} className="flex items-start justify-between gap-2 text-[11px] border-b border-dashed pb-1.5 last:border-0 last:pb-0">
@@ -225,10 +261,10 @@ function ActiveBoqCard({ projectId, boq, onReview, onChange }: { projectId: stri
                       )}
                     </div>
                     <div className="text-muted-foreground">
-                      {l.qty} {l.unit ?? ""}{rate != null ? ` · ${formatINR(rate)}` : ""}
+                      {qtyText(l)}{rate != null ? ` · ${formatINR(rate)}` : ""}
                     </div>
                   </div>
-                  <div className="shrink-0 tabular-nums pt-px">{formatINR(lineAmount(l))}</div>
+                  <div className="shrink-0 tabular-nums pt-px">{amount != null ? formatINR(amount) : "—"}</div>
                 </div>
               );
             })}

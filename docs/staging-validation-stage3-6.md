@@ -1,6 +1,6 @@
 # Staging validation — Stage 3–6 commercial workflow
 
-Status: **prepared, not run.** The four migrations below have never been
+Status: **prepared, not run.** The six migrations below have never been
 applied to any database. They parse cleanly with the PostgreSQL 17 grammar
 (libpg_query), including the plain-SQL statements inside their functions, and
 are covered by static tests — but PL/pgSQL bodies, RLS behaviour, grants and
@@ -57,13 +57,17 @@ integration can pick them up; only `scripts/staging-migrate.mjs` applies them.
 | 2 | `20261004000000_boq_line_rate_evidence.sql` | 1's tables' parents, `project_document` |
 | 3 | `20261005000000_boq_line_rate_adoption.sql` | **2** (`vendor_quotation` FK), `boq_line_change_log`, `dsr_item` |
 | 4 | `20261006000000_boq_commercial_revision.sql` | `boq` (`status`, `discipline`, `rate_year`, `scope_id`), `boq_line`, `projects` |
+| 5 | `20261007000000_boq_commercial_revision_provenance.sql` | **4** — basis/basis_note on revision lines; stale status/basis refused |
+| 6 | `20261008000000_boq_commercial_revision_line_identity.sql` | **5** — replaces the freeze function only; stale code/section/note/source refused. Apply strictly after 5: re-running 5 afterwards drops 6's checks |
+
+5 and 6 were run in order, and re-run, on PGlite (real Postgres, stub auth/RLS) — not on Supabase.
 
 Each file is purely additive (new tables, functions, triggers, policies; no
 existing table altered) and re-runnable (`if not exists`, `create or replace`,
 guarded policies).
 
 ```
-npm run staging:migrate                                    # dry run: verify target, list the four files
+npm run staging:migrate                                    # dry run: verify target, list the six files
 node scripts/staging-migrate.mjs --apply --confirm-ref=<staging-ref>
 ```
 

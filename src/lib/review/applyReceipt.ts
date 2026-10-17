@@ -24,6 +24,12 @@ export interface ApplyReceipt {
   revisionChanged: string[];
   /** Existing lines this call is known to have modified (never NEW_LINE ids). */
   justAppliedLineIds: string[];
+  /** Apply stopped part-way on an error (applyReview.ts ApplyInterruptedError):
+   *  selected items that were NOT written (the failing one and those after
+   *  it; also counted in unresolvedCount). Absent = Apply ran to completion. */
+  failedCount?: number;
+  /** That error, as shown to the reviewer. */
+  failureMessage?: string;
 }
 
 export const receiptStorageKey = (boqId: string) => `cunstruct.applyReceipt.${boqId}`;
@@ -44,7 +50,9 @@ export function parseReceipt(raw: string | null, boqId: string): ApplyReceipt | 
     const ok = r.boqId === boqId && typeof r.appliedAt === "string" && !Number.isNaN(Date.parse(r.appliedAt))
       && (r.runId === null || typeof r.runId === "string")
       && ["appliedCount", "unresolvedCount", "correctedCount", "reviewedCount", "verifiedCount", "unauditedCount", "conflictedCount"].every((k) => isNum(r[k]))
-      && isStrArr(r.revisionChanged) && isStrArr(r.justAppliedLineIds);
+      && isStrArr(r.revisionChanged) && isStrArr(r.justAppliedLineIds)
+      && (r.failedCount === undefined || isNum(r.failedCount))
+      && (r.failureMessage === undefined || typeof r.failureMessage === "string");
     return ok ? (r as unknown as ApplyReceipt) : null;
   } catch {
     return null;

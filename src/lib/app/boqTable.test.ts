@@ -13,7 +13,7 @@ const L = (p: Partial<BoqTableLine>): BoqTableLine => ({
 
 describe("columns and status", () => {
   it("labels every column", () => {
-    expect(BOQ_COLUMNS.map((c) => c.label)).toEqual(["Section", "Code", "Description", "Quantity", "Unit", "Rate (₹)", "Amount (₹)", "Status", "Source"]);
+    expect(BOQ_COLUMNS.map((c) => c.label)).toEqual(["Section", "Code", "Description", "Quantity", "Unit", "Rate (₹)", "Amount (₹)", "Status", "Quantity basis", "Source"]);
   });
   it("classifies lines with the builder's pending rule", () => {
     expect(lineStatus(L({}))).toBe("complete");
@@ -76,10 +76,10 @@ describe("sortLines", () => {
 describe("parseEdit / inversePatch", () => {
   it("validates and trims", () => {
     expect(parseEdit(L({}), "description", "  ")).toEqual({ ok: false, error: "Description cannot be empty." });
-    expect(parseEdit(L({}), "unit", " sqm ")).toEqual({ ok: true, patch: { unit: "sqm" } });
+    expect(parseEdit(L({}), "unit", " sqm ")).toEqual({ ok: true, patch: { unit: "sqm", basis: "MANUAL" } });
     expect(parseEdit(L({}), "qty", "abc")).toEqual({ ok: false, error: "Enter a number." });
     expect(parseEdit(L({}), "qty", "-1")).toEqual({ ok: false, error: "Quantity cannot be negative." });
-    expect(parseEdit(L({}), "qty", "1,250.5")).toEqual({ ok: true, patch: { qty: 1250.5 } });
+    expect(parseEdit(L({}), "qty", "1,250.5")).toEqual({ ok: true, patch: { qty: 1250.5, basis: "MANUAL" } });
   });
   it("returns an empty patch when nothing changed", () => {
     expect(parseEdit(L({}), "qty", "10")).toEqual({ ok: true, patch: {} });
@@ -87,7 +87,7 @@ describe("parseEdit / inversePatch", () => {
   });
   it("confirms a pending line with a positive quantity, using the shared rule", () => {
     expect(parseEdit(L({ qty: 0, quantity_status: "PENDING", measurement_method: "COUNT" }), "qty", "4"))
-      .toEqual({ ok: true, patch: { qty: 4, basis: null, quantity_status: "COUNTED" } });
+      .toEqual({ ok: true, patch: { qty: 4, basis: "MANUAL", quantity_status: "COUNTED" } });
     expect(parseEdit(L({ qty: 0, basis: "PENDING" }), "qty", "0")).toEqual({ ok: true, patch: {} });
   });
   it("builds the exact undo patch, including fields the edit cleared", () => {
@@ -100,8 +100,12 @@ describe("parseEdit / inversePatch", () => {
 describe("totals and incomplete warning", () => {
   it("prices complete lines only and says what was left out", () => {
     const t = boqTotals([L({}), L({ qty: 0 }), L({ dsr_rate: null }), L({ included: false })]);
-    expect(t).toEqual({ pricedTotal: 1000, pending: 1, unpriced: 1, complete: 1, excluded: 1 });
-    expect(incompleteWarning(t)).toBe("This BOQ is incomplete: 1 line has a pending quantity and 1 line has no rate. They are not in the priced total.");
+    expect(t).toEqual({ pricedTotal: 1000, pending: 1, unpriced: 1, complete: 1, excluded: 1, assumed: 0, basisUnknown: 2 });
+    expect(incompleteWarning(t)).toBe("Quantities are incomplete: 1 line has a pending quantity. 1 line has no rate yet. These lines are not in the priced total.");
+  });
+  it("a missing rate alone does not make the quantities incomplete, but is still stated", () => {
+    expect(incompleteWarning(boqTotals([L({}), L({ dsr_rate: null })])))
+      .toBe("All included quantities are established. 1 line has no rate yet and is not in the priced total — rates belong to the Pricing phase.");
   });
   it("has no warning when nothing is outstanding", () => {
     expect(incompleteWarning(boqTotals([L({}), L({ included: false, qty: 0 })]))).toBeNull();

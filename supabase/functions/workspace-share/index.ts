@@ -154,7 +154,7 @@ function buildDeps(): ShareReadDeps {
       const { data: boq } = await admin.from("boq").select("id").eq("id", boqId).eq("project_id", projectId).maybeSingle();
       if (!boq) return [];
       const { data } = await admin.from("boq_line")
-        .select("id, description, unit, qty, included, section, sort, dsr_rate, custom_rate")
+        .select("id, description, unit, qty, included, section, sort, dsr_rate, custom_rate, quantity_status, basis, basis_note")
         .eq("boq_id", boqId).order("sort");
       return (data ?? []).map((l) => ({
         id: l.id as string,
@@ -166,6 +166,9 @@ function buildDeps(): ShareReadDeps {
         sort: l.sort as number,
         dsrRate: (l.dsr_rate as number | null) ?? null,
         customRate: (l.custom_rate as number | null) ?? null,
+        quantityStatus: (l.quantity_status as string | null) ?? null,
+        basis: (l.basis as string | null) ?? null,
+        basisNote: (l.basis_note as string | null) ?? null,
       }));
     },
   };

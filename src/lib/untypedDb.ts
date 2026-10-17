@@ -10,10 +10,12 @@ export interface Query extends PromiseLike<DbResult> {
   eq(col: string, value: unknown): Query;
   in(col: string, values: readonly unknown[]): Query;
   neq(col: string, value: unknown): Query;
+  is(col: string, value: null): Query;
   or(filter: string): Query;
   ilike(col: string, pattern: string): Query;
   order(col: string, opts?: { ascending?: boolean; nullsFirst?: boolean }): Query;
   limit(n: number): Query;
+  range(from: number, to: number): Query;
   insert(values: object): Query;
   upsert(values: object, opts?: { onConflict?: string }): Query;
   update(values: object): Query;

@@ -129,6 +129,27 @@ describe("diffRevisionAgainstWorking", () => {
     expect(d).toMatchObject({ changed: 1, removed: 1, added: [{ id: "d", description: "New skirting" }] });
   });
 
+  it("a change of quantity status or source drawing is a change, even with the same number", () => {
+    const base = saved.map((l) => ({ ...l, source_document_id: "doc-1", source_document_name: "GF Plan", source_page: "2" }));
+    const working = base.map((l) => (l.source_line_id === "a" ? { ...l, quantity_status: "PENDING" }
+      : l.source_line_id === "b" ? { ...l, source_page: "3" }
+      : l.source_line_id === "c" ? { ...l, source_document_name: "GF Plan (renamed)" } : l));
+    const d = diffRevisionAgainstWorking(base, working);
+    expect(d.lines.get(1)).toEqual({ status: "changed", changes: [{ field: "quantity status", from: "Quantity established", to: "Quantity pending" }] });
+    expect(d.lines.get(2)).toEqual({ status: "changed", changes: [{ field: "source", from: "GF Plan, p.2", to: "GF Plan, p.3" }] });
+    expect(d.lines.get(3)).toEqual({ status: "unchanged", changes: [] }); // a renamed drawing is the same source
+  });
+
+  it("a changed quantity basis is a change when both sides record one; never compared for older revisions", () => {
+    const savedB = saved.map((l) => ({ ...l, basis: "REVIEW_VERIFIED", basis_note: null, quantity_status: "COUNTED" }));
+    const workingB = savedB.map((l) => (l.source_line_id === "a" ? { ...l, basis: "MANUAL" } : l));
+    expect(diffRevisionAgainstWorking(savedB, workingB).lines.get(1)).toEqual({ status: "changed",
+      changes: [{ field: "quantity basis", from: "Counted on drawing, verified in review", to: "Changed manually" }] });
+    expect(diffRevisionAgainstWorking(saved, workingB).lines.get(1)?.changes.some((c) => c.field === "quantity basis")).toBe(false);
+    const frozenBeforeBasisColumn = saved.map((l) => ({ ...l, basis: null, basis_note: null }));
+    expect(diffRevisionAgainstWorking(frozenBeforeBasisColumn, workingB).lines.get(1)?.changes.some((c) => c.field === "quantity basis")).toBe(false);
+  });
+
   it("compares numeric values stored as strings by the database as numbers", () => {
     const fromDb = saved.map((l) => ({ ...l, qty: String(l.qty) as unknown as number, rate: String(l.rate) as unknown as number }));
     expect(diffRevisionAgainstWorking(fromDb, saved).changed).toBe(0);
@@ -138,5 +159,74 @@ describe("diffRevisionAgainstWorking", () => {
     const before = JSON.stringify(saved);
     diffRevisionAgainstWorking(saved, []);
     expect(JSON.stringify(saved)).toBe(before);
+  });
+});
+
+describe("revision fidelity and diff — no false positives (Workstream D)", () => {
+  const saved = buildRevisionLines([sh(1, "Finishes", [wl({ id: "a" }), wl({ id: "b", qty: 5 }), wl({ id: "c" })])]);
+
+  it("a line frozen pending only by its basis stays pending in re-exports when the database dropped the basis", () => {
+    // Client froze basis PENDING on a DB without 20261007: the row reads back with no basis key.
+    const frozen = buildRevisionLines([sh(1, "Finishes", [wl({ id: "p", qty: 6, quantity_status: null, basis: "PENDING", basis_note: null }), wl({ id: "m", qty: 2 })])]);
+    expect(frozen[0]).toMatchObject({ amount: null, limitations: ["Quantity pending"] });
+    const readBack = frozen.map(({ basis, basis_note, ...rest }) => rest);
+    expect(csvRowsFrom(readBack).map((r) => r.itemNo)).toEqual(["1.02"]);
+    expect(quoteSubheadsFrom(readBack)[0]).toMatchObject({ subtotal: 200, lines: [{ no: "1.02" }] });
+    expect(pendingItemsFrom(readBack)).toEqual([expect.objectContaining({ spec: "p", note: "Quantity pending: the entered 6 sqm had not been confirmed when this was frozen" })]);
+    // and with the basis stored, the reason names the mark
+    expect(pendingItemsFrom(frozen)[0].note).toBe("Quantity pending: still marked pending; the entered 6 sqm has not been confirmed");
+  });
+
+  it("pending lines with no number are equal whether 0 or null was stored", () => {
+    const s = buildRevisionLines([sh(1, "F", [wl({ id: "d", qty: 0, quantity_status: "PENDING" })])]);
+    const w = s.map((l) => ({ ...l, qty: null }));
+    expect(diffRevisionAgainstWorking(s, w).lines.get(1)).toEqual({ status: "unchanged", changes: [] });
+    // but a number typed into the pending line is a change
+    const typed = s.map((l) => ({ ...l, qty: 4 }));
+    expect(diffRevisionAgainstWorking(s, typed).lines.get(1)?.changes).toEqual([{ field: "qty", from: "—", to: "4" }]);
+  });
+
+  it("a legacy frozen line (no basis key, basis lost) is not reported as a status change against a working basis-PENDING line", () => {
+    const frozen = buildRevisionLines([sh(1, "F", [wl({ id: "p", qty: 6, quantity_status: null, basis: "PENDING", basis_note: null })])]);
+    const legacy = frozen.map(({ basis, basis_note, ...rest }) => rest);
+    expect(diffRevisionAgainstWorking(legacy, frozen).lines.get(1)).toEqual({ status: "unchanged", changes: [] });
+  });
+
+  it("blank vs null text, numeric strings and a renamed drawing are not changes", () => {
+    const base = saved.map((l) => ({ ...l, unit: "", description: "a ", source_document_id: "doc-1", source_document_name: "GF Plan", source_page: "2" }));
+    const working = saved.map((l) => ({ ...l, unit: null, description: "a", rate: String(l.rate) as unknown as number,
+      source_document_id: "doc-1", source_document_name: "GF Plan v2", source_page: "2" }));
+    expect(diffRevisionAgainstWorking(base, working).lines.get(1)).toEqual({ status: "unchanged", changes: [] });
+  });
+
+  it("a page is not compared while the working drawing is still loading or unavailable; a different document is a change", () => {
+    const base = saved.map((l) => ({ ...l, source_document_id: "doc-1", source_document_name: "GF Plan", source_page: "2" }));
+    const loading = base.map((l) => ({ ...l, source_document_name: null, source_page: null }));
+    const unavailable = base.map((l) => ({ ...l, source_document_name: "Source document unavailable", source_page: null }));
+    expect(diffRevisionAgainstWorking(base, loading).changed).toBe(0);
+    expect(diffRevisionAgainstWorking(base, unavailable).changed).toBe(0);
+    const moved = base.map((l) => ({ ...l, source_document_id: "doc-2", source_document_name: "FF Plan" }));
+    expect(diffRevisionAgainstWorking(base, moved).lines.get(1)?.changes).toEqual([{ field: "source", from: "GF Plan, p.2", to: "FF Plan, p.2" }]);
+    const cleared = base.map((l) => ({ ...l, source_document_id: null, source_document_name: null, source_page: null }));
+    expect(diffRevisionAgainstWorking(base, cleared).lines.get(1)?.changes).toEqual([{ field: "source", from: "GF Plan, p.2", to: "—" }]);
+  });
+
+  it("a changed DSR code is a change", () => {
+    const working = saved.map((l) => (l.source_line_id === "a" ? { ...l, dsr_code: "11.41.3" } : l));
+    expect(diffRevisionAgainstWorking(saved, working).lines.get(1)?.changes).toEqual([{ field: "code", from: "11.41.2", to: "11.41.3" }]);
+  });
+
+  it("a basis recorded only as a note is compared; two unknown codes with the same label still differ", () => {
+    const s = saved.map((l) => ({ ...l, basis: null, basis_note: "Added from drawing analysis review" }));
+    const w = s.map((l) => (l.source_line_id === "a" ? { ...l, basis: "MANUAL", basis_note: null } : l));
+    expect(diffRevisionAgainstWorking(s, w).lines.get(1)?.changes.map((c) => c.field)).toEqual(["quantity basis"]);
+    const u1 = saved.map((l) => ({ ...l, basis: "XYZ", basis_note: null }));
+    const u2 = u1.map((l) => (l.source_line_id === "a" ? { ...l, basis: "QRS" } : l));
+    expect(diffRevisionAgainstWorking(u1, u2).lines.get(1)?.changes).toEqual([
+      { field: "quantity basis", from: "Basis not recorded (XYZ)", to: "Basis not recorded (QRS)" },
+    ]);
+    // working read without basis columns: nothing compared
+    const noCols = saved.map((l) => { const { basis, basis_note, ...r } = { ...l, basis: null, basis_note: null }; return r; });
+    expect(diffRevisionAgainstWorking(u1, noCols).lines.get(1)?.changes.some((c) => c.field === "quantity basis")).toBe(false);
   });
 });

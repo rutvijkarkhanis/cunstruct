@@ -148,12 +148,14 @@ describe("reading the staging target", () => {
 });
 
 describe("staging-migrate", () => {
-  it("applies exactly the four Stage 3–6 migrations, in dependency order, and they exist", () => {
+  it("applies exactly the Stage 3–6 migrations and their revision follow-ups, in dependency order, and they exist", () => {
     expect(STAGING_MIGRATIONS).toEqual([
       "20261003000000_boq_line_dsr_mapping.sql",
       "20261004000000_boq_line_rate_evidence.sql",
       "20261005000000_boq_line_rate_adoption.sql",
       "20261006000000_boq_commercial_revision.sql",
+      "20261007000000_boq_commercial_revision_provenance.sql",
+      "20261008000000_boq_commercial_revision_line_identity.sql",
     ]);
     for (const f of STAGING_MIGRATIONS) expect(fs.existsSync(path.join(__dirname, "../../supabase/deferred-migrations", f))).toBe(true);
   });

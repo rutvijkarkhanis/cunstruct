@@ -69,10 +69,10 @@ describe("frozen revision exports", () => {
     await exportRevision("csv");
     const body = io.csv[0].split("\r\n").slice(4);
     expect(body).toEqual([
-      "1.00 Finishes,1.01,,Tiles,sqm,10,100,100,=F5*H5,Plan,2",
+      "1.00 Finishes,1.01,,Tiles,sqm,10,100,100,=F5*H5,Plan,2,",
       "",
       "IDENTIFIED — PENDING QUANTIFICATION (not priced; confirm a quantity to price)",
-      "Pending,P.01,,Door — Quantity pending: not yet measured,sqm,,,,,Plan,2",
+      "Pending,P.01,,Door — Quantity pending: not yet measured,sqm,,,,,Plan,2,",
     ]);
     expect(io.tablesRead).toContain("boq_commercial_revision_line");
     expect(io.tablesRead).not.toContain("boq_line"); // never the working BOQ

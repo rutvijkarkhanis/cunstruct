@@ -1,5 +1,5 @@
 // PROJECT JOURNEY — the staff application shell for the step-by-step project
-// flow (Projects → Overview → Drawings → BOQ → Export & History). It composes
+// flow (Projects → Overview → Drawings → Review quantities → BOQ → Check & export). It composes
 // existing data and components; the Ops console and its routes are untouched
 // and stay one click away.
 import { Link, NavLink, Navigate, Outlet, useLocation } from "react-router-dom";

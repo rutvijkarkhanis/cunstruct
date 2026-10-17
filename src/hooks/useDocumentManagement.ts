@@ -49,9 +49,11 @@ export function useDocumentManagement(projectId: string | undefined | null) {
     queryKey: ["project-documents", projectId],
     enabled: !!projectId,
     queryFn: async () => {
-      const { data } = await supabase.from("project_document")
+      const { data, error } = await supabase.from("project_document")
         .select("id, project_id, name, doc_type, discipline, current_revision_id, status, folder_id, created_at")
         .eq("project_id", projectId!).order("created_at");
+      // A failed read must not look like "this project has no drawings".
+      if (error) throw error;
       return (data ?? []) as ProjectDocument[];
     },
   });

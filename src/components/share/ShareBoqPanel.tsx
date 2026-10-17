@@ -17,6 +17,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { formatINR } from "@/lib/forecastEngine";
+import { quantityState, type QuantityState } from "@/lib/quantity";
 import type { ShareBoqSummary } from "../../../supabase/functions/workspace-share/handler";
 
 export interface ShareBoqPanelProps {
@@ -32,6 +33,21 @@ interface ShareBoqLine {
   included: boolean;
   rate?: number | null;
   amount?: number | null;
+  /** Present from the pending-aware share function onward. */
+  quantityState?: QuantityState;
+  basis?: string;
+}
+
+/** The quantity as it may be shown publicly. A response from an older share
+ *  function carries no quantityState; the shared rule is then applied to the
+ *  number alone (a bare 0 is pending, never "0 measured"). */
+function shareQty(l: ShareBoqLine): string {
+  const state = l.quantityState ?? quantityState({ qty: l.qty });
+  const unit = l.unit ?? "";
+  if (state === "pending") return "Quantity pending";
+  if (state === "unavailable") return "Quantity not available";
+  if (state === "confirmed_zero") return `0 ${unit} (confirmed)`.trim();
+  return `${l.qty} ${unit}`.trim();
 }
 
 interface BoqLinesResponse {
@@ -48,14 +64,14 @@ export default function ShareBoqPanel({ token, boqs }: ShareBoqPanelProps) {
   const [activeBoqId, setActiveBoqId] = useState<string | null>(boqs.length === 1 ? boqs[0].id : null);
   const [showList, setShowList] = useState(boqs.length !== 1);
 
-  const { data } = useQuery({
+  const { data, isError } = useQuery({
     queryKey: ["share-boq-lines", token, activeBoqId],
     enabled: !!activeBoqId,
     queryFn: async () => {
       const { data, error } = await supabase.functions.invoke<BoqLinesResponse>("workspace-share", {
         body: { token, action: "boq_lines", boqId: activeBoqId },
       });
-      if (error || !data?.ok) return null;
+      if (error || !data?.ok) throw new Error(data?.error ?? "Could not load this BOQ.");
       return data;
     },
   });
@@ -91,6 +107,10 @@ export default function ShareBoqPanel({ token, boqs }: ShareBoqPanelProps) {
   const lines = data?.lines ?? [];
   const previewLines = lines.slice(0, LINE_PREVIEW_CAP);
   const remaining = lines.length - previewLines.length;
+  const pendingCount = lines.filter((l) => {
+    const st = l.quantityState ?? quantityState({ qty: l.qty });
+    return l.included && (st === "pending" || st === "unavailable");
+  }).length;
 
   return (
     <div className="p-3 space-y-3">
@@ -100,7 +120,9 @@ export default function ShareBoqPanel({ token, boqs }: ShareBoqPanelProps) {
         <div className="text-[11px] text-muted-foreground">{activeBoq.lineCount} line{activeBoq.lineCount === 1 ? "" : "s"}</div>
       </div>
 
-      {!data ? (
+      {isError ? (
+        <p role="alert" className="text-xs text-destructive">This BOQ's lines could not be loaded. Try again later.</p>
+      ) : !data ? (
         <p className="text-xs text-muted-foreground">Loading…</p>
       ) : lines.length === 0 ? (
         <p className="text-xs text-muted-foreground">This BOQ has no line items yet.</p>
@@ -109,13 +131,18 @@ export default function ShareBoqPanel({ token, boqs }: ShareBoqPanelProps) {
           {data.commercials && (
             <div className="rounded border p-2 space-y-1">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">Subtotal</span>
+                <span className="text-muted-foreground">Subtotal (priced lines)</span>
                 <span className="tabular-nums">{formatINR(data.commercials.works)}</span>
               </div>
               <div className="flex items-center justify-between text-sm font-semibold">
                 <span>Grand Total</span>
                 <span className="tabular-nums">{formatINR(data.commercials.grandTotal)}</span>
               </div>
+              {pendingCount > 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  {pendingCount} line{pendingCount === 1 ? " has" : "s have"} no established quantity and {pendingCount === 1 ? "is" : "are"} not in these totals.
+                </p>
+              )}
             </div>
           )}
 
@@ -125,8 +152,9 @@ export default function ShareBoqPanel({ token, boqs }: ShareBoqPanelProps) {
                 <div className="min-w-0 flex-1 space-y-0.5">
                   <div className="truncate">{l.description ?? "—"}</div>
                   <div className="text-muted-foreground">
-                    {l.qty} {l.unit ?? ""}{l.rate != null ? ` · ${formatINR(l.rate)}` : ""}
+                    {shareQty(l)}{l.rate != null ? ` · ${formatINR(l.rate)}` : ""}
                   </div>
+                  {l.basis && <div className="text-muted-foreground">Basis: {l.basis}</div>}
                 </div>
                 {l.amount != null && <div className="shrink-0 tabular-nums pt-px">{formatINR(l.amount)}</div>}
               </div>

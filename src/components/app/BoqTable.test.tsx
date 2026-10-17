@@ -32,7 +32,7 @@ describe("BoqTable — structure and labels", () => {
   it("labels every column and offers rate editing only via the builder", () => {
     renderTable();
     const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
-    expect(headers).toEqual(["Section", "Code", "Description", "Quantity", "Unit", "Rate (₹)Edit in builder", "Amount (₹)", "Status", "Source"]);
+    expect(headers).toEqual(["Section", "Code", "Description", "Quantity", "Unit", "Rate (₹)Edit in builder", "Amount (₹)", "Status", "Quantity basis", "Source"]);
     expect(screen.getByRole("link", { name: "Edit in builder" })).toHaveAttribute("href", "/builder");
     expect(screen.getByRole("region", { name: "BOQ lines" })).toHaveAttribute("tabindex", "0");
   });
@@ -100,7 +100,7 @@ describe("BoqTable — inline editing", () => {
     fireEvent.change(qtyInput(), { target: { value: "12.5" } });
     await act(async () => { fireEvent.keyDown(qtyInput(), { key: "Enter" }); });
     expect(onSave).toHaveBeenCalledTimes(1);
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }), { qty: 12.5 });
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }), { qty: 12.5, basis: "MANUAL" });
     expect(screen.queryByRole("textbox", { name: "Quantity for Brick wall" })).toBeNull();
   });
 
@@ -128,7 +128,7 @@ describe("BoqTable — inline editing", () => {
       fireEvent.blur(input);
     });
     expect(onSave).toHaveBeenCalledTimes(1);
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }), { unit: "m3" });
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }), { unit: "m3", basis: "MANUAL" });
   });
 
   it("rejects invalid input without saving", async () => {
@@ -164,6 +164,6 @@ describe("BoqTable — inline editing", () => {
     const input = screen.getByRole("textbox", { name: "Quantity for Brick wall" });
     fireEvent.change(input, { target: { value: "6" } });
     await act(async () => { fireEvent.keyDown(input, { key: "Enter" }); });
-    expect(onSave).toHaveBeenCalledWith(expect.anything(), { qty: 6, basis: null, quantity_status: "COUNTED" });
+    expect(onSave).toHaveBeenCalledWith(expect.anything(), { qty: 6, basis: "MANUAL", quantity_status: "COUNTED" });
   });
 });

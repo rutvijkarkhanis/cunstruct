@@ -27,6 +27,12 @@ describe("applyReceipt", () => {
     expect(parseReceipt(JSON.stringify({ ...receipt, appliedCount: "3" }), "b1")).toBeNull();
     expect(parseReceipt(JSON.stringify({ ...receipt, appliedAt: "yesterday" }), "b1")).toBeNull();
   });
+  it("keeps an interrupted Apply's failure fields, and rejects malformed ones", () => {
+    const failed = { ...receipt, failedCount: 2, failureMessage: "Apply stopped part-way" };
+    expect(parseReceipt(JSON.stringify(failed), "b1")).toEqual(failed);
+    expect(parseReceipt(JSON.stringify({ ...receipt, failedCount: "2" }), "b1")).toBeNull();
+    expect(parseReceipt(JSON.stringify({ ...receipt, failureMessage: 3 }), "b1")).toBeNull();
+  });
   it("never throws when storage is unavailable or full", () => {
     const broken = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("quota"); }, removeItem: () => { throw new Error("blocked"); } };
     expect(() => saveReceipt(receipt, broken)).not.toThrow();

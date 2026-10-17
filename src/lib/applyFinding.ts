@@ -7,24 +7,14 @@
 
 import { supabase } from "@/integrations/supabase/client";
 import { PENDING_BASIS } from "./boqEvalJson";
+import { MANUAL_BASIS } from "./quantity";
+import { throwLineSaveError } from "./provenanceSave";
+import { isCountableUnit } from "./review/typeGrouping";
 
-// The optional columns some deployments haven't migrated yet. On a genuine
-// missing-column error we retry without them, mirroring the existing
-// insert/update fallbacks. Matches ONLY the generic "this column doesn't
-// exist" phrasing PostgREST/Postgres actually use for that specific error —
-// never a bare column name on its own. A bare name is NOT a safe signal: for
-// example, a foreign-key violation on source_document_id (a real FK to
-// project_document, e.g. its document was deleted after analysis ran but
-// before Apply) produces a Postgres-generated constraint name like
-// "boq_line_source_document_id_fkey", which contains the literal column name
-// despite being a completely different error class. Matching on the bare
-// name there used to make this fallback misfire: it would strip not just
-// source_document_id but every other "optional" column too — including
-// external_key and quantity_status — silently writing a line a reviewer
-// never intended (no error, no traceability) instead of either failing
-// loudly or degrading in a controlled way. See the same convention already
-// used correctly in security/auditTrail.ts's own missing-column check.
-const OPTIONAL_COL_RE = /schema cache|could not find|does not exist/i;
+// No column-stripping retry on any write here: a line saved without its basis,
+// pending marker, identity or drawing reference would claim less than the
+// reviewer chose. A database missing those columns gets an actionable error
+// (see provenanceSave.ts) and nothing is written.
 
 // Matches ONLY the two partial unique indexes 20260929000000_boq_line_identity_
 // constraint.sql adds for (boq_id, external_key, scope_id) — never any other
@@ -54,15 +44,8 @@ interface NewLine {
 }
 
 async function insertLineResilient(row: NewLine): Promise<string> {
-  let res = await supabase.from("boq_line").insert(row).select("id").single();
-  if (res.error && OPTIONAL_COL_RE.test(res.error.message)) {
-    const {
-      basis, basis_note, external_key, measurement_method, quantity_status, scope_id,
-      source_document_id, source_revision_id, source_page, ...base
-    } = row;
-    res = await supabase.from("boq_line").insert(base).select("id").single();
-  }
-  if (res.error) throw res.error;
+  const res = await supabase.from("boq_line").insert(row).select("id").single();
+  if (res.error) throwLineSaveError(res.error);
   return (res.data as { id: string }).id;
 }
 
@@ -76,6 +59,12 @@ interface UpdateExpected {
    *  reviewer previewed, so a rate edited elsewhere since is never overwritten. */
   custom_rate?: number | null;
   dsr_rate?: number | null;
+  /** Review Apply — the line's quantity meaning (pending / confirmed / which
+   *  basis) the reviewer's diff was computed from. Guarded alongside qty, so
+   *  a line marked pending, confirmed zero or re-based elsewhere since (same
+   *  qty, different meaning) is never silently overwritten. */
+  quantity_status?: string | null;
+  basis?: string | null;
 }
 
 /** Chain the compare-and-swap `.eq()`/`.is()` filters for whichever of
@@ -91,7 +80,7 @@ function withExpectedFilters(query: any, expected: UpdateExpected): any {
   let q = query;
   if (expected.qty !== undefined) q = q.eq("qty", expected.qty);
   if ("unit" in expected) q = expected.unit == null ? q.is("unit", null) : q.eq("unit", expected.unit);
-  for (const col of ["custom_rate", "dsr_rate"] as const) {
+  for (const col of ["custom_rate", "dsr_rate", "quantity_status", "basis"] as const) {
     if (col in expected) q = expected[col] == null ? q.is(col, null) : q.eq(col, expected[col]);
   }
   return q;
@@ -114,30 +103,17 @@ async function updateLineResilient(
   expected?: UpdateExpected,
 ): Promise<boolean> {
   const guarded = expected != null &&
-    (expected.qty !== undefined || "unit" in expected || "custom_rate" in expected || "dsr_rate" in expected);
+    (expected.qty !== undefined || "unit" in expected || "custom_rate" in expected || "dsr_rate" in expected
+      || "quantity_status" in expected || "basis" in expected);
 
   if (!guarded) {
-    let { error } = await supabase.from("boq_line").update(patch).eq("id", lineId);
-    if (error && OPTIONAL_COL_RE.test(error.message)) {
-      const {
-        measurement_method, quantity_status, external_key, basis, basis_note, scope_id,
-        source_document_id, source_revision_id, source_page, ...base
-      } = patch;
-      ({ error } = await supabase.from("boq_line").update(base).eq("id", lineId));
-    }
-    if (error) throw error;
+    const { error } = await supabase.from("boq_line").update(patch).eq("id", lineId);
+    if (error) throwLineSaveError(error);
     return true;
   }
 
-  let { data, error } = await withExpectedFilters(supabase.from("boq_line").update(patch).eq("id", lineId), expected).select("id");
-  if (error && OPTIONAL_COL_RE.test(error.message)) {
-    const {
-      measurement_method, quantity_status, external_key, basis, basis_note, scope_id,
-      source_document_id, source_revision_id, source_page, ...base
-    } = patch;
-    ({ data, error } = await withExpectedFilters(supabase.from("boq_line").update(base).eq("id", lineId), expected).select("id"));
-  }
-  if (error) throw error;
+  const { data, error } = await withExpectedFilters(supabase.from("boq_line").update(patch).eq("id", lineId), expected).select("id");
+  if (error) throwLineSaveError(error);
   return (data ?? []).length > 0;
 }
 
@@ -189,11 +165,18 @@ export async function applyMethodUnit(lineId: string, method?: string | null, un
 
 /**
  * Set a user-supplied quantity on a line, clearing the PENDING marker. The status
- * becomes COUNTED for a count methodology, else MEASURED — a human established it.
+ * becomes COUNTED for a count methodology, else MEASURED — a human established it
+ * — and the basis MANUAL (quantityEdit.ts's rule for any typed quantity): the
+ * number is no longer what a drawing, coefficient or assumption produced, and
+ * the line must not keep — or lose to "not recorded" — a claim about that.
+ * A negative or non-numeric quantity is refused, never written.
  */
 export async function setLineQty(lineId: string, qty: number, method?: string | null): Promise<void> {
+  if (typeof qty !== "number" || !Number.isFinite(qty) || qty < 0) {
+    throw new Error("Enter a valid quantity (a number, zero or more) — nothing was saved.");
+  }
   const status = (method ?? "").toUpperCase() === "COUNT" ? "COUNTED" : "MEASURED";
-  await updateLineResilient(lineId, { qty, basis: null, quantity_status: status });
+  await updateLineResilient(lineId, { qty, basis: MANUAL_BASIS, quantity_status: status });
 }
 
 /** Mark an existing line quantity-pending (qty 0, basis PENDING) — never fabricated. */
@@ -208,6 +191,9 @@ export async function markLinePending(lineId: string): Promise<void> {
 
 export interface AddReviewLineArgs {
   boqId: string;
+  /** The applied quantity's basis (REVIEW_VERIFIED / REVIEW_CORRECTED);
+   *  ignored for a pending line, which is always PENDING. */
+  basis?: string | null;
   description: string;
   unit?: string | null;
   /** 0 when pending; the caller decides via `pending`, never guessed here. */
@@ -253,11 +239,11 @@ export async function addReviewItemAsLine(args: AddReviewLineArgs): Promise<stri
       description: args.description,
       unit: args.unit ?? null,
       qty: args.qty,
-      basis: args.pending ? PENDING_BASIS : null,
+      basis: args.pending ? PENDING_BASIS : (args.basis ?? null),
       basis_note: "Added from drawing analysis review",
       external_key: args.externalKey,
       measurement_method: null,
-      quantity_status: args.pending ? "PENDING" : "MEASURED",
+      quantity_status: args.pending ? "PENDING" : isCountableUnit(args.unit) ? "COUNTED" : "MEASURED",
       scope_id: args.scopeId ?? null,
       included: true,
       source: "manual",
@@ -322,7 +308,7 @@ export async function applyReviewQtyUnit(
      *  onto a line that already has one. */
     source_document_id?: string; source_revision_id?: string | null; source_page?: string | null;
   },
-  expected?: { qty?: number; unit?: string | null },
+  expected?: { qty?: number; unit?: string | null; quantity_status?: string | null; basis?: string | null },
 ): Promise<boolean> {
   return updateLineResilient(lineId, patch, expected);
 }

@@ -17,6 +17,7 @@ const editedItem: StoredReviewItem = {
   id: "review-item-1",
   reviewStatus: "EDITED",
   reviewer: { quantity: 25101 },
+  reviewNote: "Printed total matches the area schedule",
   ai: {
     key: "SLAB-TOTAL", item: "Total slab area", quantity: null, unit: "sqft",
     confidence: null, aiStatus: "PENDING",
@@ -94,5 +95,18 @@ describe("clicking Flag or Mark Pending after a prior Edit also preserves the re
     const call = saveReviewDecision.mock.calls[0][0] as { reviewStatus: string; reviewer: unknown };
     expect(call.reviewStatus).toBe("MARKED_PENDING");
     expect(call.reviewer).toEqual({ quantity: 25101 });
+  });
+});
+
+describe("a later decision keeps the reviewer's note and is guarded on the status the reviewer saw", () => {
+  it("Verify after a note was written keeps the note, and saves only if the item is still EDITED", async () => {
+    renderPage();
+    const verifyBtn = await screen.findByText("Verify", { exact: true });
+    await waitFor(() => expect(verifyBtn.closest("button")).not.toBeDisabled());
+    verifyBtn.click();
+    await waitFor(() => expect(saveReviewDecision).toHaveBeenCalled());
+    const call = (saveReviewDecision.mock.calls[0] as unknown[])[0] as { reviewNote: unknown; expectedStatus: unknown };
+    expect(call.reviewNote).toBe("Printed total matches the area schedule"); // not erased
+    expect(call.expectedStatus).toBe("EDITED");
   });
 });

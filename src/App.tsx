@@ -55,6 +55,7 @@ const AppProjects = lazy(() => import("./pages/app/AppProjects.tsx"));
 const ProjectShell = lazy(() => import("./components/app/ProjectShell.tsx"));
 const ProjectOverview = lazy(() => import("./pages/app/ProjectOverview.tsx"));
 const ProjectDrawings = lazy(() => import("./pages/app/ProjectDrawings.tsx"));
+const ProjectReview = lazy(() => import("./pages/app/ProjectReview.tsx"));
 const ProjectBoq = lazy(() => import("./pages/app/ProjectBoq.tsx"));
 const ProjectExport = lazy(() => import("./pages/app/ProjectExport.tsx"));
 
@@ -195,7 +196,9 @@ function AppRoutes() {
           <Route index element={<Navigate to="overview" replace />} />
           <Route path="overview" element={<ProjectOverview />} />
           <Route path="drawings" element={<ProjectDrawings />} />
+          <Route path="review" element={<ProjectReview />} />
           <Route path="boq" element={<ProjectBoq />} />
+          <Route path="check" element={<ProjectExport mode="check" />} />
           <Route path="export" element={<ProjectExport />} />
           <Route path="*" element={<p className="text-sm text-muted-foreground">This step is not available.</p>} />
         </Route>
