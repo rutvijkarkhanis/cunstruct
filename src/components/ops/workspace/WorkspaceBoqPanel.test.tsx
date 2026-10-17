@@ -18,16 +18,18 @@ vi.mock("@/context/AuthContext", () => ({ useAuth: () => ({ user: { id: "user-1"
 
 const SCOPE = { id: "scope-1", project_id: "proj-1", name: "Residential", kind: "floor", sort: 0, status: "active" };
 let boqs: { id: string; name: string; description: null; scope_id: string; sort: number; status: string; spec?: Record<string, unknown> }[] = [];
-let lines: { id: string; description: string | null; unit: string | null; qty: number; dsr_rate: number | null; custom_rate: number | null; included: boolean }[] = [];
+let lines: { id: string; description: string | null; unit: string | null; qty: number; dsr_rate: number | null; custom_rate: number | null; included: boolean; quantity_status?: string | null; basis?: string | null }[] = [];
+let linesError: { message: string } | null = null;
 let changeLog: { boq_line_id: string; review_item_id: string | null }[] = [];
+let changeLogError: { message: string } | null = null;
 const inserted: Record<string, unknown[]> = {};
 
 vi.mock("@/integrations/supabase/client", () => {
-  const readChain = (getData: () => unknown) => {
+  const readChain = (getData: () => unknown, getError: () => unknown = () => null) => {
     const obj: Record<string, unknown> = {};
     ["select", "eq", "order", "in", "not"].forEach((m) => { obj[m] = () => obj; });
     (obj as { then: unknown }).then = (resolve: (r: { data: unknown; error: null; count?: number }) => void) =>
-      resolve({ data: getData(), error: null, count: 0 });
+      resolve({ data: getError() ? null : getData(), error: getError() as null, count: 0 });
     return obj;
   };
   return {
@@ -55,8 +57,8 @@ vi.mock("@/integrations/supabase/client", () => {
           };
           return obj;
         }
-        if (table === "boq_line") return readChain(() => lines);
-        if (table === "boq_line_change_log") return readChain(() => changeLog);
+        if (table === "boq_line") return readChain(() => lines, () => linesError);
+        if (table === "boq_line_change_log") return readChain(() => changeLog, () => changeLogError);
         return readChain(() => []);
       },
     },
@@ -65,11 +67,13 @@ vi.mock("@/integrations/supabase/client", () => {
 
 beforeEach(() => {
   lines = [];
+  linesError = null;
   changeLog = [];
+  changeLogError = null;
 });
 
 function renderPanel(activeBoqId: string | null, onEnterMode = vi.fn()) {
-  const qc = new QueryClient();
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={qc}>
       <MemoryRouter>
@@ -229,6 +233,55 @@ describe("WorkspaceBoqPanel — Stage C5A: selected BOQ with line items", () => 
     expect(await screen.findByText("Excluded line")).toBeInTheDocument();
     expect(await screen.findByText(`10 bag · ${formatINR(100)}`)).toBeInTheDocument();
     expect(await screen.findByText(`5 bag · ${formatINR(50)}`)).toBeInTheDocument();
+  });
+
+  it("a pending quantity is shown as pending, never priced or totalled, and the total says what it leaves out", async () => {
+    lines = [
+      { id: "line-1", description: "Cement bags", unit: "bag", qty: 10, dsr_rate: 100, custom_rate: null, included: true },
+      { id: "line-3", description: "Doors", unit: "nos", qty: 12, dsr_rate: 100, custom_rate: null, included: true, quantity_status: "PENDING", basis: "PENDING" },
+      { id: "line-4", description: "Skirting", unit: "m", qty: 0, dsr_rate: 100, custom_rate: null, included: true, quantity_status: "MEASURED" },
+    ];
+    renderPanel(null);
+    expect(await screen.findByText("Doors")).toBeInTheDocument();
+    const commercials = computeCommercials(1000, { costIndexPct: 0, contingencyPct: 3, overheadPct: 15, cessPct: 1, gstPct: 18 });
+    expect((await screen.findAllByText(formatINR(commercials.works))).length).toBeGreaterThan(0);
+    expect(screen.queryByText(formatINR(2200))).toBeNull();
+    expect(screen.getByText(`12 nos (unconfirmed) · ${formatINR(100)}`)).toBeInTheDocument();
+    expect(screen.getByText(`0 m (confirmed) · ${formatINR(100)}`)).toBeInTheDocument();
+    expect(screen.getByText("1 line has a pending quantity and is not in these totals.")).toBeInTheDocument();
+  });
+
+  it("a failed line load is reported, never shown as an empty BOQ or a ₹0 total", async () => {
+    linesError = { message: "permission denied" };
+    renderPanel(null);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't load this BOQ's lines");
+    expect(screen.queryByText("This BOQ has no line items yet.")).toBeNull();
+    expect(screen.queryByText("Grand Total")).toBeNull();
+  });
+
+  // P2-3: a failed read is not "nothing was reviewed".
+  it("says the Review check could not be made when the change-log read fails, and marks no line Reviewed", async () => {
+    changeLog = [{ boq_line_id: "line-1", review_item_id: "review-item-1" }];
+    changeLogError = { message: 'relation "boq_line_change_log" does not exist' };
+    renderPanel(null);
+    await screen.findByText("Cement bags");
+    expect(await screen.findByText(/Couldn't check which lines came from Review/)).toBeInTheDocument();
+    expect(screen.queryByText("Reviewed")).not.toBeInTheDocument();
+  });
+
+  it("an established quantity with no rate is stated as left out of the totals, separately from pending quantities", async () => {
+    lines = [
+      { id: "line-1", description: "Cement bags", unit: "bag", qty: 10, dsr_rate: 100, custom_rate: null, included: true },
+      { id: "line-2", description: "Tiles", unit: "sqm", qty: 4, dsr_rate: null, custom_rate: null, included: true },
+      { id: "line-3", description: "Doors", unit: "nos", qty: 0, dsr_rate: null, custom_rate: null, included: true, quantity_status: "PENDING" },
+    ];
+    renderPanel(null);
+    expect(await screen.findByText("Tiles")).toBeInTheDocument();
+    expect(screen.getByText("1 line has a pending quantity and is not in these totals.")).toBeInTheDocument();
+    expect(screen.getByText("1 line has no rate yet and is not in these totals.")).toBeInTheDocument();
+    const commercials = computeCommercials(1000, { costIndexPct: 0, contingencyPct: 3, overheadPct: 15, cessPct: 1, gstPct: 18 });
+    expect((await screen.findAllByText(formatINR(commercials.works))).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Couldn't check which lines came from Review/)).toBeNull();
   });
 
   it("shows no 'Reviewed' badge for a line with no persisted boq_line_change_log row — never fabricates Review provenance", async () => {

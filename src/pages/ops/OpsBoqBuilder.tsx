@@ -4,14 +4,22 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { disciplineByKey } from "@/lib/disciplines";
 import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
-import { computeCommercials, openDsrQuote, buildBoqCsv, downloadCsv, roundRupee, incompleteScopeNotice } from "@/lib/boqDsrDocument";
+import { openQuoteWindow, downloadCsv, roundRupee, incompleteScopeNotice } from "@/lib/boqDsrDocument";
 import { buildWorkPackages, buildWorkPackageCsv } from "@/lib/workPackages";
 import { DRAWING_REVIEW_SECTION } from "@/lib/applyFinding";
 import { db } from "@/lib/untypedDb";
-import { buildRevisionLines, csvRowsFrom, pendingItemsFrom, qtyPending, quoteSubheadsFrom, type RevisionQuoteContext, type WorkingSubhead } from "@/lib/boqRevision";
+import { buildRevisionLines, qtyPending, type RevisionQuoteContext, type WorkingSubhead } from "@/lib/boqRevision";
 import { openIntakeForm } from "@/lib/boqIntakeForm";
 import { sanityForCode, countFlagged } from "@/lib/boqSanity";
 import { parseBoqEvalJson, evalLinesToRows, pendingCount, PENDING_BASIS } from "@/lib/boqEvalJson";
+import { quantityEditPatch, unitEditPatch } from "@/lib/quantityEdit";
+import { safeJourneyReturn } from "@/lib/app/journey";
+import { addLineRecorded, editTookEffect, lineAddMessage, lineEditMessage, saveLineEdit, type LineAddResult } from "@/lib/lineEdit";
+import { PDF_REREAD_FAILED_MESSAGE, linesChanged } from "@/lib/exportFreshness";
+import { throwLineSaveError } from "@/lib/provenanceSave";
+import { LineRemovalError, removeLineWithSnapshot, restoreRemovedLine, type RemovedLine } from "@/lib/lineRemoval";
+import { saveErrorMessage } from "@/lib/saveError";
+import { commercialsFor, effRate, groupSubheads as groupSubheadsOf, includedTotal, lineAmount, liveCsv, liveFileStem, liveQuotePayload, quoteContextFor, workingSubheadsFrom } from "@/lib/boqLiveExport";
 import { loadProjectDrawings, resolveDrawingSource } from "@/lib/review/drawingStorage";
 import { latestRunForBoq, loadReviewItems } from "@/lib/review/reviewStore";
 import BoqDocumentsPanel from "@/components/ops/BoqDocumentsPanel";
@@ -27,6 +35,7 @@ import { fetchAdoptionHistory } from "@/hooks/useRateAdoption";
 import { adoptionStateFor, applyManualRateEdit, manualRateFailureMessage, type AdoptionSummary } from "@/lib/manualRateEdit";
 import AiStateBadge from "@/components/review/AiStateBadge";
 import { type Spec, type SpecValue } from "@/lib/boqSpec";
+import { readBoqSpec, reusableSpec, SpecWriteConflictError, writeBoqSpecKeys } from "@/lib/boqSpecWrite";
 import { workspaceUrl } from "@/lib/review/workspaceState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,14 +65,10 @@ interface BoqLine {
   scope_id?: string | null;
 }
 
-/** The rate in effect: the estimator's case-specific override, else the DSR reference. */
-const effRate = (l: BoqLine) => l.custom_rate ?? l.dsr_rate;
-/** A single line's amount in whole rupees (0 when unrated, or when its quantity is
- *  still pending — see qtyPending). All money aggregates are sums of THIS value so
- *  the printed figures add up exactly (see roundRupee). */
-const lineAmount = (l: BoqLine) => (qtyPending(l) ? 0 : roundRupee(l.qty * (effRate(l) ?? 0)));
+// effRate / lineAmount: see lib/boqLiveExport (shared with the project journey's Export step).
 /** The amount to display for one line: "—" when unrated or quantity-pending. */
-const lineAmountText = (l: BoqLine, rate: number | null) => (rate != null && !qtyPending(l) ? inr(l.qty * rate) : "—");
+// Whole rupees, exactly as totals and exports compute a line's amount.
+const lineAmountText = (l: BoqLine, rate: number | null) => (rate != null && !qtyPending(l) ? inr(roundRupee(l.qty * rate)) : "—");
 
 // The provenance columns (basis / basis_note) come from migrations that may not be
 // run on every deployment. Select them when present, but fall back to the base
@@ -81,6 +86,14 @@ async function selectBoqLines(boqId: string): Promise<BoqLine[]> {
 }
 
 const inr = (n: number) => "₹" + Math.round(n).toLocaleString("en-IN");
+
+/** The values a removal is guarded on: what the editor shows of the line. */
+const GUARD_COLS = ["description", "section", "qty", "unit", "custom_rate", "dsr_rate", "cost", "included"] as const;
+function guardOf(line: object): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of GUARD_COLS) if (k in line) out[k] = (line as Record<string, unknown>)[k];
+  return out;
+}
 
 // A single reversible change to the BOQ — the unit of the session ledger.
 interface EstimateChange {
@@ -152,6 +165,11 @@ export default function OpsBoqBuilder() {
   const [pendingRate, setPendingRate] = useState<{ line: BoqLine; value: number | null; input: HTMLInputElement; record: AdoptionSummary } | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
+  // Opened from the project journey (?returnTo=/app/projects/…): back leads
+  // there, and the review screen opened from here keeps that way back. Only a
+  // journey path is honoured (safeJourneyReturn); without one nothing changes.
+  const returnTo = safeJourneyReturn(new URLSearchParams(location.search).get("returnTo"));
+  const reviewHref = returnTo ? `review?returnTo=${encodeURIComponent(returnTo)}` : "review";
   const qc = useQueryClient();
   // Set only via the Review Workstation's post-Apply "View updated BOQ" link —
   // navigation state, never persisted. Honest and partial by construction: it
@@ -229,18 +247,36 @@ export default function OpsBoqBuilder() {
     const { data } = await supabase.from("boq").select("spec").eq("id", id).single();
     return (data?.spec ?? {}) as Spec;
   };
-  const commercialsOf = (ls: BoqLine[], sp: Spec) => {
-    const works = ls.filter((l) => l.included).reduce((s, l) => s + lineAmount(l), 0);
-    const pct = (k: string, d: number) => Number(sp[k] ?? d);
-    return computeCommercials(works, {
-      costIndexPct: pct("_cost_index_pct", 0), contingencyPct: pct("_contingency_pct", 3),
-      overheadPct: pct("_overhead_pct", 15), cessPct: pct("_cess_pct", 1), gstPct: pct("_gst_pct", 18),
-    });
+  /** For documents and frozen revisions: a failed read throws — never an empty
+   *  spec (which would silently drop overheads, GST and the firm's details).
+   *  fetchSpecNow stays lenient for the ledger's before/after totals only. */
+  const fetchSpecStrict = async (): Promise<Spec> => {
+    const { data, error } = await supabase.from("boq").select("spec").eq("id", id).single();
+    if (error) throw new Error(error.message);
+    return ((data as unknown as { spec: Spec | null } | null)?.spec ?? {}) as Spec;
   };
+  const commercialsOf = (ls: BoqLine[], sp: Spec) => commercialsFor(includedTotal(ls), sp);
   const grandOf = (ls: BoqLine[], sp: Spec) => commercialsOf(ls, sp).grandTotal;
+  // boq.spec is shared with other writers (the DSR check's decisions): change
+  // only these keys, guarded on boq.updated_at and moving it forward
+  // (lib/boqSpecWrite). A failed or lost write is reported and thrown — never
+  // shown as saved.
   const setSpecKeys = async (patch: Spec): Promise<Spec> => {
-    const newSpec = { ...(await fetchSpecNow()), ...patch };
-    await supabase.from("boq").update({ spec: newSpec }).eq("id", id);
+    let res: Awaited<ReturnType<typeof writeBoqSpecKeys>>;
+    try {
+      if (!id) throw new Error("No BOQ is open.");
+      res = await writeBoqSpecKeys(id, () => patch);
+    } catch (e) {
+      toast.error(`Not saved — ${(e as Error).message}`);
+      throw e;
+    }
+    if (res.status !== "saved") {
+      void qc.invalidateQueries({ queryKey: ["boq", id] });
+      const err = new SpecWriteConflictError();
+      toast.error(err.message);
+      throw err;
+    }
+    const newSpec = res.spec as Spec;
     qc.setQueryData(["boq", id], (old: typeof boq | undefined) => (old ? { ...old, spec: newSpec } : old));
     return newSpec;
   };
@@ -263,8 +299,17 @@ export default function OpsBoqBuilder() {
   };
   // A step that fails (e.g. an audited rate change whose audit couldn't be
   // saved — already reported to the user) leaves the cursor where it was.
-  const undo = async () => { if (cursor === 0 || busy) return; try { await changes[cursor - 1].backward(); } catch { return; } setCursor(cursor - 1); };
-  const redo = async () => { if (cursor >= changes.length || busy) return; try { await changes[cursor].forward(); } catch { return; } setCursor(cursor + 1); };
+  // One step at a time: a second Ctrl+Z while a step is still in flight would
+  // replay the same step (seeing the same cursor) and report a false failure.
+  const stepping = useRef(false);
+  const step = async (run: () => Promise<void>, to: number) => {
+    if (stepping.current) return;
+    stepping.current = true;
+    try { await run(); } catch { return; } finally { stepping.current = false; }
+    setCursor(to);
+  };
+  const undo = async () => { if (cursor === 0 || busy) return; await step(() => changes[cursor - 1].backward(), cursor - 1); };
+  const redo = async () => { if (cursor >= changes.length || busy) return; await step(() => changes[cursor].forward(), cursor + 1); };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
@@ -349,7 +394,7 @@ export default function OpsBoqBuilder() {
     },
   });
 
-  const { data: lines = [], isLoading: linesLoading } = useQuery({
+  const { data: lines = [], isLoading: linesLoading, isError: linesError, refetch: retryLines } = useQuery({
     queryKey: ["boq-lines", id],
     queryFn: async () => selectBoqLines(id!),
     enabled: !!id,
@@ -363,7 +408,7 @@ export default function OpsBoqBuilder() {
   // rather than a second document-fetching path. Loaded ONCE per project, not
   // per line — every line's badge below only ever reads from the resulting
   // map, never issuing its own request.
-  const { data: drawings = [], isLoading: drawingsLoading } = useQuery({
+  const { data: drawings = [], isLoading: drawingsLoading, isError: drawingsError } = useQuery({
     queryKey: ["boq-drawings", boq?.project_id],
     enabled: !!boq?.project_id,
     queryFn: () => loadProjectDrawings(boq!.project_id!),
@@ -409,40 +454,62 @@ export default function OpsBoqBuilder() {
 
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  const addFromCatalog = async (it: DsrItem) => {
-    let newId: string | null = null;
-    await commit({
-      kind: "add", label: `Added ${it.code ?? shortDesc({ dsr_code: it.code, description: it.description })}`,
-      forward: async () => {
-        const { data, error } = await supabase.from("boq_line").insert({
-          boq_id: id, section: it.chapter ?? "Other", dsr_code: it.code,
-          description: it.description, unit: it.unit, qty: 1, dsr_rate: it.rate, source: "manual", sort: 999,
-        }).select("id").single();
-        if (error) { toast.error(error.message); return; }
-        newId = (data as { id: string }).id;
-        refetchLines();
-      },
-      backward: async () => { if (newId) { await supabase.from("boq_line").delete().eq("id", newId); refetchLines(); } },
-    });
+  // Adding is one undoable, recorded step (lib/lineEdit addLineRecorded).
+  // Undo takes the line out through the guarded removal (only if it is still
+  // exactly as added, never cascading records attached since); redo puts the
+  // SAME row back, so later ledger steps on it still find their line.
+  const addRecordedLine = async (label: string, row: Record<string, unknown>) => {
+    const history = { boqId: id!, changedBy: user?.id ?? null };
+    let added: Record<string, unknown> | null = null;   // the row as created
+    let takenOut: RemovedLine | null = null;            // the row as undo took it out
+    try {
+      await commit({
+        kind: "add", label,
+        forward: async () => {
+          if (takenOut) {
+            try {
+              const r = await restoreRemovedLine(takenOut, undefined, history);
+              if (r.historyRecorded === false) toast.warning(`Line put back, but this is not in the BOQ's history (${r.historyError}).`, { id: "line-history-unavailable" });
+            } catch (e) { toast.error(e instanceof Error ? e.message : "Line not put back"); throw e; }
+            finally { refetchLines(); }
+            takenOut = null;
+            return;
+          }
+          let r: LineAddResult;
+          try { r = await addLineRecorded({ boqId: id!, row, changedBy: history.changedBy }); }
+          catch (e) { toast.error(`Line not added — ${saveErrorMessage(e as { message?: string })}`); refetchLines(); throw e; }
+          refetchLines();
+          const msg = lineAddMessage(r);
+          if (r.status === "history_failed" && r.removed) { toast.error(msg!); throw new Error(msg!); }
+          if (r.status === "history_failed") toast.error(msg!);   // it exists: keep the step so it can be undone
+          else if (msg) toast.warning(msg, { id: "line-history-unavailable" });
+          added = r.row;
+        },
+        backward: async () => {
+          if (!added) throw new Error("Nothing to undo");
+          try {
+            takenOut = await removeLineWithSnapshot(added.id as string, undefined, {
+              expected: guardOf(added), history: { ...history, requireHistory: false },
+            });
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : "Line not removed");
+            if (e instanceof LineRemovalError && e.removed) { takenOut = e.removed; return; }
+            throw e;
+          } finally { refetchLines(); }
+        },
+      });
+    } catch { /* reported */ }
   };
+  const addFromCatalog = (it: DsrItem) => addRecordedLine(
+    `Added ${it.code ?? shortDesc({ dsr_code: it.code, description: it.description })}`,
+    { boq_id: id, section: it.chapter ?? "Other", dsr_code: it.code, description: it.description, unit: it.unit, qty: 1, dsr_rate: it.rate, source: "manual", sort: 999 },
+  );
 
   // Add a blank, manual line for the operator to fill in (no catalogue match).
-  const addBlankLine = async () => {
-    let newId: string | null = null;
-    await commit({
-      kind: "add", label: "Added line",
-      forward: async () => {
-        const { data, error } = await supabase.from("boq_line").insert({
-          boq_id: id, section: "Other", dsr_code: null, description: "New item",
-          unit: "nos", qty: 1, dsr_rate: null, source: "manual", sort: 999,
-        }).select("id").single();
-        if (error) { toast.error(error.message); return; }
-        newId = (data as { id: string }).id;
-        refetchLines();
-      },
-      backward: async () => { if (newId) { await supabase.from("boq_line").delete().eq("id", newId); refetchLines(); } },
-    });
-  };
+  const addBlankLine = () => addRecordedLine(
+    "Added line",
+    { boq_id: id, section: "Other", dsr_code: null, description: "New item", unit: "nos", qty: 1, dsr_rate: null, source: "manual", sort: 999 },
+  );
 
   // Add lines from a structured drawing-evaluation JSON (deterministic; no AI). The
   // JSON's requirements[] are appended to THIS BOQ as manual lines — numeric qty kept,
@@ -456,12 +523,9 @@ export default function OpsBoqBuilder() {
     setBusy(true);
     try {
       const rows = evalLinesToRows(id, parsed.lines, lines.length);
-      let { error } = await supabase.from("boq_line").insert(rows);
-      if (error && /\bbasis\b|external_key|measurement_method|quantity_status|schema cache|could not find|does not exist/i.test(error.message)) {
-        const stripped = rows.map(({ basis, basis_note, external_key, measurement_method, quantity_status, ...r }) => r);
-        ({ error } = await supabase.from("boq_line").insert(stripped));
-      }
-      if (error) throw error;
+      // All provenance columns or nothing — no stripped retry (see provenanceSave.ts).
+      const { error } = await supabase.from("boq_line").insert(rows);
+      if (error) throwLineSaveError(error);
       toast.success(`Added ${rows.length} line${rows.length === 1 ? "" : "s"} from JSON`);
       setJsonText(""); setShowJson(false); refetchLines();
     } catch (e) {
@@ -469,27 +533,37 @@ export default function OpsBoqBuilder() {
     } finally { setBusy(false); }
   };
 
-  const applyLinePatch = async (lineId: string, patch: Partial<BoqLine>) => {
-    const { error } = await supabase.from("boq_line").update(patch).eq("id", lineId);
-    if (error) toast.error(error.message); else refetchLines();
+  // A line change (and its undo/redo) is guarded on the values it was made
+  // from and recorded in the line's history (lib/lineEdit) — never
+  // overwriting a change saved meanwhile by someone else. Throws after
+  // reporting when the line does not hold the change, so commit() keeps no
+  // ledger step (and undo/redo keep the cursor) for a write that didn't
+  // happen; a change that did land — even one whose history failed and could
+  // not be put back — keeps its step, so undo matches the database.
+  const applyQuantityPatch = async (from: BoqLine, patch: Partial<BoqLine>) => {
+    let r;
+    try {
+      r = await saveLineEdit({ boqId: id!, line: from, patch, changedBy: user?.id ?? null });
+    } catch (e) { toast.error(`Not saved — ${saveErrorMessage(e as { message?: string })}`); refetchLines(); throw e; }
+    const msg = lineEditMessage(r);
+    // The line as saved, right away: a second edit of it before the re-read
+    // lands must be guarded on these values, not refused as "changed elsewhere".
+    if (editTookEffect(r)) qc.setQueryData(["boq-lines", id], (old: BoqLine[] | undefined) => old?.map((l) => (l.id === from.id ? { ...l, ...patch } : l)));
+    refetchLines();
+    if (!editTookEffect(r)) { toast.error(msg!); throw new Error(msg!); }
+    if (r.status !== "saved") toast.error(msg!);
+    else if (msg) toast.warning(msg, { id: "line-history-unavailable" });
   };
-  /**
-   * The patch for a quantity typed into the editor. A positive quantity typed
-   * into a quantity-pending line is the confirmation this screen asks for ("enter
-   * a quantity to price this line"), so it also clears the pending marker — the
-   * same transition setLineQty makes when an audit finding is resolved with a
-   * quantity (COUNTED for a count methodology, else MEASURED). Zero or a negative
-   * number is not a confirmation: the line stays pending. A line that isn't
-   * pending changes only its quantity. Undo restores every field in the patch.
-   */
-  const quantityEdit = (line: BoqLine, qty: number): Partial<BoqLine> => {
-    const markedPending = line.basis === PENDING_BASIS || String(line.quantity_status ?? "").toUpperCase() === "PENDING";
-    if (!markedPending || !(qty > 0)) return { qty };
-    return { qty, basis: null, quantity_status: (line.measurement_method ?? "").toUpperCase() === "COUNT" ? "COUNTED" : "MEASURED" };
-  };
-  const updateLine = async (lineId: string, patch: Partial<BoqLine>) => {
+  /** See quantityEditPatch (shared with the project journey's BOQ table). */
+  const quantityEdit = (line: BoqLine, qty: number): Partial<BoqLine> => quantityEditPatch(line, qty);
+  /** Saves a line edit as one undoable step. False when it was not saved
+   *  (already reported) — the caller restores what the field showed. */
+  const updateLine = async (lineId: string, patch: Partial<BoqLine>): Promise<boolean> => {
     const line = lines.find((l) => l.id === lineId);
-    if (!line) { await applyLinePatch(lineId, patch); return; }
+    // Never an unguarded write: without the loaded line there is nothing to guard on.
+    if (!line) { toast.error("Not saved — this line is no longer loaded. The current lines are now shown."); refetchLines(); return false; }
+    // Rates go through their own audited path (updateRate), never this one.
+    if ("custom_rate" in patch || "dsr_rate" in patch) { toast.error("Not saved — rates are changed through the rate field."); return false; }
     const prev: Partial<BoqLine> = {};
     (Object.keys(patch) as (keyof BoqLine)[]).forEach((k) => { (prev as Record<string, unknown>)[k] = line[k]; });
     let detail: string | undefined;
@@ -498,11 +572,25 @@ export default function OpsBoqBuilder() {
     else if ("cost" in patch) detail = `cost ${patch.cost != null ? inr(patch.cost) : "—"}`;
     else if ("included" in patch) detail = patch.included ? "included" : "removed from total";
     else if ("section" in patch) detail = `trade ${line.section ?? "—"} → ${patch.section ?? "—"}`;
-    await commit({
-      kind: "line", label: shortDesc(line), detail,
-      forward: async () => { await applyLinePatch(lineId, patch); },
-      backward: async () => { await applyLinePatch(lineId, prev); },
-    });
+    try {
+      // Every field except the rate (audited separately) is guarded and recorded.
+      await commit({
+        kind: "line", label: shortDesc(line), detail,
+        forward: () => applyQuantityPatch(line, patch),
+        backward: () => applyQuantityPatch({ ...line, ...patch }, prev),
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  // Your cost per unit: an unreadable or negative number is never sent; a
+  // change that is not saved does not stay in the field.
+  const saveCost = async (l: BoqLine, input: HTMLInputElement) => {
+    const saved = l.cost == null ? "" : String(l.cost);
+    const v = input.value.trim() === "" ? null : Number(input.value);
+    if (v != null && (!Number.isFinite(v) || v < 0)) { input.value = saved; toast.error("Cost must be zero or more — not saved."); return; }
+    if (v !== (l.cost ?? null) && !(await updateLine(l.id, { cost: v }))) input.value = saved;
   };
   // Manual rate edits are audited (lib/manualRateEdit): compare-and-swap on the
   // rate shown, then a boq_line_change_log row; an edit whose audit can't be
@@ -513,12 +601,14 @@ export default function OpsBoqBuilder() {
       boqId: id!, line: { id: line.id, custom_rate: from, dsr_rate: line.dsr_rate, unit: line.unit }, newRate: to, changedBy: user?.id ?? null,
     });
     refetchLines();
-    if (result.status !== "applied") {
-      toast.error(manualRateFailureMessage(result, to));
-      throw new Error(`manual rate edit: ${result.status}`);
-    }
+    if (result.status === "applied") return;
+    toast.error(manualRateFailureMessage(result, to));
+    // The rate DID change (its audit failed and could not be put back): keep
+    // the ledger step so it can be undone, as the message says.
+    if (result.status === "audit_failed" && !result.reverted) return;
+    throw new Error(`manual rate edit: ${result.status}`);
   };
-  const updateRate = async (line: BoqLine, value: number | null) => {
+  const updateRate = async (line: BoqLine, value: number | null, input?: HTMLInputElement) => {
     const r = effRate(line);
     try {
       await commit({
@@ -527,14 +617,22 @@ export default function OpsBoqBuilder() {
         forward: () => auditedRateChange(line, line.custom_rate, value),
         backward: () => auditedRateChange(line, value, line.custom_rate),
       });
-    } catch { /* already reported by auditedRateChange */ }
+    } catch {
+      // Already reported by auditedRateChange. The field must not keep showing
+      // a rate that was not saved.
+      if (input) input.value = String(effRate(line) ?? "");
+    }
   };
   /** From the rate input: replacing a currently adopted rate needs explicit confirmation first. */
   const requestRateEdit = (line: BoqLine, value: number | null, input: HTMLInputElement) => {
-    if (value != null && !Number.isFinite(value)) { input.value = String(effRate(line) ?? ""); return; }
+    if (value != null && (!Number.isFinite(value) || value < 0)) {
+      input.value = String(effRate(line) ?? "");
+      if (value < 0) toast.error("Rate cannot be negative — not saved.");
+      return;
+    }
     const state = adoptionStateFor(line, adoptionRecords);
     if (state.kind === "adopted") { setPendingRate({ line, value, input, record: state.record }); return; }
-    void updateRate(line, value);
+    void updateRate(line, value, input);
   };
   // Functional update: confirming clears the pending edit first, so the dialog's
   // own close callback that follows finds nothing to cancel and never resets
@@ -544,52 +642,52 @@ export default function OpsBoqBuilder() {
     return null;
   });
 
+  // Remove = snapshot the whole stored row and its links, then delete (see
+  // lib/lineRemoval); undo re-inserts that exact row and relinks it. Each step
+  // throws after reporting, so commit() records no ledger step for a removal
+  // that did not happen and undo/redo keep the cursor on a failed step.
   const removeLine = async (lineId: string) => {
     const line = lines.find((l) => l.id === lineId);
-    if (!line) { await supabase.from("boq_line").delete().eq("id", lineId); refetchLines(); return; }
-    await commit({
-      kind: "remove", label: `Removed ${line.dsr_code ?? shortDesc(line)}`,
-      forward: async () => { await supabase.from("boq_line").delete().eq("id", lineId); refetchLines(); },
-      backward: async () => {
-        await supabase.from("boq_line").insert({
-          id: line.id, boq_id: id, section: line.section, dsr_code: line.dsr_code, description: line.description,
-          unit: line.unit, qty: line.qty, dsr_rate: line.dsr_rate, custom_rate: line.custom_rate,
-          cost: line.cost, included: line.included, source: line.source, sort: line.sort,
-        });
-        refetchLines();
-      },
-    });
+    if (!line) { toast.error("Line not removed: it is no longer loaded. The current lines are now shown."); refetchLines(); return; }
+    const history = { boqId: id!, changedBy: user?.id ?? null };
+    let removed: RemovedLine | null = null;
+    const forward = async () => {
+      try { removed = await removeLineWithSnapshot(lineId, undefined, { expected: guardOf(line), history }); }
+      catch (e) {
+        toast.error(e instanceof Error ? e.message : "Line not removed");
+        // Removed although its history failed and it could not be put back:
+        // keep the step, so Undo can restore it.
+        if (e instanceof LineRemovalError && e.removed) { removed = e.removed; return; }
+        throw e;
+      }
+      finally { refetchLines(); }
+    };
+    try {
+      await commit({
+        kind: "remove", label: `Removed ${line.dsr_code ?? shortDesc(line)}`,
+        forward,
+        backward: async () => {
+          if (!removed) throw new Error("Nothing to restore");
+          try {
+            const r = await restoreRemovedLine(removed, undefined, history);
+            if (r.unrestoredLinks.length) {
+              toast.warning(`Line restored, but ${r.unrestoredLinks.map((u) => `${u.expected - u.restored} link${u.expected - u.restored === 1 ? "" : "s"} in ${u.table}`).join(", ")} could not be re-attached.`);
+            }
+            if (r.historyRecorded === false) toast.warning(`Line restored, but the restore is not in the BOQ's history (${r.historyError}).`);
+          } catch (e) { toast.error(e instanceof Error ? e.message : "Line not restored"); throw e; }
+          finally { refetchLines(); }
+        },
+      });
+    } catch { /* reported by forward */ }
   };
-
-  const sumIncl = (ls: BoqLine[]) => ls.filter((l) => l.included).reduce((s, l) => s + lineAmount(l), 0);
 
   // Group by DSR sub-head (type of work), ordered by chapter number — which is also
   // the construction sequence. Each sub-head gets a number; items within are numbered
   // <sub-head>.01, .02 … like a real tender BOQ. NS/uncoded lines last.
   // Sub-head grouping/numbering for any line set (the rendered lines, or lines
   // freshly re-read for a commercial revision).
-  const groupSubheads = (source: BoqLine[]) => {
-    const groups = new Map<string, BoqLine[]>();
-    for (const l of source) {
-      const sec = l.section ?? "Other";
-      if (!groups.has(sec)) groups.set(sec, []);
-      groups.get(sec)!.push(l);
-    }
-    const chapterNo = (ls: BoqLine[]) => {
-      const coded = ls.find((l) => l.dsr_code);
-      return coded ? parseInt(coded.dsr_code!.split(".")[0], 10) || 900 : 999;  // uncoded/NS last
-    };
-    return [...groups.entries()]
-      .sort((a, b) => chapterNo(a[1]) - chapterNo(b[1]) || a[0].localeCompare(b[0]))
-      .map(([name, ls], gi) => {
-        const no = gi + 1;
-        let item = 0;
-        const rows = ls.map((l) => ({ line: l, no: `${no}.${String(++item).padStart(2, "0")}` }));
-        return { no, name, rows, subtotal: sumIncl(ls) };
-      });
-  };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- groupSubheads is a pure function of `lines`
-  const bySubhead = useMemo(() => groupSubheads(lines), [lines]);
+  const groupSubheads = (source: BoqLine[]) => groupSubheadsOf(source);
+  const bySubhead = useMemo(() => groupSubheadsOf(lines), [lines]);
 
   const total = useMemo(() =>
     lines.filter((l) => l.included).reduce((sum, l) => sum + lineAmount(l), 0),
@@ -613,20 +711,14 @@ export default function OpsBoqBuilder() {
   // Commercials (cost index, contingency, overhead, cess, GST) live in boq.spec so
   // no migration is needed. Defaults follow common CPWD practice.
   const spec = useMemo(() => (boq?.spec ?? {}) as Spec, [boq?.spec]);
-  const commercials = useMemo(() => {
-    const pct = (k: string, d: number) => Number(spec[k] ?? d);
-    return computeCommercials(total, {
-      costIndexPct: pct("_cost_index_pct", 0),
-      contingencyPct: pct("_contingency_pct", 3),
-      overheadPct: pct("_overhead_pct", 15),
-      cessPct: pct("_cess_pct", 1),
-      gstPct: pct("_gst_pct", 18),
-    });
-  }, [total, spec]);
+  const commercials = useMemo(() => commercialsFor(total, spec), [total, spec]);
   const displayGrand = useCountUp(commercials.grandTotal);
   const netDelta = firstTotal != null ? commercials.grandTotal - firstTotal : 0;
 
-  const saveCommercials = async (patch: Record<string, number | string>) => {
+  // setSpecKeys reports its own failure (toast) and throws; the blur handlers
+  // that call this have nothing to add, so the rejection ends here.
+  const saveCommercials = (patch: Record<string, number | string>) => saveCommercialsOrThrow(patch).catch(() => {});
+  const saveCommercialsOrThrow = async (patch: Record<string, number | string>) => {
     if (!boq) return;
     const keys = Object.keys(patch);
     const isPct = keys.some((k) => k.endsWith("_pct"));
@@ -646,8 +738,12 @@ export default function OpsBoqBuilder() {
   // never silent — the operator decides when a preference is worth remembering).
   const saveDefaults = async () => {
     if (!boq?.contractor_id) return;
+    // The spec as stored now (not this screen's cached copy), without keys that
+    // belong to this BOQ only (its DSR-check decisions refer to its own lines).
+    let stored: Spec;
+    try { stored = (await readBoqSpec(boq.id)).spec as Spec; } catch (e) { toast.error(`Not saved — ${(e as Error).message}`); return; }
     const { error } = await supabase.from("contractor_profile")
-      .update({ spec: boq.spec, updated_at: new Date().toISOString() }).eq("id", boq.contractor_id);
+      .update({ spec: reusableSpec(stored), updated_at: new Date().toISOString() }).eq("id", boq.contractor_id);
     if (error) toast.error(error.message);
     else toast.success(`Saved ${contractor?.name ?? "contractor"}'s usual choices`);
   };
@@ -660,57 +756,30 @@ export default function OpsBoqBuilder() {
   // single input to the live exports AND to a frozen commercial revision
   // (lib/boqRevision), so a revision exports exactly what the live export
   // produced when it was frozen.
-  const workingSubheads = (groups = bySubhead): WorkingSubhead[] => groups.map((sh) => ({
-    no: sh.no, name: sh.name,
-    rows: sh.rows.map(({ line, no }) => ({
-      line, no, source: { ...resolveLineSource(line), sourceDocumentId: line.source_document_id ?? null },
-    })),
-  }));
+  const workingSubheads = (groups = bySubhead): WorkingSubhead[] => workingSubheadsFrom(groups, resolveLineSource);
 
-  // Pricing basis. Private projects are the default: rates are the operator's own
-  // (entered per line / quoted separately) — so the document must NOT claim a
-  // Delhi-Schedule-of-Rates basis. Only when the operator has explicitly selected
-  // DSR pricing (spec._pricing_basis === "dsr") do we stamp "Basis: DSR <year>".
-  const quoteContext = (sp: Spec = spec): RevisionQuoteContext => {
-    const useDsrBasis = String(sp._pricing_basis ?? "").toLowerCase() === "dsr";
-    return {
-      projectName: project?.name, clientName: project?.client_name, location: project?.location,
-      builtUpSqft: project?.area_sqft, floors: project?.floors, projectType: project?.project_type,
-      flatsPerFloor: Number(sp._flats_per_floor ?? sp.flats_per_floor) || null,
-      firmName: String(sp._firm_name ?? "").trim() || null,
-      firmTagline: String(sp._firm_tagline ?? "").trim() || null,
-      rateYear: useDsrBasis ? "2023" : null,
-    };
-  };
+  // Pricing basis: see quoteContextFor (lib/boqLiveExport).
+  const quoteContext = (sp: Spec = spec): RevisionQuoteContext => quoteContextFor(project, sp);
 
-  const exportQuote = (blankRates = false, autoPrint = false) => {
-    // THE BOQ IS ORGANISED AROUND QUANTITY, NOT AROUND WHETHER A RATE EXISTS. Any
-    // included line with a defensible quantity is a first-class BOQ line — priced or
-    // not. A missing rate leaves Rate/Amount blank ("—"); it never hides the line.
-    // The priced subtotal counts only rated lines (lineAmount is 0 when unrated), so
-    // the abstract stays honest. (See quoteSubheadsFrom.)
-    // Included lines with no established quantity are listed in the document's
-    // pending section — never as a measured 0, never silently dropped.
-    const revisionLines = buildRevisionLines(workingSubheads());
-    const subheads = quoteSubheadsFrom(revisionLines);
-    const pendingItems = pendingItemsFrom(revisionLines);
+  // See lib/boqLiveExport for what the live export includes (and why).
+  const exportQuote = async (blankRates = false, autoPrint = false) => {
+    // The tab opens inside the click (pop-up rules), then is filled from a
+    // fresh read of the lines and spec — never from what is on screen.
+    const win = openQuoteWindow();
+    if (!win) { toast.error("Allow pop-ups to export"); return; }
+    let fresh: BoqLine[]; let freshSpec: Spec;
+    try { [fresh, freshSpec] = await Promise.all([fetchLinesNow(), fetchSpecStrict()]); } catch {
+      win.fail(PDF_REREAD_FAILED_MESSAGE); toast.error(PDF_REREAD_FAILED_MESSAGE); return;
+    }
+    if (linesChanged(lines, fresh)) refetchLines();
+    const payload = liveQuotePayload({
+      boqName: boq!.name, context: quoteContext(freshSpec), generatedOn: gen(), blankRates,
+      subheads: workingSubheads(groupSubheads(fresh)), commercials: commercialsOf(fresh, freshSpec), unresolvedReviewCount,
+    });
     // Every line can be excluded; same guard as exportExcel, so the user gets
     // feedback instead of a blank document. A pending-only BOQ still exports.
-    if (!subheads.length && !pendingItems.length) return toast.error("Nothing to export yet");
-
-    const ok = openDsrQuote({
-      boqName: boq!.name,
-      ...quoteContext(),
-      generatedOn: gen(), blankRates,
-      subheads,
-      abstract: subheads.map((sh) => ({ no: sh.no, name: sh.name, amount: sh.subtotal })),
-      commercials,
-      pendingItems,
-      drawingItems: [],
-      excludedItems: [],
-      unresolvedReviewCount,
-    }, { autoPrint });
-    if (!ok) toast.error("Allow pop-ups to export");
+    if (!payload) { win.fail("Nothing to export yet: every line of this BOQ is excluded."); toast.error("Nothing to export yet"); return; }
+    win.show(payload, { autoPrint });
   };
 
   const printIntake = (blank: boolean) => {
@@ -723,12 +792,14 @@ export default function OpsBoqBuilder() {
     if (!ok) toast.error("Allow pop-ups to print the form");
   };
 
-  const exportExcel = () => {
-    const revisionLines = buildRevisionLines(workingSubheads());
-    const rows = csvRowsFrom(revisionLines);
-    const pending = pendingItemsFrom(revisionLines);
-    if (!rows.length && !pending.length) return toast.error("Nothing to export yet");
-    downloadCsv(`${boq!.name.replace(/[^\w]+/g, "_")}_BOQ.csv`, buildBoqCsv(rows, { boqName: boq!.name, project: project?.name, generatedOn: gen(), unresolvedReviewCount }, pending));
+  const exportExcel = async () => {
+    // A download needs no pop-up, so it is built from a fresh read.
+    let fresh: BoqLine[];
+    try { fresh = await fetchLinesNow(); } catch { toast.error("Could not re-read the BOQ lines, so nothing was exported. Try again."); return; }
+    if (linesChanged(lines, fresh)) refetchLines();
+    const csv = liveCsv({ boqName: boq!.name, projectName: project?.name, generatedOn: gen(), subheads: workingSubheads(groupSubheads(fresh)), unresolvedReviewCount });
+    if (!csv) return toast.error("Nothing to export yet");
+    downloadCsv(`${liveFileStem(boq!.name)}_BOQ.csv`, csv);
   };
 
   // Contractor work packages: the same lines, grouped by trade then location,
@@ -799,7 +870,8 @@ export default function OpsBoqBuilder() {
   const TotalSummary = ({ align }: { align: "left" | "right" }) => (
     <div className={align === "right" ? "text-right min-w-[11rem]" : "text-left"}>
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-        {disciplineByKey(boq.discipline).name} works
+        {/* "Civil Works" already says works — never "Civil Works works". */}
+        {disciplineByKey(boq.discipline).name.replace(/\s+works$/i, "")} works
       </div>
       <div className="text-2xl md:text-3xl font-semibold tabular-nums leading-tight">{inr(displayGrand)}</div>
       {(() => {
@@ -840,7 +912,7 @@ export default function OpsBoqBuilder() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={cancelPendingRate}>Keep adopted rate</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { const p = pendingRate; setPendingRate(() => null); if (p) void updateRate(p.line, p.value); }}>
+            <AlertDialogAction onClick={() => { const p = pendingRate; setPendingRate(() => null); if (p) void updateRate(p.line, p.value, p.input); }}>
               Replace with manual rate
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -871,8 +943,8 @@ export default function OpsBoqBuilder() {
             otherwise land anywhere. Standalone BOQs (no project_id, reached
             via the legacy /ops/boq/:id route) have no Workspace to return
             to, so they keep the old history-back behavior. */}
-        <Button variant="ghost" size="sm" aria-label="Back to Workspace"
-          onClick={() => (boq.project_id ? navigate(workspaceUrl(boq.project_id, { mode: "boq", boq: id })) : navigate(-1))}>
+        <Button variant="ghost" size="sm" aria-label={returnTo ? "Back to project" : "Back to Workspace"}
+          onClick={() => (returnTo ? navigate(returnTo) : boq.project_id ? navigate(workspaceUrl(boq.project_id, { mode: "boq", boq: id })) : navigate(-1))}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex-1">
@@ -880,7 +952,7 @@ export default function OpsBoqBuilder() {
           <p className="text-sm text-muted-foreground flex items-center gap-1.5 flex-wrap">
             <Badge>{disciplineByKey(boq.discipline).name}</Badge>
             {contractor && <Badge variant="secondary">{contractor.name}</Badge>}
-            {project?.name ?? "Standalone"} · {lines.length} lines ·{" "}
+            {project?.name ?? "Standalone"} · {linesError ? "lines unavailable" : `${lines.length} lines`} ·{" "}
             <BoqStatusControl boqId={boq.id} status={boq.status ?? null} readOnly={present}
               onPersisted={() => qc.invalidateQueries({ queryKey: ["boq", id] })} />
           </p>
@@ -1000,13 +1072,13 @@ export default function OpsBoqBuilder() {
           <Button
             variant="link" size="sm"
             className="h-auto -mx-2 -my-1.5 px-2 py-1.5 text-xs font-normal text-muted-foreground hover:text-foreground"
-            onClick={() => navigate("review")}
+            onClick={() => navigate(reviewHref)}
             aria-label="Back to the drawing to use Identify"
           >
             Drawing
           </Button>
           <span>→ Generate → Review → Apply → <b className="text-foreground">BOQ</b> → Export</span>
-          <Button variant="link" size="sm" className="ml-auto h-auto -mx-2 -my-1.5 px-2 py-1.5 text-xs" onClick={() => navigate("review")}>
+          <Button variant="link" size="sm" className="ml-auto h-auto -mx-2 -my-1.5 px-2 py-1.5 text-xs" onClick={() => navigate(reviewHref)}>
             Review Analysis →
           </Button>
         </div>
@@ -1020,7 +1092,7 @@ export default function OpsBoqBuilder() {
         <div role="status" data-testid="incomplete-scope-notice" className="flex flex-wrap items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           <span>{incompleteScopeNotice(unresolvedReviewCount)}</span>
-          <Button variant="link" size="sm" className="h-auto p-0 text-amber-900 underline" onClick={() => navigate("review")}>
+          <Button variant="link" size="sm" className="h-auto p-0 text-amber-900 underline" onClick={() => navigate(reviewHref)}>
             Review unresolved items →
           </Button>
         </div>
@@ -1029,7 +1101,7 @@ export default function OpsBoqBuilder() {
       {!present && (<>
       {/* Desktop/tablet — today's toolbar, unchanged (Section 8: no regression). */}
       <div className="hidden lg:flex flex-wrap items-center gap-2">
-        <Button variant="outline" onClick={() => navigate(`review`)}
+        <Button variant="outline" onClick={() => navigate(reviewHref)}
           title="Review AI-extracted quantities from a drawing analysis and apply them to this BOQ">
           <ClipboardCheck className="h-4 w-4 mr-2" />Review Analysis
         </Button>
@@ -1118,7 +1190,7 @@ export default function OpsBoqBuilder() {
             <Button variant="outline" className={cn(justAppliedCount > 0 && "flex-1")}>More actions<ChevronDown className="h-4 w-4 ml-1" /></Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => navigate("review")}>
+            <DropdownMenuItem onClick={() => navigate(reviewHref)}>
               <ClipboardCheck className="h-4 w-4 mr-2" />Review Analysis
             </DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -1216,7 +1288,11 @@ export default function OpsBoqBuilder() {
           // Re-reads the persisted lines and spec every time (not this screen's
           // possibly-stale state), so a revision freezes what is actually saved.
           build: async (adoptions) => {
-            const [freshLines, freshSpec] = await Promise.all([fetchLinesNow(), fetchSpecNow()]);
+            // A revision is permanent: never freeze a line's drawing source as
+            // blank or "unavailable" just because the drawings have not loaded.
+            if (drawingsLoading) throw new Error("the project's drawings are still loading, so each line's drawing source can't be frozen yet. Try again in a moment.");
+            if (drawingsError) throw new Error("the project's drawings could not be loaded, so each line's drawing source would be frozen as unavailable. Reload the page and try again.");
+            const [freshLines, freshSpec] = await Promise.all([fetchLinesNow(), fetchSpecStrict()]);
             const revLines = buildRevisionLines(workingSubheads(groupSubheads(freshLines)), adoptions);
             const freshCommercials = commercialsOf(freshLines, freshSpec);
             return {
@@ -1269,7 +1345,7 @@ export default function OpsBoqBuilder() {
                         <div className="hidden lg:grid grid-cols-[1fr_4.5rem_4.5rem_5rem_auto] items-center gap-2">
                           <span className="truncate text-[13px]"><span className="text-muted-foreground mr-1 font-mono text-[11px]">{itemNo}</span>{l.description}</span>
                           <Input type="number" className="h-8" placeholder="cost" defaultValue={l.cost ?? ""}
-                            onBlur={(e) => { const v = e.target.value === "" ? null : Number(e.target.value); if (v !== l.cost) updateLine(l.id, { cost: v }); }} />
+                            onBlur={(e) => { void saveCost(l, e.target); }} />
                           <span className="text-xs text-muted-foreground text-right tabular-nums">@{inr(rate)}</span>
                           <span className="text-right tabular-nums">{l.cost != null ? inr(lm) : "—"}</span>
                           <span className={cn("text-right tabular-nums text-xs w-12", below ? "text-amber-600 dark:text-amber-500 font-medium" : "text-muted-foreground")}>
@@ -1287,7 +1363,7 @@ export default function OpsBoqBuilder() {
                           <span className="text-[13px]"><span className="text-muted-foreground mr-1 font-mono text-[11px]">{itemNo}</span>{l.description}</span>
                           <div className="flex items-center gap-2">
                             <Input type="number" className="h-8 w-20 shrink-0" placeholder="cost" defaultValue={l.cost ?? ""}
-                              onBlur={(e) => { const v = e.target.value === "" ? null : Number(e.target.value); if (v !== l.cost) updateLine(l.id, { cost: v }); }} />
+                              onBlur={(e) => { void saveCost(l, e.target); }} />
                             <span className="text-xs text-muted-foreground tabular-nums shrink-0">@{inr(rate)}</span>
                             <span className="ml-auto text-right tabular-nums shrink-0">{l.cost != null ? inr(lm) : "—"}</span>
                             <span className={cn("text-right tabular-nums text-xs w-10 shrink-0", below ? "text-amber-600 dark:text-amber-500 font-medium" : "text-muted-foreground")}>
@@ -1346,7 +1422,12 @@ export default function OpsBoqBuilder() {
           </CardContent>
         </Card>
       ) : linesLoading ? (
-        <div className="p-8 flex justify-center"><Loader2 className="animate-spin" /></div>
+        <div className="p-8 flex justify-center" role="status" aria-label="Loading BOQ lines"><Loader2 className="animate-spin" /></div>
+      ) : linesError ? (
+        <Card role="alert"><CardContent className="py-8 text-center space-y-3">
+          <p className="text-sm">Couldn't load this BOQ's lines, so nothing is shown and nothing can be exported. The BOQ itself is unchanged.</p>
+          <Button size="sm" variant="outline" onClick={() => void retryLines()}>Try again</Button>
+        </CardContent></Card>
       ) : lines.length === 0 ? (
         <Card><CardContent className="py-10 text-center text-muted-foreground">
           No items yet — add an item from the DSR, add a blank line, run Review Analysis on a project drawing, add lines from a JSON evaluation, or import a BOQ from the project's BOQs tab.
@@ -1458,10 +1539,14 @@ export default function OpsBoqBuilder() {
                   <div key={l.id} className={cn("border-b last:border-0", !l.included && "opacity-40")}>
                     <div className="grid grid-cols-[auto_1fr] sm:grid-cols-[auto_1fr_4.5rem_3rem_5rem_5.5rem_auto] items-start gap-x-3 gap-y-1 py-2">
                       <input type="checkbox" className="mt-1" checked={l.included}
-                        onChange={(e) => updateLine(l.id, { included: e.target.checked })} />
+                        aria-label={`Include ${l.description || "line"} in the BOQ total`}
+                        onChange={(e) => { void updateLine(l.id, { included: e.target.checked }); }} />
                       <div className="min-w-0 cursor-pointer" onClick={() => setExpanded(isExp ? null : l.id)} title="Show how this line is priced">
                         <div className="text-[11px] font-mono text-accent-foreground/70 mb-0.5 flex items-center gap-1 flex-wrap">
-                          <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform", isExp && "rotate-180")} />
+                          <button type="button" aria-expanded={isExp} aria-label={`${isExp ? "Hide" : "Show"} how ${l.description || "this line"} is priced`}
+                            onClick={(e) => { e.stopPropagation(); setExpanded(isExp ? null : l.id); }} className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                            <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform", isExp && "rotate-180")} aria-hidden="true" />
+                          </button>
                           <span className="text-muted-foreground">{itemNo}</span>{l.dsr_code ?? "Priced separately"}
                           {l.basis === PENDING_BASIS && (
                             <span className="text-amber-600 dark:text-amber-500 font-sans" title="Quantity pending — enter a quantity to price this line">quantity pending</span>
@@ -1498,32 +1583,52 @@ export default function OpsBoqBuilder() {
                           )}
                         </div>
                         <Input className="h-8 text-[13px] mb-1" defaultValue={l.description ?? ""} placeholder="Item description"
+                          aria-label={`Description of line ${itemNo}`}
                           onClick={(e) => e.stopPropagation()}
-                          onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== (l.description ?? "")) updateLine(l.id, { description: v }); }} />
+                          onBlur={async (e) => {
+                            const input = e.target; const v = input.value.trim(); const saved = l.description ?? "";
+                            if (!v) { input.value = saved; if (saved) toast.error("Description cannot be empty — not saved."); return; }
+                            if (v !== saved && !(await updateLine(l.id, { description: v }))) input.value = saved;
+                          }} />
                         {/* Trade = the line's section: the BOQ sub-head and the work-package
                             trade. Same persisted field, saved like any other line edit (undoable). */}
                         <Input className="h-7 text-[12px] mb-1" defaultValue={l.section ?? ""} placeholder="Trade (e.g. Masonry)"
                           aria-label={`Trade for ${l.description ?? "line"}`} list="boq-trade-options"
                           onClick={(e) => e.stopPropagation()}
-                          onBlur={(e) => { const v = e.target.value.trim() || null; if (v !== (l.section ?? null)) updateLine(l.id, { section: v }); }} />
+                          onBlur={async (e) => { const input = e.target; const v = input.value.trim() || null; if (v !== (l.section ?? null) && !(await updateLine(l.id, { section: v }))) input.value = l.section ?? ""; }} />
                         {/* Mobile-only line summary — the qty/rate/amount columns are desktop-only, so surface the number here too. */}
                         <div className="text-[11px] text-muted-foreground sm:hidden mt-0.5">
                           {l.qty.toLocaleString("en-IN", { maximumFractionDigits: 2 })} {l.unit}
                           {rate != null ? <> · {inr(rate)}/{l.unit} · <b className="text-foreground">{lineAmountText(l, rate)}</b></> : <> · rate not set</>}
                         </div>
                       </div>
-                      <Input type="number" className="h-8 hidden sm:block" defaultValue={l.qty}
-                        onBlur={(e) => { if (e.target.value.trim() === "") { e.target.value = String(l.qty); return; } const v = Number(e.target.value); if (Number.isFinite(v) && v !== l.qty) updateLine(l.id, quantityEdit(l, v)); }} />
+                      <Input type="number" min={0} className="h-8 hidden sm:block" defaultValue={l.qty}
+                        aria-label={`Quantity for ${l.description || `line ${itemNo}`}`} title={String(l.qty)}
+                        onBlur={async (e) => {
+                          const input = e.target; const raw = input.value.trim();
+                          if (raw === "") { input.value = String(l.qty); return; }
+                          const v = Number(raw);
+                          // A negative or unreadable quantity is never saved: put back the saved one and say why.
+                          if (!Number.isFinite(v) || v < 0) { input.value = String(l.qty); toast.error(`Quantity must be zero or more — not saved. It is still ${l.qty} ${l.unit ?? ""}.`.trim()); return; }
+                          if (v !== l.qty && !(await updateLine(l.id, quantityEdit(l, v)))) input.value = String(l.qty);
+                        }} />
                       <Input className="h-8 hidden sm:block px-1 text-xs" defaultValue={l.unit ?? ""} placeholder="unit"
-                        onBlur={(e) => { const v = e.target.value.trim() || null; if (v !== l.unit) updateLine(l.id, { unit: v }); }} />
-                      <Input type="number" className="h-8 hidden sm:block" defaultValue={rate ?? ""} placeholder="rate"
+                        aria-label={`Unit for ${l.description || `line ${itemNo}`}`}
+                        onBlur={async (e) => {
+                          const input = e.target; const v = input.value.trim(); const saved = l.unit ?? "";
+                          if (!v) { input.value = saved; if (saved) toast.error("Unit cannot be empty — not saved."); return; }
+                          if (v !== saved && !(await updateLine(l.id, unitEditPatch(l, v)))) input.value = saved;
+                        }} />
+                      <Input type="number" min={0} className="h-8 hidden sm:block" defaultValue={rate ?? ""} placeholder="rate"
+                        aria-label={`Rate for ${l.description || `line ${itemNo}`}`}
                         title={l.custom_rate != null ? "Your rate (overrides DSR)" : "DSR reference rate — edit to set your rate"}
                         onBlur={(e) => { const v = e.target.value === "" ? null : Number(e.target.value); if (v !== rate) requestRateEdit(l, v, e.target); }} />
                       <span className="text-sm tabular-nums text-right hidden sm:block pt-1.5">
                         {lineAmountText(l, rate)}
                       </span>
-                      <Button size="sm" variant="ghost" className="h-7" onClick={() => removeLine(l.id)}>
-                        <Trash2 className="h-4 w-4 text-muted-foreground" />
+                      <Button size="sm" variant="ghost" className="h-7" onClick={() => removeLine(l.id)}
+                        aria-label={`Remove ${l.description || `line ${itemNo}`} (can be undone)`} title="Remove line (undo with Ctrl+Z)">
+                        <Trash2 className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                       </Button>
                     </div>
                     {isExp && (() => {

@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
-  computeCommercials, amountInWords, buildBoqCsv, buildProjectQuoteHtml, buildDsrQuoteHtml,
+  computeCommercials, amountInWords, buildBoqCsv, buildProjectQuoteHtml, buildDsrQuoteHtml, openQuoteWindow, QUOTE_WINDOW_LOADING_TEXT,
   type ProjectQuoteBoq, type DsrQuotePayload, type QuoteSubHead, type QuoteItem, type CsvRow,
 } from "./boqDsrDocument";
 
@@ -247,5 +247,86 @@ describe("amountInWords (Indian numbering)", () => {
     expect(amountInWords(500)).toBe("Five Hundred");
     expect(amountInWords(154678)).toBe("One Lakh Fifty Four Thousand Six Hundred Seventy Eight");
     expect(amountInWords(12345678)).toBe("One Crore Twenty Three Lakh Forty Five Thousand Six Hundred Seventy Eight");
+  });
+});
+
+describe("pending items keep their schedule code (accepted DSR-check work)", () => {
+  const pending = [{ no: "P.01", spec: "Centering and shuttering — Columns", unit: "sqm", code: "5.9.6", note: "Quantity pending: not yet measured", basis: "Awaiting quantity" }];
+  it("CSV: the code fills the Code column; Qty, rates and amount stay blank", () => {
+    const row = buildBoqCsv([], { boqName: "B", generatedOn: "1 Jan 2026" }, pending).split("\r\n").find((r) => r.startsWith("Pending,"));
+    expect(row).toBe('Pending,P.01,5.9.6,Centering and shuttering — Columns — Quantity pending: not yet measured,sqm,,,,,,,Awaiting quantity');
+  });
+  it("PDF: the code is shown on the pending row, which still reads 'pending'", () => {
+    const html = buildDsrQuoteHtml({
+      boqName: "B", generatedOn: "1 Jan 2026", subheads: [], abstract: [], pendingItems: pending,
+      commercials: computeCommercials(0, { costIndexPct: 0, contingencyPct: 0, overheadPct: 0, cessPct: 0, gstPct: 18 }),
+    }, { autoPrint: false });
+    const row = html.slice(html.indexOf("P.01"), html.indexOf("</tr>", html.indexOf("P.01")));
+    expect(row).toContain("<b>5.9.6</b> Centering and shuttering — Columns");
+    expect(row).toContain(">pending<");
+  });
+});
+
+describe("combined project quote: pending rows keep their schedule code", () => {
+  it("shows the code on a pending row, which still reads 'pending'", () => {
+    const boq: ProjectQuoteBoq = {
+      name: "B", subheads: [], pendingItems: [{ no: "P.01", spec: "Shuttering", unit: "sqm", code: "5.9.6", note: "Quantity pending: not yet measured" }],
+      commercials: computeCommercials(0, { costIndexPct: 0, contingencyPct: 0, overheadPct: 0, cessPct: 0, gstPct: 18 }),
+    };
+    const html = buildProjectQuoteHtml({ projectName: "P", generatedOn: "1 Jan 2026", branding: "firm" }, [boq], { autoPrint: false });
+    const row = html.slice(html.indexOf("P.01"), html.indexOf("</tr>", html.indexOf("P.01")));
+    expect(row).toContain("<b>5.9.6</b> Shuttering");
+    expect(row).toContain(">pending<");
+  });
+});
+
+describe("abstract: a confirmed ₹0 sub-head is priced, not 'To be priced'", () => {
+  const c0 = computeCommercials(0, { costIndexPct: 0, contingencyPct: 0, overheadPct: 0, cessPct: 0, gstPct: 18 });
+  const abstractRow = (html: string, name: string) => {
+    const i = html.indexOf(`<td>${name}</td>`);
+    return html.slice(i, html.indexOf("</tr>", i));
+  };
+  it("every line has an amount of ₹0 (confirmed-zero quantities) → ₹0", () => {
+    const html = buildDsrQuoteHtml({
+      boqName: "B", generatedOn: "x", commercials: c0, abstract: [{ no: 1, name: "Skirting", amount: 0 }],
+      subheads: [{ no: 1, name: "Skirting", subtotal: 0, lines: [{ no: "1.01", code: "6.4", spec: "s", qty: 0, unit: "m", rate: 50, amount: 0 }] }],
+    }, { autoPrint: false });
+    expect(abstractRow(html, "Skirting")).toContain("₹0");
+    expect(abstractRow(html, "Skirting")).not.toContain("To be priced");
+  });
+  it("a line with no rate → 'To be priced'", () => {
+    const html = buildDsrQuoteHtml({
+      boqName: "B", generatedOn: "x", commercials: c0, abstract: [{ no: 1, name: "Tiles", amount: 0 }],
+      subheads: [{ no: 1, name: "Tiles", subtotal: 0, lines: [{ no: "1.01", code: "11.1", spec: "s", qty: 4, unit: "sqm", rate: null, amount: null }] }],
+    }, { autoPrint: false });
+    expect(abstractRow(html, "Tiles")).toContain("To be priced");
+  });
+});
+
+describe("openQuoteWindow — opened from the click, filled after the re-read", () => {
+  afterEach(() => vi.restoreAllMocks());
+  const fakeWindow = () => {
+    const written: string[] = [];
+    const doc = { open: vi.fn(), write: (h: string) => written.push(h), close: vi.fn() };
+    return { w: { document: doc } as unknown as Window, written };
+  };
+  it("returns null when the pop-up is blocked", () => {
+    vi.spyOn(window, "open").mockReturnValue(null);
+    expect(openQuoteWindow()).toBeNull();
+  });
+  it("first says it is reading the latest BOQ, then shows the document", () => {
+    const { w, written } = fakeWindow();
+    vi.spyOn(window, "open").mockReturnValue(w);
+    const qw = openQuoteWindow()!;
+    expect(written[0]).toContain(QUOTE_WINDOW_LOADING_TEXT);
+    qw.show({ boqName: "Fresh BOQ", generatedOn: "x", subheads: [], abstract: [], commercials: computeCommercials(0, { costIndexPct: 0, contingencyPct: 0, overheadPct: 0, cessPct: 0, gstPct: 18 }) }, { autoPrint: false });
+    expect(written[1]).toContain("Fresh BOQ");
+  });
+  it("on failure replaces the loading text with the reason — no document", () => {
+    const { w, written } = fakeWindow();
+    vi.spyOn(window, "open").mockReturnValue(w);
+    openQuoteWindow()!.fail("Could not re-read <lines>");
+    expect(written[1]).toContain("Could not re-read &lt;lines&gt;");
+    expect(written[1]).not.toContain(QUOTE_WINDOW_LOADING_TEXT);
   });
 });

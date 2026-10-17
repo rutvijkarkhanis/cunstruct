@@ -84,9 +84,28 @@ describe("handleDrawingUrl", () => {
 
 describe("handleBoqLines", () => {
   const LINES = [
-    { id: "l1", description: "RCC footing", unit: "cum", qty: 10, included: true, section: "Structural", sort: 0, dsrRate: 100, customRate: null },
-    { id: "l2", description: "Excluded item", unit: "nos", qty: 2, included: false, section: "Structural", sort: 1, dsrRate: 50, customRate: null },
+    { id: "l1", description: "RCC footing", unit: "cum", qty: 10, included: true, section: "Structural", sort: 0, dsrRate: 100, customRate: null, quantityStatus: null, basis: null, basisNote: null },
+    { id: "l2", description: "Excluded item", unit: "nos", qty: 2, included: false, section: "Structural", sort: 1, dsrRate: 50, customRate: null, quantityStatus: null, basis: null, basisNote: null },
   ];
+
+  it("a pending quantity is never priced or totalled; confirmed zero, pending and unavailable stay distinct; the basis is only what is recorded", async () => {
+    const rows = [
+      { ...LINES[0] },
+      { ...LINES[0], id: "p1", qty: 12, basis: "PENDING", quantityStatus: "PENDING" },  // a number typed into a pending line
+      { ...LINES[0], id: "p2", qty: 0 },                                                  // a bare 0 nobody confirmed
+      { ...LINES[0], id: "z1", qty: 0, quantityStatus: "MEASURED", basis: "DRAWING_INPUT" },
+      { ...LINES[0], id: "u1", qty: null as unknown as number },
+    ];
+    const res = await handleBoqLines({ projectId: "proj-1", boqId: "boq-1", showPricing: true }, deps({ listBoqLines: vi.fn(async () => rows) }));
+    if (!res.body.ok) throw new Error("expected ok");
+    const by = Object.fromEntries((res.body.lines as { id: string; quantityState: string; amount: number | null; basis: string }[]).map((l) => [l.id, l]));
+    expect(by.l1).toMatchObject({ quantityState: "established", amount: 1000, basis: "Basis not recorded" });
+    expect(by.p1).toMatchObject({ quantityState: "pending", amount: null, basis: "Awaiting quantity" });
+    expect(by.p2).toMatchObject({ quantityState: "pending", amount: null });
+    expect(by.z1).toMatchObject({ quantityState: "confirmed_zero", amount: 0, basis: "From drawing summary (estimator's reading)" });
+    expect(by.u1).toMatchObject({ quantityState: "unavailable", amount: null });
+    expect((res.body.commercials as { works: number }).works).toBe(1000);
+  });
 
   it("never returns a BOQ belonging to a DIFFERENT project — the core cross-project leak this design exists to prevent", async () => {
     const getBoqForProject = vi.fn(async () => null);
@@ -130,7 +149,7 @@ describe("handleBoqLines", () => {
     if (!res.body.ok) throw new Error("expected ok");
     expect(res.body.commercials).toBeUndefined();
     const line = (res.body.lines as Record<string, unknown>[])[0];
-    expect(Object.keys(line).sort()).toEqual(["description", "id", "included", "qty", "section", "sort", "unit"].sort());
+    expect(Object.keys(line).sort()).toEqual(["basis", "description", "id", "included", "qty", "quantityState", "section", "sort", "unit"].sort());
     expect("rate" in line).toBe(false);
     expect("amount" in line).toBe(false);
   });

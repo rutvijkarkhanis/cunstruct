@@ -29,11 +29,13 @@
 // correctly on the next apply too.
 
 import { PENDING_BASIS } from "@/lib/boqEvalJson";
+import { REVIEW_CORRECTED_BASIS, REVIEW_VERIFIED_BASIS, quantityState } from "@/lib/quantity";
 import { addReviewItemAsLine, applyReviewQtyUnit } from "@/lib/applyFinding";
 import { supabase } from "@/integrations/supabase/client";
 import { db } from "@/lib/untypedDb";
 import type { StoredReviewItem } from "./reviewStore";
 import { assertApplyAllowed, assessRunFreshness } from "./revisionFreshness";
+import { isCountableUnit } from "./typeGrouping";
 
 /** The subset of a boq_line row needed to classify a review item against it.
  *  `scope_name` is the line's resolved scope (its own boq_line.scope_id, if
@@ -56,6 +58,11 @@ export interface BoqLineForApply {
    *  the safe default that only ever ENABLES a first-time population, never
    *  blocks one. */
   source_document_id?: string | null;
+  /** The line's CURRENT basis, when loaded. Together with quantity_status it
+   *  decides whether the line's quantity is pending (the shared rule,
+   *  lib/quantity.ts quantityState) and is guarded at write time. Absent =
+   *  not loaded: the status-only reading applies and it is not guarded. */
+  basis?: string | null;
 }
 
 export type ApplyClassification =
@@ -82,6 +89,9 @@ export interface UnsupportedChange {
 
 export interface ApplyCandidate {
   reviewItemId: string;
+  /** The reviewer's decision on the item (VERIFIED or EDITED for anything
+   *  applicable) — recorded as the applied quantity's basis. */
+  decision?: StoredReviewItem["reviewStatus"];
   itemKey: string;
   itemName: string;
   classification: ApplyClassification;
@@ -108,7 +118,12 @@ export interface ApplyCandidate {
    * classification APPLY (there's a matched line to snapshot); never for
    * NEW_LINE or any other classification.
    */
-  expectedLineState?: { qty: number; unit: string | null };
+  expectedLineState?: { qty: number; unit: string | null; quantity_status?: string | null; basis?: string | null };
+  /** APPLY only: the reviewed quantity this candidate stands for (null =
+   *  pending). Used when only the unit changes, so the line records that its
+   *  quantity — now in the reviewed unit — was reviewed, without ever turning
+   *  a pending quantity into an established one. */
+  reviewedQty?: number | null;
   /**
    * The AI item's own drawing-source reference (Scope C — traceability),
    * proposed for writing ONLY when it is safe and non-destructive to do so:
@@ -137,9 +152,19 @@ function effectiveUnit(item: StoredReviewItem): string | null {
 }
 function effectiveQty(item: StoredReviewItem): number | null {
   if (item.reviewer && "quantity" in item.reviewer) return item.reviewer.quantity ?? null;
+  // The AI itself said this quantity is not established (aiStatus PENDING).
+  // Verifying such an item without supplying a quantity confirms nothing
+  // about the number (the workstation disables Verify for it for exactly this
+  // reason) — it stays pending, never applied as an established quantity.
+  if (item.ai.aiStatus === "PENDING") return null;
   return item.ai.quantity;
 }
-const displayQty = (qty: number, status: string | null) => (status === "PENDING" ? "pending" : String(qty));
+/** The line's quantity as the diff shows it: "pending" whenever the shared
+ *  rule says the quantity is not established (marked pending by status OR
+ *  basis, or a zero nobody confirmed), else the number — so a reviewer's
+ *  confirmed 0 against an unconfirmed 0 is a real change, not "no change". */
+const lineQtyDisplay = (line: BoqLineForApply) =>
+  quantityState({ qty: line.qty, quantity_status: line.quantity_status, basis: line.basis }) === "pending" ? "pending" : String(line.qty);
 const norm = (s: string | null | undefined) => (s ?? "").trim();
 
 /**
@@ -200,8 +225,14 @@ function effectiveLocation(item: StoredReviewItem): string {
  * never becomes a new scope. Omitted by callers that predate it; Apply still
  * refuses to create a scope at write time (see findScopeIdForLocation).
  */
+/** The basis an applied quantity records: what the reviewer did with it.
+ *  Anything else (never applicable) records nothing rather than a guess. */
+function reviewBasis(decision: ApplyCandidate["decision"]): string | null {
+  return decision === "EDITED" ? REVIEW_CORRECTED_BASIS : decision === "VERIFIED" ? REVIEW_VERIFIED_BASIS : null;
+}
+
 export function classifyReviewItem(item: StoredReviewItem, lines: BoqLineForApply[], scopeNames?: readonly string[]): ApplyCandidate {
-  const base = { reviewItemId: item.id, itemKey: item.ai.key, itemName: item.ai.item };
+  const base = { reviewItemId: item.id, itemKey: item.ai.key, itemName: item.ai.item, decision: item.reviewStatus };
 
   if (item.reviewStatus === "PENDING_REVIEW") {
     return { ...base, classification: "NOT_ELIGIBLE", matchedLineId: null, changes: [], unsupportedChanges: [], reason: "Not yet reviewed" };
@@ -217,6 +248,15 @@ export function classifyReviewItem(item: StoredReviewItem, lines: BoqLineForAppl
   const qty = effectiveQty(item);
   const unit = effectiveUnit(item);
   const unsupportedChanges = unsupportedChangesFor(item);
+
+  // A negative or non-numeric quantity has no meaning on a BOQ line (the
+  // shared rule reads it as "not available") — never written, never guessed.
+  if (qty != null && (typeof qty !== "number" || !Number.isFinite(qty) || qty < 0)) {
+    return {
+      ...base, classification: "CANNOT_APPLY", matchedLineId: null, changes: [], unsupportedChanges,
+      reason: `Quantity ${String(qty)} is not a valid quantity — edit it to zero or more, or mark it pending`,
+    };
+  }
 
   // Every line whose external_key matches this item's key — almost always 0
   // or 1. More than one means the same mark exists more than once in this
@@ -296,7 +336,7 @@ export function classifyReviewItem(item: StoredReviewItem, lines: BoqLineForAppl
       : unsupportedChanges;
     const changes: FieldChange[] = [];
     const wantPending = qty == null;
-    const fromQty = displayQty(match.qty, match.quantity_status);
+    const fromQty = lineQtyDisplay(match);
     const toQty = wantPending ? "pending" : String(qty);
     if (fromQty !== toQty) changes.push({ field: "qty", from: fromQty, to: toQty });
 
@@ -315,7 +355,13 @@ export function classifyReviewItem(item: StoredReviewItem, lines: BoqLineForAppl
     }
     return {
       ...base, classification: "APPLY", matchedLineId: match.id, changes, unsupportedChanges: unsupported,
-      expectedLineState: { qty: match.qty, unit: match.unit },
+      expectedLineState: {
+        qty: match.qty, unit: match.unit,
+        // Guarded only when loaded (undefined = not selected by the caller).
+        ...(match.quantity_status !== undefined ? { quantity_status: match.quantity_status } : {}),
+        ...(match.basis !== undefined ? { basis: match.basis } : {}),
+      },
+      reviewedQty: qty,
       source: sourceToPropose(item, match.source_document_id),
     };
   }
@@ -473,6 +519,33 @@ export async function resolveAnalyzedRevisionId(runId: string, documentId: strin
     .eq("document_id", documentId)
     .maybeSingle();
   return revision ? revisionId : undefined; // invalid/cross-document → no usable evidence, caller falls back
+}
+
+/**
+ * Apply stopped part-way: an unexpected error after at least one line had
+ * already been written. `partial` is exactly what was written (and what was
+ * refused as a conflict) before the stop; `failedReviewItemId` is the item
+ * whose write failed (null when its line was in fact written and only its
+ * history failed); `notAttemptedReviewItemIds` were selected but never tried.
+ * Nothing is rolled back. Re-running Apply is safe: it re-classifies against
+ * the lines' current values, so written lines show as "no change" and are
+ * never applied twice.
+ */
+export class ApplyInterruptedError extends Error {
+  readonly partial: ApplyResult;
+  readonly failedReviewItemId: string | null;
+  readonly notAttemptedReviewItemIds: string[];
+  readonly cause: unknown;
+  constructor(partial: ApplyResult, failedReviewItemId: string | null, notAttemptedReviewItemIds: string[], cause: unknown) {
+    const why = cause instanceof Error ? cause.message : (cause as { message?: string } | null)?.message ?? String(cause);
+    const notWritten = (failedReviewItemId ? 1 : 0) + notAttemptedReviewItemIds.length;
+    super(`Apply stopped part-way: ${partial.appliedCount} item${partial.appliedCount === 1 ? " was" : "s were"} written to the BOQ, ${notWritten} ${notWritten === 1 ? "was" : "were"} not (${why}). Reload and apply again to finish — written lines are not applied twice.`);
+    this.name = "ApplyInterruptedError";
+    this.partial = partial;
+    this.failedReviewItemId = failedReviewItemId;
+    this.notAttemptedReviewItemIds = notAttemptedReviewItemIds;
+    this.cause = cause;
+  }
 }
 
 /** Apply refused because a selected item's source document cannot be
@@ -802,9 +875,36 @@ export async function applyReviewPlan(args: {
     ? await resolveRunProvenance(args.runId, await resolveBoqProjectId(), args.candidates, args.selectedIds)
     : args.candidates;
 
+  // Counts as of now — used for the normal result and, if a write throws
+  // part-way, for the partial result ApplyInterruptedError carries.
+  const resultSoFar = (): ApplyResult => {
+    const skippedNoChange = args.candidates.filter((c) => c.classification === "NO_CHANGE").length;
+    const staticUnresolvedCount = args.candidates.filter((c) =>
+      c.classification === "NOT_ELIGIBLE" || c.classification === "CANNOT_APPLY"
+      || c.classification === "REVIEWED_NOT_APPLICABLE" || c.classification === "AMBIGUOUS",
+    ).length;
+    // A same-batch conflict is discovered only during execution (it depends on
+    // apply order), never from a candidate's static classification, so it is
+    // added on top of the statically-classified unresolved count rather than
+    // replacing it — the two sets never overlap (a conflicted candidate was
+    // always classified APPLY/NEW_LINE, never one of the four above).
+    const unresolvedCount = staticUnresolvedCount + conflictedReviewItemIds.length;
+    return {
+      appliedCount, skippedNoChange, unresolvedCount,
+      conflictedReviewItemIds: [...conflictedReviewItemIds], auditLogFailedReviewItemIds: [...auditLogFailedReviewItemIds],
+    };
+  };
+  const attemptedIds = new Set<string>();
+
   for (const c of candidates) {
     if (!args.selectedIds.has(c.reviewItemId)) continue;
     if (c.classification !== "APPLY" && c.classification !== "NEW_LINE") continue;
+    attemptedIds.add(c.reviewItemId);
+    // Set the moment this candidate's boq_line write has taken effect, so an
+    // error after it (e.g. while recording history) is never reported as
+    // "not written".
+    let lineWritten = false;
+    try {
 
     if (c.classification === "APPLY" && c.matchedLineId && modifiedLineIds.has(c.matchedLineId)) {
       // Never silently apply on top of another selected candidate's write in
@@ -845,16 +945,40 @@ export async function applyReviewPlan(args: {
       // tabs, or any apply that ran between classification and this write).
       // Only the field(s) actually being changed are guarded; an unrelated
       // field drifting elsewhere never blocks this write.
-      const expected: { qty?: number; unit?: string | null } = {};
+      const expected: { qty?: number; unit?: string | null; quantity_status?: string | null; basis?: string | null } = {};
+      const targetUnit = unitChange ? (unitChange.to === "—" ? null : unitChange.to) : c.expectedLineState?.unit;
+      // The line's quantity meaning (status/basis) is guarded alongside qty
+      // whenever it was loaded: the diff "pending → 5" or "0 → 5" was
+      // computed from it, and a line re-marked pending or confirmed zero
+      // elsewhere (same qty, different meaning) must not be overwritten.
+      const guardMeaning = () => {
+        if (!c.expectedLineState) return;
+        expected.qty = c.expectedLineState.qty;
+        if ("quantity_status" in c.expectedLineState) expected.quantity_status = c.expectedLineState.quantity_status ?? null;
+        if ("basis" in c.expectedLineState) expected.basis = c.expectedLineState.basis ?? null;
+      };
       if (qtyChange) {
         const pending = qtyChange.to === "pending";
         patch.qty = pending ? 0 : Number(qtyChange.to);
-        patch.basis = pending ? PENDING_BASIS : null;
-        patch.quantity_status = pending ? "PENDING" : "MEASURED";
-        if (c.expectedLineState) expected.qty = c.expectedLineState.qty;
+        // The quantity is now the one a reviewer verified or corrected —
+        // recorded as such, never left as "basis not recorded".
+        patch.basis = pending ? PENDING_BASIS : reviewBasis(c.decision);
+        // A count is recorded as COUNTED, anything else as MEASURED — the
+        // method, alongside the reviewer's decision in basis.
+        patch.quantity_status = pending ? "PENDING" : isCountableUnit(targetUnit) ? "COUNTED" : "MEASURED";
+        guardMeaning();
+      } else if (unitChange && c.reviewedQty != null && c.decision != null && reviewBasis(c.decision)) {
+        // Only the unit changes, but that changes what the (unchanged) number
+        // means — "4 nos" is not "4 set". The reviewer checked the number in
+        // this unit, so the line records the review basis and method, exactly
+        // as a qty change would. A pending quantity (reviewedQty null) keeps
+        // its pending marker untouched.
+        patch.basis = reviewBasis(c.decision);
+        patch.quantity_status = isCountableUnit(targetUnit) ? "COUNTED" : "MEASURED";
+        guardMeaning();
       }
       if (unitChange) {
-        patch.unit = unitChange.to === "—" ? null : unitChange.to;
+        patch.unit = targetUnit ?? null;
         if (c.expectedLineState) expected.unit = c.expectedLineState.unit;
       }
       // Source-traceability (Scope C): rides along on the SAME conditional
@@ -864,6 +988,7 @@ export async function applyReviewPlan(args: {
       // stale row.
       Object.assign(patch, await sourcePatchFor(c));
       const applied = await applyReviewQtyUnit(lineId, patch, expected);
+      lineWritten = applied;
       if (!applied) {
         // The row no longer matches the snapshot this diff was computed
         // from — something else changed it since classification. Never
@@ -874,7 +999,7 @@ export async function applyReviewPlan(args: {
         continue;
       }
       modifiedLineIds.add(lineId);
-      logRows = c.changes.map((ch) => ({
+      logRows = [...c.changes, ...c.unsupportedChanges].map((ch) => ({
         boq_id: args.boqId, boq_line_id: lineId, review_item_id: c.reviewItemId,
         field: ch.field, old_value: ch.from, new_value: ch.to, changed_by: changedBy,
       }));
@@ -898,6 +1023,7 @@ export async function applyReviewPlan(args: {
       const insertedLineId = await addReviewItemAsLine({
         boqId: args.boqId, description: c.newLine.description, unit: c.newLine.unit,
         qty: c.newLine.qty, pending: c.newLine.pending, externalKey: c.itemKey, scopeId,
+        basis: c.newLine.pending ? undefined : reviewBasis(c.decision),
         sourceDocumentId: (sourcePatch.source_document_id as string | undefined) ?? null,
         sourceRevisionId: (sourcePatch.source_revision_id as string | undefined) ?? null,
         sourcePage: (sourcePatch.source_page as string | undefined) ?? null,
@@ -913,6 +1039,7 @@ export async function applyReviewPlan(args: {
         continue;
       }
       lineId = insertedLineId;
+      lineWritten = true;
       if (newLineIdentityKey) createdNewLineIdentities.add(newLineIdentityKey);
       // Field-level records for the actual values the line was created with —
       // "line_created" is kept alongside as provenance (which review item and
@@ -924,6 +1051,9 @@ export async function applyReviewPlan(args: {
         { ...base, field: "qty", old_value: null, new_value: c.newLine.pending ? "pending" : String(c.newLine.qty) },
         ...(c.newLine.unit ? [{ ...base, field: "unit", old_value: null, new_value: c.newLine.unit }] : []),
         { ...base, field: "line_created", old_value: null, new_value: c.newLine.description },
+        // Reviewer corrections boq_line has no column for (dimension,
+        // specification): kept in the line's history rather than dropped.
+        ...c.unsupportedChanges.map((u) => ({ ...base, field: u.field, old_value: u.from, new_value: u.to })),
       ];
     } else {
       continue;
@@ -934,20 +1064,27 @@ export async function applyReviewPlan(args: {
       if (logErr) auditLogFailedReviewItemIds.push(c.reviewItemId);
     }
     appliedCount++;
+    } catch (err) {
+      if (lineWritten) {
+        // Its line was written; only what followed failed — saved, unaudited.
+        appliedCount++;
+        auditLogFailedReviewItemIds.push(c.reviewItemId);
+      }
+      // Nothing written at all by this call: the original error is the whole
+      // truth (no partial state to report).
+      if (appliedCount === 0) throw err;
+      // Some lines WERE written before this failure. Never let the caller
+      // read this as "nothing applied" (or as a success): stop here — no
+      // further writes after an unexplained database error — and report
+      // exactly what was and was not written.
+      const notAttempted = candidates
+        .filter((x) => args.selectedIds.has(x.reviewItemId) && (x.classification === "APPLY" || x.classification === "NEW_LINE") && !attemptedIds.has(x.reviewItemId))
+        .map((x) => x.reviewItemId);
+      throw new ApplyInterruptedError(resultSoFar(), lineWritten ? null : c.reviewItemId, notAttempted, err);
+    }
   }
 
-  const skippedNoChange = args.candidates.filter((c) => c.classification === "NO_CHANGE").length;
-  const staticUnresolvedCount = args.candidates.filter((c) =>
-    c.classification === "NOT_ELIGIBLE" || c.classification === "CANNOT_APPLY"
-    || c.classification === "REVIEWED_NOT_APPLICABLE" || c.classification === "AMBIGUOUS",
-  ).length;
-  // A same-batch conflict is discovered only during execution (it depends on
-  // apply order), never from a candidate's static classification, so it is
-  // added on top of the statically-classified unresolved count rather than
-  // replacing it — the two sets never overlap (a conflicted candidate was
-  // always classified APPLY, never one of the four classifications above).
-  const unresolvedCount = staticUnresolvedCount + conflictedReviewItemIds.length;
-  const result: ApplyResult = { appliedCount, skippedNoChange, unresolvedCount, conflictedReviewItemIds, auditLogFailedReviewItemIds };
+  const result: ApplyResult = resultSoFar();
 
   // The pre-write gate cannot be atomic with the writes (no transaction spans
   // them), so re-read afterwards and report — never hide — a change that

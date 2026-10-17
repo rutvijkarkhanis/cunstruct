@@ -539,7 +539,10 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
   // line, not a document-name heading of its own) — the caller's own top bar
   // already names the document, so this only adds the page identity.
   const currentPageTitle = useMemo(() => resolvePageTitle(pageTitles, page), [pageTitles, page]);
-  const sheetIdentity = <SheetIdentity title={currentPageTitle} page={page} numPages={numPages} />;
+  // numPages starts at 1 and is only real once pdf.js has opened the file:
+  // never state a page total ("1 / 1") for a document still loading.
+  const pagesKnown = status === "ready";
+  const sheetIdentity = <SheetIdentity title={currentPageTitle} page={page} numPages={pagesKnown ? numPages : null} />;
 
   // ── Non-render states ───────────────────────────────────────────────────────
   if (unavailableReason) {
@@ -574,8 +577,10 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
           ><Crosshair className="w-4 h-4" /></IconBtn>
           <span className="mx-1 w-px h-5 bg-border" />
           <IconBtn title="Previous page" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}><ChevronLeft className="w-4 h-4" /></IconBtn>
-          <span className="text-xs tabular-nums">{page} / {numPages}</span>
-          <IconBtn title="Next page" onClick={() => setPage((p) => Math.min(numPages, p + 1))} disabled={page >= numPages}><ChevronRight className="w-4 h-4" /></IconBtn>
+          {pagesKnown
+            ? <span className="text-xs tabular-nums">{page} / {numPages}</span>
+            : <span className="text-xs tabular-nums" aria-label="Loading pages">– / –</span>}
+          <IconBtn title="Next page" onClick={() => setPage((p) => Math.min(numPages, p + 1))} disabled={!pagesKnown || page >= numPages}><ChevronRight className="w-4 h-4" /></IconBtn>
         </div>
       }
     >
@@ -590,7 +595,11 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
           whatever the flex parent (Shell, h-full) leaves after the compact
           identity/toolbar row above; on mobile it keeps its own viewport-
           relative height since there's no fixed-height ancestor to fill. */}
-      <div ref={containerRef} className="relative overflow-auto w-full max-w-full min-w-0 h-[60vh] min-h-[360px] max-h-[72vh] lg:h-auto lg:flex-1 lg:min-h-0 lg:max-h-none">
+      {/* A scrollable region must be keyboard-reachable (axe:
+          scrollable-region-focusable): the canvas inside has nothing
+          focusable, so the container itself takes focus and a name. */}
+      <div ref={containerRef} tabIndex={0} role="region" aria-label={documentName ? `Drawing: ${documentName}` : "Drawing"}
+        className="relative overflow-auto w-full max-w-full min-w-0 h-[60vh] min-h-[360px] max-h-[72vh] lg:h-auto lg:flex-1 lg:min-h-0 lg:max-h-none focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
         {status === "loading" && <div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>}
         {status === "error" && (
           <div className="absolute inset-0 flex items-center justify-center p-4">
@@ -866,12 +875,12 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
 // WHERE it sits in the set. Separate from EvidenceContextBanner (WHY): a page
 // has one identity regardless of which claim, if any, is selected. Never
 // invents a title — falls back to the bare position when none is known.
-function SheetIdentity({ title, page, numPages }: { title: string | null; page: number; numPages: number }) {
+function SheetIdentity({ title, page, numPages }: { title: string | null; page: number; numPages: number | null }) {
   return (
     <div className="flex items-center gap-1.5 text-xs text-muted-foreground min-w-0">
       {title && <span className="font-medium text-foreground truncate max-w-[12rem]">{title}</span>}
       {title && <span aria-hidden="true">·</span>}
-      <span className="shrink-0">{sheetPositionLabel(page, numPages)}</span>
+      <span className="shrink-0">{numPages == null ? "Loading sheets…" : sheetPositionLabel(page, numPages)}</span>
     </div>
   );
 }

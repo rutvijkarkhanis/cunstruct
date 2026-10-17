@@ -119,11 +119,11 @@ vi.mock("@/integrations/supabase/client", () => {
   };
 });
 
-function renderProjectBoqs() {
+function renderProjectBoqs(url = "/ops/projects/proj-1/boqs/manage") {
   const qc = new QueryClient();
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter initialEntries={["/ops/projects/proj-1/boqs/manage"]}>
+      <MemoryRouter initialEntries={[url]}>
         <Routes>
           <Route path="/ops/projects/:id/boqs/manage" element={<ProjectBoqs />} />
         </Routes>
@@ -227,5 +227,18 @@ describe("ProjectBoqs — combined multi-BOQ export source references (Scope H f
     const terrace = quoteBoqs.find((b) => b.name === "Terrace")!;
     // Brickwork (5 * 200 = 1000) + Plaster (8 * 50 = 400) = 1400 works.
     expect(terrace.commercials.works).toBe(1400);
+  });
+});
+
+describe("ProjectBoqs — opened from the project journey", () => {
+  it("offers the way back to the journey step it was opened from", async () => {
+    const back = "/app/projects/proj-1/overview";
+    renderProjectBoqs(`/ops/projects/proj-1/boqs/manage?returnTo=${encodeURIComponent(back)}`);
+    expect(await screen.findByRole("link", { name: /Back to project/ })).toHaveAttribute("href", back);
+  });
+  it("without a journey returnTo there is no such link", async () => {
+    renderProjectBoqs(`/ops/projects/proj-1/boqs/manage?returnTo=${encodeURIComponent("//evil.example")}`);
+    await screen.findByRole("heading", { name: "BOQs" });
+    expect(screen.queryByRole("link", { name: /Back to project/ })).toBeNull();
   });
 });

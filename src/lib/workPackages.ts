@@ -29,6 +29,7 @@ export interface WorkPackageLineInput {
   unit: string | null;
   qty: number | null;
   quantity_status?: string | null;
+  basis?: string | null;
   included: boolean;
   scope_id?: string | null;
   sort?: number;
@@ -100,7 +101,7 @@ export function buildWorkPackages(
     const locations = [...byLocation.keys()].sort(lastly(NO_LOCATION)).map((location) => ({
       location,
       rows: byLocation.get(location)!.map((l): WorkPackageRow => {
-        const pending = qtyPending({ qty: l.qty, quantity_status: l.quantity_status });
+        const pending = qtyPending({ qty: l.qty, quantity_status: l.quantity_status, basis: l.basis });
         if (pending) pendingCount++; else measuredCount++;
         return {
           lineId: l.id, itemNo: `${no}.${String(++item).padStart(2, "0")}`, code: l.dsr_code,

@@ -6,7 +6,7 @@
 // for loadProjectDrawings — don't have to be threaded through an unrelated
 // suite's shared mock.
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import OpsBoqBuilder from "./OpsBoqBuilder";
@@ -32,6 +32,9 @@ vi.mock("@/lib/boqDsrDocument", async () => {
       exportSpies.openDsrQuote(...args);
       return true;
     },
+    // The builder opens the tab from the click (openQuoteWindow) and shows the
+    // freshly read document in it; `show` records it like openDsrQuote did.
+    openQuoteWindow: () => ({ show: (...args: Parameters<typeof actual.openDsrQuote>) => { (exportSpies.openDsrQuote as (...a: unknown[]) => boolean)(...args); return true; }, fail: () => {} }),
     buildBoqCsv: (...args: Parameters<typeof actual.buildBoqCsv>) => {
       exportSpies.buildBoqCsv(...args);
       return actual.buildBoqCsv(...args);
@@ -155,6 +158,8 @@ async function clickExportItem(item: "PDF" | "Excel") {
   fireEvent.keyDown(trigger, { key: "Enter", code: "Enter" });
   const menuItem = await screen.findByRole("menuitem", { name: item });
   fireEvent.click(menuItem);
+  // The Excel export re-reads the lines first (lib/exportFreshness): let it finish.
+  await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 }
 
 describe("OpsBoqBuilder — export wiring (Scope H)", () => {

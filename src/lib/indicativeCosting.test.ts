@@ -47,6 +47,26 @@ describe("classifyIndicativeLine", () => {
     expect(canInclude(row)).toBe(false);
   });
 
+  // P2-4: the same pending rule as every BOQ total and export (lib/quantity).
+  it("uses the shared pending rule — basis PENDING, an unconfirmed zero and a negative are never priced", () => {
+    for (const l of [
+      line({ id: "a", qty: 7, basis: "PENDING" }),
+      line({ id: "a", qty: 0, quantity_status: null }),
+      line({ id: "a", qty: -1 }),
+      line({ id: "a", qty: Number.NaN }),
+    ]) {
+      const row = classifyIndicativeLine(l, mapping({ boq_line_id: "a" }));
+      expect(row).toMatchObject({ status: "missing_quantity", amount: null, rate: null });
+    }
+  });
+
+  it("a confirmed zero (MEASURED/COUNTED) is an established quantity and prices at a real ₹0, distinct from pending", () => {
+    for (const st of ["MEASURED", "COUNTED"]) {
+      const row = classifyIndicativeLine(line({ id: "a", qty: 0, quantity_status: st }), mapping({ boq_line_id: "a" }));
+      expect(row).toMatchObject({ status: "priced", rate: 100, amount: 0 });
+    }
+  });
+
   it("reports the unit mismatch alongside a different headline blocker", () => {
     const row = classifyIndicativeLine(line({ id: "a", unit: "sqm" }), mapping({ boq_line_id: "a", dsr_rate: null }));
     expect(row.status).toBe("missing_rate");

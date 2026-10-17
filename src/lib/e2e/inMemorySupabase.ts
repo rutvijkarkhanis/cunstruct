@@ -10,29 +10,35 @@
 // (20260929000000_boq_line_identity_constraint.sql) raise 23505 with the index
 // name, as Postgres would. Nothing else — no RLS, triggers or other
 // constraints — is emulated; that is a stated limitation of the harness.
+// A table can be marked missing (dropInMemoryTable) to emulate a database
+// where its migration was not applied: queries on it return Postgres 42P01.
 
 type Row = Record<string, unknown>;
 type Filter = { col: string; op: "eq" | "is" | "not_is_null"; value: unknown };
 
-const TABLES = ["boq", "boq_line", "boq_line_change_log", "project_scope", "project_document", "document_revision", "analysis_run_source"] as const;
+const TABLES = ["boq", "boq_line", "boq_line_change_log", "project_scope", "project_document", "document_revision", "analysis_run_source", "dsr_item"] as const;
 type Table = (typeof TABLES)[number];
 
 const store = new Map<Table, Row[]>();
+const missing = new Set<Table>();
 let nextId = 1;
 const queryLog: string[] = [];
 
 export interface InMemorySeed {
-  boq: { id: string; project_id: string | null }[];
+  boq: ({ id: string; project_id: string | null } & Row)[];
   boq_line?: Row[];
   project_scope?: Row[];
   project_document?: { id: string; project_id: string; current_revision_id: string | null }[];
   document_revision?: { id: string; document_id: string }[];
   analysis_run_source?: Row[];
+  dsr_item?: Row[];
 }
 
 /** Start a fresh, empty database with the given seed rows. */
 export function resetInMemoryDb(seed: InMemorySeed): void {
   store.clear();
+  missing.clear();
+  injectedFailures.length = 0;
   queryLog.length = 0;
   nextId = 1;
   for (const t of TABLES) store.set(t, []);
@@ -40,6 +46,24 @@ export function resetInMemoryDb(seed: InMemorySeed): void {
     if (!TABLES.includes(t as Table)) throw new Error(`in-memory db: unknown seed table ${t}`);
     store.set(t as Table, (rows as Row[]).map((r) => ({ ...r })));
   }
+}
+
+/** Emulate a database where this table's migration was never applied. */
+export function dropInMemoryTable(table: Table): void {
+  missing.add(table);
+}
+
+/** One-shot injected failures (see failInMemoryWrite). */
+const injectedFailures: { table: Table; op: "insert" | "update"; remaining: number; error: { code?: string; message: string } }[] = [];
+
+/**
+ * Make the `nth` (1-based, counted from now) `op` on `table` fail with
+ * `error` and write nothing — e.g. a network blip or an unexpected database
+ * error part-way through an Apply. One-shot; cleared by resetInMemoryDb.
+ * Additive test hook: no query behaves differently unless a test calls this.
+ */
+export function failInMemoryWrite(table: Table, op: "insert" | "update", nth = 1, error: { code?: string; message: string } = { code: "08006", message: "connection failure (injected)" }): void {
+  injectedFailures.push({ table, op, remaining: nth, error });
 }
 
 /** A deep copy of a table's rows, for reading back what was persisted. */
@@ -85,14 +109,25 @@ type Result = { data: unknown; error: unknown };
 function query(table: string, op: "select" | "insert" | "update", payload?: Row | Row[]) {
   const filters: Filter[] = [];
   let limit: number | null = null;
+  let offset = 0;
+  let orderBy: string | null = null;
   let returning = false;
 
   const run = (): Result => {
     queryLog.push(`${op} ${table}`);
+    if (missing.has(table as Table)) return { data: null, error: { code: "42P01", message: `relation "public.${table}" does not exist` } };
+    if (op !== "select") {
+      const i = injectedFailures.findIndex((f) => f.table === table && f.op === op);
+      if (i >= 0 && --injectedFailures[i].remaining === 0) {
+        const [f] = injectedFailures.splice(i, 1);
+        return { data: null, error: f.error };
+      }
+    }
     const rows = tableRows(table);
     if (op === "select") {
       const found = rows.filter((r) => matches(r, filters));
-      return { data: (limit == null ? found : found.slice(0, limit)).map((r) => ({ ...r })), error: null };
+      if (orderBy) found.sort((a, b) => String(a[orderBy!]).localeCompare(String(b[orderBy!])));
+      return { data: found.slice(offset, limit == null ? undefined : offset + limit).map((r) => ({ ...r })), error: null };
     }
     if (op === "insert") {
       const inserted: Row[] = [];
@@ -138,6 +173,8 @@ function query(table: string, op: "select" | "insert" | "update", payload?: Row 
       return builder;
     },
     limit(n: number) { limit = n; return builder; },
+    order(col: string) { orderBy = col; return builder; },
+    range(from: number, to: number) { offset = from; limit = to - from + 1; return builder; },
     select() { returning = true; return builder; },
     single: async () => one(true),
     maybeSingle: async () => one(false),

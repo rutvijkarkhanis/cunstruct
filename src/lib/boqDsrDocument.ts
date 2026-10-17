@@ -7,6 +7,8 @@
  * (cost index → contingency → overhead → cess → GST → grand total in words).
  */
 
+import { roundRupee } from "./quantity";
+
 export interface QuoteItem {
   no: string;            // sub-head item serial, e.g. "2.01"
   code: string | null;   // DSR reference code
@@ -24,6 +26,10 @@ export interface QuoteItem {
    *  resolve, even if a page value exists. */
   sourceDocument?: string | null;
   sourcePage?: string | null;
+  /** The quantity's recorded basis label (lib/quantity quantityProvenance), when
+   *  the caller has it. Absent = the document does not state a basis for this
+   *  line (e.g. a stored revision frozen before basis was captured). */
+  basis?: string | null;
 }
 export interface QuoteSubHead {
   no: number;            // sub-head number (1, 2, 3 …)
@@ -56,11 +62,15 @@ export interface QuotePendingItem {
   no: string;
   spec: string;          // requirement description
   unit: string;
+  /** The schedule code already chosen for it (e.g. an accepted DSR-check item), when any. */
+  code?: string | null;
   note?: string;         // location / reason it is pending
   scope?: string;        // works | equipment | needs_confirmation
   /** The drawing the line came from, when known — shown like a priced line's source. */
   sourceDocument?: string | null;
   sourcePage?: string | null;
+  /** Recorded quantity basis label, when known (see QuoteItem.basis). */
+  basis?: string | null;
 }
 /** Loose client equipment identified on the drawing (TV, fridge, projector screen…)
  *  — not contractor works, shown for reference so it is never silently dropped, but
@@ -124,8 +134,13 @@ const qtyFmt = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits:
  *  contract-table line's spec cell. Never shown at all when the caller resolved no
  *  `sourceDocument`; `sourcePage` is only ever appended alongside a resolved name
  *  (the caller's own contract — see QuoteItem), never on its own. */
-const srcRef = (l: Pick<QuoteItem, "sourceDocument" | "sourcePage">) =>
-  l.sourceDocument ? `<span class="srcref"> · ${esc(l.sourceDocument)}${l.sourcePage ? `, p.${esc(l.sourcePage)}` : ""}</span>` : "";
+const srcRef = (l: Pick<QuoteItem, "sourceDocument" | "sourcePage" | "basis">) =>
+  (l.basis ? `<span class="srcref"> · Basis: ${esc(l.basis)}</span>` : "") +
+  (l.sourceDocument ? `<span class="srcref"> · ${esc(l.sourceDocument)}${l.sourcePage ? `, p.${esc(l.sourcePage)}` : ""}</span>` : "");
+
+/** True when the document states a quantity basis for at least one line. */
+const statesBasis = (subheads: QuoteSubHead[], pending: QuotePendingItem[] = []) =>
+  subheads.some((sh) => sh.lines.some((l) => l.basis)) || pending.some((p) => p.basis);
 
 const ONES = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
   "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
@@ -158,7 +173,7 @@ export function amountInWords(amount: number): string {
  *  waterfall). This is why the printed parts previously summed to ₹58,764 while the
  *  grand total read ₹58,763: the parts were rounded for display but the total was a
  *  rounded full-precision sum. Round once, here, at every stage. */
-export const roundRupee = (n: number): number => Math.round(n);
+export { roundRupee };
 
 /**
  * CPWD-style abstract: works → +cost index → +contingency → +overhead → +cess → +GST.
@@ -224,8 +239,15 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
       </tr>`).join("")}
   `).join("");
 
+  // A sub-head whose every line has an amount is priced, even when that amount
+  // is a confirmed ₹0 (e.g. confirmed-zero quantities); "To be priced" is said
+  // only when a line still has no rate — never for a real zero.
+  const fullyPriced = (no: number) => {
+    const sh = p.subheads.find((x) => x.no === no);
+    return !!sh && sh.lines.length > 0 && sh.lines.every((l) => l.amount != null);
+  };
   const abstractRows = p.abstract.map((a) => `
-    <tr><td class="no">${a.no}.00</td><td>${esc(a.name)}</td><td class="num">${blank ? "" : (a.amount > 0 ? inr(a.amount) : "To be priced")}</td></tr>`).join("");
+    <tr><td class="no">${a.no}.00</td><td>${esc(a.name)}</td><td class="num">${blank ? "" : (a.amount > 0 || fullyPriced(a.no) ? inr(a.amount) : "To be priced")}</td></tr>`).join("");
 
   // Scope buckets used by both the cost status and the sections below.
   const pending = p.pendingItems ?? [];
@@ -280,7 +302,7 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
       <tbody>${pending.map((it) => `
         <tr>
           <td class="no">${esc(it.no)}</td>
-          <td class="spec">${esc(it.spec)}${it.note ? `<span class="pnote"> — ${esc(it.note)}</span>` : ""}${srcRef(it)}</td>
+          <td class="spec">${it.code ? `<b>${esc(it.code)}</b> ` : ""}${esc(it.spec)}${it.note ? `<span class="pnote"> — ${esc(it.note)}</span>` : ""}${srcRef(it)}</td>
           <td class="unit">${esc(it.unit)}</td>
           <td>${esc(scopeLabel(it.scope))}</td>
           <td class="num pend">pending</td>
@@ -417,10 +439,12 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
   <div class="foot">
     <b>Basis &amp; conditions.</b> ${dsr
       ? `Rates are composite rates from the Delhi Schedule of Rates ${esc(p.rateYear)} (material + labour + plant), exclusive of GST, adjusted by the stated cost index for location. Non-Schedule (NS) items, where shown, are outside the DSR and their rates are to be analysed from prevailing market / State PWD rates.`
-      : `Quantities are established from the supplied drawings; rates are the estimator's own composite rates (material, labour and installation), exclusive of GST, and are confirmed separately with the architect/client. This is a private-project quotation and is not priced on any government schedule of rates.`}
-    <b>Quantities are based on supplied drawing evidence and explicit project inputs.</b> Counted
-    quantities are visually counted from the supplied drawing. Measured quantities are based on drawing measurements. Derived quantities identify their
-    derivation. Requirements that cannot be defensibly quantified remain pending. Catalogue rates do not create quantities. Final measurements and
+      : `Rates are the estimator's own composite rates (material, labour and installation), exclusive of GST, and are confirmed separately with the architect/client. This is a private-project quotation and is not priced on any government schedule of rates.`}
+    ${statesBasis(p.subheads, p.pendingItems)
+      ? `<b>Each quantity states its recorded basis.</b> "From drawing summary" is the estimator's own reading of the supplied drawings, not an
+    independent measurement; a calculated quantity states its derivation; an assumption is marked as an assumption; "as stated in imported data"
+    repeats the import's own wording; "Basis not recorded" means nothing on record says where the quantity came from.`
+      : `<b>This document does not state the basis of each quantity.</b>`} Requirements that cannot be defensibly quantified remain pending. Catalogue rates do not create quantities. Final measurements and
     specifications should be verified before execution. Items are grouped in construction sequence. This quotation is indicative and valid for
     15 days from the date above. Generated by Cunstruct.
   </div>
@@ -443,6 +467,9 @@ export interface CsvRow {
    *  "Amount") so the `=F{n}*H{n}` formula's column letters are never disturbed. */
   sourceDocument?: string | null;
   sourcePage?: string | null;
+  /** Recorded quantity basis label — appended after "Source Page" (column L)
+   *  for the same reason as the source columns. Absent = not stated. */
+  basis?: string | null;
 }
 export const csvCell = (v: unknown) => {
   const s = String(v ?? "");
@@ -452,14 +479,14 @@ export const csvCell = (v: unknown) => {
 export function buildBoqCsv(
   rows: CsvRow[],
   meta: { boqName: string; project?: string | null; generatedOn: string; unresolvedReviewCount?: number | null },
-  pending?: { spec: string; unit: string; note?: string; sourceDocument?: string | null; sourcePage?: string | null }[],
+  pending?: { spec: string; unit: string; code?: string | null; note?: string; sourceDocument?: string | null; sourcePage?: string | null; basis?: string | null }[],
 ): string {
   const HEADER_LINE = 4;
   // Scope H — "Source Document"/"Source Page" are appended AFTER the existing 9
   // columns (A–I). The Amount formula below references columns F and H by letter
   // ("=F{n}*H{n}"); these new columns must never be inserted before Amount, or
   // every row's formula would silently point at the wrong cells.
-  const head = ["Sub-head", "Item", "Code", "Specification", "Unit", "Qty", "Rate (ref, excl GST)", "Your rate", "Amount", "Source Document", "Source Page"];
+  const head = ["Sub-head", "Item", "Code", "Specification", "Unit", "Qty", "Rate (ref, excl GST)", "Your rate", "Amount", "Source Document", "Source Page", "Quantity basis"];
   const lines: string[] = [
     csvCell(`Bill of Quantities — ${meta.boqName}`),
     csvCell(`${meta.project ?? "Standalone"}  ·  ${meta.generatedOn}  ·  Quantities from drawings; enter "Your rate" (excl. GST)`),
@@ -473,7 +500,7 @@ export function buildBoqCsv(
     const amount = r.rate != null ? `=F${ln}*H${ln}` : "";   // Qty(F) × Your rate(H)
     lines.push([
       r.subhead, r.itemNo, r.code ?? "", r.spec, r.unit, r.qty, r.rate ?? "", r.rate ?? "", amount,
-      r.sourceDocument ?? "", r.sourceDocument ? (r.sourcePage ?? "") : "",
+      r.sourceDocument ?? "", r.sourceDocument ? (r.sourcePage ?? "") : "", r.basis ?? "",
     ].map(csvCell).join(","));
   });
   // Identified-but-unquantified drawing requirements — listed with a blank Qty
@@ -483,8 +510,8 @@ export function buildBoqCsv(
     lines.push("", csvCell("IDENTIFIED — PENDING QUANTIFICATION (not priced; confirm a quantity to price)"));
     pending.forEach((p, i) => {
       lines.push([
-        "Pending", `P.${String(i + 1).padStart(2, "0")}`, "", p.note ? `${p.spec} — ${p.note}` : p.spec, p.unit, "", "", "", "",
-        p.sourceDocument ?? "", p.sourceDocument ? (p.sourcePage ?? "") : "",
+        "Pending", `P.${String(i + 1).padStart(2, "0")}`, p.code ?? "", p.note ? `${p.spec} — ${p.note}` : p.spec, p.unit, "", "", "", "",
+        p.sourceDocument ?? "", p.sourceDocument ? (p.sourcePage ?? "") : "", p.basis ?? "",
       ].map(csvCell).join(","));
     });
   }
@@ -512,6 +539,34 @@ export function openDsrQuote(p: DsrQuotePayload, opts?: { autoPrint?: boolean })
   w.document.write(buildDsrQuoteHtml(p, opts));
   w.document.close();
   return true;
+}
+
+/** A quote tab opened straight from the click (browsers allow a pop-up only
+ *  there) BEFORE the lines are re-read, so the document can be built from what
+ *  is saved now rather than from the copy on screen. Until `show` it states
+ *  that it is reading the latest saved BOQ; `fail` replaces that with the
+ *  reason no document was produced (never a stale or partial one). */
+export interface QuoteWindow {
+  show(p: DsrQuotePayload, opts?: { autoPrint?: boolean }): void;
+  fail(message: string): void;
+}
+
+export const QUOTE_WINDOW_LOADING_TEXT = "Reading the latest saved BOQ before building this document…";
+
+const statusPage = (title: string, text: string) =>
+  `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title></head>` +
+  `<body style="font-family:system-ui,sans-serif;padding:32px;color:#223"><p>${esc(text)}</p></body></html>`;
+
+/** Opens the quote tab, or returns null when the pop-up was blocked. */
+export function openQuoteWindow(): QuoteWindow | null {
+  const w = window.open("", "_blank");
+  if (!w) return null;
+  const write = (html: string) => { w.document.open(); w.document.write(html); w.document.close(); };
+  write(statusPage("Preparing BOQ", QUOTE_WINDOW_LOADING_TEXT));
+  return {
+    show: (p, opts) => write(buildDsrQuoteHtml(p, opts)),
+    fail: (message) => write(statusPage("BOQ not exported", message)),
+  };
 }
 
 // ---- Combined project quote (all BOQs, one shareable client PDF) ------------
@@ -576,7 +631,7 @@ export function buildProjectQuoteHtml(p: ProjectQuotePayload, boqs: ProjectQuote
         <tbody>${pending.map((it) => `
           <tr>
             <td class="no">${esc(it.no)}</td>
-            <td class="spec">${esc(it.spec)}${it.note ? `<span class="pnote"> — ${esc(it.note)}</span>` : ""}${srcRef(it)}</td>
+            <td class="spec">${it.code ? `<b>${esc(it.code)}</b> ` : ""}${esc(it.spec)}${it.note ? `<span class="pnote"> — ${esc(it.note)}</span>` : ""}${srcRef(it)}</td>
             <td class="unit">${esc(it.unit)}</td>
             <td class="num pend">pending</td>
           </tr>`).join("")}
@@ -675,7 +730,9 @@ export function buildProjectQuoteHtml(p: ProjectQuotePayload, boqs: ProjectQuote
   ${abstract}
 
   <div class="foot">
-    <b>Basis &amp; conditions.</b> Quantities are established from the supplied drawings and project inputs; rates are composite rates
+    <b>Basis &amp; conditions.</b> ${boqs.some((b) => statesBasis(b.subheads, b.pendingItems))
+      ? "Each quantity states its recorded basis (the estimator's drawing summary, a calculation, an assumption, or \"Basis not recorded\") — not an independent measurement."
+      : "This document does not state the basis of each quantity."} Rates are composite rates
     (material, labour and installation), exclusive of GST unless stated, and are confirmed separately. This is a private-project quotation and is
     not priced on any government schedule of rates. Final measurements and specifications should be verified before execution. This quotation is
     indicative and valid for 15 days from the date above.

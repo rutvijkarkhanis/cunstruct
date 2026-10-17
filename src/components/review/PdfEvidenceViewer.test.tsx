@@ -686,3 +686,17 @@ describe("unavailableReason takes precedence over the no-fileUrl fallback", () =
     expect(screen.getByText("This item has no drawing source in the analysis.")).toBeInTheDocument();
   });
 });
+
+describe("PdfEvidenceViewer — scroll region accessibility", () => {
+  it("makes the scrollable drawing area keyboard-focusable and named after the document", async () => {
+    render(<PdfEvidenceViewer fileUrl="https://signed.example/drawing.pdf" source={source} documentName="GF Plan" />);
+    const region = await screen.findByRole("region", { name: "Drawing: GF Plan" });
+    expect(region).toHaveAttribute("tabindex", "0");
+    expect(region.className).toMatch(/overflow-auto/);
+  });
+
+  it("falls back to a generic name when the document has none", async () => {
+    render(<PdfEvidenceViewer fileUrl="https://signed.example/drawing.pdf" source={source} />);
+    expect(await screen.findByRole("region", { name: "Drawing" })).toHaveAttribute("tabindex", "0");
+  });
+});

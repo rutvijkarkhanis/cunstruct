@@ -29,12 +29,19 @@ export const isMissingTable = (e: DbError | null | undefined) => missingTable(MA
 
 export type MappingLine = IndicativeLine & { dsr_code: string | null; sort: number };
 
+// basis is read so indicative costing applies the full shared pending rule
+// (lib/quantity: basis PENDING is pending). Each fallback drops what a stale
+// database may lack, never failing the read.
+const LINE_COLS_FULL = "id, section, dsr_code, description, unit, qty, included, quantity_status, basis, sort";
 const LINE_COLS = "id, section, dsr_code, description, unit, qty, included, quantity_status, sort";
 const LINE_COLS_BASE = "id, section, dsr_code, description, unit, qty, included, sort";
 const DSR_COLS = "id, code, description, unit, rate, source, rate_year, subhead";
 
 async function selectLines(boqId: string): Promise<MappingLine[]> {
-  let r = await db.from("boq_line").select(LINE_COLS).eq("boq_id", boqId).order("sort");
+  let r = await db.from("boq_line").select(LINE_COLS_FULL).eq("boq_id", boqId).order("sort");
+  if (r.error && /basis|schema cache|does not exist/i.test(r.error.message)) {
+    r = await db.from("boq_line").select(LINE_COLS).eq("boq_id", boqId).order("sort");
+  }
   if (r.error && /quantity_status|schema cache|does not exist/i.test(r.error.message)) {
     r = await db.from("boq_line").select(LINE_COLS_BASE).eq("boq_id", boqId).order("sort");
   }

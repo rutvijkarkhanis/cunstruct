@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
+import { Link, NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import {
   LogOut,
   Menu,
   X,
+  FolderKanban,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -52,7 +53,7 @@ const NAV = [
 ];
 
 export default function OpsLayout() {
-  const { user, loading, isStaff, signOut } = useAuth();
+  const { user, loading, rolesReady, isStaff, signOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const isReviewMode = REVIEW_MODE_RE.test(location.pathname) || WORKSPACE_MODE_RE.test(location.pathname);
@@ -76,6 +77,8 @@ export default function OpsLayout() {
 
   if (loading) return <div className="p-8 text-muted-foreground">Loading…</div>;
   if (!user) return null;
+  // Not "access required" while roles are still loading — that is unknown, not denied.
+  if (!rolesReady) return <div className="p-8 text-muted-foreground">Loading…</div>;
 
   if (!isStaff) {
     return (
@@ -166,6 +169,11 @@ export default function OpsLayout() {
           ))}
         </nav>
         <div className="p-3 border-t space-y-2">
+          {/* Entry into the step-by-step project journey (/app). */}
+          <Link to="/app/projects" onClick={() => setNavOpen(false)}
+            className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium border hover:bg-accent">
+            <FolderKanban className="w-4 h-4" aria-hidden="true" /> Project journey
+          </Link>
           <div className="text-xs text-muted-foreground truncate">{user.email}</div>
           <Button variant="outline" size="sm" className="w-full" onClick={signOut}>
             <LogOut className="w-3 h-3 mr-1" /> Sign out

@@ -14,7 +14,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: v
 
 vi.mock("@/lib/boqDsrDocument", async () => {
   const actual = await vi.importActual<typeof import("@/lib/boqDsrDocument")>("@/lib/boqDsrDocument");
-  return { ...actual, openDsrQuote: vi.fn(() => true), downloadCsv: vi.fn() };
+  return { ...actual, openDsrQuote: vi.fn(() => true), openQuoteWindow: vi.fn(() => ({ show: vi.fn(() => true), fail: vi.fn() })), downloadCsv: vi.fn() };
 });
 
 const fixtures = vi.hoisted(() => {

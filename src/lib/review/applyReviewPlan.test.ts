@@ -20,9 +20,12 @@ const calls: Call[] = [];
 // case, what every pre-existing test here assumes); the compare-and-swap
 // regression tests below deliberately seed it differently to simulate a
 // write that happened in between.
-const boqLineStore = new Map<string, { qty: number; unit: string | null }>();
-function seedLine(id: string, qty: number, unit: string | null) {
-  boqLineStore.set(id, { qty, unit });
+const boqLineStore = new Map<string, { qty: number; unit: string | null; quantity_status?: string | null }>();
+// quantity_status defaults to "MEASURED" — the status every snapshot line in
+// this file carries — so a seeded row still means "nothing changed since
+// classification" now that Apply also guards the quantity's status.
+function seedLine(id: string, qty: number, unit: string | null, quantity_status: string | null = "MEASURED") {
+  boqLineStore.set(id, { qty, unit, quantity_status });
 }
 
 // Scope C — source-revision resolution mock state. Mirrors exactly what
@@ -151,7 +154,9 @@ function updateBuilder(table: string, payload: Record<string, unknown>, filters:
       const id = filters.id as string | undefined;
       const current = id ? boqLineStore.get(id) : undefined;
       const matches = current != null && Object.entries(filters).every(
-        ([k, v]) => k === "id" || (current as Record<string, unknown>)[k] === v,
+        // A column this mock never seeded is NULL, as in the real table —
+        // `.is(col, null)` matches it.
+        ([k, v]) => k === "id" || (v === null ? (current as Record<string, unknown>)[k] == null : (current as Record<string, unknown>)[k] === v),
       );
       if (matches && id) {
         boqLineStore.set(id, { ...current, ...payload } as { qty: number; unit: string | null });
@@ -442,8 +447,10 @@ describe("applyReviewPlan — cross-call stale-snapshot guard (compare-and-swap)
     await applyReviewPlan({ boqId: "boq-1", candidates: planA, selectedIds: new Set(["ri-A"]) });
     expect(boqLineStore.get("line-1")?.qty).toBe(8);
 
-    // Second plan built from a REFRESHED snapshot (qty=8, matching reality).
-    const refreshedLines = [{ id: "line-1", external_key: "W1", qty: 8, unit: "nos", quantity_status: "MEASURED", scope_name: null }];
+    // Second plan built from a REFRESHED snapshot (qty=8, matching reality —
+    // including the COUNTED status Apply A recorded for a "nos" quantity).
+    expect(boqLineStore.get("line-1")?.quantity_status).toBe("COUNTED");
+    const refreshedLines = [{ id: "line-1", external_key: "W1", qty: 8, unit: "nos", quantity_status: "COUNTED", scope_name: null }];
     const itemB = reviewItem({ id: "ri-B", ai: ai({ key: "W1", quantity: 7, unit: "nos" }), reviewStatus: "EDITED", reviewer: { quantity: 12 } });
     const planB = buildApplyPlan([itemB], refreshedLines);
     expect(planB[0].changes.find((c) => c.field === "qty")).toEqual({ field: "qty", from: "8", to: "12" });

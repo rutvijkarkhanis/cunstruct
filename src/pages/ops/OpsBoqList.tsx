@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { disciplineByKey } from "@/lib/disciplines";
+import { countedAmount, qtyPending } from "@/lib/quantity";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,7 +15,7 @@ import { toast } from "sonner";
 import { Loader2, Plus, Calculator, Trash2 } from "lucide-react";
 
 interface BoqRow { id: string; name: string; status: string; discipline: string; project_id: string | null; updated_at: string; }
-interface LineRow { boq_id: string; qty: number; dsr_rate: number | null; custom_rate: number | null; included: boolean; }
+interface LineRow { boq_id: string; qty: number; dsr_rate: number | null; custom_rate: number | null; included: boolean; quantity_status: string | null; basis: string | null; }
 
 const inr = (n: number) => "₹" + Math.round(n).toLocaleString("en-IN");
 const GST = 0.18;
@@ -42,7 +43,7 @@ export default function OpsBoqList() {
     }
   };
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["boq-list"],
     queryFn: async () => {
       const { data: boqs, error } = await supabase.from("boq")
@@ -50,15 +51,19 @@ export default function OpsBoqList() {
       if (error) throw error;
       const rows = (boqs ?? []) as BoqRow[];
 
-      // Per-BOQ works total (sum of included lines at the effective rate).
+      // Per-BOQ works total: included lines with an established quantity at
+      // the effective rate (the shared rule in @/lib/quantity — a pending
+      // quantity is never priced). Pending lines are counted, not summed.
       const totals = new Map<string, number>();
+      const pending = new Map<string, number>();
       if (rows.length) {
-        const { data: lines } = await supabase.from("boq_line")
-          .select("boq_id, qty, dsr_rate, custom_rate, included").in("boq_id", rows.map((r) => r.id));
-        for (const l of (lines ?? []) as LineRow[]) {
+        const { data: lines, error: linesError } = await supabase.from("boq_line")
+          .select("boq_id, qty, dsr_rate, custom_rate, included, quantity_status, basis").in("boq_id", rows.map((r) => r.id));
+        if (linesError) throw linesError;
+        for (const l of (lines ?? []) as unknown as LineRow[]) {
           if (!l.included) continue;
-          const rate = l.custom_rate ?? l.dsr_rate ?? 0;
-          totals.set(l.boq_id, (totals.get(l.boq_id) ?? 0) + l.qty * rate);
+          if (qtyPending(l)) pending.set(l.boq_id, (pending.get(l.boq_id) ?? 0) + 1);
+          totals.set(l.boq_id, (totals.get(l.boq_id) ?? 0) + countedAmount(l));
         }
       }
 
@@ -70,11 +75,11 @@ export default function OpsBoqList() {
       }
 
       // Group by project (standalone bucketed under a null key).
-      const groups = new Map<string, { name: string; boqs: (BoqRow & { works: number })[] }>();
+      const groups = new Map<string, { name: string; boqs: (BoqRow & { works: number; pending: number })[] }>();
       for (const r of rows) {
         const key = r.project_id ?? "__standalone";
         if (!groups.has(key)) groups.set(key, { name: r.project_id ? names.get(r.project_id) ?? "—" : "Standalone", boqs: [] });
-        groups.get(key)!.boqs.push({ ...r, works: totals.get(r.id) ?? 0 });
+        groups.get(key)!.boqs.push({ ...r, works: totals.get(r.id) ?? 0, pending: pending.get(r.id) ?? 0 });
       }
       return [...groups.values()];
     },
@@ -92,6 +97,10 @@ export default function OpsBoqList() {
 
       {isLoading ? (
         <div className="p-8 flex justify-center"><Loader2 className="animate-spin" /></div>
+      ) : isError ? (
+        <Card><CardContent role="alert" className="py-12 text-center text-destructive">
+          BOQs could not be loaded, so no totals are shown. Refresh to try again.
+        </CardContent></Card>
       ) : !data?.length ? (
         <Card><CardContent className="py-12 text-center text-muted-foreground">
           No BOQs yet. Click <b>New BOQ</b> to create one — pick a discipline (Civil, Electrical, Plumbing, HVAC, Fire).
@@ -112,6 +121,9 @@ export default function OpsBoqList() {
                     <Badge variant="secondary" className="shrink-0">{disciplineByKey(b.discipline).short}</Badge>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm truncate">{b.name}</div>
+                      {b.pending > 0 && (
+                        <div className="text-xs text-muted-foreground">{b.pending} line{b.pending === 1 ? "" : "s"} with quantity pending — not in total</div>
+                      )}
                     </div>
                     <Badge variant="outline" className="shrink-0">{b.status}</Badge>
                     <span className="text-sm tabular-nums w-28 text-right">{b.works > 0 ? inr(b.works) : "—"}</span>

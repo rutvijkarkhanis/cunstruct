@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { signedDrawingUrl } from "@/lib/review/drawingStorage";
 import PdfEvidenceViewer from "@/components/review/PdfEvidenceViewer";
 import { FileText, Loader2 } from "lucide-react";
+import type { EvidenceBox } from "@/lib/review/analysisSchemaV1";
 
 export interface WorkspaceCanvasProps {
   documentId: string | null;
@@ -22,6 +23,9 @@ export interface WorkspaceCanvasProps {
    *  once mounted (it has no page-change callback), so this seeds the
    *  deep-linked page but doesn't stay synced afterward. */
   page: number | null;
+  /** A BOQ line's recorded measurement region (its review item's evidence),
+   *  drawn on `page` — only ever the boxes the analysis stored. */
+  evidence?: { boxes: EvidenceBox[]; pageSize?: { width: number; height: number } | null } | null;
 }
 
 /** The message shown when the current revision has resolved but genuinely
@@ -33,7 +37,7 @@ export interface WorkspaceCanvasProps {
  *  `unavailableReason` prop instead — see that prop's own doc comment. */
 const NO_FILE_REASON = "No file has been uploaded for this revision yet.";
 
-export default function WorkspaceCanvas({ documentId, page }: WorkspaceCanvasProps) {
+export default function WorkspaceCanvas({ documentId, page, evidence }: WorkspaceCanvasProps) {
   const { data: doc, isLoading: docLoading } = useQuery({
     queryKey: ["workspace-canvas-doc", documentId],
     enabled: !!documentId,
@@ -86,7 +90,7 @@ export default function WorkspaceCanvas({ documentId, page }: WorkspaceCanvasPro
     <div className="flex-1 min-w-0 min-h-0 h-full p-2">
       <PdfEvidenceViewer
         fileUrl={fileUrl ?? null}
-        source={page ? { page, evidence: [] } : undefined}
+        source={page ? { page, evidence: evidence?.boxes ?? [], ...(evidence?.pageSize ? { pageSize: evidence.pageSize } : {}) } : undefined}
         documentName={doc?.name ?? null}
         pageTitles={doc?.pageTitles ?? null}
         unavailableReason={doc && !doc.filePath ? NO_FILE_REASON : null}
