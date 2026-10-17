@@ -147,7 +147,7 @@ describe("OpsBoqBuilder — remove then undo restores the whole line", () => {
     renderBoqBuilder();
     await screen.findByText("Vitrified tiles");
     await act(async () => { fireEvent.click(removeButton()); });
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/linked vendor quotation/)));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/linked vendor quotation/), { action: expect.objectContaining({ label: "Exclude instead" }) }));
     expect(db.tables.boq_line).toEqual([ORIGINAL]);
     expect(db.tables.vendor_quotation).toHaveLength(1);
   });
@@ -157,8 +157,39 @@ describe("OpsBoqBuilder — remove then undo restores the whole line", () => {
     renderBoqBuilder();
     await screen.findByText("Vitrified tiles");
     await act(async () => { fireEvent.click(removeButton()); });
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/change history is not set up.*Exclude the line/)));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/change history is not set up.*Exclude the line/), { action: expect.objectContaining({ label: "Exclude instead" }) }));
     expect(db.tables.boq_line).toEqual([ORIGINAL]);
+  });
+
+  it("the refusal offers 'Exclude instead': the same line is excluded through the guarded edit, and Ctrl+Z puts it back in the total", async () => {
+    db.missing.add("boq_line_change_log");
+    renderBoqBuilder();
+    await screen.findByText("Vitrified tiles");
+    await act(async () => { fireEvent.click(removeButton()); });
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/change history is not set up/), expect.anything()));
+    const [, opts] = vi.mocked(toast.error).mock.calls.find(([m]) => /change history is not set up/.test(String(m)))!;
+    const action = (opts as { action: { label: string; onClick: () => void } }).action;
+    expect(action.label).toBe("Exclude instead");
+    await act(async () => { action.onClick(); });
+    // Same line, same id and evidence: only "included" changed.
+    await waitFor(() => expect(db.tables.boq_line).toEqual([{ ...ORIGINAL, included: false }]));
+    await ctrlZ();
+    await waitFor(() => expect(db.tables.boq_line).toEqual([ORIGINAL]));
+  });
+
+  it("'Exclude instead' is offered for a cascade refusal too, but never for a conflict", async () => {
+    db.missing.delete("vendor_quotation");
+    db.tables.vendor_quotation = [{ id: "vq1", boq_line_id: "l1" }];
+    renderBoqBuilder();
+    await screen.findByText("Vitrified tiles");
+    await act(async () => { fireEvent.click(removeButton()); });
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/linked vendor quotation/), { action: expect.objectContaining({ label: "Exclude instead" }) }));
+    vi.mocked(toast.error).mockClear();
+    db.tables.vendor_quotation = [];
+    db.tables.boq_line[0].qty = 9; // changed elsewhere
+    await act(async () => { fireEvent.click(removeButton()); });
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/changed elsewhere since it was loaded/)));
+    expect(vi.mocked(toast.error).mock.calls.at(-1)).toHaveLength(1); // no action offered
   });
 
   it("a line changed elsewhere since it was loaded is not removed, and the other change survives", async () => {
