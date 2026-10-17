@@ -114,7 +114,7 @@ function ThemePanel({ theme }: { theme: Theme }) {
       </Section>
 
       <Section title="BOQ grid sample">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto ds-focus" tabIndex={0} role="region" aria-label="BOQ grid sample">
           <table className="ds-surface w-full text-sm border-collapse">
             <thead>
               <tr className="border-b ds-divider text-left">
@@ -219,7 +219,7 @@ function DesignSystemContent() {
             Grids: <code>formatINR</code> — whole rupees, en-IN lakh/crore grouping. Summaries only:{" "}
             <code>formatINRCompact</code>. Missing is “—”, never 0. Tabular figures, right-aligned.
           </p>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto ds-focus" tabIndex={0} role="region" aria-label="Money format examples">
             <table className="ds-surface text-sm border-collapse">
               <thead>
                 <tr className="border-b ds-divider">
@@ -321,7 +321,7 @@ function DesignSystemContent() {
             Same computation as <code>src/design/contrast.test.ts</code>, which fails CI if any pair falls below its
             threshold.
           </p>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto ds-focus" tabIndex={0} role="region" aria-label="Contrast check results">
             <table className="ds-surface text-xs border-collapse">
               <thead>
                 <tr className="border-b ds-divider">

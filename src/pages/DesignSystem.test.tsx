@@ -48,6 +48,20 @@ describe("/design-system access gate", () => {
     meanings.forEach((m) => expect(m).toHaveClass("basis-48"));
   });
 
+  it("makes each sideways-scrolling table a named keyboard stop with the design-system focus ring", () => {
+    // Browser check: Chrome made these scroll boxes focusable on its own, with
+    // its default ring instead of ours.
+    vi.stubEnv("DEV", true);
+    renderPage();
+    const regions = ["BOQ grid sample", "Money format examples", "Contrast check results"]
+      .flatMap((name) => screen.getAllByRole("region", { name }));
+    expect(regions.length).toBeGreaterThanOrEqual(3);
+    regions.forEach((r) => {
+      expect(r).toHaveAttribute("tabindex", "0");
+      expect(r).toHaveClass("ds-focus");
+    });
+  });
+
   it("shows the ordinary 404 to non-staff in a production build", () => {
     vi.stubEnv("DEV", false);
     vi.spyOn(console, "error").mockImplementation(() => {});
