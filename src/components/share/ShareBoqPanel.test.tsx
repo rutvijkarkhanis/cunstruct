@@ -45,6 +45,24 @@ describe("ShareBoqPanel — quantity states", () => {
     expect(await screen.findByText("Quantity pending")).toBeInTheDocument();
   });
 
+  it("an excluded line is marked as excluded, shows no quantity, rate or amount, and cannot contradict the subtotal", async () => {
+    invoke.mockResolvedValue({ error: null, data: { ok: true, boq: { id: "b1", name: "Civil BOQ" },
+      commercials: { works: 1000, subTotal: 1180, grandTotal: 1400 },
+      lines: [
+        { id: "a", description: "Footing", unit: "cum", qty: 10, included: true, rate: 100, amount: 1000, quantityState: "established", basis: "Changed manually" },
+        // The share function still returns an amount for an excluded line; the subtotal leaves it out.
+        { id: "x", description: "Boundary wall", unit: "cum", qty: 5, included: false, rate: 200, amount: 1000, quantityState: "established", basis: "Changed manually" },
+      ] } });
+    renderPanel();
+    expect(await screen.findByText("Excluded — not in the total")).toBeInTheDocument();
+    expect(screen.getByText("Boundary wall")).toBeInTheDocument();
+    // Only the included line's amount is shown, and it equals the subtotal.
+    expect(screen.getAllByText("₹1,000")).toHaveLength(2); // the Footing row and the Subtotal
+    expect(screen.queryByText(/^5 cum/)).toBeNull();
+    expect(screen.queryByText(/₹200/)).toBeNull();
+    expect(screen.getAllByText(/^Basis:/)).toHaveLength(1);
+  });
+
   it("a failed load says so instead of loading forever", async () => {
     invoke.mockResolvedValue({ error: new Error("boom"), data: null });
     renderPanel();

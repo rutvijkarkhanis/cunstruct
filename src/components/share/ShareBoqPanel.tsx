@@ -150,13 +150,19 @@ export default function ShareBoqPanel({ token, boqs }: ShareBoqPanelProps) {
             {previewLines.map((l) => (
               <div key={l.id} className="flex items-start justify-between gap-2 text-[11px] border-b border-dashed pb-1.5 last:border-0 last:pb-0">
                 <div className="min-w-0 flex-1 space-y-0.5">
-                  <div className="truncate">{l.description ?? "—"}</div>
-                  <div className="text-muted-foreground">
-                    {shareQty(l)}{l.rate != null ? ` · ${formatINR(l.rate)}` : ""}
-                  </div>
-                  {l.basis && <div className="text-muted-foreground">Basis: {l.basis}</div>}
+                  <div className={l.included ? "truncate" : "truncate text-muted-foreground line-through"}>{l.description ?? "—"}</div>
+                  {l.included ? (
+                    <div className="text-muted-foreground">
+                      {shareQty(l)}{l.rate != null ? ` · ${formatINR(l.rate)}` : ""}
+                    </div>
+                  ) : (
+                    // An excluded line is not part of this BOQ's totals: no
+                    // quantity, rate or amount is shown as if it were active.
+                    <div className="text-muted-foreground">Excluded — not in the total</div>
+                  )}
+                  {l.included && l.basis && <div className="text-muted-foreground">Basis: {l.basis}</div>}
                 </div>
-                {l.amount != null && <div className="shrink-0 tabular-nums pt-px">{formatINR(l.amount)}</div>}
+                {l.included && l.amount != null && <div className="shrink-0 tabular-nums pt-px">{formatINR(l.amount)}</div>}
               </div>
             ))}
             {remaining > 0 && (

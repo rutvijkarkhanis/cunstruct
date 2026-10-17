@@ -70,6 +70,14 @@ export class LineRemovalError extends Error {
   /** Set only when the line WAS removed despite the error (its history row
    *  failed and putting it back failed too): the caller must keep an undo step. */
   removed?: RemovedLine;
+  /** Refused only because removal can't be done safely here (no change
+   *  history, or linked records it would destroy) — excluding the line from
+   *  the total is the safe alternative. Never set for conflicts or read errors. */
+  excludeInstead?: boolean;
+  constructor(message: string, opts: { excludeInstead?: boolean } = {}) {
+    super(message);
+    this.excludeInstead = opts.excludeInstead;
+  }
 }
 
 /** Same stored value: numbers compare numerically (numeric columns may come
@@ -103,6 +111,7 @@ export async function removeLineWithSnapshot(
     if (!record && (history.requireHistory ?? REMOVAL_REQUIRES_HISTORY)) {
       throw new LineRemovalError(
         "Line not removed: removals are recorded in the BOQ's change history, and change history is not set up on this database yet (migration 20260921000000_boq_review_apply.sql has not been applied). Exclude the line from the total instead — that is saved and can be undone.",
+        { excludeInstead: true },
       );
     }
   }
@@ -125,6 +134,7 @@ export async function removeLineWithSnapshot(
     if (Array.isArray(r.data) && r.data.length) {
       throw new LineRemovalError(
         `Line not removed: it has a linked ${ref.what}, which would be deleted with it and could not be restored by undo. Exclude the line from the total instead.`,
+        { excludeInstead: true },
       );
     }
   }

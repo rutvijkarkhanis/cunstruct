@@ -654,7 +654,13 @@ export default function OpsBoqBuilder() {
     const forward = async () => {
       try { removed = await removeLineWithSnapshot(lineId, undefined, { expected: guardOf(line), history }); }
       catch (e) {
-        toast.error(e instanceof Error ? e.message : "Line not removed");
+        // Where removal is refused only because it can't be done safely, offer
+        // the safe alternative explicitly: excluding the line keeps its
+        // identity and evidence, and goes through the guarded, undoable edit.
+        const message = e instanceof Error ? e.message : "Line not removed";
+        if (e instanceof LineRemovalError && e.excludeInstead && line.included) {
+          toast.error(message, { action: { label: "Exclude instead", onClick: () => { void updateLine(lineId, { included: false }); } } });
+        } else toast.error(message);
         // Removed although its history failed and it could not be put back:
         // keep the step, so Undo can restore it.
         if (e instanceof LineRemovalError && e.removed) { removed = e.removed; return; }

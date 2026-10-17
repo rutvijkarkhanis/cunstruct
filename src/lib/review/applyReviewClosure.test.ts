@@ -287,3 +287,28 @@ describe("audit-finding 'Set qty' (setLineQty) records a MANUAL basis", () => {
     expect(lineById("l1")).toMatchObject({ qty: 4, quantity_status: "MEASURED", basis: "HEURISTIC" });
   });
 });
+
+describe("an excluded line stays excluded through Apply", () => {
+  // Excluding a line (included = false) is the safe alternative to removing it:
+  // a later Apply of its review item must update or leave that same line —
+  // never re-include it, and never add a second line for the same item.
+  it("a changed quantity is applied to the excluded line, which stays excluded; no new line", async () => {
+    resetInMemoryDb({ boq: [BOQ], boq_line: [line("l1", "D1", { qty: 4, quantity_status: "COUNTED", basis: "REVIEW_VERIFIED", included: false })] });
+    const items = [item("ri-1", "D1", "EDITED", { reviewer: { quantity: 6 } as never })];
+    const plan = planFor(items);
+    expect(plan[0]).toMatchObject({ classification: "APPLY", matchedLineId: "l1" });
+    await applyAll(items, plan);
+    expect(linesByKey("D1")).toHaveLength(1);
+    expect(lineById("l1")).toMatchObject({ qty: 6, included: false });
+  });
+
+  it("an unchanged quantity is no change: the excluded line is untouched and not duplicated, also on a repeat Apply", async () => {
+    resetInMemoryDb({ boq: [BOQ], boq_line: [line("l1", "D1", { qty: 4, quantity_status: "COUNTED", basis: "REVIEW_VERIFIED", included: false })] });
+    const items = [item("ri-1", "D1", "VERIFIED")];
+    expect(planFor(items)[0]).toMatchObject({ classification: "NO_CHANGE", matchedLineId: "l1" });
+    await applyAll(items);
+    await applyAll(items);
+    expect(readTable("boq_line")).toHaveLength(1);
+    expect(lineById("l1")).toMatchObject({ qty: 4, included: false });
+  });
+});
