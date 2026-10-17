@@ -1,0 +1,279 @@
+/*
+ * Cunstruct design-system tokens (plan item D1).
+ *
+ * VALUES MIRROR src/design/tokens.ts — contrast.test.ts fails if they drift.
+ * Edit both together.
+ *
+ * Additive and opt-in: every custom property is prefixed --ds- and every
+ * class is prefixed .ds-, so nothing here changes existing screens (they use
+ * the shadcn variables in src/index.css, which are untouched).
+ *
+ * Themes: light is the default. Set data-ds-theme="dark" on a container for
+ * dark. Drawings: wrap them in .ds-drawing (a child of any themed container)
+ * and they always resolve to the light palette.
+ */
+
+/* Light theme (default) - also forced inside every drawing */
+:root,
+[data-ds-theme="light"],
+.ds-drawing {
+  --ds-bg: 40 20% 97%;
+  --ds-surface: 0 0% 100%;
+  --ds-fg: 220 20% 10%;
+  --ds-muted-fg: 220 10% 38%;
+  --ds-primary: 220 25% 14%;
+  --ds-primary-fg: 40 20% 97%;
+  --ds-control-border: 220 8% 52%;
+  --ds-focus-ring: 220 25% 14%;
+  --ds-divider: 40 10% 88%;
+  --ds-verified-human-fg: 150 70% 22%;
+  --ds-verified-human-bg: 145 55% 93%;
+  --ds-verified-human-border: 150 55% 34%;
+  --ds-verified-human-text: 150 70% 22%;
+  --ds-machine-unverified-fg: 220 10% 30%;
+  --ds-machine-unverified-bg: 220 12% 94%;
+  --ds-machine-unverified-border: 220 8% 48%;
+  --ds-machine-unverified-text: 220 10% 30%;
+  --ds-needs-review-fg: 220 25% 14%;
+  --ds-needs-review-bg: 36 95% 54%;
+  --ds-needs-review-border: 30 90% 30%;
+  --ds-needs-review-text: 30 90% 28%;
+  --ds-blocking-fg: 0 72% 35%;
+  --ds-blocking-bg: 0 85% 95%;
+  --ds-blocking-border: 0 70% 45%;
+  --ds-blocking-text: 0 72% 35%;
+  --ds-pending-qty-fg: 28 90% 27%;
+  --ds-pending-qty-bg: 0 0% 100%;
+  --ds-pending-qty-border: 32 95% 36%;
+  --ds-pending-qty-text: 28 90% 27%;
+  --ds-unavailable-fg: 220 8% 30%;
+  --ds-unavailable-bg: 220 8% 90%;
+  --ds-unavailable-border: 220 6% 48%;
+  --ds-unavailable-text: 220 8% 30%;
+  --ds-excluded-fg: 220 6% 38%;
+  --ds-excluded-bg: 0 0% 100%;
+  --ds-excluded-border: 220 6% 50%;
+  --ds-excluded-text: 220 6% 38%;
+}
+
+/* Dark theme */
+[data-ds-theme="dark"] {
+  --ds-bg: 220 25% 8%;
+  --ds-surface: 220 22% 12%;
+  --ds-fg: 40 20% 95%;
+  --ds-muted-fg: 220 10% 70%;
+  --ds-primary: 40 20% 95%;
+  --ds-primary-fg: 220 25% 14%;
+  --ds-control-border: 220 8% 55%;
+  --ds-focus-ring: 36 95% 54%;
+  --ds-divider: 220 15% 22%;
+  --ds-verified-human-fg: 145 60% 75%;
+  --ds-verified-human-bg: 150 45% 14%;
+  --ds-verified-human-border: 150 50% 45%;
+  --ds-verified-human-text: 145 60% 75%;
+  --ds-machine-unverified-fg: 220 10% 80%;
+  --ds-machine-unverified-bg: 220 12% 18%;
+  --ds-machine-unverified-border: 220 8% 58%;
+  --ds-machine-unverified-text: 220 10% 80%;
+  --ds-needs-review-fg: 220 25% 14%;
+  --ds-needs-review-bg: 36 95% 54%;
+  --ds-needs-review-border: 36 95% 54%;
+  --ds-needs-review-text: 36 95% 60%;
+  --ds-blocking-fg: 0 85% 82%;
+  --ds-blocking-bg: 0 50% 17%;
+  --ds-blocking-border: 0 75% 60%;
+  --ds-blocking-text: 0 85% 82%;
+  --ds-pending-qty-fg: 36 95% 66%;
+  --ds-pending-qty-bg: 220 22% 12%;
+  --ds-pending-qty-border: 36 95% 54%;
+  --ds-pending-qty-text: 36 95% 66%;
+  --ds-unavailable-fg: 220 8% 78%;
+  --ds-unavailable-bg: 220 8% 22%;
+  --ds-unavailable-border: 220 6% 55%;
+  --ds-unavailable-text: 220 8% 78%;
+  --ds-excluded-fg: 220 6% 68%;
+  --ds-excluded-bg: 220 22% 12%;
+  --ds-excluded-border: 220 6% 50%;
+  --ds-excluded-text: 220 6% 68%;
+}
+
+/* Drawings are always rendered light, even inside a dark container. */
+[data-ds-theme="dark"] .ds-drawing {
+  --ds-bg: 40 20% 97%;
+  --ds-surface: 0 0% 100%;
+  --ds-fg: 220 20% 10%;
+  --ds-muted-fg: 220 10% 38%;
+  --ds-primary: 220 25% 14%;
+  --ds-primary-fg: 40 20% 97%;
+  --ds-control-border: 220 8% 52%;
+  --ds-focus-ring: 220 25% 14%;
+  --ds-divider: 40 10% 88%;
+  --ds-verified-human-fg: 150 70% 22%;
+  --ds-verified-human-bg: 145 55% 93%;
+  --ds-verified-human-border: 150 55% 34%;
+  --ds-verified-human-text: 150 70% 22%;
+  --ds-machine-unverified-fg: 220 10% 30%;
+  --ds-machine-unverified-bg: 220 12% 94%;
+  --ds-machine-unverified-border: 220 8% 48%;
+  --ds-machine-unverified-text: 220 10% 30%;
+  --ds-needs-review-fg: 220 25% 14%;
+  --ds-needs-review-bg: 36 95% 54%;
+  --ds-needs-review-border: 30 90% 30%;
+  --ds-needs-review-text: 30 90% 28%;
+  --ds-blocking-fg: 0 72% 35%;
+  --ds-blocking-bg: 0 85% 95%;
+  --ds-blocking-border: 0 70% 45%;
+  --ds-blocking-text: 0 72% 35%;
+  --ds-pending-qty-fg: 28 90% 27%;
+  --ds-pending-qty-bg: 0 0% 100%;
+  --ds-pending-qty-border: 32 95% 36%;
+  --ds-pending-qty-text: 28 90% 27%;
+  --ds-unavailable-fg: 220 8% 30%;
+  --ds-unavailable-bg: 220 8% 90%;
+  --ds-unavailable-border: 220 6% 48%;
+  --ds-unavailable-text: 220 8% 30%;
+  --ds-excluded-fg: 220 6% 38%;
+  --ds-excluded-bg: 0 0% 100%;
+  --ds-excluded-border: 220 6% 50%;
+  --ds-excluded-text: 220 6% 38%;
+}
+
+/* Non-colour tokens */
+:root {
+  --ds-target-min: 24px;
+  --ds-space-1: 4px;
+  --ds-space-2: 8px;
+  --ds-space-3: 12px;
+  --ds-space-4: 16px;
+  --ds-space-5: 20px;
+  --ds-space-6: 24px;
+  --ds-space-8: 32px;
+  --ds-space-10: 40px;
+  --ds-space-12: 48px;
+  --ds-radius-sm: 4px;
+  --ds-radius-md: 6px;
+  --ds-radius-lg: 12px;
+  --ds-radius-pill: 9999px;
+  --ds-text-xs: 12px;
+  --ds-text-sm: 14px;
+  --ds-text-base: 16px;
+  --ds-text-lg: 18px;
+  --ds-text-xl: 20px;
+  --ds-text-2xl: 24px;
+  --ds-leading-xs: 16px;
+  --ds-leading-sm: 20px;
+  --ds-leading-base: 24px;
+  --ds-leading-lg: 28px;
+  --ds-leading-xl: 28px;
+  --ds-leading-2xl: 32px;
+}
+
+/* Surfaces */
+.ds-page {
+  background: hsl(var(--ds-bg));
+  color: hsl(var(--ds-fg));
+}
+.ds-surface {
+  background: hsl(var(--ds-surface));
+  color: hsl(var(--ds-fg));
+}
+.ds-muted { color: hsl(var(--ds-muted-fg)); }
+.ds-divider { border-color: hsl(var(--ds-divider)); }
+
+.ds-drawing {
+  color-scheme: light;
+  background: hsl(var(--ds-surface));
+  color: hsl(var(--ds-fg));
+}
+
+/* Numbers: tabular figures, right-aligned (money, quantities) */
+.ds-num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.ds-strike { text-decoration: line-through; }
+
+/* Targets and focus (WCAG 2.5.8, 2.4.7) */
+.ds-target {
+  min-width: var(--ds-target-min);
+  min-height: var(--ds-target-min);
+}
+.ds-control {
+  background: hsl(var(--ds-surface));
+  color: hsl(var(--ds-fg));
+  border: 1px solid hsl(var(--ds-control-border));
+  border-radius: var(--ds-radius-md);
+}
+.ds-control:disabled { opacity: 0.5; cursor: not-allowed; }
+.ds-focus:focus-visible,
+.ds-control:focus-visible {
+  outline: 2px solid hsl(var(--ds-focus-ring));
+  outline-offset: 2px;
+}
+.ds-primary {
+  background: hsl(var(--ds-primary));
+  color: hsl(var(--ds-primary-fg));
+  border-radius: var(--ds-radius-md);
+}
+
+/* Status badge: colour + icon + text, never colour alone (WCAG 1.4.1) */
+.ds-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-height: var(--ds-target-min);
+  padding: 0 var(--ds-space-2);
+  border-width: 1px;
+  border-style: solid;
+  border-radius: var(--ds-radius-pill);
+  font-size: var(--ds-text-xs);
+  line-height: var(--ds-leading-xs);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ds-status > svg { flex-shrink: 0; width: 14px; height: 14px; }
+.ds-status[data-state="verified-human"] {
+  color: hsl(var(--ds-verified-human-fg));
+  background: hsl(var(--ds-verified-human-bg));
+  border-color: hsl(var(--ds-verified-human-border));
+}
+.ds-cell[data-state="verified-human"] { color: hsl(var(--ds-verified-human-text)); }
+.ds-status[data-state="machine-unverified"] {
+  color: hsl(var(--ds-machine-unverified-fg));
+  background: hsl(var(--ds-machine-unverified-bg));
+  border-color: hsl(var(--ds-machine-unverified-border));
+  border-style: dotted;
+}
+.ds-cell[data-state="machine-unverified"] { color: hsl(var(--ds-machine-unverified-text)); }
+.ds-status[data-state="needs-review"] {
+  color: hsl(var(--ds-needs-review-fg));
+  background: hsl(var(--ds-needs-review-bg));
+  border-color: hsl(var(--ds-needs-review-border));
+}
+.ds-cell[data-state="needs-review"] { color: hsl(var(--ds-needs-review-text)); }
+.ds-status[data-state="blocking"] {
+  color: hsl(var(--ds-blocking-fg));
+  background: hsl(var(--ds-blocking-bg));
+  border-color: hsl(var(--ds-blocking-border));
+}
+.ds-cell[data-state="blocking"] { color: hsl(var(--ds-blocking-text)); }
+.ds-status[data-state="pending-qty"] {
+  color: hsl(var(--ds-pending-qty-fg));
+  background: hsl(var(--ds-pending-qty-bg));
+  border-color: hsl(var(--ds-pending-qty-border));
+}
+.ds-cell[data-state="pending-qty"] { color: hsl(var(--ds-pending-qty-text)); }
+.ds-status[data-state="unavailable"] {
+  color: hsl(var(--ds-unavailable-fg));
+  background: hsl(var(--ds-unavailable-bg));
+  border-color: hsl(var(--ds-unavailable-border));
+}
+.ds-cell[data-state="unavailable"] { color: hsl(var(--ds-unavailable-text)); }
+.ds-status[data-state="excluded"] {
+  color: hsl(var(--ds-excluded-fg));
+  background: hsl(var(--ds-excluded-bg));
+  border-color: hsl(var(--ds-excluded-border));
+  border-style: dashed;
+}
+.ds-cell[data-state="excluded"] { color: hsl(var(--ds-excluded-text)); }
