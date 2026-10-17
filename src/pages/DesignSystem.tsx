@@ -91,7 +91,7 @@ function ThemePanel({ theme }: { theme: Theme }) {
               <span className="w-40 shrink-0">
                 <StatusBadge state={s} />
               </span>
-              <span className="text-sm ds-muted min-w-0 flex-1">
+              <span className="text-sm ds-muted min-w-0 grow basis-48" data-testid="state-meaning">
                 <code>{s}</code> — {STATE_META[s].meaning}
               </span>
               <span className="text-xs ds-muted">
@@ -102,7 +102,7 @@ function ThemePanel({ theme }: { theme: Theme }) {
           ))}
         </ul>
         <details className="text-xs">
-          <summary className="cursor-pointer ds-focus">State CSS variables</summary>
+          <summary className="cursor-pointer ds-focus ds-target py-1">State CSS variables</summary>
           <div className="mt-2 grid gap-1">
             {STATES.flatMap((s) =>
               (["fg", "bg", "border", "text"] as const).map((p) => (

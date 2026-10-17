@@ -35,6 +35,19 @@ describe("/design-system access gate", () => {
     expect(screen.getByRole("heading", { name: /0 failing/ })).toBeInTheDocument();
   });
 
+  it("keeps its own controls at the 24px target and lets state meanings wrap on narrow screens", () => {
+    // Browser check found the <summary> at 16px tall and, at 390px, the
+    // meaning column squeezed to ~14px (flex-basis 0) with text overflowing.
+    vi.stubEnv("DEV", true);
+    const { container } = renderPage();
+    const summaries = container.querySelectorAll("summary");
+    expect(summaries.length).toBe(2);
+    summaries.forEach((s) => expect(s).toHaveClass("ds-target"));
+    const meanings = screen.getAllByTestId("state-meaning");
+    expect(meanings.length).toBeGreaterThan(0);
+    meanings.forEach((m) => expect(m).toHaveClass("basis-48"));
+  });
+
   it("shows the ordinary 404 to non-staff in a production build", () => {
     vi.stubEnv("DEV", false);
     vi.spyOn(console, "error").mockImplementation(() => {});

@@ -69,6 +69,13 @@ describe("MoneyCell", () => {
     expect(cell.className).toContain("ds-strike");
     expect(cell).toHaveTextContent("(excluded)");
   });
+
+  it("contains its absolutely-positioned sr-only text (no page overflow from scrolled tables)", () => {
+    // Without a positioned cell, the sr-only spans escape an overflow-x-auto
+    // wrapper and widened the page to 520px at a 390px viewport (browser check).
+    const { container } = render(<MoneyCell value={null} state="EXCLUDED" />);
+    expect(container.firstElementChild).toHaveClass("relative");
+  });
 });
 
 describe("QuantityCell", () => {

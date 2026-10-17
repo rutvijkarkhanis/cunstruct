@@ -28,7 +28,9 @@ export function NumericText({
   const strike = state ? STATE_META[state].strike : false;
   return (
     <span
-      className={cn("ds-num inline-block w-full", state && "ds-cell", strike && "ds-strike", className)}
+      // `relative` keeps the absolutely-positioned sr-only spans inside the
+      // cell, so they cannot escape a scrolling table and widen the page.
+      className={cn("ds-num relative inline-block w-full", state && "ds-cell", strike && "ds-strike", className)}
       data-state={state ? stateAttr(state) : undefined}
     >
       {missing ? (
