@@ -7,18 +7,38 @@
 
 This kit is a working procedure. It does not change the frozen protocol ([v1](extraction-acceptance-protocol.md) and the [v1.1 amendment](extraction-acceptance-protocol-v1.1.md)) or the reference format ([spec](reference-boq-spec.md), [preparer brief](reference-boq-handoff.md), [template](reference-boq-template.json)). Where they say something, they win.
 
-Labels used below: **Rule** = taken from an existing repo document; **Assumption** = a working choice that the PO should confirm or replace; **Open** = a decision that is not yet made.
+Labels used below: **Rule** = taken from an existing repo document; **Decision** = the PO decision recorded in §0; **Assumption** = a working choice that the PO should confirm or replace; **Open** = a decision that is not yet made.
 
 ---
 
-## 0. Decide before the first engagement (Open)
+## 0. Owner decision and operational interpretation
 
-| # | Decision | Why it matters | Default proposed (Assumption) |
+### 0.1 PO decision, 17 Oct 2026 (Decision)
+
+This is the operational interpretation of E1 and of the existing E2 scoring protocol under plan of record v1.0. It is **not** a change to either item's "done when" test, to protocol v1/v1.1, or to the reference format. If applying it exposes a genuine incompatibility with v1.0, stop and report it to the PO; do not work around it.
+
+1. **Complete IS 1200 measurement sheets are mandatory.** Each of the two independent QS produces a complete measurement sheet for every in-scope item in each set: No × L × B × D, deductions, quantity, unit, drawing page / reference, the measurement rule applied and the IS 1200 part / clause. Each QS's original deliverable is preserved unchanged.
+2. **The scoring-format reference BOQ is a separate deliverable.** Each QS also supplies a valid `cunstruct.reference-boq.v1` file that conforms to the existing frozen protocol and preparer brief. It never replaces, and is never treated as equivalent to, the measurement sheet. The brief's room-area convention (gross, from the printed L × W) and printed-count rules stay unchanged for scoring. The scoring contract is not widened to fit broader measurements.
+3. **Scaling.** Scaling may be used in the measurement sheet when necessary. Every scaled measurement is identified as scaled, with its drawing reference and method. A quantity that cannot be established defensibly is marked ambiguous or unmeasurable; no value is invented. A scaled measurement is never presented as satisfying the printed-dimension acceptance contract: in the reference BOQ it is never a `measured` line (§4.3).
+4. **Independence and adjudication.** Both QS work without seeing any Cunstruct output. An independent third QS adjudicates disagreements. Original sheets, adjudication records, contract tags and file hashes are all preserved.
+
+### 0.2 Remaining choices
+
+| # | Decision | Why it matters | Status |
 |---|---|---|---|
-| D-1 | **Measurement scope per line.** The preparer brief fixes a narrow convention: gross floor areas from printed L × W only, counts exact, no scaling. E1 asks for full IS 1200 measurement sheets. | Lines under the fixed convention are what protocol v1 gates G1–G6 can score. Full IS 1200 lines (concrete, masonry, plaster with deductions…) are what E2 needs for per-category recall and ₹-weighted error. | Keep **both** in the same `cunstruct.reference-boq.v1` file. Tier 1: room floor areas and printed counts under the brief's fixed convention, unchanged. Tier 2: every other IS 1200 item, each with its own `measurementRule` naming the IS 1200 part and clause applied (the brief allows other items with their own rule). Tier 2 uses figured (printed) dimensions only. A figure that could only be got by scaling is `ambiguous`, with a note. |
-| D-2 | **Pages in scope.** The brief scopes one sheet list and lists anything needing other drawings as out of scope. | For E1 the whole set is supplied. | Pages in scope = every page of the set. `out_of_scope` is kept for items that need documents *not* in the set (specifications, BBS, services drawings not supplied). |
-| D-3 | **Who adjudicates** (§6). | Must be independent of both QS and of Cunstruct output. | A third senior QS, engaged on the same independence terms. |
-| D-4 | **Rates for ₹ weighting.** E2 reports ₹-weighted error. | E1 delivers quantities only. Rates depend on E3 (DSR 2023 basis, cost index, GST not yet confirmed). | Out of E1. The E2 owner records the rate source used. |
+| D-1 | **What each QS delivers** | E1 requires IS 1200 measurement sheets; E2's frozen scorer requires a reference in the brief's convention. | **Decided** (§0.1, items 1–3) |
+| D-2 | **Pages in scope.** The brief scopes one sheet list and lists anything needing other drawings as out of scope. | For E1 the whole set is supplied. | **Assumption:** pages in scope = every page of the set. `out_of_scope` is kept for items that need documents *not* in the set (specifications, BBS, services drawings not supplied). |
+| D-3 | **Who adjudicates** (§6) | Must be independent of both QS and of Cunstruct output. | **Decided** (§0.1, item 4): an independent third QS, engaged on the same independence terms. |
+| D-4 | **Rates for ₹ weighting.** E2 reports ₹-weighted error. | E1 delivers quantities only. Rates depend on E3 (DSR 2023 basis, cost index, GST not yet confirmed). | **Assumption:** out of E1. The E2 owner records the rate source used. |
+
+### 0.3 Compatibility check against v1.0 (done 17 Oct 2026)
+
+No incompatibility found. What follows from the decision:
+
+- **E1's test** ("IS 1200 measurement sheets per set, reconciled by adjudication") is met by the measurement sheets and the adjudicated measurement sheet (§6.1), not by the reference BOQ.
+- **E2's test** (protocol v1.1 run on every set) is met by the gold reference BOQ (§6.2), which uses only the existing format and conventions. The spec already allows "other items", each with its own `measurementRule` ([reference-boq-spec.md](reference-boq-spec.md) §3), so non-room items measured from printed dimensions can be scored without changing the contract.
+- **Consequence, not a conflict:** an item that the measurement sheet could only get by scaling appears in the reference BOQ as `unmeasurable` (held for review), so E2 does not score its quantity. E2's per-category figures therefore cover printed-dimension quantities only. Report this alongside them.
+- **Expected difference, not a disagreement:** a room's gross area in the reference BOQ and its IS 1200 net floor-finish area in the measurement sheet will differ. They answer different rules and are never reconciled against each other.
 
 The IS 1200 clause texts are not yet verified against BIS originals (plan item E3). Until E3 is done, a clause the QS cites is the QS's professional reading. It is recorded as given and is not treated as confirmed.
 
@@ -89,12 +109,21 @@ benchmark-inputs/E1/
     permission/              signed permission
     SHA256SUMS               sha256sum of every file in drawings/
     engine-output/           extractor JSON + its SHA-256, written BEFORE any QS file is opened
-    qs-a/  qs-b/             QS deliverables, as received
-    gold/                    adjudicated reference + disagreement log
+    qs-a/  qs-b/             QS originals as received: measurement sheet, reference BOQ,
+                             unmeasured list, declaration; never edited
+    adjudication/            adjudicated IS 1200 measurement sheet + its disagreement log
+    gold/                    gold reference BOQ + its disagreement log + agreement counts
     contract-tags.json       {lineId: "in" | "out"}, the format read by the scoring driver
 ```
 
-> **Gap to fix before intake (confirmed 17 Oct 2026 with `git check-ignore`).** `.gitignore` covers only `benchmark-inputs/**/*.pdf` and `benchmark-inputs/**/engine-output/drawing-*`. These are **not** ignored: `.PDF` (upper case), `.dwg`, `.tif`, `.jpg`, `.xlsx`, `.json`, and any file in `qs-a/`, `qs-b/` or `gold/`. Until `.gitignore` is extended, or the folder is kept outside the checkout, run `git status --porcelain benchmark-inputs/` before every commit and stop if anything under `E1/` is listed.
+**Git protection (Rule, `.gitignore`).** Everything under `benchmark-inputs/` is ignored except each folder's public register (`benchmark-inputs/<folder>/INPUTS.md`) and the existing `external-20261013/engine-output/engine-version.sha256`. This covers drawings in any format or case, QS files, adjudication and gold files, contract tags, permissions, the local register, manifests and scoring output. Check it with:
+
+```bash
+npx vitest run --config scripts/benchmark/vitest.bench.config.ts scripts/benchmark/input-ignores.test.ts
+git status --porcelain --ignored=no benchmark-inputs/   # before every commit: only INPUTS.md may appear
+```
+
+A file that was committed before it was ignored stays tracked; `git ls-files benchmark-inputs/` must list only the files named above.
 
 Hashing on receipt:
 
@@ -160,12 +189,15 @@ Exactly: the drawing set, [reference-boq-handoff.md](reference-boq-handoff.md), 
 >
 > **Drawing:** [file name], [n] pages, SHA-256 [64 hex]. Check it with `sha256sum`; if it differs, stop and tell us.
 >
-> **Deliverables, due [date]:**
-> 1. **Measurement sheet** (Excel). One row per measurement: item, location / grid, drawing page, No × L × B × D, deductions, quantity, unit, and the IS 1200 part and clause you applied. Keep your own working layout if you prefer; these columns must be present.
-> 2. **Reference BOQ** (JSON or a spreadsheet with the same columns) in the format of the enclosed template and specification, with one line per measured item, carried from your measurement sheet. `measurementRule` names the measurement-sheet rows the line came from.
-> 3. A list of anything you could not measure, with the reason, as `ambiguous`, `unmeasurable` or `out_of_scope` lines (no estimated figures).
+> **Deliverables, due [date]. These are two separate documents; neither replaces the other.**
 >
-> **Scope:** [all pages / list]. Measurement conventions: as in the enclosed brief for room floor areas and printed counts. For all other items, IS 1200 as you normally apply it, using printed dimensions. If a figure can only be obtained by scaling the drawing, mark it `ambiguous` and say so.
+> 1. **Complete IS 1200 measurement sheet** (Excel). It covers **every** in-scope item, measured under IS 1200 as you normally apply it. One row per measurement, with at least these columns (keep your own working layout otherwise):
+>    item · location / grid · drawing page and reference · No · L · B · D · deductions · quantity · unit · measurement rule applied · IS 1200 part and clause · **scaled?** (yes / no) · **if scaled: the drawing reference, the scale used and how you scaled**.
+>    You may scale when necessary, but mark every scaled measurement as above. If a quantity cannot be established defensibly, mark it ambiguous or unmeasurable with the reason. Never estimate a figure.
+> 2. **Reference BOQ** (JSON, or a spreadsheet with the same columns) in the format of the enclosed template and specification, following the enclosed brief **exactly**. Room floor areas: gross, from the printed L × W only, no deductions, no scaling. Counts: as printed. Other items you measured from printed dimensions may be added, each with its own `measurementRule` naming the measurement-sheet rows it came from. An item you could only get by scaling is **never** a `measured` line here: list it as `unmeasurable` with the note "scaled in measurement sheet row [n]".
+> 3. In the reference BOQ, every item you could not measure under the brief is an `ambiguous`, `unmeasurable` or `out_of_scope` line with its reason and no figure.
+>
+> **Scope:** [all pages / list].
 >
 > **Independence:** work alone. Do not discuss this drawing with anyone else measuring it, and do not look at any software output for it. Confirm by setting `preparedWithoutCunstructOutput: true`. If that is not true, tell us; the work will still be paid.
 >
@@ -177,7 +209,7 @@ Exactly: the drawing set, [reference-boq-handoff.md](reference-boq-handoff.md), 
 
 The only price evidence in the research is **vendor and listing evidence, not a survey**. The research report (`reports/Cunstruct redesign first principles.md`, a local working file not in Git; section "One person, one job") cites outsourced building BOQs at about **₹8,000–10,000 and 1–5 days**, from a [Freelancer listing](https://www.freelancer.de/projects/construction-management/commercial-building-boq-estimate) (average bid about ₹8,638, 3–5-day windows) and a [constructionestimatorindia vendor claim](https://constructionestimatorindia.com/?p=18104) (from ₹10,000, "usually within 1–2 days", price varies with area, floors, MEP and rate analysis).
 
-This engagement asks for more than a typical freelance BOQ: per-room lines, evidence boxes and a strict file format. **The uplift is unknown.** Get at least three written quotes on one pilot set before committing.
+This engagement asks for more than a typical freelance BOQ: a complete IS 1200 measurement sheet **and** a separate reference BOQ with per-room lines, evidence boxes and a strict file format; and a third QS to adjudicate both. **The uplift is unknown.** Get at least three written quotes on one pilot set before committing.
 
 | Planning figure (listing prices applied unchanged) | 10 sets | 20 sets |
 |---|---|---|
@@ -190,16 +222,25 @@ This engagement asks for more than a typical freelance BOQ: per-room lines, evid
 
 ## 5. Receiving a QS deliverable
 
-1. Hash the files on receipt and record them in the register. **Do not open them** until the set's engine output is hashed (§2).
-2. Validate the JSON with `validateReferenceBoq` against the drawing SHA-256 ([boqReference.ts](../../src/lib/e2e/boqReference.ts)). An invalid file goes back for format correction only. Values are never edited by us.
-3. If a spreadsheet was supplied, transcribe it to JSON without changing any value, and have a second person check the transcription against the spreadsheet ([reference-boq-handoff.md](reference-boq-handoff.md), "Format").
-4. Spot-check that each JSON line traces to measurement-sheet rows (`measurementRule`).
+1. Hash every file on receipt and record the hashes in the register. **Do not open them** until the set's engine output is hashed (§2). Keep the originals in `qs-a/` or `qs-b/` unchanged; work only on copies.
+2. **Measurement sheet: completeness check.** Every required column (§4.3, item 1) is present. Every in-scope item has rows, or a reason it is ambiguous or unmeasurable. Every scaled row says so, with its reference and method. A sheet that fails goes back to the QS; we never fill gaps.
+3. **Reference BOQ: validation.** Validate the JSON with `validateReferenceBoq` against the drawing SHA-256 ([boqReference.ts](../../src/lib/e2e/boqReference.ts)). An invalid file goes back for format correction only. Values are never edited by us.
+4. If the reference BOQ came as a spreadsheet, transcribe it to JSON without changing any value, and have a second person check the transcription against the spreadsheet ([reference-boq-handoff.md](reference-boq-handoff.md), "Format").
+5. **Cross-check.** Every `measured` reference line traces to measurement-sheet rows (`measurementRule`), and none of those rows is marked scaled. A measured line that traces to a scaled row goes back to the QS.
 
 ---
 
-## 6. Adjudication: two sheets into one gold standard
+## 6. Adjudication: two products, each under its own rules
 
-The adjudicator works from the drawing and the two measurement sheets only, with no Cunstruct output. The gold reference is a new `cunstruct.reference-boq.v1` file: `preparedBy` = the adjudicator, `preparedWithoutCunstructOutput: true`.
+The adjudicator is an independent third QS (§0.1, item 4). They work from the drawing and the two QS deliverables only, with no Cunstruct output. The originals in `qs-a/` and `qs-b/` are never edited. The adjudicator produces two separate results, and the two are never reconciled against each other (§0.3).
+
+### 6.1 Adjudicated IS 1200 measurement sheet (E1 evidence)
+
+In `adjudication/`. The adjudicator pairs the two measurement sheets item by item and applies the cases in the table in §6.2, step 2, under IS 1200. The result keeps every required column (§4.3, item 1), including the scaled flag and method. It comes with its own disagreement log, in the columns of §6.2, step 4. Hash both files and record the hashes in the register.
+
+### 6.2 Gold reference BOQ (E2 input)
+
+In `gold/`. A new `cunstruct.reference-boq.v1` file: `preparedBy` = the adjudicator, `preparedWithoutCunstructOutput: true`, conventions exactly as in the brief. It is adjudicated from the two QS reference BOQs, checked against the drawing. No `measured` gold line may rest on a scaled measurement.
 
 1. **Pair lines.** Pair QS-A and QS-B lines by item, floor, page and evidence box, using the same rules as the scorer ([reference-boq-spec.md](reference-boq-spec.md) §6.2). Do not pair by quantity.
 2. **Classify each pair or orphan:**
@@ -247,7 +288,10 @@ Write `contract-tags.json` as `{ "<gold line id>": "in" | "out" }`. Record who t
 - [ ] Permission signed and filed; permission status recorded in the register
 - [ ] SHA-256 recorded; not one of the excluded hashes
 - [ ] Engine output saved and hashed before any QS file was opened
-- [ ] QS-A and QS-B delivered; both pass `validateReferenceBoq`; independence declared
-- [ ] Gold reference adjudicated, validated, hashed; disagreement log and agreement counts filed
+- [ ] QS-A and QS-B each delivered a complete IS 1200 measurement sheet that passes the completeness check (§5), with every scaled row identified
+- [ ] QS-A and QS-B each delivered a separate reference BOQ that passes `validateReferenceBoq`, with no measured line resting on a scaled row; independence declared
+- [ ] Originals preserved unedited and hashed in the register
+- [ ] Adjudicated IS 1200 measurement sheet and its disagreement log filed and hashed (§6.1)
+- [ ] Gold reference BOQ adjudicated, validated, hashed; disagreement log and agreement counts filed (§6.2)
 - [ ] Contract tags written and checked
 - [ ] `git status` shows nothing under `benchmark-inputs/E1/` except, if chosen, the public register `INPUTS.md`
