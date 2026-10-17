@@ -216,6 +216,34 @@ describe("representative residential BOQ lines (regressions)", () => {
     expect(text(m("RCC in domes", "cum"))).not.toContain("is for work in arches");
   });
 
+  it("an item for an action other than new work is never reliable for a line that does not name it (an overhead tank was reliable on 14.79 “Disconnecting damaged … tank”)", () => {
+    const r = m("Overhead Water Tank", "nos");
+    expect(r.verdict).not.toBe("reliable");
+    expect(text(r)).toContain("Item 14.79 is for disconnecting; the line does not say so");
+    // Saying the action keeps the item reachable.
+    const said = m("Disconnecting damaged overhead PVC water storage tank", "each");
+    expect(said.candidates[0].item.code).toBe("14.79");
+    expect(text(said)).not.toContain("is for disconnecting");
+  });
+
+  it("an accessory item is never reliable for a line that names only the object it is for (a uPVC door was reliable on 9.152 “steel roller for uPVC sliding door”)", () => {
+    const r = m("UPVC door", "nos");
+    expect(r.verdict).not.toBe("reliable");
+    expect(text(r)).toContain("Item 9.152 is for roller; the line does not say so");
+    // A line for the accessory itself still matches it.
+    const roller = m("Steel roller for uPVC sliding door", "each");
+    expect(roller).toMatchObject({ verdict: "reliable", ambiguous: false });
+    expect(roller.candidates[0].item.code).toBe("9.152");
+  });
+
+  it("ordinary items keep their reliable matches under the action and accessory checks", () => {
+    // New-work items are unaffected (both carry no restriction).
+    expect(m("Providing and fixing white vitreous china pedestal type water closet", "each").verdict).not.toBe("none");
+    const sink = m("Providing and fixing kitchen sink with C.I. brackets", "each");
+    expect(sink.candidates[0].item.code).toMatch(/^17\.9/);
+    expect(text(sink)).not.toMatch(/is for (roller|disconnecting|dismantling)/);
+  });
+
   it("ordinary superstructure brickwork ranks the superstructure items, not the arch item", () => {
     const r = m("Brick work with common burnt clay F.P.S. bricks in superstructure in cement mortar 1:6", "cum");
     expect(r.candidates[0].item.code).toBe("6.4.2");
