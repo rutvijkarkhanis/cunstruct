@@ -191,6 +191,39 @@ describe("representative residential BOQ lines (regressions)", () => {
     expect(m("Steel reinforcement TMT bars Fe 500D", "kg")).toMatchObject({ verdict: "reliable", candidates: [expect.objectContaining({ item: expect.objectContaining({ code: "5.22.6" }) }), expect.anything(), expect.anything()] });
   });
 
+  it("an item for a specialised form the line does not state is never reliable (superstructure brickwork was reliable on 6.9 “plain arches”)", () => {
+    // Before: reliable 6.9 "Brick work in plain arches in superstructure …" —
+    // a wrong rate (₹15,077.95/cum vs ₹9,105–9,344 for 6.4.x) for plain walls.
+    const r = m("Brick work with common burnt clay bricks in superstructure", "cum");
+    expect(r.verdict).toBe("possible");
+    expect(r.candidates[0].item.code).toBe("6.9");
+    expect(text(r)).toContain("Item 6.9 is for work in arches; the line does not say so");
+    // The same holds for the other arch items: gauged arches, arch tile-brick work.
+    expect(m("Brick work in gauged superstructure with common burnt clay bricks in cement mortar 1:3", "cum").verdict).not.toBe("reliable");
+    expect(m("Tile brick masonry with common burnt clay tile bricks in superstructure in cement mortar 1:4", "cum").verdict).not.toBe("reliable");
+  });
+
+  it("a line that does say arches still reaches the arch items", () => {
+    const plain = m("Brick work in plain arches with common burnt clay F.P.S. bricks in superstructure", "cum");
+    expect(plain).toMatchObject({ verdict: "reliable", ambiguous: false });
+    expect(plain.candidates[0].item.code).toBe("6.9");
+    expect(text(plain)).not.toContain("is for work in arches");
+    // Plain vs gauged not stated → both listed, not chosen.
+    const either = m("Brick work in arches", "cum");
+    expect(either).toMatchObject({ verdict: "possible", ambiguous: true });
+    expect(codes(either)).toEqual(["6.9", "6.10"]);
+    // Domes and vaults are among the forms of RCC item 5.5; naming one is enough.
+    expect(text(m("RCC in domes", "cum"))).not.toContain("is for work in arches");
+  });
+
+  it("ordinary superstructure brickwork ranks the superstructure items, not the arch item", () => {
+    const r = m("Brick work with common burnt clay F.P.S. bricks in superstructure in cement mortar 1:6", "cum");
+    expect(r.candidates[0].item.code).toBe("6.4.2");
+    expect(codes(r)).not.toContain("6.9");
+    // Not reliable: the line does not say which of the 1:6 items (plinth vs superstructure, etc.) — listed for review.
+    expect(r.verdict).toBe("possible");
+  });
+
   it("a reliable match never lacks the line's most distinctive term (6 mm plaster “to ceiling” was reliable on 13.16.1)", () => {
     const r = m("6 mm cement plaster 1:3 to ceiling", "sqm");
     expect(r.verdict).toBe("possible");
