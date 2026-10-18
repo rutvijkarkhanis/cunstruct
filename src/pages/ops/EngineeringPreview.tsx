@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Navigate } from "react-router-dom";
 
 type QuantityState = "established" | "confirmed_zero" | "pending";
@@ -141,7 +141,7 @@ function SurfacePanel({
 }: {
   title: string;
   description: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <section className="space-y-4">
