@@ -188,7 +188,43 @@ describe("representative residential BOQ lines (regressions)", () => {
     expect(text(enamel)).toContain("the line does not say which variant");
     // Naming the variant (an element of a list, or a stated mix) is enough.
     expect(m("Formwork for beams", "sqm").candidates.map((c) => c.item.code)).toContain("5.9.5");
-    expect(m("Steel reinforcement TMT bars Fe 500D", "kg")).toMatchObject({ verdict: "reliable", candidates: [expect.objectContaining({ item: expect.objectContaining({ code: "5.22.6" }) }), expect.anything(), expect.anything()] });
+  });
+
+  it("an item limited to work up to plinth level is reliable only when the line places the work there (TMT bars were reliable on 5.22.6 “… upto plinth level”)", () => {
+    // Before: "Steel reinforcement TMT bars Fe 500D" was reliable on 5.22.6, which the
+    // schedule limits to work up to plinth level (5.22A prices it above plinth level).
+    const bars = m("Steel reinforcement TMT bars Fe 500D", "kg");
+    expect(bars.verdict).toBe("possible");
+    expect(bars.candidates[0].item.code).toBe("5.22.6"); // still listed first for review
+    expect(text(bars)).toContain("Item 5.22.6 is for work up to plinth level; the line does not place the work there");
+    // A line that says it is above plinth level is never put on the up-to-plinth item.
+    const above = m("TMT bars Fe 500D above plinth level", "kg");
+    expect(above.verdict).not.toBe("reliable");
+    // Positive controls: the stage stated, in the schedule's words or as the element.
+    for (const d of ["TMT bars Fe 500D upto plinth level", "Steel reinforcement TMT bars Fe 500D in foundation"]) {
+      const r = m(d, "kg");
+      expect(r.verdict, d).toBe("reliable");
+      expect(r.candidates[0].item.code, d).toBe("5.22.6");
+    }
+    // "footings" places the work too; that line stays possible only under the
+    // existing coverage rule ("footing" is not in the item's text), not the stage check.
+    expect(text(m("Reinforcement TMT Fe 500D bars in footings", "kg"))).not.toContain("up to plinth level");
+  });
+
+  it("a waterproofing item of one method is reliable only when the line names the method (terrace waterproofing was reliable on 22.7.1 “integral cement based”)", () => {
+    // Before: reliable 22.7.1 (₹1,684.60/sqm) only because the item says "terraces";
+    // the schedule also prices roofs by cement slurry (22.6) and bitumen felt (22.8.1, 22.9, 22.11).
+    const wp = m("Waterproofing treatment to terrace", "sqm");
+    expect(wp.verdict).toBe("possible");
+    expect(wp.candidates[0].item.code).toBe("22.7.1");
+    expect(text(wp)).toContain("Item 22.7.1 is integral cement based waterproofing; the line does not say which method");
+    // Positive control: the method named.
+    const integral = m("Integral cement based waterproofing treatment to terrace", "sqm");
+    expect(integral.verdict).toBe("reliable");
+    expect(integral.candidates[0].item.code).toBe("22.7.1");
+    // A line naming another method never lands reliably on the integral item.
+    const felt = m("Waterproofing treatment with bitumen felt over terrace", "sqm");
+    expect(felt.verdict === "reliable" && felt.candidates[0].item.code === "22.7.1").toBe(false);
   });
 
   it("an item for a specialised form the line does not state is never reliable (superstructure brickwork was reliable on 6.9 “plain arches”)", () => {

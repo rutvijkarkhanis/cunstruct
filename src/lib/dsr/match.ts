@@ -86,6 +86,42 @@ export interface DsrIndex {
    *  ("steel roller for uPVC sliding door"): what the line must name for the
    *  item to be its work. Absent for ordinary items. */
   restrictedTo: Map<DsrItem, { label: string; re: RegExp }>;
+  /** Items limited to work up to plinth level (5.22.6 "… upto plinth level. —
+   *  Thermo-Mechanically Treated bars"): the line must place the work there. */
+  uptoPlinth: Set<DsrItem>;
+  /** Waterproofing items whose leading clause names a method ("integral cement
+   *  based", "bitumen felt", "APP membrane"): the methods the line may name. */
+  waterproofingMethods: Map<DsrItem, { label: string; re: RegExp }[]>;
+}
+
+/** "upto plinth level": the schedule prices the same work separately above
+ *  plinth level (5.22.6 vs 5.22A), so a line that does not place its work at or
+ *  below plinth is not reliably this item. "plinth" and "level" are stopwords
+ *  for scoring, so the check reads the text directly. */
+const UPTO_PLINTH_ITEM = /\b(?:upto|up\s+to)\s+plinth\s+level\b/i;
+const lineIsUptoPlinth = (text: string) =>
+  /\b(?:upto|up\s*to|below)\s+plinth\b|\bfoundations?\b|\bfootings?\b|\bsub-?structure\b/i.test(text)
+  || (/\bplinth\b/i.test(text) && !/\babove\s+plinth\b/i.test(text));
+
+/** Methods of waterproofing the schedule prices separately for the same roofs
+ *  and terraces: 22.7.1 integral cement based (₹1,684.60/sqm), 22.6 cement
+ *  slurry (₹688.90), 22.9 bitumen felt (₹806.45). A line that names none of
+ *  the item's methods has not said which treatment it is. */
+const WATERPROOFING_METHODS: { label: string; re: RegExp }[] = [
+  { label: "integral cement based", re: /\bintegral\b/i },
+  { label: "cement slurry", re: /\bslurry\b/i },
+  { label: "bitumen felt", re: /\bbitum|\bfelt\b/i },
+  { label: "APP membrane", re: /\bmembe?rane\b|\bAPP\b|\bpoly-?propylene\b/i },
+  { label: "crystalline", re: /\bcrystalline\b/i },
+  { label: "elastomeric", re: /\belastomeric\b/i },
+];
+/** The methods named in a waterproofing item's leading clause (before
+ *  "consisting", "including" …). Grading and deduction items are not treatments. */
+function waterproofingMethodsOf(text: string): { label: string; re: RegExp }[] {
+  const head = text.split(/\b(?:consisting|including|comprising)\b/i)[0];
+  if (!/water\s*-?\s*proofing\s+(?:treatment|membrane|coating)|treatment\s+for\s+water\s*-?\s*proofing/i.test(head)) return [];
+  if (/^\s*(?:grading|deduct)\b/i.test(head)) return [];
+  return WATERPROOFING_METHODS.filter((m) => m.re.test(head));
 }
 
 /** Forms of construction an item can be restricted to. Work "in plain arches"
@@ -145,6 +181,8 @@ export function buildDsrIndex(all: DsrItem[], source: string, year: string | nul
   const merged = new Map<DsrItem, string[]>();
   const forms = new Map<DsrItem, string[]>();
   const restrictedTo = new Map<DsrItem, { label: string; re: RegExp }>();
+  const uptoPlinth = new Set<DsrItem>();
+  const waterproofingMethods = new Map<DsrItem, { label: string; re: RegExp }[]>();
   for (const it of items) {
     const subs = embeddedSubItems(it.code, it.description);
     if (subs.length) merged.set(it, subs);
@@ -154,6 +192,9 @@ export function buildDsrIndex(all: DsrItem[], source: string, year: string | nul
     if (named.some((f) => f.restricts)) forms.set(it, named.map((f) => f.form));
     const restriction = restrictionOf(text);
     if (restriction) restrictedTo.set(it, restriction);
+    if (UPTO_PLINTH_ITEM.test(text)) uptoPlinth.add(it);
+    const methods = waterproofingMethodsOf(text);
+    if (methods.length) waterproofingMethods.set(it, methods);
     const t = new Set(tokens(text));
     terms.set(it, t);
     focus.set(it, new Set(tokens(focusText(text))));
@@ -182,7 +223,7 @@ export function buildDsrIndex(all: DsrItem[], source: string, year: string | nul
       .filter((e) => e.length > 0);
     if (elements.length) variants.set(it, { elements, text });
   }
-  return { source, year, items, idf, terms, focus, specs, byCode, adjustments, variants, merged, forms, restrictedTo };
+  return { source, year, items, idf, terms, focus, specs, byCode, adjustments, variants, merged, forms, restrictedTo, uptoPlinth, waterproofingMethods };
 }
 
 export { focusText };
@@ -337,9 +378,14 @@ export function matchLine(line: MatchableLine, ix: DsrIndex): MatchResult {
     //  - for an item restricted to an action or an accessory, the line must name it.
     const restriction = ix.restrictedTo.get(best.item);
     const unstatedRestriction = !!restriction && !restriction.re.test(line.description ?? "");
+    //  - for an item limited to work up to plinth level, the line must place it there;
+    //  - for a waterproofing item of one method, the line must name that method.
+    const unstatedStage = ix.uptoPlinth.has(best.item) && !lineIsUptoPlinth(line.description ?? "");
+    const itemMethods = ix.waterproofingMethods.get(best.item);
+    const unstatedMethod = !!itemMethods && !itemMethods.some((m) => m.re.test(line.description ?? ""));
     const reliable = !ambiguous && issues.length === 0 && best.unit === "match" && best.score >= MATCH_THRESHOLDS.reliable
       && !best.missingTerms.includes(key) && !unnamedVariant && best.coverage >= MATCH_THRESHOLDS.reliableCoverage
-      && !ix.merged.has(best.item) && !unstatedForm && !unstatedRestriction;
+      && !ix.merged.has(best.item) && !unstatedForm && !unstatedRestriction && !unstatedStage && !unstatedMethod;
     const reasons = [`Description match: item ${best.item.code} contains ${pct(best.coverage)} of the line's distinctive terms (${best.sharedTerms.slice(0, 6).join(", ")}).`];
     if (best.missingTerms.length) reasons.push(`Not in the item: ${best.missingTerms.slice(0, 6).join(", ")}${best.missingTerms.includes(key) ? ` — including "${key}", the line's most distinctive term` : ""}.`);
     reasons.push(...neverUsed());
@@ -348,6 +394,8 @@ export function matchLine(line: MatchableLine, ix: DsrIndex): MatchResult {
     if (subs) reasons.push(mergedReason(best.item, subs));
     if (unstatedForm && itemForms) reasons.push(`Item ${best.item.code} is for work in ${itemForms.join(", ")}; the line does not say so — check it is not ordinary work priced under another item.`);
     if (unstatedRestriction && restriction) reasons.push(`Item ${best.item.code} is for ${restriction.label}; the line does not say so — check it is not other work priced under another item.`);
+    if (unstatedStage) reasons.push(`Item ${best.item.code} is for work up to plinth level; the line does not place the work there — the schedule prices work above plinth level under another item.`);
+    if (unstatedMethod && itemMethods) reasons.push(`Item ${best.item.code} is ${itemMethods.map((m) => m.label).join(" / ")} waterproofing; the line does not say which method — the schedule prices other methods under other items.`);
     if (unnamedVariant && variant) reasons.push(`Item ${best.item.code} is one variant of a family of schedule items (“${clip(variant.text)}”); the line does not say which variant.`);
     if (ambiguous) {
       const codes = [best, ...close].slice(0, 3).map((c) => c.item.code);
