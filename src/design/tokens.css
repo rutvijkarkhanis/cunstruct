@@ -186,8 +186,12 @@
   color: hsl(var(--ds-fg));
 }
 
-/* Numbers: tabular figures, right-aligned (money, quantities) */
+/* Numbers: tabular figures, right-aligned (money, quantities).
+   The UI face (DM Sans, as Google Fonts serves it) has no tabular figures:
+   tabular-nums alone left "1" and "8" different widths in Chromium. A
+   monospace stack makes every digit the same width on every platform. */
 .ds-num {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   font-variant-numeric: tabular-nums;
   text-align: right;
   white-space: nowrap;

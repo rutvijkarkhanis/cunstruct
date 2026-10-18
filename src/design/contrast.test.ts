@@ -75,4 +75,11 @@ describe("tokens.css declares exactly the values in tokens.ts", () => {
     expect(tokensCss).toMatch(/:root,\n\[data-ds-theme="light"\],\n\.ds-drawing \{/);
     expect(tokensCss).toMatch(/\.ds-drawing \{[^}]*color-scheme:\s*light/);
   });
+
+  it("gives numbers a font whose digits are all one width, not just tabular-nums", () => {
+    // DM Sans has no tabular figures; the browser check is e2e/designSystem.spec.ts.
+    const num = tokensCss.match(/\.ds-num \{([^}]*)\}/)?.[1] ?? "";
+    expect(num).toMatch(/font-variant-numeric:\s*tabular-nums/);
+    expect(num).toMatch(/font-family:[^;]*\bmonospace;/);
+  });
 });

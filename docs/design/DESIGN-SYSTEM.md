@@ -55,7 +55,7 @@ Two signals that are not colour still need words for assistive technology:
 Every drag must also work with single clicks or taps and with the keyboard:
 
 - **`NumericNudge`** is for drag-to-adjust values, such as scrubbing a number, dragging a measurement handle or resizing.
-  - You can type a value. Indian grouping such as `12,34,567.5` is accepted, and junk is rejected with a message.
+  - You can type a value. Indian grouping such as `12,34,567.5` is accepted, and junk is rejected with a message. Commas are accepted only as well-formed grouping, so `4,5` is rejected rather than read as 45.
   - You can also press −/+, or ArrowUp/ArrowDown (Shift multiplies the step by 10). Values are clamped to the min/max.
   - When the value is unresolved (`null`), −/+ are **disabled** until a value is typed, so the control never invents a quantity.
 - **`ReorderButtons`** is for drag-to-reorder lists. It provides "Move *item* up" and "Move *item* down".
@@ -104,7 +104,7 @@ Values are in `tokens.ts` (`THEMES`). The reference page shows each swatch with 
   - It rounds before choosing the unit, so ₹99,96,000 is `₹1.00 Cr`, not `₹100.0 L`.
 - **Quantities:** `formatQuantity(n, decimals = 2)` uses en-IN grouping with a **fixed** number of decimals so columns line up, for example `12,34,567.50`.
 - **Missing values:** `null`, `undefined`, `NaN` and ±∞ all render as **"—", never 0.** An unknown amount must never read as a real zero.
-- **Layout:** numbers use `.ds-num`, which sets `font-variant-numeric: tabular-nums`, right alignment and no wrapping. `MoneyCell` and `QuantityCell` apply it.
+- **Layout:** numbers use `.ds-num`, which sets a monospace font stack plus `font-variant-numeric: tabular-nums`, right alignment and no wrapping. The monospace stack is required: DM Sans, the UI face, has no tabular figures, so `tabular-nums` alone does not line digits up (checked in Chromium by `e2e/designSystem.spec.ts`). `MoneyCell` and `QuantityCell` apply it.
 
 ## Other tokens
 

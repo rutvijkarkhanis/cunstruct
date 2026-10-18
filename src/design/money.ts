@@ -63,9 +63,18 @@ export function formatQuantity(n: Maybe, decimals = 2): string {
   );
 }
 
-/** Parse user input that may contain Indian grouping commas ("12,34,567.5"). */
+/** Well-formed grouping of the integer part: Indian ("12,34,567") or international ("1,234,567"). */
+const GROUPED_INT = /^(\d{1,2}(,\d{2})*,\d{3}|\d{1,3}(,\d{3})+)$/;
+
+/**
+ * Parse user input that may contain Indian grouping commas ("12,34,567.5").
+ * Commas are accepted only as well-formed grouping: "4,5" is rejected, not
+ * read as 45, so a comma typed as a decimal point never becomes 10× the value.
+ */
 export function parseNumericInput(raw: string): number | null {
-  const s = raw.replace(/,/g, "").trim();
+  const t = raw.trim();
+  if (t.includes(",") && !GROUPED_INT.test(t.replace(/^-/, "").split(".")[0])) return null;
+  const s = t.replace(/,/g, "");
   if (s === "" || !/^-?\d*\.?\d+$|^-?\d+\.$/.test(s)) return null;
   const n = Number(s);
   return Number.isFinite(n) ? n : null;

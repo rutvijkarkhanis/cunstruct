@@ -102,6 +102,16 @@ describe("parseNumericInput", () => {
     expect(parseNumericInput("1e5")).toBeNull();
     expect(parseNumericInput("--1")).toBeNull();
   });
+
+  it("accepts commas only as well-formed digit grouping, so a comma decimal is never read as 10x", () => {
+    expect(parseNumericInput("1,234")).toBe(1234);
+    expect(parseNumericInput("1,00,000")).toBe(100000);
+    expect(parseNumericInput("-12,34,567.50")).toBe(-1234567.5);
+    expect(parseNumericInput("1,234,567")).toBe(1234567);
+    for (const junk of ["1,2", "4,5", "12,3", "1,23", "1,2345", ",5", "1,", "1.2,5", "12,34,5678"]) {
+      expect(parseNumericInput(junk), junk).toBeNull();
+    }
+  });
 });
 
 function Harness({ initial, onChange }: { initial: number | null; onChange?: (n: number) => void }) {
@@ -157,6 +167,17 @@ describe("NumericNudge — non-drag alternative (WCAG 2.5.7) with 24px targets (
     spy.mockClear();
     fireEvent.change(input, { target: { value: "four" } });
     fireEvent.blur(input);
+    expect(spy).not.toHaveBeenCalled();
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a number");
+  });
+
+  it("rejects a comma decimal instead of committing ten times the value", () => {
+    const spy = vi.fn();
+    render(<Harness initial={2} onChange={spy} />);
+    const input = screen.getByRole("textbox", { name: "Wall length (m)" });
+    fireEvent.change(input, { target: { value: "4,5" } });
+    fireEvent.keyDown(input, { key: "Enter" });
     expect(spy).not.toHaveBeenCalled();
     expect(input).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByRole("alert")).toHaveTextContent("Enter a number");
