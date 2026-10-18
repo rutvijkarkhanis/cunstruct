@@ -62,6 +62,9 @@ const ProjectExport = lazy(() => import("./pages/app/ProjectExport.tsx"));
 // ── Public, unauthenticated share link (reachable on EITHER subdomain) ──────
 const PublicWorkspaceShare = lazy(() => import("./pages/PublicWorkspaceShare.tsx"));
 
+// ── Design-system reference (D1). Unlinked; dev, or staff in production. ────
+const DesignSystem = lazy(() => import("./pages/DesignSystem.tsx"));
+
 const PageLoader = () => (
   <div className="min-h-screen bg-background flex items-center justify-center">
     <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -118,6 +121,8 @@ function StorefrontRoutes() {
       <Route path="/auth" element={<Auth />} />
       {/* Public share links work on either domain — never redirected. */}
       <Route path="/share/:token" element={<PublicWorkspaceShare />} />
+      {/* Unlinked; renders in dev, or for staff — everyone else gets the 404. */}
+      <Route path="/design-system" element={<DesignSystem />} />
       {/* Projects module lives on the app subdomain — redirect there */}
       <Route path="/my-projects" element={<CrossDomainRedirect base={app} />} />
       <Route path="/my-projects/*" element={<CrossDomainRedirect base={app} />} />
@@ -144,6 +149,8 @@ function AppRoutes() {
           OpsLayout's <Route path="/ops" element={<OpsLayout />}> below, so it
           never passes through OpsLayout's isStaff gate. */}
       <Route path="/share/:token" element={<PublicWorkspaceShare />} />
+      {/* Unlinked; renders in dev, or for staff — everyone else gets the 404. */}
+      <Route path="/design-system" element={<DesignSystem />} />
       <Route path="/my-projects" element={<MyProjects />} />
       <Route path="/my-projects/:id" element={<MyProjectDetail />} />
       <Route path="/my-projects/:id/order" element={<MyProjectOrder />} />
