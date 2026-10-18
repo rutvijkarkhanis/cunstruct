@@ -99,12 +99,6 @@ const quantityLabel: Record<QuantityState, string> = {
   pending: "Quantity pending",
 };
 
-const reviewLabel: Record<ReviewState, string> = {
-  needs_review: "Needs review",
-  accepted: "Accepted in demo",
-  corrected: "Corrected in demo",
-};
-
 function statePill(state: QuantityState | ReviewState) {
   const labels: Record<QuantityState | ReviewState, string> = {
     established: "Established",
