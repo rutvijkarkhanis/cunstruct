@@ -91,13 +91,40 @@ const defaultFindSimilarHandler: AiHandler = (body) => ({
   result: { schemaVersion: "cunstruct.similar.v1", reference: (body as { reference?: unknown }).reference ?? { label: "", evidence: [] }, matches: [] },
 });
 
+const NON_FILTER_PARAMS = new Set(["select", "order", "limit", "offset", "on_conflict", "columns"]);
+
+/** Applies the PostgREST `eq.` and `in.(…)` filters the app sends, as the real
+ *  API would — e.g. the LOCATION-status query (mode=eq.LOCATION) must not see
+ *  BOQ-mode claim rows. Other operators are not interpreted, and a fixture row
+ *  that lacks the filtered column is kept, as before this filter existed. */
+function applyFilters(rows: unknown[], params: URLSearchParams): unknown[] {
+  let out = rows;
+  for (const [column, expr] of params) {
+    if (NON_FILTER_PARAMS.has(column)) continue;
+    let allowed: string[] | null = null;
+    if (expr.startsWith("eq.")) allowed = [expr.slice(3)];
+    else if (expr.startsWith("in.(") && expr.endsWith(")")) allowed = expr.slice(4, -1).split(",").map((v) => v.replace(/^"|"$/g, ""));
+    if (!allowed) continue;
+    const ok = allowed;
+    out = out.filter((r) => {
+      const v = (r as Record<string, unknown>)[column];
+      return v === undefined || ok.includes(String(v));
+    });
+  }
+  return out;
+}
+
 /**
  * Installs route interception on `page` for every Supabase-bound request
  * the app will make while rendering the BoqReviewWorkstation review route,
  * using the fixture data in testData.ts. Call this BEFORE navigating.
  */
-export async function installMockBackend(page: Page): Promise<MockBackendHandle> {
-  const fixtures = buildRestFixtures() as Record<string, unknown>;
+export async function installMockBackend(
+  page: Page,
+  options: { fixtures?: (f: ReturnType<typeof buildRestFixtures>) => Record<string, unknown> } = {},
+): Promise<MockBackendHandle> {
+  const base = buildRestFixtures();
+  const fixtures = (options.fixtures ? options.fixtures(base) : base) as Record<string, unknown>;
   const aiCalls: AiAction[] = [];
   let identifyHandler = defaultIdentifyHandler;
   let findSimilarHandler = defaultFindSimilarHandler;
@@ -122,9 +149,10 @@ export async function installMockBackend(page: Page): Promise<MockBackendHandle>
     const table = match?.[1];
     const data = table ? fixtures[table] : undefined;
     if (data === undefined) return fulfillJson(route, []);
+    const rows = applyFilters(Array.isArray(data) ? data : [data], url.searchParams);
     const wantsSingle = SINGLE_OBJECT_TABLES.has(table!) || (request.headers()["accept"] ?? "").includes("vnd.pgrst.object+json");
-    if (wantsSingle) return fulfillJson(route, Array.isArray(data) ? data[0] ?? null : data);
-    return fulfillJson(route, Array.isArray(data) ? data : [data]);
+    if (wantsSingle) return fulfillJson(route, rows[0] ?? null);
+    return fulfillJson(route, rows);
   });
 
   // --- Storage: create signed URL (POST) + fetch the signed URL (GET) ------
