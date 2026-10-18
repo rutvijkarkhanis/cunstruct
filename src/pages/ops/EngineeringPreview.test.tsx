@@ -19,7 +19,9 @@ describe("EngineeringPreview", () => {
       expect(screen.getByRole("tab", { name: label })).toBeInTheDocument();
     }
     expect(screen.getByText(/Illustrative data only/i)).toBeInTheDocument();
-    expect(screen.getByText("Not certified")).toBeInTheDocument();
+    // The default (workspace) view carries the not-certified label in its header;
+    // the explicit "Not certified" status lives on the sign-off sheet (last test).
+    expect(screen.getByText(/not a certified BOQ/i)).toBeInTheDocument();
   });
 
   it("never pairs a pending quantity with a monetary amount, while confirmed zero remains ₹0", () => {

@@ -75,6 +75,8 @@ const INITIAL_LINES: PreviewLine[] = [
   },
 ];
 
+const QUEUE_IDS = new Set(INITIAL_LINES.filter((line) => line.reviewState === "needs_review").map((line) => line.id));
+
 const SURFACES: { id: Surface; label: string }[] = [
   { id: "workspace", label: "Workspace" },
   { id: "verify", label: "Verify queue" },
@@ -101,9 +103,7 @@ const quantityLabel: Record<QuantityState, string> = {
 
 function statePill(state: QuantityState | ReviewState) {
   const labels: Record<QuantityState | ReviewState, string> = {
-    established: "Established",
-    confirmed_zero: "Confirmed zero",
-    pending: "Quantity pending",
+    ...quantityLabel,
     needs_review: "Needs review",
     accepted: "Accepted · demo",
     corrected: "Corrected · demo",
@@ -173,6 +173,9 @@ export default function EngineeringPreview() {
   };
 
   const reviewable = lines.filter((line) => line.reviewState === "needs_review");
+  // The queue keeps every line that started out needing review, so a demo
+  // accept or correction stays visible with its outcome instead of vanishing.
+  const queue = lines.filter((line) => QUEUE_IDS.has(line.id));
   const coverageRows = [
     { id: "legend", title: "Drawing legend items", detail: "One symbol has no linked BOQ line." },
     { id: "regions", title: "Regions without detections", detail: "Two illustrative regions have no linked quantity." },
@@ -316,17 +319,18 @@ export default function EngineeringPreview() {
             description="Illustrative review ordering. Actions below update only the local preview state and are discarded when the page reloads."
           >
             <div className="overflow-hidden rounded-xl border bg-card">
-              {reviewable.length === 0 ? (
+              {queue.length === 0 ? (
                 <div className="p-8 text-center">
                   <div className="font-medium">No demo lines awaiting review</div>
                   <p className="mt-1 text-sm text-muted-foreground">Reset by reloading the page.</p>
                 </div>
-              ) : reviewable.map((line) => (
+              ) : queue.map((line) => (
                 <article key={line.id} className="grid gap-3 border-b p-4 last:border-b-0 lg:grid-cols-[1fr_auto] lg:items-center">
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-xs font-semibold text-muted-foreground">{line.id}</span>
                       {statePill(line.quantityState)}
+                      {line.reviewState !== "needs_review" && statePill(line.reviewState)}
                     </div>
                     <h3 className="font-semibold">{line.description}</h3>
                     <p className="text-sm text-muted-foreground">{line.note}</p>
