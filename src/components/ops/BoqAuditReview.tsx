@@ -16,6 +16,8 @@ import { Input } from "@/components/ui/input";
 import { ClipboardCheck, ChevronDown, ChevronUp, CheckCircle2, XCircle, RefreshCw, Clock, Plus, Wrench } from "lucide-react";
 import { importAuditRun, setFindingState } from "@/lib/auditImport";
 import { addFindingAsLine, applyMethodUnit, setLineQty, markLinePending } from "@/lib/applyFinding";
+import { editTookEffect, lineEditMessage } from "@/lib/lineEdit";
+import { useAuth } from "@/context/AuthContext";
 import { reviewSummary, type BoqLineRef, type FindingState } from "@/lib/auditFindings";
 import type { AuditFinding, FindingType } from "@/lib/auditJson";
 
@@ -46,6 +48,7 @@ const TYPE_LABEL: Record<FindingType, string> = {
 
 export default function BoqAuditReview({ boqId, projectId, lines }: { boqId: string; projectId?: string | null; lines: LineLike[] }) {
   const qc = useQueryClient();
+  const { user } = useAuth();
   const [open, setOpen] = useState(true);
   const [showImport, setShowImport] = useState(false);
   const [text, setText] = useState("");
@@ -220,7 +223,15 @@ export default function BoqAuditReview({ boqId, projectId, lines }: { boqId: str
                                   <ActionBtn label="Set qty" onClick={() => {
                                     const v = Number(qtyDraft[f.id] ?? f.recommended_value);
                                     if (!Number.isFinite(v) || v < 0) return toast.error("Enter a valid quantity");
-                                    applyMut.mutate({ id: f.id, state: "RESOLVED", run: () => setLineQty(f.boq_line_id!, v, f.recommended_method) });
+                                    const line = lines.find((l) => l.id === f.boq_line_id);
+                                    if (!line) return toast.error("This finding's line is not loaded. Refresh and try again.");
+                                    applyMut.mutate({ id: f.id, state: "RESOLVED", run: async () => {
+                                      const r = await setLineQty({ boqId, line, qty: v, method: f.recommended_method, changedBy: user?.id ?? null });
+                                      const note = lineEditMessage(r, "Quantity");
+                                      // Nothing written (changed elsewhere, or put back): the finding stays open.
+                                      if (!editTookEffect(r)) throw new Error(note ?? "Quantity not saved.");
+                                      if (note) toast.warning(note);
+                                    } });
                                   }} />
                                 </span>
                               )}

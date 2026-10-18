@@ -129,7 +129,7 @@ describe("stale decisions: the line's quantity meaning changed after the plan wa
     const items = [item("ri-1", "D1", "VERIFIED")];
     const plan = planFor(items); // "pending → 4"
     // Meanwhile someone confirms "none required" in the BOQ editor.
-    await setLineQty("l1", 0, "COUNT");
+    await setLineQty({ boqId: "boq-1", line: lineById("l1") as never, qty: 0, method: "COUNT", changedBy: "u-elsewhere" });
     const confirmed = { ...lineById("l1") };
     const res = await applyAll(items, plan);
     expect(res).toMatchObject({ appliedCount: 0, conflictedReviewItemIds: ["ri-1"], unresolvedCount: 1 });
@@ -266,25 +266,48 @@ describe("a failure part-way through Apply is never reported as success — or a
 
 describe("audit-finding 'Set qty' (setLineQty) records a MANUAL basis", () => {
   beforeEach(() => resetInMemoryDb({ boq: [BOQ], boq_line: [line("l1", "D1", { qty: 4, quantity_status: "MEASURED", basis: "HEURISTIC", unit: "sqm" })] }));
+  const loaded = () => ({ ...lineById("l1") }) as unknown as { id: string; qty: number; unit: string | null };
+  const setQty = (qty: number, method?: string, line = loaded()) => setLineQty({ boqId: "boq-1", line, qty, method, changedBy: "u1" });
 
   it("records MANUAL with MEASURED for a measured method", async () => {
-    await setLineQty("l1", 12.5, "AREA");
+    await setQty(12.5, "AREA");
     const l = lineById("l1") as { qty: number; quantity_status: string; basis: string };
     expect(l).toMatchObject({ qty: 12.5, quantity_status: "MEASURED", basis: "MANUAL" });
     expect(quantityProvenance(l).label).toBe("Changed manually");
   });
 
   it("records COUNTED for a count method, and an explicit 0 is a confirmed zero", async () => {
-    await setLineQty("l1", 0, "count");
+    await setQty(0, "count");
     const l = lineById("l1") as { qty: number; quantity_status: string; basis: string };
     expect(l).toMatchObject({ qty: 0, quantity_status: "COUNTED", basis: "MANUAL" });
     expect(quantityState(l)).toBe("confirmed_zero");
   });
 
   it("refuses a negative or non-numeric quantity and writes nothing", async () => {
-    await expect(setLineQty("l1", -1)).rejects.toThrow(/valid quantity/);
-    await expect(setLineQty("l1", Number.NaN)).rejects.toThrow(/valid quantity/);
+    await expect(setQty(-1)).rejects.toThrow(/valid quantity/);
+    await expect(setQty(Number.NaN)).rejects.toThrow(/valid quantity/);
     expect(lineById("l1")).toMatchObject({ qty: 4, quantity_status: "MEASURED", basis: "HEURISTIC" });
+  });
+
+  it("is guarded: a quantity changed elsewhere since the line was loaded is never overwritten", async () => {
+    const seen = loaded();                                   // reviewer loaded qty 4
+    await setQty(9, "AREA");                                 // someone else sets 9 meanwhile
+    const r = await setQty(12.5, "AREA", seen);              // the reviewer's stale Set qty
+    expect(r).toEqual({ status: "conflict" });
+    expect(lineById("l1")).toMatchObject({ qty: 9 });
+  });
+
+  it("is recorded in the line's history: who, from, to", async () => {
+    const r = await setQty(12.5, "AREA");
+    expect(r).toEqual({ status: "saved", recorded: true });
+    expect(readTable("boq_line_change_log")).toEqual([expect.objectContaining({ boq_id: "boq-1", boq_line_id: "l1", field: "qty", old_value: "4", new_value: "12.5", changed_by: "u1" })]);
+  });
+
+  it("without the history table (production today) it still saves, and says it was not recorded", async () => {
+    dropInMemoryTable("boq_line_change_log");
+    const r = await setQty(12.5, "AREA");
+    expect(r).toEqual({ status: "saved", recorded: false });
+    expect(lineById("l1")).toMatchObject({ qty: 12.5, basis: "MANUAL" });
   });
 });
 

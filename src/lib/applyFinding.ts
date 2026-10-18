@@ -10,6 +10,7 @@ import { PENDING_BASIS } from "./boqEvalJson";
 import { MANUAL_BASIS } from "./quantity";
 import { throwLineSaveError } from "./provenanceSave";
 import { isCountableUnit } from "./review/typeGrouping";
+import { saveLineEdit, type EditableLine, type LineEditResult } from "./lineEdit";
 
 // No column-stripping retry on any write here: a line saved without its basis,
 // pending marker, identity or drawing reference would claim less than the
@@ -89,7 +90,7 @@ function withExpectedFilters(query: any, expected: UpdateExpected): any {
 /**
  * Update boq_line by id. When `expected` is omitted, behaves exactly as
  * before (unconditional update, always resolves true) — the audit-import
- * callers below (applyMethodUnit/setLineQty/markLinePending) never pass it.
+ * callers below (applyMethodUnit/markLinePending) never pass it.
  * When `expected` carries a qty and/or unit to guard, the write is
  * conditional on the row's CURRENT value(s) still matching — a
  * compare-and-swap against a stale pre-apply snapshot (see applyReview.ts's
@@ -170,13 +171,21 @@ export async function applyMethodUnit(lineId: string, method?: string | null, un
  * number is no longer what a drawing, coefficient or assumption produced, and
  * the line must not keep — or lose to "not recorded" — a claim about that.
  * A negative or non-numeric quantity is refused, never written.
+ *
+ * Guarded and recorded like every other manual edit (lib/lineEdit saveLineEdit):
+ * written only if the line still holds the quantity and unit the reviewer saw
+ * (`line`), and the change goes into the line's history — or the result says
+ * it could not, where the history table is absent.
  */
-export async function setLineQty(lineId: string, qty: number, method?: string | null): Promise<void> {
+export async function setLineQty(args: {
+  boqId: string; line: EditableLine; qty: number; method?: string | null; changedBy: string | null;
+}): Promise<LineEditResult> {
+  const { qty } = args;
   if (typeof qty !== "number" || !Number.isFinite(qty) || qty < 0) {
     throw new Error("Enter a valid quantity (a number, zero or more) — nothing was saved.");
   }
-  const status = (method ?? "").toUpperCase() === "COUNT" ? "COUNTED" : "MEASURED";
-  await updateLineResilient(lineId, { qty, basis: MANUAL_BASIS, quantity_status: status });
+  const status = (args.method ?? "").toUpperCase() === "COUNT" ? "COUNTED" : "MEASURED";
+  return saveLineEdit({ boqId: args.boqId, line: args.line, patch: { qty, basis: MANUAL_BASIS, quantity_status: status }, changedBy: args.changedBy });
 }
 
 /** Mark an existing line quantity-pending (qty 0, basis PENDING) — never fabricated. */

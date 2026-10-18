@@ -146,12 +146,7 @@ export async function addLineRecorded(args: {
   if (!row || !id) throw new Error("The line was not added: the database returned no row.");
   if (!historyAvailable) return { status: "added", id, row, recorded: false };
 
-  const base = { boq_id: args.boqId, boq_line_id: id, review_item_id: null, changed_by: args.changedBy };
-  const { error } = await db.from("boq_line_change_log").insert([
-    { ...base, field: "line_created", old_value: null, new_value: show(row.description) },
-    { ...base, field: "qty", old_value: null, new_value: show(row.qty) },
-    ...(row.unit != null ? [{ ...base, field: "unit", old_value: null, new_value: show(row.unit) }] : []),
-  ]);
+  const { error } = await db.from("boq_line_change_log").insert(creationHistory(args.boqId, row, args.changedBy));
   if (!error) return { status: "added", id, row, recorded: true };
 
   let removed = false;
@@ -160,6 +155,63 @@ export async function addLineRecorded(args: {
     removed = !del.error && Array.isArray(del.data) && del.data.length > 0;
   } catch { removed = false; }
   return { status: "history_failed", id, row, removed, message: error.message };
+}
+
+/** The history rows that record a new line: "line_created" plus its initial
+ *  qty and unit, as Apply records the lines it creates. */
+function creationHistory(boqId: string, row: Record<string, unknown>, changedBy: string | null) {
+  const base = { boq_id: boqId, boq_line_id: row.id as string, review_item_id: null, changed_by: changedBy };
+  return [
+    { ...base, field: "line_created", old_value: null, new_value: show(row.description) },
+    { ...base, field: "qty", old_value: null, new_value: show(row.qty) },
+    ...(row.unit != null ? [{ ...base, field: "unit", old_value: null, new_value: show(row.unit) }] : []),
+  ];
+}
+
+export type LinesAddResult =
+  | { status: "added"; ids: string[]; recorded: boolean }
+  /** Inserted, but their history rows were not; `removed` says whether the
+   *  new lines were all taken out again. */
+  | { status: "history_failed"; ids: string[]; removed: boolean; message: string };
+
+/**
+ * Add several lines in one insert (e.g. "Add lines from JSON") and record each
+ * one's creation exactly as addLineRecorded does. Same policy: saved with
+ * disclosure where the history table is absent; all removed again when the
+ * table exists but the history rows fail. Insert errors throw.
+ */
+export async function addLinesRecorded(args: {
+  boqId: string; rows: object[]; changedBy: string | null;
+}): Promise<LinesAddResult> {
+  const probe = await db.from("boq_line_change_log").select("id").limit(0);
+  const historyAvailable = !isMissingTable("boq_line_change_log", probe.error);
+
+  const ins = await db.from("boq_line").insert(args.rows).select("*");
+  if (ins.error) throwLineSaveError(ins.error);
+  const added = (Array.isArray(ins.data) ? ins.data : []) as Record<string, unknown>[];
+  const ids = added.map((r) => r.id as string).filter(Boolean);
+  if (ids.length !== args.rows.length) throw new Error(`Adding lines returned ${ids.length} of ${args.rows.length} rows. Check the BOQ.`);
+  if (!historyAvailable) return { status: "added", ids, recorded: false };
+
+  const { error } = await db.from("boq_line_change_log").insert(added.flatMap((r) => creationHistory(args.boqId, r, args.changedBy)));
+  if (!error) return { status: "added", ids, recorded: true };
+
+  let removed = false;
+  try {
+    const del = await db.from("boq_line").delete().in("id", ids).select("id");
+    removed = !del.error && Array.isArray(del.data) && del.data.length === ids.length;
+  } catch { removed = false; }
+  return { status: "history_failed", ids, removed, message: error.message };
+}
+
+export function linesAddMessage(r: LinesAddResult): string | null {
+  const n = r.ids.length, lines = `${n} line${n === 1 ? "" : "s"}`;
+  if (r.status === "history_failed") {
+    return r.removed
+      ? `Lines not added: their history records couldn't be saved (${r.message}).`
+      : `${lines} added, but their history records couldn't be saved (${r.message}) and taking them out again failed. Check the BOQ.`;
+  }
+  return r.recorded ? null : `${lines} added. Change history is not set up on this database, so they are not in the BOQ's history.`;
 }
 
 export function lineAddMessage(r: LineAddResult): string | null {
