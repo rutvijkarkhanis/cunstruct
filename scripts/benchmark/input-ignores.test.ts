@@ -1,4 +1,5 @@
 // Benchmark inputs (drawings, QS deliverables, gold references, scoring output)
+// and E4 interview material (recordings, notes, consent, the participant key)
 // must never be committable. Asks git itself, via `git check-ignore --no-index`,
 // so the result is what `git add` would do, whether or not a file exists.
 import { execFileSync } from "node:child_process";
@@ -40,6 +41,9 @@ const MUST_BE_IGNORED = [
   "benchmark-inputs/E1/S01/gold/reference-boq.gold.json",
   "benchmark-inputs/E1/S01/gold/disagreements.csv",
   "benchmark-inputs/E1/S01/contract-tags.json",
+  "benchmark-inputs/E1/S01/set.json",
+  "benchmark-inputs/E1/S01/review/decisions.json",
+  "benchmark-inputs/E1/S01/engine-output/analysis.json.sha256",
   // Engine output and scoring output
   "benchmark-inputs/E1/S01/engine-output/extractor-output.json",
   "benchmark-inputs/E1/S01/engine-output/drawing-S01.json",
@@ -53,15 +57,27 @@ const MUST_BE_IGNORED = [
   "benchmark-inputs/other-run/drawing.PDF",
   "benchmark-inputs/other-run/notes.md",
   "benchmark-inputs/stray.json",
+  "benchmark-inputs/E1/e1-out/e1-intake.json",
+  // E4 interviews: personal data (DPDP Act 2023); only the anonymised synthesis is committed
+  "research-inputs/E4/P01/recording.m4a",
+  "research-inputs/E4/P01/recording.MP3",
+  "research-inputs/E4/P01/notes.md",
+  "research-inputs/E4/P01/consent.pdf",
+  "research-inputs/E4/P01/capture.jpg",
+  "research-inputs/E4/participant-key.csv",
+  "research-inputs/E4/screener-responses.xlsx",
+  "research-inputs/E4/notes/P02.docx",
 ];
 
 const MUST_STAY_COMMITTABLE = [
   "benchmark-inputs/E1/INPUTS.md",
   "benchmark-inputs/external-20261013/INPUTS.md",
   "benchmark-inputs/external-20261013/engine-output/engine-version.sha256",
+  "docs/research/E4-INTERVIEW-GUIDE.md",
+  "docs/research/E4-SYNTHESIS.md",
 ];
 
-describe("benchmark inputs stay out of Git", () => {
+describe("benchmark inputs and interview material stay out of Git", () => {
   it.each(MUST_BE_IGNORED)("%s is ignored", (p) => {
     expect(ignored(p)).toBe(true);
   });

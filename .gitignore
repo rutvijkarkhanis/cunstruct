@@ -60,5 +60,10 @@ benchmark-inputs/**
 !benchmark-inputs/**/
 !benchmark-inputs/*/INPUTS.md
 !benchmark-inputs/external-20261013/engine-output/engine-version.sha256
+# E4 discovery interviews: recordings, notes, consent records, screener
+# responses and the participant-code key are personal data (DPDP Act 2023) and
+# never committed. Only the anonymised synthesis, docs/research/E4-SYNTHESIS.md,
+# is. See docs/research/E4-INTERVIEW-GUIDE.md §1.3.
+research-inputs/
 # Local-only evaluations on drawings without redistribution permission.
 src/lib/review/__local__/

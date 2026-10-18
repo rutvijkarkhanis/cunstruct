@@ -114,7 +114,32 @@ benchmark-inputs/E1/
     adjudication/            adjudicated IS 1200 measurement sheet + its disagreement log
     gold/                    gold reference BOQ + its disagreement log + agreement counts
     contract-tags.json       {lineId: "in" | "out"}, the format read by the scoring driver
+    set.json                 this set's machine-readable register row (below)
+    review/decisions.json    optional: human review decisions for the human-corrected run
 ```
+
+**File names the intake check relies on (Rule).** `drawings/` holds exactly one file, the combined PDF. `engine-output/` holds exactly one extractor `.json` and its hash in `<name>.json.sha256`. In `qs-a/`, `qs-b/` and `adjudication/`, the measurement sheet's file name contains `measurement`. Each of `qs-a/`, `qs-b/` and `gold/` holds exactly one reference BOQ `.json`, and each disagreement log's name contains `disagreement`. Saving a received file under such a name does not change its content; the original hash is still recorded.
+
+**`set.json` (Rule).** Never committed, like the rest of the set folder:
+
+```json
+{
+  "schema_version": "cunstruct.e1-set.v1",
+  "id": "S01",
+  "typology": "residential | commercial | institutional",
+  "modality": "vector | scanned",
+  "setAEligible": false,
+  "permission": { "status": "signed | pending", "signedBy": "…", "date": "YYYY-MM-DD" },
+  "attestations": {
+    "engineOutputBeforeQsOpened": { "by": "…", "date": "YYYY-MM-DD" },
+    "qsSheetsComplete": { "by": "…", "date": "YYYY-MM-DD" },
+    "noMeasuredLineOnScaledRow": { "by": "…", "date": "YYYY-MM-DD" },
+    "contractTagsChecked": { "by": "…", "date": "YYYY-MM-DD" }
+  }
+}
+```
+
+The attestations record a named person's confirmation of the §8 rows that files cannot prove. Fill one only when that step was actually done.
 
 **Git protection (Rule, `.gitignore`).** Everything under `benchmark-inputs/` is ignored except each folder's public register (`benchmark-inputs/<folder>/INPUTS.md`) and the existing `external-20261013/engine-output/engine-version.sha256`. This covers drawings in any format or case, QS files, adjudication and gold files, contract tags, permissions, the local register, manifests and scoring output. Check it with:
 
@@ -295,3 +320,16 @@ Write `contract-tags.json` as `{ "<gold line id>": "in" | "out" }`. Record who t
 - [ ] Gold reference BOQ adjudicated, validated, hashed; disagreement log and agreement counts filed (§6.2)
 - [ ] Contract tags written and checked
 - [ ] `git status` shows nothing under `benchmark-inputs/E1/` except, if chosen, the public register `INPUTS.md`
+
+**Machine check (`scripts/benchmark/e1Intake.ts`).** This checks every row above that files can show, and requires a named attestation in `set.json` for the rest. It then checks the portfolio against the plan's E1 test: 10–20 complete sets, spanning residential, commercial and institutional, vector and scanned. It reports the §1.1 targets separately.
+
+```bash
+# Intake report only (writes <out>/e1-intake.json):
+BENCH_E1_ROOT=benchmark-inputs/E1 BENCH_OUT=benchmark-inputs/E1/e1-out BENCH_E1_CHECK_ONLY=1 \
+  npx vitest run --config scripts/benchmark/vitest.bench.config.ts score-set-a
+# The same, then E2 scoring of the complete sets only, each against its gold reference:
+BENCH_E1_ROOT=benchmark-inputs/E1 BENCH_OUT=benchmark-inputs/E1/e1-out \
+  npx vitest run --config scripts/benchmark/vitest.bench.config.ts score-set-a
+```
+
+An incomplete set is never scored, and never against a single QS's reference. The check does not judge the content of a measurement sheet, and it does not replace the people who sign the attestations.

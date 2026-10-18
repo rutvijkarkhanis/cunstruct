@@ -49,7 +49,7 @@ Spread across government (e-tender) and private work. Include at least two peopl
   3. screen or photo capture of documents (default **no**; take notes instead);
   4. anonymised quotes in internal documents.
 - Do not record client names, project names, rates or drawings unless the participant explicitly allows it. Blur or crop any captured image before storing it.
-- Store recordings and notes outside Git. Use participant codes (P01…), with the code-to-name key kept separately. Delete recordings after synthesis (**Assumption:** within 90 days), unless the participant agreed otherwise.
+- Store recordings and notes outside Git, under `research-inputs/E4/` (ignored by `.gitignore`; checked by `scripts/benchmark/input-ignores.test.ts`), or off the repository machine entirely. Use participant codes (P01…), with the code-to-name key kept separately. Only the anonymised synthesis (§6) is committed, as `docs/research/E4-SYNTHESIS.md`. Delete recordings after synthesis (**Assumption:** within 90 days), unless the participant agreed otherwise.
 - Have the PO's legal adviser review the information note and consent wording against India's Digital Personal Data Protection Act, 2023.
 
 ### 1.4 Incentive (Assumption)
