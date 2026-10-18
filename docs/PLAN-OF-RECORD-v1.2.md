@@ -91,7 +91,7 @@ The following work may proceed behind an off-by-default feature flag, using only
 
 | ID | Work | Acceptance for the engineering preview | Status |
 |---|---|---|---|
-| I1 | Interactive prototype shell | Implement the five named surfaces from D2 — workspace, verify queue, coverage map, sign-off sheet and revision delta — using deterministic mock records or existing test fixtures. Any rupee figures are explicitly illustrative/provisional; no accuracy metrics are presented as real | NOT STARTED |
+| I1 | Interactive prototype shell | Implement the five named surfaces from D2 — workspace, verify queue, coverage map, sign-off sheet and revision delta — using deterministic mock records or existing test fixtures. Any rupee figures are explicitly illustrative/provisional; no accuracy metrics are presented as real | **IN PROGRESS** — PR #173 merged; Vercel Preview READY; focused tests/typecheck/lint still need local execution |
 | I2 | Workspace shell (derived from B1) | One workspace frame containing drawing canvas, BOQ grid and a one-line sign-off ledger. Keyboard interactions cover Enter, Tab, F2, arrows and paste-range behaviour. Existing routes remain available | NOT STARTED |
 | I3 | Drawing-context presentation (derived from B2) | Test fixtures demonstrate linked drawing regions and BOQ lines. Missing or uncertain regions are labelled unavailable/unverified, never silently represented as verified quantities. No new drawing acquisition | NOT STARTED |
 | I4 | Preview quality and isolation gate | New flows operate with deterministic fixtures; test coverage demonstrates they do not write to production. Feature flag defaults off. Relevant tests, build, typecheck and changed-file lint pass against recorded baselines | NOT STARTED |
@@ -135,6 +135,7 @@ No synthetic score, repository-only check, successful build, or owner walkthroug
 | 18 Oct 2026 | D1 | PR #164 merged; design-system and contrast/browser evidence recorded in v1.0 | Repository record |
 | 18 Oct 2026 | R2 | PR #171 evidence applies to `788a2c0` only; it must be refreshed for the current main/release commit | Repository record |
 | 18 Oct 2026 | R3 | Deployed server implementation compared with the source at `788a2c0`; live share-link check still outstanding | Repository record |
+| 18 Oct 2026 | I1 | PR #173 merged at `62daefd`; Vercel Preview READY for source commit `5caff45`; local test execution still outstanding | Repository record |
 
 ## 9. Change history
 
