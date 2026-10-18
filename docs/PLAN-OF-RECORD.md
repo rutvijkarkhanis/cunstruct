@@ -26,7 +26,7 @@
 | ID | Owner | Item | Depends on | Done when | Evidence | Status |
 |---|---|---|---|---|---|---|
 | R1 | ENG | Exclude-instead and share-panel fix | — | PR #161 merged to `main` | `main` @ `6206e8c` | **DONE (17 Oct 2026)** |
-| R2 | PO | Verify the Vercel production deployment | — | Vercel shows a **Ready** Production deployment of the current `main` commit, and no newer deployment is failed, errored or cancelled | Screenshot or deployment URL + commit SHA | NOT STARTED |
+| R2 | PO | Verify the Vercel production deployment | — | Vercel shows a **Ready** Production deployment of the current `main` commit, and no newer deployment is failed, errored or cancelled | Screenshot or deployment URL + commit SHA | **DONE (§7 evidence, 18 Oct 2026)** |
 | R3 | PO/OPS | Verify the `workspace-share` edge-function version | — | The deployed function's version/date is recorded. If older than `main`, it is redeployed with approval, and a pending line on a share link shows "Quantity pending" with no amount | Supabase dashboard record; share-link check | NOT STARTED |
 | R4 | PO | Provide staging access | — | A staging Supabase project and credentials exist, configured per `docs/staging-validation-stage3-6.md`; the staging guard refuses production | `npm run staging:migrate` dry run output (refs only, no secrets) | NOT STARTED |
 | R5 | OPS | Apply the change-history migration on **staging** | R4 | `20260921000000` applied on staging, with the runbook pre- and post-checks passing | Runbook output | NOT STARTED |
@@ -96,6 +96,7 @@ Building starts only after D3 passes. Every item ships behind a flag until §5 p
 | 17 Oct 2026 | R1 | PR #161 merged; `main` @ `6206e8c` | Claude Code |
 | 18 Oct 2026 | R10 | [PR #169](https://github.com/rutvijkarkhanis/cunstruct/pull/169) merged to `main`; `e2e/clickToIdentify.spec.ts` passed 4/4 on three consecutive local Chromium runs; integrated Playwright suite passed 48/48 on the verified candidate. Local/mock-network evidence; repository has no GitHub test CI. | ChatGPT / GitHub |
 | 18 Oct 2026 | D1 | [PR #164](https://github.com/rutvijkarkhanis/cunstruct/pull/164) merged to `main`; design-system reference page present; automated contrast test covers 106 colour pairs in both themes; real Chromium design-system spec passed 36/36 on each of three runs. Local evidence; not a production usability study. | ChatGPT / GitHub |
+| 18 Oct 2026 | R2 | GitHub Deployments API, read 18 Oct 2026: deployment `7151081399`, environment **Production**, created by `vercel[bot]` for `main` @ `788a2c06f4c0aeed2995ae068ea4860b9b814497`; its deployment status is `success` (Vercel's Ready) at 2026-10-18T06:45:25Z, URL `https://cunstruct-195a9iwlu-whistleblower.vercel.app`. It is the newest Production deployment listed (the 8 most recent, back to `6206e8c`), so no newer deployment is failed, errored or cancelled. Production evidence via Vercel's GitHub integration, not a dashboard screenshot; true as of `788a2c0` and must be re-checked for any later `main` commit. | Claude Code |
 
 ## 8. Change history
 
