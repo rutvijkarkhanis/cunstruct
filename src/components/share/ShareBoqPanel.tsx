@@ -41,8 +41,10 @@ interface ShareBoqLine {
 /** The quantity as it may be shown publicly. A response from an older share
  *  function carries no quantityState; the shared rule is then applied to the
  *  number alone (a bare 0 is pending, never "0 measured"). */
+const lineState = (l: ShareBoqLine): QuantityState => l.quantityState ?? quantityState({ qty: l.qty });
+
 function shareQty(l: ShareBoqLine): string {
-  const state = l.quantityState ?? quantityState({ qty: l.qty });
+  const state = lineState(l);
   const unit = l.unit ?? "";
   if (state === "pending") return "Quantity pending";
   if (state === "unavailable") return "Quantity not available";
@@ -108,9 +110,16 @@ export default function ShareBoqPanel({ token, boqs }: ShareBoqPanelProps) {
   const previewLines = lines.slice(0, LINE_PREVIEW_CAP);
   const remaining = lines.length - previewLines.length;
   const pendingCount = lines.filter((l) => {
-    const st = l.quantityState ?? quantityState({ qty: l.qty });
+    const st = lineState(l);
     return l.included && (st === "pending" || st === "unavailable");
   }).length;
+  // An amount is shown only beside a quantity the line actually has: a line
+  // shown as pending or unavailable never shows one, even if an older share
+  // function priced it (0 x rate).
+  const showsAmount = (l: ShareBoqLine) => {
+    const st = lineState(l);
+    return l.included && l.amount != null && (st === "established" || st === "confirmed_zero");
+  };
 
   return (
     <div className="p-3 space-y-3">
@@ -162,7 +171,7 @@ export default function ShareBoqPanel({ token, boqs }: ShareBoqPanelProps) {
                   )}
                   {l.included && l.basis && <div className="text-muted-foreground">Basis: {l.basis}</div>}
                 </div>
-                {l.included && l.amount != null && <div className="shrink-0 tabular-nums pt-px">{formatINR(l.amount)}</div>}
+                {showsAmount(l) && <div className="shrink-0 tabular-nums pt-px">{formatINR(l.amount!)}</div>}
               </div>
             ))}
             {remaining > 0 && (
