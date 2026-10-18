@@ -1,0 +1,8 @@
+{
+  "name": "cunstruct-migration-rehearsal",
+  "private": true,
+  "description": "Local-only PGlite (real Postgres 16) rehearsal of the change-history migration and the R6 write paths. Not part of the app build.",
+  "dependencies": {
+    "@electric-sql/pglite": "0.2.17"
+  }
+}
