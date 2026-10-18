@@ -1,21 +1,20 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
+import { coverageGaps, reopenGap, resolveGap, type CoverageGap, type GapResolution } from "@/lib/preview/coverage";
+import { CoveragePanel } from "@/preview/CoveragePanel";
+import {
+  DEMO_COVERAGE, DEMO_DRAWING_REVISION, DEMO_MATERIALITY, DEMO_REVIEWER, DEMO_REVISION_A, DEMO_SEED, DEMO_TOLERABLE_ERROR,
+} from "@/preview/fixtures";
+import { RevisionDeltaPanel } from "@/preview/RevisionDeltaPanel";
+import { SurfacePanel, type PreviewLine } from "@/preview/shared";
+import { MeasurementSheet } from "@/preview/measurement/MeasurementSheet";
+import { SAMPLE_MEASUREMENT_LINES } from "@/preview/measurement/sampleLines";
+import { statePill } from "@/preview/statePill";
+import { SignOffPanel } from "@/preview/SignOffPanel";
+import { VerifyQueuePanel } from "@/preview/VerifyQueuePanel";
+import WorkspaceShell from "@/preview/workspace/WorkspaceShell";
 
-type QuantityState = "established" | "confirmed_zero" | "pending";
-type ReviewState = "needs_review" | "accepted" | "corrected";
-type Surface = "workspace" | "verify" | "coverage" | "signoff" | "revision";
-
-interface PreviewLine {
-  id: string;
-  description: string;
-  unit: string;
-  quantity: number;
-  quantityState: QuantityState;
-  rate: number;
-  reviewState: ReviewState;
-  region: string;
-  note: string;
-}
+type Surface = "workspace" | "verify" | "coverage" | "signoff" | "revision" | "measurement";
 
 const INITIAL_LINES: PreviewLine[] = [
   {
@@ -75,6 +74,8 @@ const INITIAL_LINES: PreviewLine[] = [
   },
 ];
 
+const INITIAL_GAPS = coverageGaps({ ...DEMO_COVERAGE, lines: DEMO_COVERAGE.lineLinks });
+
 const QUEUE_IDS = new Set(INITIAL_LINES.filter((line) => line.reviewState === "needs_review").map((line) => line.id));
 
 const SURFACES: { id: Surface; label: string }[] = [
@@ -83,6 +84,7 @@ const SURFACES: { id: Surface; label: string }[] = [
   { id: "coverage", label: "Coverage map" },
   { id: "signoff", label: "Sign-off sheet" },
   { id: "revision", label: "Revision delta" },
+  { id: "measurement", label: "Measurement sheet" },
 ];
 
 const formatMoney = (value: number) =>
@@ -95,58 +97,12 @@ const formatMoney = (value: number) =>
 const formatQuantity = (value: number) =>
   new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(value);
 
-const quantityLabel: Record<QuantityState, string> = {
-  established: "Quantity established",
-  confirmed_zero: "Confirmed zero",
-  pending: "Quantity pending",
-};
-
-function statePill(state: QuantityState | ReviewState) {
-  const labels: Record<QuantityState | ReviewState, string> = {
-    ...quantityLabel,
-    needs_review: "Needs review",
-    accepted: "Accepted · demo",
-    corrected: "Corrected · demo",
-  };
-  const classes: Record<QuantityState | ReviewState, string> = {
-    established: "border-sky-200 bg-sky-50 text-sky-800",
-    confirmed_zero: "border-violet-200 bg-violet-50 text-violet-800",
-    pending: "border-amber-200 bg-amber-50 text-amber-900",
-    needs_review: "border-amber-200 bg-amber-50 text-amber-900",
-    accepted: "border-emerald-200 bg-emerald-50 text-emerald-800",
-    corrected: "border-indigo-200 bg-indigo-50 text-indigo-800",
-  };
-  return (
-    <span className={`inline-flex rounded-full border px-2 py-1 text-xs font-medium ${classes[state]}`}>
-      {labels[state]}
-    </span>
-  );
-}
 
 function amountFor(line: PreviewLine): number | null {
   if (line.quantityState === "pending") return null;
   return Math.round(line.quantity * line.rate);
 }
 
-function SurfacePanel({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-      </div>
-      {children}
-    </section>
-  );
-}
 
 export default function EngineeringPreview() {
   const enabled =
@@ -154,7 +110,7 @@ export default function EngineeringPreview() {
     import.meta.env.VITE_CUNSTRUCT_ENGINEERING_PREVIEW === "true";
   const [surface, setSurface] = useState<Surface>("workspace");
   const [lines, setLines] = useState<PreviewLine[]>(INITIAL_LINES);
-  const [coverageReviewed, setCoverageReviewed] = useState<string[]>([]);
+  const [gaps, setGaps] = useState<CoverageGap[]>(INITIAL_GAPS);
 
   // This surface is disabled in production unless explicitly feature-enabled.
   // All records are local constants/state: no Supabase client, query, or write.
@@ -176,11 +132,6 @@ export default function EngineeringPreview() {
   // The queue keeps every line that started out needing review, so a demo
   // accept or correction stays visible with its outcome instead of vanishing.
   const queue = lines.filter((line) => QUEUE_IDS.has(line.id));
-  const coverageRows = [
-    { id: "legend", title: "Drawing legend items", detail: "One symbol has no linked BOQ line." },
-    { id: "regions", title: "Regions without detections", detail: "Two illustrative regions have no linked quantity." },
-    { id: "scope", title: "Expected scope", detail: "One expected work item needs a decision or exclusion reason." },
-  ];
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -238,237 +189,45 @@ export default function EngineeringPreview() {
         {surface === "workspace" && (
           <SurfacePanel
             title="Workspace"
-            description="Drawing context and BOQ grid in one view. The drawing pane is a schematic placeholder, not an uploaded drawing."
+            description="Drawing canvas, BOQ grid and sign-off ledger in one frame, linked both ways. Synthetic data; edits are demo only and are discarded on reload."
           >
-            <div className="grid min-w-0 gap-4 xl:grid-cols-[1.05fr_1.4fr]">
-              <div className="rounded-xl border bg-card p-4">
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <div className="text-sm font-semibold">Drawing canvas</div>
-                    <div className="text-xs text-muted-foreground">Fixture: DRAWING-DEMO-01 · no source file loaded</div>
-                  </div>
-                  <span className="rounded border px-2 py-1 text-xs text-muted-foreground">Scale unconfirmed</span>
-                </div>
-                <div className="relative flex min-h-80 items-center justify-center overflow-hidden rounded-md border bg-white p-4">
-                  <div className="absolute inset-6 border border-slate-300" />
-                  <div className="absolute inset-x-14 top-12 bottom-16 border-2 border-slate-500" />
-                  <div className="absolute left-1/2 top-12 bottom-16 border-l border-dashed border-slate-400" />
-                  <div className="absolute left-14 right-14 top-1/2 border-t border-dashed border-slate-400" />
-                  <div className="absolute left-[25%] top-[30%] h-10 w-16 border-2 border-sky-500 bg-sky-100/60" />
-                  <div className="absolute right-[25%] bottom-[28%] h-12 w-20 border-2 border-amber-500 bg-amber-100/60" />
-                  <div className="relative z-10 rounded bg-white/90 px-3 py-2 text-center text-xs text-slate-700 shadow-sm">
-                    Schematic only
-                    <br />
-                    Not a real drawing
-                  </div>
-                </div>
-                <p className="mt-3 text-xs text-muted-foreground">
-                  No measurement is inferred from this schematic. A line without verified drawing evidence remains unverified.
-                </p>
-              </div>
-
-              <div className="min-w-0 rounded-xl border bg-card">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
-                  <div>
-                    <div className="font-semibold">BOQ grid</div>
-                    <div className="text-xs text-muted-foreground">Demo schedule · values are illustrative</div>
-                  </div>
-                  <button type="button" onClick={() => setSurface("verify")} className="rounded-md border px-3 py-2 text-sm hover:bg-muted">
-                    Open verify queue
-                  </button>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[650px] text-left text-sm">
-                    <thead className="bg-muted/60 text-xs text-muted-foreground">
-                      <tr>
-                        <th className="px-3 py-3 font-medium">Item</th>
-                        <th className="px-3 py-3 font-medium">Qty</th>
-                        <th className="px-3 py-3 font-medium">Rate</th>
-                        <th className="px-3 py-3 font-medium">Amount</th>
-                        <th className="px-3 py-3 font-medium">State</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {lines.map((line) => (
-                        <tr key={line.id} className="border-t align-top">
-                          <td className="max-w-64 px-3 py-3">
-                            <div className="font-medium">{line.description}</div>
-                            <div className="mt-1 text-xs text-muted-foreground">{line.id} · {line.region}</div>
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-3 tabular-nums">
-                            {line.quantityState === "pending" ? "—" : `${formatQuantity(line.quantity)} ${line.unit}`}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-3 tabular-nums">{formatMoney(line.rate)}</td>
-                          <td className="whitespace-nowrap px-3 py-3 tabular-nums font-medium">
-                            {amountFor(line) === null ? "—" : formatMoney(amountFor(line)!)}
-                          </td>
-                          <td className="px-3 py-3">{statePill(line.quantityState)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
+            <WorkspaceShell />
           </SurfacePanel>
         )}
 
         {surface === "verify" && (
-          <SurfacePanel
-            title="Verify queue"
-            description="Illustrative review ordering. Actions below update only the local preview state and are discarded when the page reloads."
-          >
-            <div className="overflow-hidden rounded-xl border bg-card">
-              {queue.length === 0 ? (
-                <div className="p-8 text-center">
-                  <div className="font-medium">No demo lines awaiting review</div>
-                  <p className="mt-1 text-sm text-muted-foreground">Reset by reloading the page.</p>
-                </div>
-              ) : queue.map((line) => (
-                <article key={line.id} className="grid gap-3 border-b p-4 last:border-b-0 lg:grid-cols-[1fr_auto] lg:items-center">
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs font-semibold text-muted-foreground">{line.id}</span>
-                      {statePill(line.quantityState)}
-                      {line.reviewState !== "needs_review" && statePill(line.reviewState)}
-                    </div>
-                    <h3 className="font-semibold">{line.description}</h3>
-                    <p className="text-sm text-muted-foreground">{line.note}</p>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-                      <span>Quantity: <strong>{line.quantityState === "pending" ? "Pending" : `${formatQuantity(line.quantity)} ${line.unit}`}</strong></span>
-                      <span>Illustrative rate: <strong>{formatMoney(line.rate)}</strong></span>
-                      <span>Illustrative amount: <strong>{amountFor(line) === null ? "Not priced — pending" : formatMoney(amountFor(line)!)}</strong></span>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2 lg:justify-end">
-                    <button type="button" onClick={() => updateLine(line.id, { reviewState: "accepted" })} className="rounded-md border border-emerald-300 px-3 py-2 text-sm hover:bg-emerald-50">
-                      Accept in demo
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateLine(line.id, {
-                        quantity: line.quantityState === "pending" ? 1 : Math.round((line.quantity + 0.5) * 100) / 100,
-                        quantityState: "established",
-                        reviewState: "corrected",
-                      })}
-                      className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-                    >
-                      Correct in demo
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </SurfacePanel>
+          <VerifyQueuePanel queue={queue} materiality={DEMO_MATERIALITY} onUpdate={updateLine} />
         )}
 
         {surface === "coverage" && (
-          <SurfacePanel
-            title="Coverage map"
-            description="Illustrates how gaps could be surfaced. These rows are seeded examples, not detections from real drawings."
-          >
-            <div className="grid gap-3 lg:grid-cols-3">
-              {coverageRows.map((row) => {
-                const reviewed = coverageReviewed.includes(row.id);
-                return (
-                  <article key={row.id} className="rounded-xl border bg-card p-5">
-                    <div className="flex items-start justify-between gap-3">
-                      <h3 className="font-semibold">{row.title}</h3>
-                      {statePill(reviewed ? "accepted" : "needs_review")}
-                    </div>
-                    <p className="mt-2 text-sm text-muted-foreground">{row.detail}</p>
-                    <button
-                      type="button"
-                      onClick={() => setCoverageReviewed((old) => reviewed ? old.filter((id) => id !== row.id) : [...old, row.id])}
-                      className="mt-5 rounded-md border px-3 py-2 text-sm hover:bg-muted"
-                    >
-                      {reviewed ? "Undo demo review" : "Mark reviewed in demo"}
-                    </button>
-                  </article>
-                );
-              })}
-            </div>
-            <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
-              Demo review state is not a certification, an omission-catch result, or evidence of drawing coverage.
-            </p>
-          </SurfacePanel>
+          <CoveragePanel
+            gaps={gaps}
+            reviewer={DEMO_REVIEWER}
+            onResolve={(id: string, r: GapResolution) => setGaps((g) => resolveGap(g, id, r))}
+            onReopen={(id: string) => setGaps((g) => reopenGap(g, id))}
+          />
         )}
 
         {surface === "signoff" && (
-          <SurfacePanel
-            title="Sign-off sheet"
-            description="Shows the intended summary structure without creating a certificate or calculating a research metric."
-          >
-            <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
-              <div className="overflow-hidden rounded-xl border bg-card">
-                <div className="border-b p-4">
-                  <h3 className="font-semibold">Pre-certification checklist</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">Illustrative checklist state only.</p>
-                </div>
-                {[
-                  ["Key lines", "Review is incomplete"],
-                  ["Coverage gaps", `${coverageReviewed.length} of ${coverageRows.length} demo rows marked reviewed`],
-                  ["Pending quantities", `${totals.pending} line(s) remain pending`],
-                  ["Reference comparison", "No independent reference set loaded"],
-                ].map(([label, value]) => (
-                  <div key={label} className="flex flex-wrap items-center justify-between gap-2 border-b p-4 last:border-b-0">
-                    <span className="text-sm font-medium">{label}</span>
-                    <span className="text-sm text-muted-foreground">{value}</span>
-                  </div>
-                ))}
-              </div>
-              <aside className="space-y-3 rounded-xl border bg-card p-5">
-                <div className="text-sm font-semibold">Certification status</div>
-                <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-950">
-                  Not certified
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  Residual ₹ error, omission catch rate and high-value catch rate are not calculated. No benchmark reference or frozen study pack exists in this preview.
-                </p>
-                <button type="button" disabled className="w-full cursor-not-allowed rounded-md border px-3 py-2 text-sm text-muted-foreground opacity-70">
-                  Certification unavailable
-                </button>
-              </aside>
-            </div>
-          </SurfacePanel>
+          <SignOffPanel
+            lines={lines}
+            gaps={gaps}
+            noDetectionRegionIds={DEMO_COVERAGE.regions.filter((r) => r.detections === 0).map((r) => r.id)}
+            materiality={DEMO_MATERIALITY}
+            tolerableError={DEMO_TOLERABLE_ERROR}
+            seed={DEMO_SEED}
+            reviewer={DEMO_REVIEWER}
+            drawingRevision={DEMO_DRAWING_REVISION}
+          />
         )}
 
-        {surface === "revision" && (
+        {surface === "revision" && <RevisionDeltaPanel revisionA={DEMO_REVISION_A} current={lines} />}
+        {surface === "measurement" && (
           <SurfacePanel
-            title="Revision delta"
-            description="Illustrative revision comparison. The displayed differences are pre-seeded examples, not calculated from drawing revisions."
+            title="Measurement sheet"
+            description="IS 1200-style No × L × B × D rows with deductions, drawing references and rule citations (plan B3, preview only). Sample data; citations are not verified against the standard."
           >
-            <div className="overflow-x-auto rounded-xl border bg-card">
-              <table className="w-full min-w-[650px] text-left text-sm">
-                <thead className="bg-muted/60 text-xs text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">BOQ line</th>
-                    <th className="px-4 py-3 font-medium">Revision A</th>
-                    <th className="px-4 py-3 font-medium">Revision B</th>
-                    <th className="px-4 py-3 font-medium">Δ quantity</th>
-                    <th className="px-4 py-3 font-medium">Illustrative Δ₹</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[
-                    { name: "Excavation in foundation trenches", a: "21.0 m³", b: "24.0 m³", delta: "+3.0 m³", money: "+₹1,260" },
-                    { name: "PCC below footings", a: "6.5 m³", b: "6.5 m³", delta: "0.0 m³", money: "₹0" },
-                    { name: "Brickwork above plinth", a: "16.8 m³", b: "18.2 m³", delta: "+1.4 m³", money: "+₹10,360" },
-                  ].map((row) => (
-                    <tr key={row.name} className="border-t">
-                      <td className="px-4 py-4 font-medium">{row.name}</td>
-                      <td className="whitespace-nowrap px-4 py-4 tabular-nums">{row.a}</td>
-                      <td className="whitespace-nowrap px-4 py-4 tabular-nums">{row.b}</td>
-                      <td className="whitespace-nowrap px-4 py-4 tabular-nums">{row.delta}</td>
-                      <td className="whitespace-nowrap px-4 py-4 font-medium tabular-nums">{row.money}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
-              Delta figures are illustrative placeholders. This surface does not inspect actual revisions or calculate a project variance.
-            </p>
+            <MeasurementSheet initialLines={SAMPLE_MEASUREMENT_LINES} />
           </SurfacePanel>
         )}
         <footer className="border-t pt-4 text-xs text-muted-foreground">
