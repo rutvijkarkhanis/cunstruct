@@ -34,7 +34,7 @@
 | R7 | PO + OPS | Production change-history migration | R6 | Verified backup taken; read-only preflight run; `20260921000000` applied to production per `docs/audit-history-deployment.md`; post-checks pass; removal and rate edits work in production | Runbook output, backup manifest | NOT STARTED |
 | R8 | PO | Decide on commercial revisions | — | Written decision: ship revisions in this release (→ R9) or defer (record it in §8) | Decision note | NOT STARTED |
 | R9 | ENG + OPS | Revisions migration chain (only if R8 = ship) | R5, R8 | `npm run staging:migrate` applies `20261003`→`20261008` in order on staging. Freeze → edit → diff → freeze → export passes on staging. The chain is then applied to production with approval | Staging and production logs | NOT STARTED |
-| R10 | ENG | Pre-existing Playwright failure | — | `e2e/clickToIdentify.spec.ts` either passes, or is replaced by a spec whose purpose is stated. No test is skipped to make it pass | CI/local run output | NOT STARTED |
+| R10 | ENG | Pre-existing Playwright failure | — | `e2e/clickToIdentify.spec.ts` either passes, or is replaced by a spec whose purpose is stated. No test is skipped to make it pass | CI/local run output | **DONE (§7 evidence, 18 Oct 2026)** |
 
 ## 2. Evidence foundations (before any redesign is built)
 
@@ -50,7 +50,7 @@
 
 | ID | Owner | Item | Depends on | Done when | Evidence | Status |
 |---|---|---|---|---|---|---|
-| D1 | ENG | Design system | — | Tokens and components cover:<br>colour used only for meaning, with an icon and text on every status (WCAG 1.4.1)<br>tabular figures and `en-IN` lakh/crore money<br>24 px minimum targets (WCAG 2.5.8)<br>a non-drag alternative for every drag (WCAG 2.5.7)<br>light and dark themes, with drawings always rendered light | Design-system page + automated contrast checks | NOT STARTED |
+| D1 | ENG | Design system | — | Tokens and components cover:<br>colour used only for meaning, with an icon and text on every status (WCAG 1.4.1)<br>tabular figures and `en-IN` lakh/crore money<br>24 px minimum targets (WCAG 2.5.8)<br>a non-drag alternative for every drag (WCAG 2.5.7)<br>light and dark themes, with drawings always rendered light | Design-system page + automated contrast checks | **DONE (§7 evidence, 18 Oct 2026)** |
 | D2 | ENG | Clickable prototype | D1 | Five screens on a real benchmark project: **workspace** (canvas plus BOQ grid, linked both ways), **verify queue** (money-at-risk ordering, evidence first, one-key accept / type-over correction), **coverage map**, **sign-off sheet** (key items, sample, residual ₹ error), **revision delta** | Prototype link | NOT STARTED |
 | D3 | PO + ENG | Prototype test | D2, E4 | 6–8 billing engineers per condition. Three conditions: (a) today's item-by-item review, (b) money-at-risk queue with evidence first, (c) (b) plus coverage sweep and sampling sign-off. Seeded quantity errors and omissions. **Pass:** condition (c) has lower residual ₹ error than (a) and than AI alone, a higher omission catch rate, and no collapse on rare high-value errors | Study report with metrics | NOT STARTED |
 
@@ -94,6 +94,8 @@ Building starts only after D3 passes. Every item ships behind a flag until §5 p
 | Date | Item | Evidence | Recorded by |
 |---|---|---|---|
 | 17 Oct 2026 | R1 | PR #161 merged; `main` @ `6206e8c` | Claude Code |
+| 18 Oct 2026 | R10 | [PR #169](https://github.com/rutvijkarkhanis/cunstruct/pull/169) merged to `main`; `e2e/clickToIdentify.spec.ts` passed 4/4 on three consecutive local Chromium runs; integrated Playwright suite passed 48/48 on the verified candidate. Local/mock-network evidence; repository has no GitHub test CI. | ChatGPT / GitHub |
+| 18 Oct 2026 | D1 | [PR #164](https://github.com/rutvijkarkhanis/cunstruct/pull/164) merged to `main`; design-system reference page present; automated contrast test covers 106 colour pairs in both themes; real Chromium design-system spec passed 36/36 on each of three runs. Local evidence; not a production usability study. | ChatGPT / GitHub |
 
 ## 8. Change history
 
