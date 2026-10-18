@@ -51,5 +51,19 @@ supabase/.temp/
 # benchmark-inputs/external-20261013/INPUTS.md).
 benchmark-inputs/**/*.pdf
 benchmark-inputs/**/engine-output/drawing-*
+# Everything else under benchmark-inputs/ is local-only too: drawings in any
+# format or case, QS measurement sheets, reference and gold files, adjudication
+# records, contract tags, permissions, local registers and scoring output.
+# Only each folder's public register (INPUTS.md) and the existing engine-version
+# hash may be committed. Checked by scripts/benchmark/input-ignores.test.ts.
+benchmark-inputs/**
+!benchmark-inputs/**/
+!benchmark-inputs/*/INPUTS.md
+!benchmark-inputs/external-20261013/engine-output/engine-version.sha256
+# E4 discovery interviews: recordings, notes, consent records, screener
+# responses and the participant-code key are personal data (DPDP Act 2023) and
+# never committed. Only the anonymised synthesis, docs/research/E4-SYNTHESIS.md,
+# is. See docs/research/E4-INTERVIEW-GUIDE.md §1.3.
+research-inputs/
 # Local-only evaluations on drawings without redistribution permission.
 src/lib/review/__local__/

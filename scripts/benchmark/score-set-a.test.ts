@@ -13,6 +13,11 @@
 //                 [BENCH_PAGE_SIZES=<{"1":{"width":..,"height":..}} .json>] [BENCH_DOC_NAME=...] \
 //                 [BENCH_DECISIONS=<review decisions .json>] BENCH_OUT=<dir> \
 //                 npx vitest run --config scripts/benchmark/vitest.bench.config.ts score-set-a
+//   E1 sets:    BENCH_E1_ROOT=<benchmark-inputs/E1> BENCH_OUT=<dir> [BENCH_E1_CHECK_ONLY=1] \
+//                 npx vitest run --config scripts/benchmark/vitest.bench.config.ts score-set-a
+//               Checks every set folder against the E1 kit (e1Intake.ts), writes
+//               e1-intake.json, and scores the complete sets only, each against its
+//               gold reference. CHECK_ONLY writes the intake report without scoring.
 // Without the inputs it verifies the frozen hashes only. Outputs stay local
 // (BENCH_OUT); never commit them. See docs/benchmarks/BENCHMARK-EXECUTION-PLAN.md.
 import { describe, it, expect, vi } from "vitest";
@@ -24,6 +29,8 @@ import { seedCatalogue } from "@/lib/dsr/seedFixture";
 import { FROZEN_V1_1, frozenHashesNow } from "./gates";
 import { buildPricingIndex } from "./metrics";
 import { runManifest, runSet, setOutcome } from "./runner";
+import { checkE1Root, manifestFromE1 } from "./e1Intake";
+import { mkdirSync, writeFileSync } from "node:fs";
 
 export { FROZEN_V1_1, gates, type GateResult } from "./gates";
 
@@ -54,6 +61,24 @@ describe("Benchmark scoring (protocol v1.1)", () => {
     const { results, summary } = await runManifest(resolve(env.BENCH_MANIFEST!), out, buildPricingIndex(seedCatalogue()));
     for (const s of summary.sets) console.log(`${s.id} [${s.role}]: ${s.outcome}`);
     console.log(`summary: ${resolve(out, "summary.json")}`);
+    const errors = results.filter((r) => r.error).map((r) => `${r.id}: ${r.error}`);
+    expect(errors, errors.join("\n")).toEqual([]);
+  });
+
+  it.runIf(!!env.BENCH_E1_ROOT)("checks the E1 sets and scores the complete ones against their gold references", async () => {
+    expect(frozenHashesNow()).toEqual(FROZEN_V1_1);
+    const out = resolve(env.BENCH_OUT ?? "benchmark-inputs/e1-out");
+    mkdirSync(out, { recursive: true });
+    const { sets, portfolio, ignoredFolders, localExclusions } = checkE1Root(env.BENCH_E1_ROOT!);
+    console.log(`E1 root: ${sets.length} set folder(s); ignored (not S01-style): ${ignoredFolders.join(", ") || "none"}; local excluded hashes: ${localExclusions}`);
+    const { manifest, refused } = manifestFromE1(sets);
+    writeFileSync(resolve(out, "e1-intake.json"), JSON.stringify({ portfolio, sets, refused: refused.map((r) => r.id), ignoredFolders, localExclusions }, null, 2));
+    for (const s of sets) console.log(`${s.id}: ${s.complete ? "complete" : `incomplete — ${s.checks.filter((c) => !c.ok).map((c) => `${c.id}: ${c.detail}`).join("; ")}`}`);
+    console.log(`E1: ${portfolio.complete} of ${portfolio.sets} sets complete; plan count ${portfolio.meetsPlanCount ? "met" : "NOT met"}, spread ${portfolio.meetsPlanSpread ? "met" : "NOT met"}${portfolio.missing.length ? ` (${portfolio.missing.join("; ")})` : ""}`);
+    if (env.BENCH_E1_CHECK_ONLY || manifest.sets.length === 0) return;
+    writeFileSync(resolve(out, "manifest.json"), JSON.stringify(manifest, null, 2));
+    const { results } = await runManifest(resolve(out, "manifest.json"), out, buildPricingIndex(seedCatalogue()));
+    for (const r of results) console.log(`${r.id} [${r.role}]: ${setOutcome(r)}`);
     const errors = results.filter((r) => r.error).map((r) => `${r.id}: ${r.error}`);
     expect(errors, errors.join("\n")).toEqual([]);
   });

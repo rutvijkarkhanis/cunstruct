@@ -1,0 +1,339 @@
+# E1 benchmark intake kit
+
+**Plan item:** E1 *Benchmark inputs* (owner: PO), in `docs/PLAN-OF-RECORD.md` v1.0 §2.
+**Done when (quoted from the plan):** 10–20 real Indian drawing sets (residential, commercial, institutional; vector and scanned) with usage permission. Two independent experienced QS produce IS 1200 measurement sheets per set, reconciled by adjudication. In/out-of-contract tags recorded.
+**Evidence (from the plan):** an input register with SHA-256 per drawing; reference files kept outside Git.
+**Unblocks:** E2 (benchmark run), and through it E5 and D3.
+
+This kit is a working procedure. It does not change the frozen protocol ([v1](extraction-acceptance-protocol.md) and the [v1.1 amendment](extraction-acceptance-protocol-v1.1.md)) or the reference format ([spec](reference-boq-spec.md), [preparer brief](reference-boq-handoff.md), [template](reference-boq-template.json)). Where they say something, they win.
+
+Labels used below: **Rule** = taken from an existing repo document; **Decision** = the PO decision recorded in §0; **Assumption** = a working choice that the PO should confirm or replace; **Open** = a decision that is not yet made.
+
+---
+
+## 0. Owner decision and operational interpretation
+
+### 0.1 PO decision, 17 Oct 2026 (Decision)
+
+This is the operational interpretation of E1 and of the existing E2 scoring protocol under plan of record v1.0. It is **not** a change to either item's "done when" test, to protocol v1/v1.1, or to the reference format. If applying it exposes a genuine incompatibility with v1.0, stop and report it to the PO; do not work around it.
+
+1. **Complete IS 1200 measurement sheets are mandatory.** Each of the two independent QS produces a complete measurement sheet for every in-scope item in each set: No × L × B × D, deductions, quantity, unit, drawing page / reference, the measurement rule applied and the IS 1200 part / clause. Each QS's original deliverable is preserved unchanged.
+2. **The scoring-format reference BOQ is a separate deliverable.** Each QS also supplies a valid `cunstruct.reference-boq.v1` file that conforms to the existing frozen protocol and preparer brief. It never replaces, and is never treated as equivalent to, the measurement sheet. The brief's room-area convention (gross, from the printed L × W) and printed-count rules stay unchanged for scoring. The scoring contract is not widened to fit broader measurements.
+3. **Scaling.** Scaling may be used in the measurement sheet when necessary. Every scaled measurement is identified as scaled, with its drawing reference and method. A quantity that cannot be established defensibly is marked ambiguous or unmeasurable; no value is invented. A scaled measurement is never presented as satisfying the printed-dimension acceptance contract: in the reference BOQ it is never a `measured` line (§4.3).
+4. **Independence and adjudication.** Both QS work without seeing any Cunstruct output. An independent third QS adjudicates disagreements. Original sheets, adjudication records, contract tags and file hashes are all preserved.
+
+### 0.2 Remaining choices
+
+| # | Decision | Why it matters | Status |
+|---|---|---|---|
+| D-1 | **What each QS delivers** | E1 requires IS 1200 measurement sheets; E2's frozen scorer requires a reference in the brief's convention. | **Decided** (§0.1, items 1–3) |
+| D-2 | **Pages in scope.** The brief scopes one sheet list and lists anything needing other drawings as out of scope. | For E1 the whole set is supplied. | **Assumption:** pages in scope = every page of the set. `out_of_scope` is kept for items that need documents *not* in the set (specifications, BBS, services drawings not supplied). |
+| D-3 | **Who adjudicates** (§6) | Must be independent of both QS and of Cunstruct output. | **Decided** (§0.1, item 4): an independent third QS, engaged on the same independence terms. |
+| D-4 | **Rates for ₹ weighting.** E2 reports ₹-weighted error. | E1 delivers quantities only. Rates depend on E3 (DSR 2023 basis, cost index, GST not yet confirmed). | **Assumption:** out of E1. The E2 owner records the rate source used. |
+
+### 0.3 Compatibility check against v1.0 (done 17 Oct 2026)
+
+No incompatibility found. What follows from the decision:
+
+- **E1's test** ("IS 1200 measurement sheets per set, reconciled by adjudication") is met by the measurement sheets and the adjudicated measurement sheet (§6.1), not by the reference BOQ.
+- **E2's test** (protocol v1.1 run on every set) is met by the gold reference BOQ (§6.2), which uses only the existing format and conventions. The spec already allows "other items", each with its own `measurementRule` ([reference-boq-spec.md](reference-boq-spec.md) §3), so non-room items measured from printed dimensions can be scored without changing the contract.
+- **Consequence, not a conflict:** an item that the measurement sheet could only get by scaling appears in the reference BOQ as `unmeasurable` (held for review), so E2 does not score its quantity. E2's per-category figures therefore cover printed-dimension quantities only. Report this alongside them.
+- **Expected difference, not a disagreement:** a room's gross area in the reference BOQ and its IS 1200 net floor-finish area in the measurement sheet will differ. They answer different rules and are never reconciled against each other.
+
+The IS 1200 clause texts are not yet verified against BIS originals (plan item E3). Until E3 is done, a clause the QS cites is the QS's professional reading. It is recorded as given and is not treated as confirmed.
+
+---
+
+## 1. Drawing-set selection criteria
+
+### 1.1 Mix (target 10–20 sets)
+
+| Dimension | Minimum (Assumption: proposed so each cell has at least a few sets) |
+|---|---|
+| Residential (independent house, apartment block) | 3 sets |
+| Commercial (office, retail, mixed use) | 3 sets |
+| Institutional (school, hospital, hostel, government building) | 3 sets |
+| Vector PDF (selectable text) | at least half of all sets |
+| Scanned / raster | at least 3 sets |
+| Sets that also meet the Set A contract (a schedule with an explicit QTY / NO. column **and** room tags printing both area and L × W; [acceptance-set-a-handoff.md](acceptance-set-a-handoff.md) §1A) | at least 1, preferably 3 |
+| Sources | no more than about a third of the sets from one architect, firm or department |
+
+**Rule:** the frozen extractor refuses raster pages ([protocol v1](extraction-acceptance-protocol.md) §1). Scanned sets will show every in-contract quantity as missed or unresolved under v1. They are still needed: E2 reports raw recall per category, and the research report expects scanned sheets to be harder.
+
+### 1.2 Each set must contain
+
+- [ ] A real building that was built or tendered in India (not a training exercise or a sample from a template site).
+- [ ] Architectural floor plans of every floor, plus at least one section and the elevations.
+- [ ] A title block with project name, sheet number, scale and revision on each sheet.
+- [ ] At least one schedule (door/window, finishes or areas), or room tags with printed sizes.
+- [ ] Legible dimensions. **Assumption:** printed text at least about 1.4 mm high, the v1 input-contract floor for vector pages.
+- [ ] Preferably structural drawings (foundation, column and beam layouts). Without them, RCC items will be `out_of_scope`. Record which is the case.
+- [ ] Usage permission in writing (§1.4).
+
+### 1.3 Exclude
+
+- Any drawing the extractor has already been run on, or that was used in development: Set B (`af382dca…f9db5`, [protocol v1](extraction-acceptance-protocol.md) §3) and the two drawings in [benchmark-inputs/external-20261013/INPUTS.md](../../benchmark-inputs/external-20261013/INPUTS.md). Compare the SHA-256 of each new file against these before accepting it.
+- Drawings with a "must not be copied or reproduced" notice, unless the written permission names this use.
+- Sets that mix revisions without a clear current revision.
+
+### 1.4 Permission wording (draft, Assumption: to be reviewed by the PO's legal adviser before use)
+
+> I, **[name]**, **[role]** at **[organisation]**, am authorised to share the drawing set **[project / set description]**, comprising **[n]** files, with **[Cunstruct legal entity]**.
+>
+> I permit **[Cunstruct legal entity]** to:
+> (a) store these files privately, outside any public or shared code repository;
+> (b) give them to quantity surveyors engaged under confidentiality to prepare measurement sheets;
+> (c) run software on them and compare the results with those measurement sheets;
+> (d) publish aggregate accuracy results that do not reproduce the drawings and do not identify the project, the client or the site [**unless I tick here: ☐ the project may be named**].
+>
+> The drawings will not be published, sold or used to train any model offered to third parties [**delete if a broader use is agreed**]. I may withdraw this permission in writing; the files and derived measurement sheets will then be deleted within **[30]** days, except aggregate results already published.
+>
+> Signed / date / contact.
+
+Record the signed permission in the set's `permission/` folder (§2) and its status in the register (§3).
+
+---
+
+## 2. Storage and hashing
+
+**Rule:** benchmark drawings and anything that reproduces their content are never committed ([BENCHMARK-EXECUTION-PLAN.md](BENCHMARK-EXECUTION-PLAN.md) §4, [.gitignore](../../.gitignore)).
+
+Layout, one folder per set:
+
+```
+benchmark-inputs/E1/
+  INPUTS.md                  public register (§3), may be committed
+  REGISTER.local.md          full register (§3), never committed
+  S01/
+    received/                every file exactly as received, never edited; hashed into SHA256SUMS on receipt
+    drawings/                exactly one file: the combined PDF everyone measures (a copy of the single
+                             received PDF, or the received PDFs joined in sheet order without re-rendering)
+    permission/              signed permission
+    SHA256SUMS               sha256sum of every file in drawings/
+    engine-output/           extractor JSON + its SHA-256, written BEFORE any QS file is opened
+    qs-a/  qs-b/             QS originals as received: measurement sheet, reference BOQ,
+                             unmeasured list, declaration; never edited
+    adjudication/            adjudicated IS 1200 measurement sheet + its disagreement log
+    gold/                    gold reference BOQ + its disagreement log + agreement counts
+    contract-tags.json       {lineId: "in" | "out"}, the format read by the scoring driver
+    set.json                 this set's machine-readable register row (below)
+    review/decisions.json    optional: human review decisions for the human-corrected run
+```
+
+**File names the intake check relies on (Rule).** `drawings/` holds exactly one file, the combined PDF. `engine-output/` holds exactly one extractor `.json` and its hash in `<name>.json.sha256`. In `qs-a/`, `qs-b/` and `adjudication/`, the measurement sheet's file name contains `measurement`. Each of `qs-a/`, `qs-b/` and `gold/` holds exactly one reference BOQ `.json`, and each disagreement log's name contains `disagreement`. Saving a received file under such a name does not change its content; the original hash is still recorded.
+
+**`set.json` (Rule).** Never committed, like the rest of the set folder:
+
+```json
+{
+  "schema_version": "cunstruct.e1-set.v1",
+  "id": "S01",
+  "typology": "residential | commercial | institutional",
+  "modality": "vector | scanned",
+  "setAEligible": false,
+  "permission": { "status": "signed | pending", "signedBy": "…", "date": "YYYY-MM-DD" },
+  "attestations": {
+    "notAnExcludedDrawing": { "by": "…", "date": "YYYY-MM-DD" },
+    "engineOutputBeforeQsOpened": { "by": "…", "date": "YYYY-MM-DD" },
+    "qsSheetsComplete": { "by": "…", "date": "YYYY-MM-DD" },
+    "noMeasuredLineOnScaledRow": { "by": "…", "date": "YYYY-MM-DD" },
+    "contractTagsChecked": { "by": "…", "date": "YYYY-MM-DD" }
+  }
+}
+```
+
+The attestations record a named person's confirmation of the §8 rows that files cannot prove. Fill one only when that step was actually done.
+
+**Git protection (Rule, `.gitignore`).** Everything under `benchmark-inputs/` is ignored except each folder's public register (`benchmark-inputs/<folder>/INPUTS.md`) and the existing `external-20261013/engine-output/engine-version.sha256`. This covers drawings in any format or case, QS files, adjudication and gold files, contract tags, permissions, the local register, manifests and scoring output. Check it with:
+
+```bash
+npx vitest run --config scripts/benchmark/vitest.bench.config.ts scripts/benchmark/input-ignores.test.ts
+git status --porcelain --ignored=no benchmark-inputs/   # before every commit: only INPUTS.md may appear
+```
+
+A file that was committed before it was ignored stays tracked; `git ls-files benchmark-inputs/` must list only the files named above.
+
+Hashing on receipt:
+
+```bash
+cd benchmark-inputs/E1/S01
+sha256sum received/* drawings/* > SHA256SUMS   # record once, on receipt
+sha256sum -c SHA256SUMS                 # re-run before every use; stop on any FAILED
+```
+
+The `drawing.sha256` in each reference file is the hash of the file it measures. If a set has several files, each QS deliverable is per file, or the set is first combined into one PDF and that PDF is hashed. **Assumption:** prefer one combined PDF per set, because the reference format takes one `drawing.sha256`.
+
+**Order (Rule, [protocol v1](extraction-acceptance-protocol.md) §2–§4):** run the extractor unchanged and hash its output **before** any QS file for that set is opened. QS files may be received and hashed without being opened.
+
+---
+
+## 3. Input register template
+
+Keep two files.
+
+- The **public register** follows the precedent of [benchmark-inputs/external-20261013/INPUTS.md](../../benchmark-inputs/external-20261013/INPUTS.md). It may be committed as `benchmark-inputs/E1/INPUTS.md`. It holds nothing that identifies the project, client or site, unless the permission allows it.
+- The **local register** (`benchmark-inputs/E1/REGISTER.local.md`) holds everything else and is never committed.
+
+**Public register**
+
+| Set | Typology | Vector / scanned | Pages | File | SHA-256 | Permission | Set A eligible | Gold SHA-256 | Status |
+|---|---|---|---|---|---|---|---|---|---|
+| S01 | residential | vector | | `S01.pdf` | | Y / pending | Y / N | | received / QS out / adjudicated / tagged |
+
+**Local register (one column per set)**
+
+| Field | S01 |
+|---|---|
+| Source organisation, contact | |
+| Permission: signed by, date, scope, may the project be named? | |
+| Received: date, by whom | |
+| Hash checked against the excluded drawings (§1.3) | |
+| Structural drawings included? Sheet list | |
+| Engine output: SHA-256, date, working-tree commit SHA | |
+| QS-A: name, date sent, date returned, file SHA-256s, valid? | |
+| QS-B: name, date sent, date returned, file SHA-256s, valid? | |
+| Adjudicator, date, disagreement-log SHA-256 | |
+| Contract tags: by, date, checked by | |
+| Notes | |
+
+---
+
+## 4. QS engagement
+
+### 4.1 Selecting the two QS (Assumption: proposed criteria)
+
+- At least 5 years of measuring Indian building work under IS 1200, shown by two sample measurement sheets (redacted).
+- From different firms, not related to each other, and not employees or contractors of Cunstruct.
+- Never shown any Cunstruct screen, export, report or repository file.
+- Each signs a confidentiality and independence declaration (§4.3) before receiving drawings.
+
+### 4.2 What each QS receives (Rule)
+
+Exactly: the drawing set, [reference-boq-handoff.md](reference-boq-handoff.md), [reference-boq-spec.md](reference-boq-spec.md), [reference-boq-template.json](reference-boq-template.json), and the cover sheet in §4.3. Fill the `<…>` placeholders first. Nothing else from `docs/benchmarks/` is sent, **including this kit**.
+
+### 4.3 Cover sheet (send this text; fill the brackets)
+
+> **Independent measurement — set [S01]**
+>
+> **Drawing:** [file name], [n] pages, SHA-256 [64 hex]. Check it with `sha256sum`; if it differs, stop and tell us.
+>
+> **Deliverables, due [date]. These are two separate documents; neither replaces the other.**
+>
+> 1. **Complete IS 1200 measurement sheet** (Excel). It covers **every** in-scope item, measured under IS 1200 as you normally apply it. One row per measurement, with at least these columns (keep your own working layout otherwise):
+>    item · location / grid · drawing page and reference · No · L · B · D · deductions · quantity · unit · measurement rule applied · IS 1200 part and clause · **scaled?** (yes / no) · **if scaled: the drawing reference, the scale used and how you scaled**.
+>    You may scale when necessary, but mark every scaled measurement as above. If a quantity cannot be established defensibly, mark it ambiguous or unmeasurable with the reason. Never estimate a figure.
+> 2. **Reference BOQ** (JSON, or a spreadsheet with the same columns) in the format of the enclosed template and specification, following the enclosed brief **exactly**. Room floor areas: gross, from the printed L × W only, no deductions, no scaling. Counts: as printed. Other items you measured from printed dimensions may be added, each with its own `measurementRule` naming the measurement-sheet rows it came from. An item you could only get by scaling is **never** a `measured` line here: list it as `unmeasurable` with the note "scaled in measurement sheet row [n]".
+> 3. In the reference BOQ, every item you could not measure under the brief is an `ambiguous`, `unmeasurable` or `out_of_scope` line with its reason and no figure.
+>
+> **Scope:** [all pages / list].
+>
+> **Independence:** work alone. Do not discuss this drawing with anyone else measuring it, and do not look at any software output for it. Confirm by setting `preparedWithoutCunstructOutput: true`. If that is not true, tell us; the work will still be paid.
+>
+> **Confidentiality:** the drawings belong to [owner]. Do not copy, share or keep them after delivery. Delete them, and tell us, within [7] days of acceptance.
+>
+> **Fee:** ₹[ ] per set, paid on delivery of files that pass the format check. One round of format corrections is included. Our questions about content are answered from the drawing only.
+
+### 4.4 Effort and cost (Assumption)
+
+The only price evidence in the research is **vendor and listing evidence, not a survey**. The research report (`reports/Cunstruct redesign first principles.md`, a local working file not in Git; section "One person, one job") cites outsourced building BOQs at about **₹8,000–10,000 and 1–5 days**, from a [Freelancer listing](https://www.freelancer.de/projects/construction-management/commercial-building-boq-estimate) (average bid about ₹8,638, 3–5-day windows) and a [constructionestimatorindia vendor claim](https://constructionestimatorindia.com/?p=18104) (from ₹10,000, "usually within 1–2 days", price varies with area, floors, MEP and rate analysis).
+
+This engagement asks for more than a typical freelance BOQ: a complete IS 1200 measurement sheet **and** a separate reference BOQ with per-room lines, evidence boxes and a strict file format; and a third QS to adjudicate both. **The uplift is unknown.** Get at least three written quotes on one pilot set before committing.
+
+| Planning figure (listing prices applied unchanged) | 10 sets | 20 sets |
+|---|---|---|
+| Two QS per set at ₹8,000–10,000 each | ₹1.6–2.0 lakh | ₹3.2–4.0 lakh |
+| Adjudication, budgeted as a third engagement at the same rate until quoted | ₹0.8–1.0 lakh | ₹1.6–2.0 lakh |
+| **Total before uplift and taxes** | **₹2.4–3.0 lakh** | **₹4.8–6.0 lakh** |
+| Calendar time per set (QS work in parallel) | 1–5 days of QS work, plus adjudication and tagging (internal time not estimated) | |
+
+---
+
+## 5. Receiving a QS deliverable
+
+1. Hash every file on receipt and record the hashes in the register. **Do not open them** until the set's engine output is hashed (§2). Keep the originals in `qs-a/` or `qs-b/` unchanged; work only on copies.
+2. **Measurement sheet: completeness check.** Every required column (§4.3, item 1) is present. Every in-scope item has rows, or a reason it is ambiguous or unmeasurable. Every scaled row says so, with its reference and method. A sheet that fails goes back to the QS; we never fill gaps.
+3. **Reference BOQ: validation.** Validate the JSON with `validateReferenceBoq` against the drawing SHA-256 ([boqReference.ts](../../src/lib/e2e/boqReference.ts)). An invalid file goes back for format correction only. Values are never edited by us.
+4. If the reference BOQ came as a spreadsheet, transcribe it to JSON without changing any value, and have a second person check the transcription against the spreadsheet ([reference-boq-handoff.md](reference-boq-handoff.md), "Format").
+5. **Cross-check.** Every `measured` reference line traces to measurement-sheet rows (`measurementRule`), and none of those rows is marked scaled. A measured line that traces to a scaled row goes back to the QS.
+
+---
+
+## 6. Adjudication: two products, each under its own rules
+
+The adjudicator is an independent third QS (§0.1, item 4). They work from the drawing and the two QS deliverables only, with no Cunstruct output. The originals in `qs-a/` and `qs-b/` are never edited. The adjudicator produces two separate results, and the two are never reconciled against each other (§0.3).
+
+### 6.1 Adjudicated IS 1200 measurement sheet (E1 evidence)
+
+In `adjudication/`. The adjudicator pairs the two measurement sheets item by item and applies the cases in the table in §6.2, step 2, under IS 1200. The result keeps every required column (§4.3, item 1), including the scaled flag and method. It comes with its own disagreement log, in the columns of §6.2, step 4. Hash both files and record the hashes in the register.
+
+### 6.2 Gold reference BOQ (E2 input)
+
+In `gold/`. A new `cunstruct.reference-boq.v1` file: `preparedBy` = the adjudicator, `preparedWithoutCunstructOutput: true`, conventions exactly as in the brief. It is adjudicated from the two QS reference BOQs, checked against the drawing. No `measured` gold line may rest on a scaled measurement.
+
+1. **Pair lines.** Pair QS-A and QS-B lines by item, floor, page and evidence box, using the same rules as the scorer ([reference-boq-spec.md](reference-boq-spec.md) §6.2). Do not pair by quantity.
+2. **Classify each pair or orphan:**
+
+| Case | Gold line |
+|---|---|
+| Same status `measured`, quantities within the default tolerance (counts exact; areas ±1 % or 0.05 m²; other units ±1 %) | Re-check the arithmetic of both sheets. Take QS-A's figure if both are arithmetically correct (**Assumption:** a fixed choice, so that nobody picks the "better" number). |
+| Same status, quantities outside tolerance | The adjudicator re-measures from the drawing and adopts the figure whose measurement-sheet rows match the drawing. If neither matches, the adjudicator writes their own rows. **Never average.** |
+| Status differs (e.g. `measured` vs `ambiguous`) | The adjudicator decides from the drawing. If it is still not defensible, the gold line is `ambiguous`, with a note. No quantity is invented. |
+| Line in one sheet only | The adjudicator checks the drawing. If the item exists, it goes into gold, and the other sheet's omission is logged. If not, it is excluded and the false inclusion is logged. |
+| Different granularity (per-room vs per-floor total) | Gold uses one line per room instance (spec §2). Totals are separate lines. |
+
+3. **Aliases.** The gold line takes the union of both QS's aliases. No alias is added after any Cunstruct output for the set has been seen.
+4. **Disagreement log** (`gold/disagreements.csv`). One row per case that was not "within tolerance":
+
+| Gold id | QS-A id | QS-B id | Case | QS-A value / status | QS-B value / status | Gold value / status | Reason (drawing page, rows) | Adjudicator | Date |
+|---|---|---|---|---|---|---|---|---|---|
+
+5. **Report human agreement per set:** lines paired; within tolerance; outside tolerance; status disagreements; one-sided lines. Report these as counts. This is the human-versus-human baseline that E2's machine figures sit beside.
+6. **Freeze.** Hash the gold file, record it in the register, and never edit it after any score for that set has been seen (Rule, [reference-boq-handoff.md](reference-boq-handoff.md), "What happens next").
+
+---
+
+## 7. In / out-of-contract tagging
+
+**Rule ([protocol v1](extraction-acceptance-protocol.md) §3):** the protocol owner tags every **measured** gold line from protocol §1 and the drawing alone, before scoring and without extractor output. The scoring driver refuses G3 if any measured line is untagged ([score-set-a.test.ts](../../scripts/benchmark/score-set-a.test.ts)).
+
+For each measured gold line, ask: *is its quantity printed on the drawing in one of the §1 forms?*
+
+| §1 form | Tag |
+|---|---|
+| An explicit QTY / NO. column in a schedule | `in` |
+| A printed "N No." | `in` |
+| A printed total row whose parts sum to its printed sum | `in` |
+| A room tag whose printed area equals its printed L × W | `in` |
+| A finish total built only from such areas | `in` |
+| Anything else: scaled, dimension chains, symbol counts, IS 1200 deductions, any page of a scanned set (raster pages are refused) | `out` |
+
+Write `contract-tags.json` as `{ "<gold line id>": "in" | "out" }`. Record who tagged it and when. Have a second person check 10 % of the lines, or all of them if the set has fewer than 50 measured lines (**Assumption**).
+
+---
+
+## 8. Per-set checklist (E1 is done when every row is ticked for 10–20 sets)
+
+- [ ] Permission signed and filed; permission status recorded in the register
+- [ ] SHA-256 recorded; not one of the excluded hashes
+- [ ] Not an excluded drawing in another file form: project, title blocks and sheet numbers compared, provenance and developer declarations recorded (pilot package §A4.3, §A4.5); signed as `notAnExcludedDrawing`
+- [ ] Engine output saved and hashed before any QS file was opened
+- [ ] QS-A and QS-B each delivered a complete IS 1200 measurement sheet that passes the completeness check (§5), with every scaled row identified
+- [ ] QS-A and QS-B each delivered a separate reference BOQ that passes `validateReferenceBoq`, with no measured line resting on a scaled row; independence declared
+- [ ] Originals preserved unedited and hashed in the register
+- [ ] Adjudicated IS 1200 measurement sheet and its disagreement log filed and hashed (§6.1)
+- [ ] Gold reference BOQ adjudicated, validated, hashed; disagreement log and agreement counts filed (§6.2)
+- [ ] Contract tags written and checked
+- [ ] `git status` shows nothing under `benchmark-inputs/E1/` except, if chosen, the public register `INPUTS.md`
+
+**Machine check (`scripts/benchmark/e1Intake.ts`).** This checks every row above that files can show, and requires a named attestation in `set.json` for the rest. It then checks the portfolio against the plan's E1 test: 10–20 complete sets, spanning residential, commercial and institutional, vector and scanned. It reports the §1.1 targets separately.
+
+```bash
+# Intake report only (writes <out>/e1-intake.json):
+BENCH_E1_ROOT=benchmark-inputs/E1 BENCH_OUT=benchmark-inputs/E1/e1-out BENCH_E1_CHECK_ONLY=1 \
+  npx vitest run --config scripts/benchmark/vitest.bench.config.ts score-set-a
+# The same, then E2 scoring of the complete sets only, each against its gold reference:
+BENCH_E1_ROOT=benchmark-inputs/E1 BENCH_OUT=benchmark-inputs/E1/e1-out \
+  npx vitest run --config scripts/benchmark/vitest.bench.config.ts score-set-a
+```
+
+Only folders named `S01`, `S02` … are sets; other folders under the root are listed as ignored. The drawing's SHA-256 is also compared with the excluded drawings' hashes recorded in the repository and with every full SHA-256 in the local `benchmark-inputs/E1/EXCLUSION-HASHES.local.md`. This catches **exact copies only**: a re-saved, re-exported or otherwise changed copy of an excluded drawing has a different hash. The set therefore stays incomplete until a person signs `notAnExcludedDrawing` after the manual comparison and provenance checks (pilot package §A4.3, §A4.5). An incomplete set is never scored, and never against a single QS's reference. The check does not judge the content of a measurement sheet, and it does not replace the people who sign the attestations.
