@@ -78,7 +78,26 @@ export interface DsrIndex {
   /** Rows of the seed that hold several sub-items under one code and one rate
    *  (see embeddedSubItems): never a reliable match, by code or description. */
   merged: Map<DsrItem, string[]>;
+  /** Items for work in a specialised form (arches, domes, vaults — see
+   *  SPECIAL_FORMS): the forms the item names. Absent for ordinary items. */
+  forms: Map<DsrItem, string[]>;
 }
+
+/** Forms of construction an item can be restricted to. Work "in plain arches"
+ *  (6.9) is priced well above the same brickwork in walls (6.4.x), so an item
+ *  naming a RESTRICTING form is the line's work only when the line names one of
+ *  the forms the item lists. The other entries only satisfy that: 5.5 is RCC
+ *  "in arches, archribs, domes, vaults, shells, folded plate and roofs having
+ *  slope more than 15°" — any of these on the line names it. */
+const SPECIAL_FORMS: { form: string; re: RegExp; restricts: boolean }[] = [
+  { form: "arches", re: /\barch(?:es|ribs?)?\b/i, restricts: true },
+  { form: "domes", re: /\bdomes?\b/i, restricts: true },
+  { form: "vaults", re: /\bvaults?\b/i, restricts: true },
+  { form: "shells", re: /\bshells?\b/i, restricts: false },
+  { form: "folded plates", re: /\bfolded\s+plates?\b/i, restricts: false },
+  { form: "sloping roofs", re: /\bslop(?:e|es|ed|ing)\b/i, restricts: false },
+];
+const formsIn = (text: string | null | undefined) => SPECIAL_FORMS.filter((f) => f.re.test(text ?? ""));
 
 /** Index one schedule. Items of other schedules are ignored. */
 export function buildDsrIndex(all: DsrItem[], source: string, year: string | null): DsrIndex {
@@ -90,11 +109,14 @@ export function buildDsrIndex(all: DsrItem[], source: string, year: string | nul
   const byCode = new Map<string, DsrItem>();
   const adjustments = new Set<DsrItem>();
   const merged = new Map<DsrItem, string[]>();
+  const forms = new Map<DsrItem, string[]>();
   for (const it of items) {
     const subs = embeddedSubItems(it.code, it.description);
     if (subs.length) merged.set(it, subs);
     if (isAdjustmentItem(it.description)) adjustments.add(it);
     const text = matchableDescription(it.description);
+    const named = formsIn(text);
+    if (named.some((f) => f.restricts)) forms.set(it, named.map((f) => f.form));
     const t = new Set(tokens(text));
     terms.set(it, t);
     focus.set(it, new Set(tokens(focusText(text))));
@@ -123,7 +145,7 @@ export function buildDsrIndex(all: DsrItem[], source: string, year: string | nul
       .filter((e) => e.length > 0);
     if (elements.length) variants.set(it, { elements, text });
   }
-  return { source, year, items, idf, terms, focus, specs, byCode, adjustments, variants, merged };
+  return { source, year, items, idf, terms, focus, specs, byCode, adjustments, variants, merged, forms };
 }
 
 export { focusText };
@@ -270,15 +292,21 @@ export function matchLine(line: MatchableLine, ix: DsrIndex): MatchResult {
     const sharesSpec = !!itemSpec && (["ratios", "grades", "thicknessMm", "diameterMm"] as const)
       .some((k) => (lineSpec[k] as (string | number)[]).some((v) => (itemSpec[k] as (string | number)[]).includes(v)));
     const unnamedVariant = variantShare < 0.5 && !sharesSpec;
+    //  - for an item restricted to a specialised form ("in plain arches"), the
+    //    line must name one of the forms the item lists.
+    const itemForms = ix.forms.get(best.item);
+    const lineForms = new Set(formsIn(line.description).map((f) => f.form));
+    const unstatedForm = !!itemForms && !itemForms.some((f) => lineForms.has(f));
     const reliable = !ambiguous && issues.length === 0 && best.unit === "match" && best.score >= MATCH_THRESHOLDS.reliable
       && !best.missingTerms.includes(key) && !unnamedVariant && best.coverage >= MATCH_THRESHOLDS.reliableCoverage
-      && !ix.merged.has(best.item);
+      && !ix.merged.has(best.item) && !unstatedForm;
     const reasons = [`Description match: item ${best.item.code} contains ${pct(best.coverage)} of the line's distinctive terms (${best.sharedTerms.slice(0, 6).join(", ")}).`];
     if (best.missingTerms.length) reasons.push(`Not in the item: ${best.missingTerms.slice(0, 6).join(", ")}${best.missingTerms.includes(key) ? ` — including "${key}", the line's most distinctive term` : ""}.`);
     reasons.push(...neverUsed());
     reasons.push(...issues);
     const subs = ix.merged.get(best.item);
     if (subs) reasons.push(mergedReason(best.item, subs));
+    if (unstatedForm && itemForms) reasons.push(`Item ${best.item.code} is for work in ${itemForms.join(", ")}; the line does not say so — check it is not ordinary work priced under another item.`);
     if (unnamedVariant && variant) reasons.push(`Item ${best.item.code} is one variant of a family of schedule items (“${clip(variant.text)}”); the line does not say which variant.`);
     if (ambiguous) {
       const codes = [best, ...close].slice(0, 3).map((c) => c.item.code);
