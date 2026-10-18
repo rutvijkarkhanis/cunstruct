@@ -10,6 +10,7 @@ import { SurfacePanel, type PreviewLine } from "@/preview/shared";
 import { statePill } from "@/preview/statePill";
 import { SignOffPanel } from "@/preview/SignOffPanel";
 import { VerifyQueuePanel } from "@/preview/VerifyQueuePanel";
+import WorkspaceShell from "@/preview/workspace/WorkspaceShell";
 
 type Surface = "workspace" | "verify" | "coverage" | "signoff" | "revision";
 
@@ -185,78 +186,9 @@ export default function EngineeringPreview() {
         {surface === "workspace" && (
           <SurfacePanel
             title="Workspace"
-            description="Drawing context and BOQ grid in one view. The drawing pane is a schematic placeholder, not an uploaded drawing."
+            description="Drawing canvas, BOQ grid and sign-off ledger in one frame, linked both ways. Synthetic data; edits are demo only and are discarded on reload."
           >
-            <div className="grid min-w-0 gap-4 xl:grid-cols-[1.05fr_1.4fr]">
-              <div className="rounded-xl border bg-card p-4">
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <div className="text-sm font-semibold">Drawing canvas</div>
-                    <div className="text-xs text-muted-foreground">Fixture: DRAWING-DEMO-01 · no source file loaded</div>
-                  </div>
-                  <span className="rounded border px-2 py-1 text-xs text-muted-foreground">Scale unconfirmed</span>
-                </div>
-                <div className="relative flex min-h-80 items-center justify-center overflow-hidden rounded-md border bg-white p-4">
-                  <div className="absolute inset-6 border border-slate-300" />
-                  <div className="absolute inset-x-14 top-12 bottom-16 border-2 border-slate-500" />
-                  <div className="absolute left-1/2 top-12 bottom-16 border-l border-dashed border-slate-400" />
-                  <div className="absolute left-14 right-14 top-1/2 border-t border-dashed border-slate-400" />
-                  <div className="absolute left-[25%] top-[30%] h-10 w-16 border-2 border-sky-500 bg-sky-100/60" />
-                  <div className="absolute right-[25%] bottom-[28%] h-12 w-20 border-2 border-amber-500 bg-amber-100/60" />
-                  <div className="relative z-10 rounded bg-white/90 px-3 py-2 text-center text-xs text-slate-700 shadow-sm">
-                    Schematic only
-                    <br />
-                    Not a real drawing
-                  </div>
-                </div>
-                <p className="mt-3 text-xs text-muted-foreground">
-                  No measurement is inferred from this schematic. A line without verified drawing evidence remains unverified.
-                </p>
-              </div>
-
-              <div className="min-w-0 rounded-xl border bg-card">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
-                  <div>
-                    <div className="font-semibold">BOQ grid</div>
-                    <div className="text-xs text-muted-foreground">Demo schedule · values are illustrative</div>
-                  </div>
-                  <button type="button" onClick={() => setSurface("verify")} className="rounded-md border px-3 py-2 text-sm hover:bg-muted">
-                    Open verify queue
-                  </button>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[650px] text-left text-sm">
-                    <thead className="bg-muted/60 text-xs text-muted-foreground">
-                      <tr>
-                        <th className="px-3 py-3 font-medium">Item</th>
-                        <th className="px-3 py-3 font-medium">Qty</th>
-                        <th className="px-3 py-3 font-medium">Rate</th>
-                        <th className="px-3 py-3 font-medium">Amount</th>
-                        <th className="px-3 py-3 font-medium">State</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {lines.map((line) => (
-                        <tr key={line.id} className="border-t align-top">
-                          <td className="max-w-64 px-3 py-3">
-                            <div className="font-medium">{line.description}</div>
-                            <div className="mt-1 text-xs text-muted-foreground">{line.id} · {line.region}</div>
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-3 tabular-nums">
-                            {line.quantityState === "pending" ? "—" : `${formatQuantity(line.quantity)} ${line.unit}`}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-3 tabular-nums">{formatMoney(line.rate)}</td>
-                          <td className="whitespace-nowrap px-3 py-3 tabular-nums font-medium">
-                            {amountFor(line) === null ? "—" : formatMoney(amountFor(line)!)}
-                          </td>
-                          <td className="px-3 py-3">{statePill(line.quantityState)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
+            <WorkspaceShell />
           </SurfacePanel>
         )}
 
