@@ -33,7 +33,9 @@ const LINES: ReferenceBoqLine[] = [
   line("KIT", "Floor area — Kitchen", "sqm", 20, [50, 50]),
   line("BED", "Floor area — Bedroom", "sqm", 12, [50, 150]),
   line("STO", "Floor area — Store", "sqm", 5, [50, 250]),
-  line("BRK", "Brick work with common burnt clay bricks in superstructure", "cum", 10, [300, 50]),
+  // Fully specified wall brickwork: the matcher's legitimate reliable match
+  // is DSR 6.4.2 (superstructure walls, cement mortar 1:6).
+  line("BRK", "Brick work with common burnt clay F.P.S. bricks of class designation 7.5 in superstructure above plinth level up to floor V level in all shapes and sizes in cement mortar 1:6 (1 cement : 6 coarse sand)", "cum", 10, [300, 50]),
   line("PLA", "Plaster to walls", "sqm", 100, [300, 150], { dsrCode: "13.4.1" }),
   line("DR1", "Door D1", "nos", 4, [300, 250]),
 ];
@@ -50,7 +52,7 @@ type Sys = { key: string; item: string; qty: number; unit: string; at: [number, 
 const SYSTEM: Sys[] = [
   { key: "k-kit", item: "Floor area — Kitchen (Ground Floor)", qty: 20.1, unit: "sqm", at: [50, 50] },
   { key: "k-bed", item: "Floor area — Bedroom (Ground Floor)", qty: 13.2, unit: "sqm", at: [50, 150] },
-  { key: "k-brk", item: "Brick work with common burnt clay bricks in superstructure", qty: 9, unit: "cum", at: [300, 50] },
+  { key: "k-brk", item: "Brick work with common burnt clay F.P.S. bricks of class designation 7.5 in superstructure above plinth level up to floor V level in all shapes and sizes in cement mortar 1:6 (1 cement : 6 coarse sand)", qty: 9, unit: "cum", at: [300, 50] },
   { key: "k-pla", item: "Plaster to walls", qty: 100, unit: "m", at: [300, 150] },
   { key: "k-dr1", item: "Door D1", qty: 4, unit: "nos", at: [300, 250] },
   { key: "k-fp", item: "Window W9", qty: 2, unit: "nos", at: [450, 400] },
@@ -117,9 +119,20 @@ describe("DSR pricing of reference lines (real DSR 2023 seed)", () => {
   it("prices by the stated code, by a reliable matcher match, and leaves the rest unpriced", () => {
     const [, bed, , brk, pla, dr1] = LINES;
     expect(priceReferenceLine(pla, ix)).toMatchObject({ priced: true, dsrCode: "13.4.1", basis: "reference_dsr_code", rate: rateOf("13.4.1") });
-    expect(priceReferenceLine(brk, ix)).toMatchObject({ priced: true, basis: "matcher_reliable", rate: rateOf("6.9") });
+    expect(priceReferenceLine(brk, ix)).toMatchObject({ priced: true, dsrCode: "6.4.2", basis: "matcher_reliable", rate: rateOf("6.4.2") });
     expect(priceReferenceLine(bed, ix).priced).toBe(false);
     expect(priceReferenceLine(dr1, ix).priced).toBe(false);
+  });
+  it("does not price a line at a specialised, action or accessory item the line does not name", () => {
+    // Each of these was once a reliable matcher match at a wrong rate.
+    const ref = (item: string, unit: string) => line("NEG", item, unit, 1, [0, 0]);
+    const arch = priceReferenceLine(ref("Brick work with common burnt clay bricks in superstructure", "cum"), ix);
+    expect(arch).toMatchObject({ priced: false });
+    expect((arch as { reason: string }).reason).toMatch(/Item 6\.9 is for work in arches/);
+    expect(priceReferenceLine(ref("Overhead Water Tank", "nos"), ix).priced).toBe(false); // was 14.79, "Disconnecting …"
+    expect(priceReferenceLine(ref("UPVC door", "nos"), ix).priced).toBe(false); // was 9.152, "steel roller for uPVC sliding door"
+    expect(priceReferenceLine(ref("Steel reinforcement TMT bars Fe 500D", "kg"), ix).priced).toBe(false); // was 5.22.6, "upto plinth level"
+    expect(priceReferenceLine(ref("Waterproofing treatment to terrace", "sqm"), ix).priced).toBe(false); // was 22.7.1, integral cement based
   });
   it("never substitutes another item for a stated code that is not in the schedule", () => {
     const p = priceReferenceLine({ ...LINES[3], dsrCode: "99.99.99" } as ReferenceBoqLine, ix);
@@ -150,8 +163,8 @@ describe("raw machine metrics on a SYNTHETIC run (omission, wrong quantity, fals
     const b = cat(m, "masonry");
     expect(b.recall).toMatchObject({ n: 1, of: 1 });
     expect(b.quantity.medianAbsPctError).toBeCloseTo(10, 9);
-    expect(b.rupeeWeighted.matched.errorRs).toBeCloseTo(1 * rateOf("6.9"), 6);
-    expect(b.rupeeWeighted.matched.baseRs).toBeCloseTo(10 * rateOf("6.9"), 6);
+    expect(b.rupeeWeighted.matched.errorRs).toBeCloseTo(1 * rateOf("6.4.2"), 6);
+    expect(b.rupeeWeighted.matched.baseRs).toBeCloseTo(10 * rateOf("6.4.2"), 6);
     expect(b.rupeeWeighted.matched.value).toBeCloseTo(0.1, 9);
   });
 
@@ -173,10 +186,10 @@ describe("raw machine metrics on a SYNTHETIC run (omission, wrong quantity, fals
 
   it("all: ₹ error with omissions counts every priced line; unpriced share is by line count", () => {
     const a = cat(m, "all");
-    const r69 = rateOf("6.9"), r1341 = rateOf("13.4.1");
+    const r642 = rateOf("6.4.2"), r1341 = rateOf("13.4.1");
     expect(a.recall).toMatchObject({ n: 5, of: 6 });
     expect(a.precision).toMatchObject({ n: 5, of: 6 });
-    expect(a.rupeeWeighted.withOmissions.value).toBeCloseTo((1 * r69 + 100 * r1341) / (10 * r69 + 100 * r1341), 9);
+    expect(a.rupeeWeighted.withOmissions.value).toBeCloseTo((1 * r642 + 100 * r1341) / (10 * r642 + 100 * r1341), 9);
     expect(a.rupeeWeighted.unpricedShare).toBeCloseTo(4 / 6, 9);
     expect(cat(m, "structural").recall.value).toBeNull(); // empty category: null, never 0
   });
