@@ -45,6 +45,27 @@ describe("ShareBoqPanel — quantity states", () => {
     expect(await screen.findByText("Quantity pending")).toBeInTheDocument();
   });
 
+  it("never shows an amount for a line it shows as pending or unavailable, even if an older share function priced it", async () => {
+    // A share function deployed before quantityState existed sends no state and
+    // prices every line: a bare 0 arrives as amount 0 (0 x rate). The panel shows
+    // that line as "Quantity pending", so it must not also show "₹0".
+    invoke.mockResolvedValue({ error: null, data: { ok: true, boq: { id: "b1", name: "Civil BOQ" },
+      commercials: { works: 1000, subTotal: 1000, grandTotal: 1000 },
+      lines: [
+        { id: "a", description: "Footing", unit: "cum", qty: 10, included: true, rate: 100, amount: 1000 },
+        { id: "b", description: "Door", unit: "nos", qty: 0, included: true, rate: 100, amount: 0 },
+        { id: "z", description: "Skirting", unit: "m", qty: 0, included: true, rate: 100, amount: 0, quantityState: "confirmed_zero" },
+      ] } });
+    renderPanel();
+    const door = (await screen.findByText("Door")).closest("div.flex")!;
+    expect(door).toHaveTextContent("Quantity pending");
+    expect(door).not.toHaveTextContent("₹0");
+    // A confirmed zero is a real quantity: its ₹0 amount is shown, and it reads differently from pending.
+    const skirting = screen.getByText("Skirting").closest("div.flex")!;
+    expect(skirting).toHaveTextContent("0 m (confirmed)");
+    expect(skirting).toHaveTextContent("₹0");
+  });
+
   it("an excluded line is marked as excluded, shows no quantity, rate or amount, and cannot contradict the subtotal", async () => {
     invoke.mockResolvedValue({ error: null, data: { ok: true, boq: { id: "b1", name: "Civil BOQ" },
       commercials: { works: 1000, subTotal: 1180, grandTotal: 1400 },
