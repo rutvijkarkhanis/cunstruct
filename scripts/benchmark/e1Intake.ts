@@ -37,6 +37,7 @@ export interface E1SetMeta {
 
 /** Kit §8 rows that files alone cannot prove. */
 export const ATTESTATIONS = {
+  notAnExcludedDrawing: "Not an excluded drawing in another file: project, title blocks and sheet numbers compared with every excluded project, and provenance plus developer declarations recorded (pilot package §A4.3, §A4.5). The SHA-256 check above catches exact copies only",
   engineOutputBeforeQsOpened: "Engine output saved and hashed before any QS file was opened (kit §2, protocol v1 §2–§4)",
   qsSheetsComplete: "QS-A and QS-B measurement sheets pass the completeness check, every scaled row identified (kit §5)",
   noMeasuredLineOnScaledRow: "No measured line in either QS reference BOQ or in gold rests on a scaled row (kit §5, §6.2)",
@@ -45,6 +46,9 @@ export const ATTESTATIONS = {
 export type AttestationKey = keyof typeof ATTESTATIONS;
 
 /** Drawings that may never enter E1 (kit §1.3; pilot package §A5, X1–X11).
+ *  Matched by exact SHA-256 only: a re-saved, re-exported or otherwise changed
+ *  copy has a different hash and is NOT caught here. That case is covered by
+ *  the notAnExcludedDrawing attestation (pilot package §A4.3, §A4.5).
  *  Set B is recorded in the repo only as af382dca…f9db5, so it is matched by
  *  that prefix and suffix. The app's own drawings (X3–X5) are held only in the
  *  local, git-ignored EXCLUSION-HASHES.local.md, read by checkE1Root. */

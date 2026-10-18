@@ -172,10 +172,11 @@ No measured gold line may rest on a scaled measurement. Also report the counts: 
 
 They are written to `contract-tags.json` as `{ "<gold line id>": "in" | "out" }`. A second person checks 10 % of lines, or all of them if there are fewer than 50.
 
-**Signed-off steps.** Four steps cannot be proved from the files, so a named person confirms each, with a date, in `set.json`. Confirm a step only when it actually happened:
+**Signed-off steps.** Five steps cannot be proved from the files, so a named person confirms each, with a date, in `set.json`. Confirm a step only when it actually happened:
 
 | Key in `set.json` | Confirms |
 |---|---|
+| `notAnExcludedDrawing` | The drawing is not one the software has already seen, **in any file form**: project name, title blocks and sheet numbers compared with every excluded project, and provenance plus developer declarations recorded (pilot package §A4.3, §A4.5). The automatic fingerprint check catches exact copies only; a re-saved or re-exported copy has a different fingerprint |
 | `engineOutputBeforeQsOpened` | The software ran on the PDF and its output was saved and fingerprinted **before** any surveyor file was opened |
 | `qsSheetsComplete` | Both measurement sheets passed the completeness check (every required column; every in-scope item measured or explained; every scaled row marked) |
 | `noMeasuredLineOnScaledRow` | No measured line in either surveyor's BOQ, or in gold, rests on a scaled row |
@@ -194,7 +195,7 @@ They are written to `contract-tags.json` as `{ "<gold line id>": "in" | "out" }`
 - [ ] Surveyor B: the same
 - [ ] Adjudicator: adjudicated measurement sheet + log; gold BOQ + log; agreement counts
 - [ ] Contract tags written and second-checked
-- [ ] `set.json` filled, with the four signed-off steps
+- [ ] `set.json` filled, with the five signed-off steps
 - [ ] Intake check reports the set **complete** (Part 9, step 8)
 - [ ] Deletion confirmations received from all three surveyors
 
@@ -206,7 +207,7 @@ They are written to `contract-tags.json` as `{ "<gold line id>": "in" | "out" }`
 benchmark-inputs/E1/                 never committed (except an optional public INPUTS.md)
   REGISTER.local.md                  names, contacts, dates — never committed
   S01/
-    set.json                         register row + the four signed-off steps (example below)
+    set.json                         register row + the five signed-off steps (example below)
     received/                        every file exactly as received (not read by the check)
     drawings/S01.pdf                 exactly ONE file: the combined PDF everyone measures
     SHA256SUMS                       "<sha256>  drawings/S01.pdf" (+ lines for received/ files)
@@ -236,6 +237,7 @@ benchmark-inputs/E1/                 never committed (except an optional public 
   "setAEligible": true,
   "permission": { "status": "signed", "signedBy": "[name, role]", "date": "YYYY-MM-DD" },
   "attestations": {
+    "notAnExcludedDrawing": { "by": "[name]", "date": "YYYY-MM-DD" },
     "engineOutputBeforeQsOpened": { "by": "[name]", "date": "YYYY-MM-DD" },
     "qsSheetsComplete": { "by": "[name]", "date": "YYYY-MM-DD" },
     "noMeasuredLineOnScaledRow": { "by": "[name]", "date": "YYYY-MM-DD" },
@@ -259,7 +261,7 @@ Run from the repository root. Replace `S01` with the set's id.
 1. **Create the folder** `benchmark-inputs/E1/S01/` with the subfolders of Part 8.
 2. **On receipt, before opening anything:** save the files in `received/`, then
    `cd benchmark-inputs/E1/S01 && sha256sum received/* >> SHA256SUMS`.
-3. **Exclusion check:** compare those fingerprints with the pilot package §A4–§A5 register. Stop if any matches, or if any applicable entry is unresolved. The intake check (step 8) repeats the fingerprint part automatically for the combined PDF; the project-name, title-block and provenance checks (§A4.3, §A4.5) remain manual.
+3. **Exclusion check:** compare those fingerprints with the pilot package §A4–§A5 register. Stop if any matches, or if any applicable entry is unresolved. The intake check (step 8) repeats the fingerprint part automatically for the combined PDF, but a fingerprint matches **exact copies only**. The project-name, title-block and provenance checks (§A4.3, §A4.5) are manual, and the set stays incomplete until a person signs `notAnExcludedDrawing` in `set.json`.
 4. **Combined PDF:** create `drawings/S01.pdf` (Part 3), then `sha256sum drawings/S01.pdf >> SHA256SUMS`. Re-check later with `sha256sum -c SHA256SUMS`.
 5. **Run the software, before any surveyor file is opened** (unchanged extractor, protocol v1 §2–§4):
    ```bash

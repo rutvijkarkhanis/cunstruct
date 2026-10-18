@@ -133,6 +133,7 @@ benchmark-inputs/E1/
   "setAEligible": false,
   "permission": { "status": "signed | pending", "signedBy": "…", "date": "YYYY-MM-DD" },
   "attestations": {
+    "notAnExcludedDrawing": { "by": "…", "date": "YYYY-MM-DD" },
     "engineOutputBeforeQsOpened": { "by": "…", "date": "YYYY-MM-DD" },
     "qsSheetsComplete": { "by": "…", "date": "YYYY-MM-DD" },
     "noMeasuredLineOnScaledRow": { "by": "…", "date": "YYYY-MM-DD" },
@@ -314,6 +315,7 @@ Write `contract-tags.json` as `{ "<gold line id>": "in" | "out" }`. Record who t
 
 - [ ] Permission signed and filed; permission status recorded in the register
 - [ ] SHA-256 recorded; not one of the excluded hashes
+- [ ] Not an excluded drawing in another file form: project, title blocks and sheet numbers compared, provenance and developer declarations recorded (pilot package §A4.3, §A4.5); signed as `notAnExcludedDrawing`
 - [ ] Engine output saved and hashed before any QS file was opened
 - [ ] QS-A and QS-B each delivered a complete IS 1200 measurement sheet that passes the completeness check (§5), with every scaled row identified
 - [ ] QS-A and QS-B each delivered a separate reference BOQ that passes `validateReferenceBoq`, with no measured line resting on a scaled row; independence declared
@@ -334,4 +336,4 @@ BENCH_E1_ROOT=benchmark-inputs/E1 BENCH_OUT=benchmark-inputs/E1/e1-out \
   npx vitest run --config scripts/benchmark/vitest.bench.config.ts score-set-a
 ```
 
-Only folders named `S01`, `S02` … are sets; other folders under the root are listed as ignored. The drawing is also checked against the excluded drawings recorded in the repository and against every full SHA-256 in the local `benchmark-inputs/E1/EXCLUSION-HASHES.local.md`. An incomplete set is never scored, and never against a single QS's reference. The check does not judge the content of a measurement sheet, and it does not replace the people who sign the attestations.
+Only folders named `S01`, `S02` … are sets; other folders under the root are listed as ignored. The drawing's SHA-256 is also compared with the excluded drawings' hashes recorded in the repository and with every full SHA-256 in the local `benchmark-inputs/E1/EXCLUSION-HASHES.local.md`. This catches **exact copies only**: a re-saved, re-exported or otherwise changed copy of an excluded drawing has a different hash. The set therefore stays incomplete until a person signs `notAnExcludedDrawing` after the manual comparison and provenance checks (pilot package §A4.3, §A4.5). An incomplete set is never scored, and never against a single QS's reference. The check does not judge the content of a measurement sheet, and it does not replace the people who sign the attestations.

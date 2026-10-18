@@ -51,6 +51,7 @@ const ANALYSIS = JSON.stringify({
 });
 
 const ATTESTED = {
+  notAnExcludedDrawing: { by: "SYNTHETIC protocol owner", date: "2026-10-18" },
   engineOutputBeforeQsOpened: { by: "SYNTHETIC protocol owner", date: "2026-10-18" },
   qsSheetsComplete: { by: "SYNTHETIC protocol owner", date: "2026-10-18" },
   noMeasuredLineOnScaledRow: { by: "SYNTHETIC protocol owner", date: "2026-10-18" },
@@ -112,7 +113,7 @@ describe("E1 set intake (kit §8) on SYNTHETIC set folders", () => {
     expect(s.complete).toBe(true);
     expect(s.checks.map((c) => c.id)).toEqual([
       "register", "permission", "drawing", "engine-output", "qs-a", "qs-b", "qs-independent", "adjudication", "gold", "contract-tags",
-      "attest:engineOutputBeforeQsOpened", "attest:qsSheetsComplete", "attest:noMeasuredLineOnScaledRow", "attest:contractTagsChecked",
+      "attest:notAnExcludedDrawing", "attest:engineOutputBeforeQsOpened", "attest:qsSheetsComplete", "attest:noMeasuredLineOnScaledRow", "attest:contractTagsChecked",
     ]);
   });
 
@@ -138,7 +139,7 @@ describe("E1 set intake (kit §8) on SYNTHETIC set folders", () => {
     expect(failing(checkE1Set(writeSet(root, "N-noperm-file", { skip: ["permission"] })))).toEqual(["permission"]);
     expect(failing(checkE1Set(writeSet(root, "N-tamper", { tamper: true })))).toContain("drawing");
     expect(failing(checkE1Set(writeSet(root, "N-attest", { attestations: {} })))).toEqual([
-      "attest:engineOutputBeforeQsOpened", "attest:qsSheetsComplete", "attest:noMeasuredLineOnScaledRow", "attest:contractTagsChecked",
+      "attest:notAnExcludedDrawing", "attest:engineOutputBeforeQsOpened", "attest:qsSheetsComplete", "attest:noMeasuredLineOnScaledRow", "attest:contractTagsChecked",
     ]);
   });
 
@@ -146,6 +147,17 @@ describe("E1 set intake (kit §8) on SYNTHETIC set folders", () => {
     const s = checkE1Set(writeSet(root, "N-fixture", { drawing: readFileSync(join(__dirname, "..", "..", "e2e", "fixtures", "document-a.pdf")) }));
     expect(failing(s)).toEqual(["drawing"]);
     expect(s.checks.find((c) => c.id === "drawing")!.detail).toMatch(/document-a\.pdf \(X7\).*excluded from E1/);
+  });
+
+  it("catches only exact copies by hash: a changed copy of an excluded drawing is held until a person signs the not-excluded check", () => {
+    // The fixture with bytes appended after %%EOF: a different SHA-256, same drawing.
+    const copy = Buffer.concat([readFileSync(join(__dirname, "..", "..", "e2e", "fixtures", "document-a.pdf")), Buffer.from("\n% SYNTHETIC appended\n")]);
+    const { notAnExcludedDrawing: _omit, ...rest } = ATTESTED;
+    const held = checkE1Set(writeSet(root, "N-copy", { drawing: copy, attestations: rest }));
+    expect(held.checks.find((c) => c.id === "drawing")!.ok).toBe(true); // the hash check alone does not see it
+    expect(failing(held)).toEqual(["attest:notAnExcludedDrawing"]);
+    expect(held.complete).toBe(false);
+    expect(manifestFromE1([held]).manifest.sets).toEqual([]); // never reaches E2 unsigned
   });
 
   it("refuses a drawing listed in the local, git-ignored exclusion register", () => {
