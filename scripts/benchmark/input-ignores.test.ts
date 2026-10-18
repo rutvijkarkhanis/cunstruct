@@ -65,6 +65,9 @@ const MUST_BE_IGNORED = [
   "research-inputs/E4/P01/consent.pdf",
   "research-inputs/E4/P01/capture.jpg",
   "research-inputs/E4/participant-key.csv",
+  "research-inputs/E4/tracker.csv",
+  "benchmark-inputs/E1/EXCLUSION-HASHES.local.md",
+  "benchmark-inputs/E1/S01/received/as-received.pdf",
   "research-inputs/E4/screener-responses.xlsx",
   "research-inputs/E4/notes/P02.docx",
 ];
@@ -75,6 +78,9 @@ const MUST_STAY_COMMITTABLE = [
   "benchmark-inputs/external-20261013/engine-output/engine-version.sha256",
   "docs/research/E4-INTERVIEW-GUIDE.md",
   "docs/research/E4-SYNTHESIS.md",
+  "docs/research/E4-RECRUITMENT-KIT.md",
+  "docs/EVIDENCE-STATUS.md",
+  "docs/benchmarks/E1-FIRST-SET-HANDOUT.md",
 ];
 
 describe("benchmark inputs and interview material stay out of Git", () => {

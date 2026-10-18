@@ -69,9 +69,10 @@ describe("Benchmark scoring (protocol v1.1)", () => {
     expect(frozenHashesNow()).toEqual(FROZEN_V1_1);
     const out = resolve(env.BENCH_OUT ?? "benchmark-inputs/e1-out");
     mkdirSync(out, { recursive: true });
-    const { sets, portfolio } = checkE1Root(env.BENCH_E1_ROOT!);
+    const { sets, portfolio, ignoredFolders, localExclusions } = checkE1Root(env.BENCH_E1_ROOT!);
+    console.log(`E1 root: ${sets.length} set folder(s); ignored (not S01-style): ${ignoredFolders.join(", ") || "none"}; local excluded hashes: ${localExclusions}`);
     const { manifest, refused } = manifestFromE1(sets);
-    writeFileSync(resolve(out, "e1-intake.json"), JSON.stringify({ portfolio, sets, refused: refused.map((r) => r.id) }, null, 2));
+    writeFileSync(resolve(out, "e1-intake.json"), JSON.stringify({ portfolio, sets, refused: refused.map((r) => r.id), ignoredFolders, localExclusions }, null, 2));
     for (const s of sets) console.log(`${s.id}: ${s.complete ? "complete" : `incomplete — ${s.checks.filter((c) => !c.ok).map((c) => `${c.id}: ${c.detail}`).join("; ")}`}`);
     console.log(`E1: ${portfolio.complete} of ${portfolio.sets} sets complete; plan count ${portfolio.meetsPlanCount ? "met" : "NOT met"}, spread ${portfolio.meetsPlanSpread ? "met" : "NOT met"}${portfolio.missing.length ? ` (${portfolio.missing.join("; ")})` : ""}`);
     if (env.BENCH_E1_CHECK_ONLY || manifest.sets.length === 0) return;

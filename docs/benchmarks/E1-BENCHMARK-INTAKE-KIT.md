@@ -105,7 +105,9 @@ benchmark-inputs/E1/
   INPUTS.md                  public register (§3), may be committed
   REGISTER.local.md          full register (§3), never committed
   S01/
-    drawings/                as received, never edited
+    received/                every file exactly as received, never edited; hashed into SHA256SUMS on receipt
+    drawings/                exactly one file: the combined PDF everyone measures (a copy of the single
+                             received PDF, or the received PDFs joined in sheet order without re-rendering)
     permission/              signed permission
     SHA256SUMS               sha256sum of every file in drawings/
     engine-output/           extractor JSON + its SHA-256, written BEFORE any QS file is opened
@@ -154,7 +156,7 @@ Hashing on receipt:
 
 ```bash
 cd benchmark-inputs/E1/S01
-sha256sum drawings/* > SHA256SUMS      # record once, on receipt
+sha256sum received/* drawings/* > SHA256SUMS   # record once, on receipt
 sha256sum -c SHA256SUMS                 # re-run before every use; stop on any FAILED
 ```
 
@@ -332,4 +334,4 @@ BENCH_E1_ROOT=benchmark-inputs/E1 BENCH_OUT=benchmark-inputs/E1/e1-out \
   npx vitest run --config scripts/benchmark/vitest.bench.config.ts score-set-a
 ```
 
-An incomplete set is never scored, and never against a single QS's reference. The check does not judge the content of a measurement sheet, and it does not replace the people who sign the attestations.
+Only folders named `S01`, `S02` … are sets; other folders under the root are listed as ignored. The drawing is also checked against the excluded drawings recorded in the repository and against every full SHA-256 in the local `benchmark-inputs/E1/EXCLUSION-HASHES.local.md`. An incomplete set is never scored, and never against a single QS's reference. The check does not judge the content of a measurement sheet, and it does not replace the people who sign the attestations.

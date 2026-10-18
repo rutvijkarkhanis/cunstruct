@@ -44,13 +44,33 @@ export const ATTESTATIONS = {
 } as const;
 export type AttestationKey = keyof typeof ATTESTATIONS;
 
-/** Drawings that may never enter E1 (kit §1.3). Set B is recorded in the repo
- *  only as af382dca…f9db5, so it is matched by that prefix and suffix. */
+/** Drawings that may never enter E1 (kit §1.3; pilot package §A5, X1–X11).
+ *  Set B is recorded in the repo only as af382dca…f9db5, so it is matched by
+ *  that prefix and suffix. The app's own drawings (X3–X5) are held only in the
+ *  local, git-ignored EXCLUSION-HASHES.local.md, read by checkE1Root. */
 export const EXCLUDED_DRAWINGS: { label: string; test: (sha: string) => boolean }[] = [
   { label: "Set B (protocol v1 §3, af382dca…f9db5)", test: (s) => s.startsWith("af382dca") && s.endsWith("f9db5") },
-  { label: "external-20261013 drawing-1.pdf", test: (s) => s === "6ef6c85bf0cf43ea260e5a7e78bbbfaf08ef26586801a626a605ad3b0b1e7e72" },
-  { label: "external-20261013 drawing-2.pdf", test: (s) => s === "05d0a2c400fc3c029c366814d793af71dd70a0749dbfd58b60d7a3b1a1810abb" },
+  ...([
+    ["external-20261013 drawing-1.pdf (X1)", "6ef6c85bf0cf43ea260e5a7e78bbbfaf08ef26586801a626a605ad3b0b1e7e72"],
+    ["external-20261013 drawing-2.pdf (X2)", "05d0a2c400fc3c029c366814d793af71dd70a0749dbfd58b60d7a3b1a1810abb"],
+    ["repository fixture e2e/fixtures/document-a.pdf (X7)", "6d220af14626bfb6d092b1f39d198d6ce0a25c3d46cc467c79fb11e6671f47ec"],
+    ["repository fixture e2e/fixtures/document-b.pdf (X8)", "919b6d49f47522788b8a4af337e03f83fea70a6e8d9f215a58a365b99894f3a2"],
+    ["repository fixture raster-only.pdf (X9)", "af627014b6720f493b8aa03dde4794cea47472cbdd97d7a82506026dd59ba349"],
+    ["repository fixture rotated-90.pdf (X10)", "d472bd79921f9d704baddb77eedc0737c70bb3c5f45156d035dade1ac07301af"],
+    ["repository fixture vector-geometry.pdf (X11)", "818f73a061aeb1989658bfedc14d13faba4f2174c53d37a23a23ebaceb5b6ef7"],
+  ] as const).map(([label, hash]) => ({ label, test: (s: string) => s === hash })),
 ];
+
+/** The local exclusion register: every full SHA-256 written in it is excluded. */
+export const LOCAL_EXCLUSIONS_FILE = "EXCLUSION-HASHES.local.md";
+export function localExclusions(e1Root: string): Set<string> {
+  const f = join(resolve(e1Root), LOCAL_EXCLUSIONS_FILE);
+  return existsSync(f) ? new Set(readFileSync(f, "utf8").toLowerCase().match(/\b[0-9a-f]{64}\b/g) ?? []) : new Set();
+}
+
+/** Set folders are named S01, S02 …; any other folder under the E1 root
+ *  (acquisition notes, screening, scoring output) is not a set. */
+export const SET_FOLDER = /^S\d{2,}$/;
 
 export interface Check { id: string; ok: boolean; detail: string }
 export interface SetIntake {
@@ -103,8 +123,9 @@ function validateMeta(raw: unknown, folder: string): { meta?: E1SetMeta; errors:
   return errors.length ? { errors } : { meta: m as E1SetMeta, errors };
 }
 
-/** Check one set folder against the kit's §8 checklist. Never throws for a bad input. */
-export function checkE1Set(setDir: string): SetIntake {
+/** Check one set folder against the kit's §8 checklist. Never throws for a bad input.
+ *  `localExcluded`: full hashes from the local exclusion register. */
+export function checkE1Set(setDir: string, localExcluded: Set<string> = new Set()): SetIntake {
   const dir = resolve(setDir);
   const id = dir.split(/[\\/]/).pop()!;
   const checks: Check[] = [];
@@ -139,7 +160,8 @@ export function checkE1Set(setDir: string): SetIntake {
     drawingSha256 = sha256File(join(dir, "drawings", drawings[0]));
     const sums = existsSync(join(dir, "SHA256SUMS")) ? readFileSync(join(dir, "SHA256SUMS"), "utf8") : "";
     const recorded = sums.split(/\r?\n/).map((l) => l.trim().split(/\s+\*?/)).find((p) => p[1]?.replace(/^drawings\//, "") === drawings[0])?.[0]?.toLowerCase();
-    const excluded = EXCLUDED_DRAWINGS.find((x) => x.test(drawingSha256!));
+    const excluded = EXCLUDED_DRAWINGS.find((x) => x.test(drawingSha256!))
+      ?? (localExcluded.has(drawingSha256) ? { label: `a drawing in ${LOCAL_EXCLUSIONS_FILE}` } : undefined);
     if (!recorded) add("drawing", false, `SHA256SUMS does not record drawings/${drawings[0]}`);
     else if (recorded !== drawingSha256) add("drawing", false, `drawings/${drawings[0]} hashes to ${drawingSha256}, not the recorded ${recorded}: the file changed after receipt`);
     else if (excluded) add("drawing", false, `the drawing is ${excluded.label}, which is excluded from E1 (kit §1.3)`);
@@ -251,12 +273,14 @@ export function checkE1Portfolio(sets: SetIntake[]): Portfolio {
   };
 }
 
-/** Check every set folder (S01, S02 …) under an E1 root. */
-export function checkE1Root(root: string): { sets: SetIntake[]; portfolio: Portfolio } {
+/** Check every set folder (S01, S02 …) under an E1 root. Other folders are
+ *  listed as ignored, never counted as sets. */
+export function checkE1Root(root: string): { sets: SetIntake[]; portfolio: Portfolio; ignoredFolders: string[]; localExclusions: number } {
   const r = resolve(root);
   const folders = readdirSync(r).filter((f) => !f.startsWith(".") && statSync(join(r, f)).isDirectory()).sort();
-  const sets = folders.map((f) => checkE1Set(join(r, f)));
-  return { sets, portfolio: checkE1Portfolio(sets) };
+  const excluded = localExclusions(r);
+  const sets = folders.filter((f) => SET_FOLDER.test(f)).map((f) => checkE1Set(join(r, f), excluded));
+  return { sets, portfolio: checkE1Portfolio(sets), ignoredFolders: folders.filter((f) => !SET_FOLDER.test(f)), localExclusions: excluded.size };
 }
 
 /** The E2 runner's manifest, from complete sets only. An incomplete set (no

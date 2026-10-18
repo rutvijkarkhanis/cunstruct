@@ -128,35 +128,7 @@ A candidate is **fresh** only if **all** of the following hold:
 
 ## B. Drawing-owner request: DRAFT — LEGAL REVIEW REQUIRED — DO NOT SEND
 
-> **Subject: Request to use one drawing set for an independent accuracy test**
->
-> Dear [name],
->
-> [Cunstruct legal entity] is testing how accurately its software reads quantities from construction drawings. We would like your permission to use one drawing set: **[project / set description, number of files]**.
->
-> **1. What we would do with the drawings**
-> (a) Store them privately, encrypted at rest, outside any public or shared code repository. Access is limited to [named people].
-> (b) Run our software on them once.
-> (c) Give them to three independent quantity surveyors (two measurers and one adjudicator), each bound by a written confidentiality and deletion agreement. They would prepare measurement sheets and a reference bill of quantities.
-> (d) Compare our software's results with the surveyors' results.
->
-> **2. What we would publish:** aggregate accuracy figures only. These would not reproduce the drawings and would not identify the project, the client or the site, unless you tick here: ☐ the project may be named.
->
-> **3. What we would not do:** publish, sell, sublicense or otherwise share the drawings or the measurement sheets made from them; use them for any purpose other than this test; or use them to train any model offered to third parties [**delete if a broader use is agreed**].
->
-> **4. Retention and deletion**
-> - We would keep the files and the measurement sheets for **[period]** for audit.
-> - The surveyors must delete their copies within **[7]** days of delivery and confirm this in writing.
-> - You may withdraw permission in writing at any time. We would then delete the files and everything made from them within **[30]** days, except aggregate figures already published.
->
-> **5. Your confirmation**
-> - You are authorised to grant this permission.
-> - The drawings are of a real building in India.
-> - To your knowledge, the set has not previously been given to [Cunstruct legal entity] or processed by its software.
->
-> Signed: ____________  Name / role / organisation: ____________  Date: ________  Contact: ____________
->
-> [Sender name, role, Cunstruct legal entity, contact]
+The send-ready owner message and the permission letter are in [E1-FIRST-SET-HANDOUT.md](E1-FIRST-SET-HANDOUT.md) Parts 1–2. The letter's wording moved there unchanged, so there is one copy to review.
 
 **Legal adviser to confirm:**
 - the legal entity name;
@@ -170,49 +142,16 @@ A candidate is **fresh** only if **all** of the following hold:
 
 ## C. QS quotation brief (DRAFT — for PO approval; do not send)
 
+The surveyor and adjudicator briefs (roles, independence, deliverables, corrections) are in [E1-FIRST-SET-HANDOUT.md](E1-FIRST-SET-HANDOUT.md) Parts 4A–4B, carried over from this section. A quotation request is that brief plus the following:
+
 > **Subject: Request for itemised quotation — independent measurement of one building drawing set**
 >
-> We invite itemised quotations for independent measurement of **one** Indian building drawing set: **[typology]**, **[n]** sheets, vector PDF, about **[built-up area]** m². The drawings are released only after you sign the confidentiality, independence and deletion declaration.
->
-> **Roles.** There are three separate engagements, and no firm may hold more than one:
-> - **QS-A** and **QS-B**, who each measure the set independently;
-> - an **adjudicator**, an independent third QS who reconciles the two.
->
-> **Scope:** every page of the set. Items that need documents not in the set (specifications, BBS, services drawings) are listed as out of scope, with no figure.
->
-> **Deliverables from QS-A and QS-B: two separate documents; neither replaces the other.**
-> 1. **Complete IS 1200 measurement sheet** (Excel) for every in-scope item.
->    - **Columns:** item · location / grid · drawing page and reference · No · L · B · D · deductions · quantity · unit · measurement rule applied · IS 1200 part and clause · scaled? (yes/no) · for scaled rows, the drawing reference, scale used and method.
->    - **Scaling** is allowed when necessary, but every scaled row must be marked.
->    - **Uncertain quantities:** a quantity that cannot be established defensibly is marked ambiguous or unmeasurable, with its reason. No estimates.
-> 2. **Reference BOQ** in our format (template and specification enclosed), following the enclosed brief **exactly**.
->    - **Room floor areas:** gross, from the printed L × W, with no deductions and no scaling.
->    - **Counts:** as printed.
->    - **Other items:** measured from printed dimensions only, each with its own measurement rule.
->    - **Items only obtainable by scaling:** listed as unmeasurable, never given a figure.
->
-> **Deliverables from the adjudicator**, working from the drawing and the two submissions only:
-> 1. an adjudicated IS 1200 measurement sheet with a disagreement log giving the reason for each decision (figures are never averaged);
-> 2. a gold reference BOQ in our format, under the brief's conventions, with its own disagreement log.
->
-> **Independence:**
-> - Work alone, and do not discuss the drawing with anyone else measuring it.
-> - Do not view any software output for it.
-> - Declare any relationship with the other parties or with us.
->
-> **Confidentiality and deletion:**
-> - Use the drawings only for this work.
-> - Do not copy or share them.
-> - Delete all copies within **[7]** days of acceptance and confirm this in writing.
+> We invite itemised quotations for independent measurement of **one** Indian building drawing set: **[typology]**, **[n]** sheets, vector PDF, about **[built-up area]** m². The drawings are released only after you sign the confidentiality, independence and deletion declaration. There are three separate engagements (QS-A, QS-B, adjudicator), and no firm may hold more than one. The brief for your role is attached.
 >
 > **Timetable:**
 > - Quotation due **[date]**.
 > - QS-A and QS-B deliver within **[n]** working days of receiving the drawings.
 > - The adjudicator delivers within **[n]** working days of receiving both submissions.
->
-> **Corrections:**
-> - One round of **format** corrections is included, within **[3]** working days of our notice.
-> - Questions about **content** are answered from the drawing only. We never edit your figures.
 >
 > **Payment milestones (proposed):**
 > - **[x] %** on delivery of files that pass our format check;

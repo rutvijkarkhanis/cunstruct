@@ -15,7 +15,7 @@ import { seedCatalogue } from "@/lib/dsr/seedFixture";
 import type { DsrIndex } from "@/lib/dsr/match";
 import { buildPricingIndex } from "./metrics";
 import { runManifest } from "./runner";
-import { checkE1Portfolio, checkE1Root, checkE1Set, manifestFromE1, EXCLUDED_DRAWINGS, E1_SET_SCHEMA, type E1SetMeta, type SetIntake } from "./e1Intake";
+import { checkE1Portfolio, checkE1Root, checkE1Set, manifestFromE1, EXCLUDED_DRAWINGS, E1_SET_SCHEMA, LOCAL_EXCLUSIONS_FILE, type E1SetMeta, type SetIntake } from "./e1Intake";
 
 const PAGE = { width: 595, height: 842 };
 const sha = (b: string | Buffer) => createHash("sha256").update(b).digest("hex");
@@ -58,11 +58,11 @@ const ATTESTED = {
 };
 
 /** Write one complete SYNTHETIC set folder; `mutate` breaks it for a negative control. */
-function writeSet(root: string, id: string, opts: Partial<E1SetMeta> & { skip?: string[]; goldBy?: string; tags?: Record<string, string>; tamper?: boolean } = {}) {
+function writeSet(root: string, id: string, opts: Partial<E1SetMeta> & { skip?: string[]; goldBy?: string; tags?: Record<string, string>; tamper?: boolean; drawing?: Buffer } = {}) {
   const d = join(root, id);
   const w = (p: string, body: string | Buffer) => { mkdirSync(join(d, p, ".."), { recursive: true }); writeFileSync(join(d, p), body); };
   const skip = new Set(opts.skip ?? []);
-  const drawing = `SYNTHETIC drawing bytes for ${id} — not a real drawing`;
+  const drawing = opts.drawing ?? `SYNTHETIC drawing bytes for ${id} — not a real drawing`;
   const dsha = sha(drawing);
   w("drawings/set.pdf", drawing);
   w("SHA256SUMS", `${dsha}  drawings/set.pdf\n`);
@@ -142,6 +142,23 @@ describe("E1 set intake (kit §8) on SYNTHETIC set folders", () => {
     ]);
   });
 
+  it("refuses a repository test fixture as a set's drawing (pilot package §A5, X7)", () => {
+    const s = checkE1Set(writeSet(root, "N-fixture", { drawing: readFileSync(join(__dirname, "..", "..", "e2e", "fixtures", "document-a.pdf")) }));
+    expect(failing(s)).toEqual(["drawing"]);
+    expect(s.checks.find((c) => c.id === "drawing")!.detail).toMatch(/document-a\.pdf \(X7\).*excluded from E1/);
+  });
+
+  it("refuses a drawing listed in the local, git-ignored exclusion register", () => {
+    const r = mkdtempSync(join(tmpdir(), "e1-localx-"));
+    const d = writeSet(r, "S01");
+    const drawingSha = sha(readFileSync(join(d, "drawings", "set.pdf")));
+    writeFileSync(join(r, LOCAL_EXCLUSIONS_FILE), `| SYNTHETIC app drawing | \`${drawingSha}\` |\n`);
+    const { sets, localExclusions } = checkE1Root(r);
+    expect(localExclusions).toBe(1);
+    expect(failing(sets[0])).toEqual(["drawing"]);
+    expect(sets[0].checks.find((c) => c.id === "drawing")!.detail).toContain(LOCAL_EXCLUSIONS_FILE);
+  });
+
   it("knows the excluded drawings (kit §1.3)", () => {
     const hit = (s: string) => EXCLUDED_DRAWINGS.find((x) => x.test(s))?.label;
     expect(hit("af382dca" + "0".repeat(51) + "f9db5")).toMatch(/Set B/);
@@ -169,6 +186,16 @@ describe("E1 portfolio against the plan's test (10–20 sets; residential, comme
     expect(sets).toHaveLength(11);
     expect(portfolio).toMatchObject({ complete: 10, meetsPlanCount: true, meetsPlanSpread: true, missing: [] });
     expect(portfolio.kitTargetsUnmet).toEqual([]);
+  });
+
+  it("counts only S01-style folders as sets: output and working folders under the E1 root are ignored", () => {
+    const r = mkdtempSync(join(tmpdir(), "e1-folders-"));
+    writeSet(r, "S01");
+    for (const f of ["e1-out", "acquisition", "screening"]) mkdirSync(join(r, f));
+    const { sets, portfolio, ignoredFolders } = checkE1Root(r);
+    expect(sets.map((x) => x.id)).toEqual(["S01"]);
+    expect(portfolio).toMatchObject({ sets: 1, complete: 1 });
+    expect(ignoredFolders).toEqual(["acquisition", "e1-out", "screening"]);
   });
 });
 
