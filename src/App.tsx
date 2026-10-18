@@ -64,6 +64,7 @@ const PublicWorkspaceShare = lazy(() => import("./pages/PublicWorkspaceShare.tsx
 
 // ── Design-system reference (D1). Unlinked; dev, or staff in production. ────
 const DesignSystem = lazy(() => import("./pages/DesignSystem.tsx"));
+const EngineeringPreview = lazy(() => import("./pages/ops/EngineeringPreview.tsx"));
 
 const PageLoader = () => (
   <div className="min-h-screen bg-background flex items-center justify-center">
@@ -157,6 +158,8 @@ function AppRoutes() {
       <Route path="/contractor/my-projects/:id" element={<MyProjectDetail />} />
       <Route path="/ops" element={<OpsLayout />}>
         <Route index element={<OpsDashboard />} />
+      {/* Owner-only, mock-only engineering prototype; disabled outside dev unless explicitly enabled. */}
+      <Route path="engineering-preview" element={<EngineeringPreview />} />
         <Route path="projects" element={<OpsProjects />} />
         <Route path="projects/:id" element={<ProjectLayout />}>
           {/* Stage C1: the project root is canonically the Workspace. */}
