@@ -43,6 +43,7 @@ vi.mock("@/lib/untypedDb", async (orig) => {
       select: () => { if (op !== "select") returning = true; return q; },
       eq: (c: string, v: unknown) => { filters.push((r) => r[c] === v); return q; },
       is: (c: string, v: unknown) => { filters.push((r) => (r[c] ?? null) === v); return q; },
+      in: (c: string, vs: unknown[]) => { filters.push((r) => vs.includes(r[c])); return q; },
       limit: () => q,
       insert: (v: Row | Row[]) => { op = "insert"; payload = v; return q; },
       update: (v: Row) => { op = "update"; payload = v; return q; },
@@ -54,7 +55,7 @@ vi.mock("@/lib/untypedDb", async (orig) => {
   return { ...actual, db: { from } };
 });
 
-import { addLineRecorded, editTookEffect, lineAddMessage, lineEditMessage, saveLineEdit } from "./lineEdit";
+import { addLineRecorded, addLinesRecorded, editTookEffect, lineAddMessage, lineEditMessage, linesAddMessage, saveLineEdit } from "./lineEdit";
 
 const LINE = { id: "l1", qty: 10, unit: "sqm", basis: "DRAWING_DERIVED", quantity_status: "MEASURED", description: "Plaster", section: "Finishes", included: true, cost: 100 };
 
@@ -163,5 +164,40 @@ describe("addLineRecorded", () => {
     mem.failInsert.add("boq_line");
     await expect(addLineRecorded({ boqId: "b1", row, changedBy: "u1" })).rejects.toBeTruthy();
     expect(mem.tables.boq_line).toEqual([LINE]);
+  });
+});
+
+describe("addLinesRecorded (Add lines from JSON)", () => {
+  const ROWS = [
+    { boq_id: "b1", description: "Door D1", unit: "nos", qty: 4, source: "manual" },
+    { boq_id: "b1", description: "Plaster", unit: "sqm", qty: 0, basis: "PENDING", quantity_status: "PENDING", source: "manual" },
+  ];
+
+  it("adds every line and records each one's creation, qty and unit", async () => {
+    const r = await addLinesRecorded({ boqId: "b1", rows: ROWS, changedBy: "u1" });
+    expect(r).toMatchObject({ status: "added", recorded: true });
+    expect(r.ids).toHaveLength(2);
+    expect(linesAddMessage(r)).toBeNull();
+    const log = mem.tables.boq_line_change_log;
+    for (const id of r.ids) {
+      expect(log.filter((h) => h.boq_line_id === id).map((h) => h.field)).toEqual(["line_created", "qty", "unit"]);
+    }
+    expect(log.every((h) => h.changed_by === "u1" && h.boq_id === "b1")).toBe(true);
+  });
+
+  it("without the history table it still adds, and says the lines are not in the history", async () => {
+    mem.missing.add("boq_line_change_log");
+    const r = await addLinesRecorded({ boqId: "b1", rows: ROWS, changedBy: "u1" });
+    expect(r).toMatchObject({ status: "added", recorded: false });
+    expect(mem.tables.boq_line).toHaveLength(3);
+    expect(linesAddMessage(r)).toMatch(/^2 lines added\. Change history is not set up/);
+  });
+
+  it("when the history rows fail, the new lines are taken out again and nothing claims success", async () => {
+    mem.failInsert.add("boq_line_change_log");
+    const r = await addLinesRecorded({ boqId: "b1", rows: ROWS, changedBy: "u1" });
+    expect(r).toMatchObject({ status: "history_failed", removed: true });
+    expect(mem.tables.boq_line.map((l) => l.id)).toEqual(["l1"]);
+    expect(linesAddMessage(r)).toMatch(/^Lines not added/);
   });
 });
