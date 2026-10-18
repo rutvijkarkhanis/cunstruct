@@ -158,20 +158,19 @@ export default function EngineeringPreview() {
   const enabled =
     import.meta.env.DEV ||
     import.meta.env.VITE_CUNSTRUCT_ENGINEERING_PREVIEW === "true";
-
-  // This surface is disabled in production unless explicitly feature-enabled.
-  // All records are local constants/state: no Supabase client, query, or write.
-  if (!enabled) return <Navigate to="/ops" replace />;
-
   const [surface, setSurface] = useState<Surface>("workspace");
   const [lines, setLines] = useState<PreviewLine[]>(INITIAL_LINES);
   const [coverageReviewed, setCoverageReviewed] = useState<string[]>([]);
 
+  // This surface is disabled in production unless explicitly feature-enabled.
+  // All records are local constants/state: no Supabase client, query, or write.
   const totals = useMemo(() => {
     const priced = lines.reduce((sum, line) => sum + (amountFor(line) ?? 0), 0);
     const pending = lines.filter((line) => line.quantityState === "pending").length;
     return { priced, pending };
   }, [lines]);
+
+  if (!enabled) return <Navigate to="/ops" replace />;
 
   const updateLine = (id: string, update: Partial<PreviewLine>) => {
     setLines((current) =>
