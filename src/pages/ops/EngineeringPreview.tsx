@@ -7,12 +7,14 @@ import {
 } from "@/preview/fixtures";
 import { RevisionDeltaPanel } from "@/preview/RevisionDeltaPanel";
 import { SurfacePanel, type PreviewLine } from "@/preview/shared";
+import { MeasurementSheet } from "@/preview/measurement/MeasurementSheet";
+import { SAMPLE_MEASUREMENT_LINES } from "@/preview/measurement/sampleLines";
 import { statePill } from "@/preview/statePill";
 import { SignOffPanel } from "@/preview/SignOffPanel";
 import { VerifyQueuePanel } from "@/preview/VerifyQueuePanel";
 import WorkspaceShell from "@/preview/workspace/WorkspaceShell";
 
-type Surface = "workspace" | "verify" | "coverage" | "signoff" | "revision";
+type Surface = "workspace" | "verify" | "coverage" | "signoff" | "revision" | "measurement";
 
 const INITIAL_LINES: PreviewLine[] = [
   {
@@ -82,6 +84,7 @@ const SURFACES: { id: Surface; label: string }[] = [
   { id: "coverage", label: "Coverage map" },
   { id: "signoff", label: "Sign-off sheet" },
   { id: "revision", label: "Revision delta" },
+  { id: "measurement", label: "Measurement sheet" },
 ];
 
 const formatMoney = (value: number) =>
@@ -219,6 +222,14 @@ export default function EngineeringPreview() {
         )}
 
         {surface === "revision" && <RevisionDeltaPanel revisionA={DEMO_REVISION_A} current={lines} />}
+        {surface === "measurement" && (
+          <SurfacePanel
+            title="Measurement sheet"
+            description="IS 1200-style No × L × B × D rows with deductions, drawing references and rule citations (plan B3, preview only). Sample data; citations are not verified against the standard."
+          >
+            <MeasurementSheet initialLines={SAMPLE_MEASUREMENT_LINES} />
+          </SurfacePanel>
+        )}
         <footer className="border-t pt-4 text-xs text-muted-foreground">
           Owner-only engineering preview · deterministic fixture data · no persistence · not a benchmark · not a commercial release
         </footer>
