@@ -14,9 +14,8 @@ import { sanityForCode, countFlagged } from "@/lib/boqSanity";
 import { parseBoqEvalJson, evalLinesToRows, pendingCount, PENDING_BASIS } from "@/lib/boqEvalJson";
 import { quantityEditPatch, unitEditPatch } from "@/lib/quantityEdit";
 import { safeJourneyReturn } from "@/lib/app/journey";
-import { addLineRecorded, editTookEffect, lineAddMessage, lineEditMessage, saveLineEdit, type LineAddResult } from "@/lib/lineEdit";
+import { addLineRecorded, addLinesRecorded, editTookEffect, lineAddMessage, lineEditMessage, linesAddMessage, saveLineEdit, type LineAddResult } from "@/lib/lineEdit";
 import { PDF_REREAD_FAILED_MESSAGE, linesChanged } from "@/lib/exportFreshness";
-import { throwLineSaveError } from "@/lib/provenanceSave";
 import { LineRemovalError, removeLineWithSnapshot, restoreRemovedLine, type RemovedLine } from "@/lib/lineRemoval";
 import { saveErrorMessage } from "@/lib/saveError";
 import { commercialsFor, effRate, groupSubheads as groupSubheadsOf, includedTotal, lineAmount, liveCsv, liveFileStem, liveQuotePayload, quoteContextFor, workingSubheadsFrom } from "@/lib/boqLiveExport";
@@ -524,10 +523,15 @@ export default function OpsBoqBuilder() {
     try {
       const rows = evalLinesToRows(id, parsed.lines, lines.length);
       // All provenance columns or nothing — no stripped retry (see provenanceSave.ts).
-      const { error } = await supabase.from("boq_line").insert(rows);
-      if (error) throwLineSaveError(error);
+      // Recorded like every other add (lib/lineEdit): one "line_created" history
+      // entry per line, or a notice where change history is not set up.
+      const r = await addLinesRecorded({ boqId: id, rows, changedBy: user?.id ?? null });
+      const note = linesAddMessage(r);
+      refetchLines();
+      if (r.status === "history_failed") return void toast.error(note);
       toast.success(`Added ${rows.length} line${rows.length === 1 ? "" : "s"} from JSON`);
-      setJsonText(""); setShowJson(false); refetchLines();
+      if (note) toast.warning(note);
+      setJsonText(""); setShowJson(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to add from JSON");
     } finally { setBusy(false); }
