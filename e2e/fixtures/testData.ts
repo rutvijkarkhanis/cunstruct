@@ -37,12 +37,44 @@ export const DOC_A_PAGE2_WINDOW_BBOX: [number, number, number, number] = [80, 20
 // Document B, page 1's drawn rectangle (the green "column").
 export const DOC_B_PAGE1_COLUMN_BBOX: [number, number, number, number] = [350, 522, 440, 642];
 
+const E2E_MODEL = "e2e-fixture-model";
+const E2E_CONTRACT_VERSION = "e2e-fixture-contract";
+
+function claimFor(documentId: string, revisionId: string, filename: string) {
+  return {
+    id: `e2e-claim-${documentId}`, project_id: PROJECT_ID, boq_id: BOQ_ID, analysis_run_id: RUN_ID,
+    document_id: documentId, document_revision_id: revisionId, filename_at_time_of_analysis: filename,
+    content_hash: `e2e-hash-${documentId}`, contract_version: E2E_CONTRACT_VERSION, provider: "openai",
+    model: E2E_MODEL, mode: "BOQ", status: "SUCCEEDED", error: null,
+    claimed_at: "2026-01-01T00:00:00Z", completed_at: "2026-01-01T00:01:00Z",
+  };
+}
+
+/** The same fixture with the run replaced by a json_import run, which records
+ *  no analysed revision (no analysis_run_source rows): the drawings'
+ *  provenance is "unknown", so the product must keep Identify unavailable. */
+export function withJsonImportRun(f: ReturnType<typeof buildRestFixtures>) {
+  return {
+    ...f,
+    analysis_run: [{ id: RUN_ID, boq_id: BOQ_ID, project_id: PROJECT_ID, source: "json_import", item_count: 2, created_at: "2026-01-01T00:00:00Z", resolved_document_id: null }],
+    analysis_run_source: [] as unknown[],
+  };
+}
+
 export function buildRestFixtures() {
   const boq = { id: BOQ_ID, name: "E2E Test BOQ", project_id: PROJECT_ID };
   const project = { id: PROJECT_ID, name: "E2E Test Project", project_type: null, client_name: null, location: null, status: "active" };
 
+  // An AI-analysed BOQ run, the state in which the review workstation offers
+  // Identify / Find Similar: its analysis_run_source claims (below) record that
+  // it read each document's CURRENT revision, so revisionFreshness.ts
+  // classifies both drawings as "current". A json_import run records no
+  // revision, and the product deliberately withholds Identify for it
+  // (provenance "unknown") — see the R10 regression test in
+  // clickToIdentify.spec.ts, which uses withJsonImportRun() below.
   const analysis_run = [{
-    id: RUN_ID, boq_id: BOQ_ID, project_id: PROJECT_ID, source: "json_import",
+    id: RUN_ID, boq_id: BOQ_ID, project_id: PROJECT_ID, source: "ai_api", mode: "BOQ",
+    provider: "openai", model: E2E_MODEL, contract_version: E2E_CONTRACT_VERSION,
     item_count: 2, created_at: "2026-01-01T00:00:00Z", resolved_document_id: null,
   }];
 
@@ -96,7 +128,13 @@ export function buildRestFixtures() {
     project_document,
     document_revision,
     boq_line: [] as unknown[],
-    analysis_run_source: [] as unknown[], // => NOT_RUN for LOCATION on every document; no enrichment
+    // One SUCCEEDED BOQ-mode claim per document, naming its current revision.
+    // There is no LOCATION-mode claim, so LOCATION stays NOT_RUN on every
+    // document (the mock applies the app's mode=LOCATION filter).
+    analysis_run_source: [
+      claimFor(DOC_A_ID, DOC_A_REVISION_ID, "document-a.pdf"),
+      claimFor(DOC_B_ID, DOC_B_REVISION_ID, "document-b.pdf"),
+    ] as unknown[],
     analysis_observation: [] as unknown[],
     user_roles: [{ user_id: "e2e-user-1", role: "ops" }],
   };
