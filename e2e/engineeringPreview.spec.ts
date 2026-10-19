@@ -38,7 +38,7 @@ for (const vp of VIEWPORTS) {
 
     test("every tab opens with no Supabase request, no write and no console error", async ({ page }) => {
       const { consoleErrors, supabaseRequests } = await openPreview(page);
-      const before = supabaseRequests.length; // the Ops layout's own session and role checks
+      const before = supabaseRequests.length;
       const tabs = page.getByRole("tab");
       const count = await tabs.count();
       expect(count).toBeGreaterThanOrEqual(5);

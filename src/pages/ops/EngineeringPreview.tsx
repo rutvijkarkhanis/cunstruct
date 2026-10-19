@@ -9,13 +9,15 @@ import {
 import { RevisionDeltaPanel } from "@/preview/RevisionDeltaPanel";
 import { SurfacePanel, type PreviewLine } from "@/preview/shared";
 import { MeasurementSheet } from "@/preview/measurement/MeasurementSheet";
+import { PhonePreview } from "@/preview/phone/PhonePreview";
+import { ProcurementPanel } from "@/preview/procurement/ProcurementPanel";
 import { SAMPLE_MEASUREMENT_LINES } from "@/preview/measurement/sampleLines";
 import { statePill } from "@/preview/statePill";
 import { SignOffPanel } from "@/preview/SignOffPanel";
 import { VerifyQueuePanel } from "@/preview/VerifyQueuePanel";
 import WorkspaceShell from "@/preview/workspace/WorkspaceShell";
 
-type Surface = "workspace" | "verify" | "coverage" | "signoff" | "revision" | "measurement" | "flow";
+type Surface = "workspace" | "verify" | "coverage" | "signoff" | "revision" | "measurement" | "flow" | "procurement" | "phone";
 
 const INITIAL_LINES: PreviewLine[] = [
   {
@@ -87,6 +89,8 @@ const SURFACES: { id: Surface; label: string }[] = [
   { id: "revision", label: "Revision delta" },
   { id: "measurement", label: "Measurement sheet" },
   { id: "flow", label: "Integrated flow" },
+  { id: "procurement", label: "Procurement" },
+  { id: "phone", label: "Phone views" },
 ];
 
 const formatMoney = (value: number) =>
@@ -234,6 +238,15 @@ export default function EngineeringPreview() {
           </SurfacePanel>
         )}
         {surface === "flow" && <FlowPanel />}
+        {surface === "procurement" && <ProcurementPanel />}
+        {surface === "phone" && (
+          <SurfacePanel
+            title="Phone views"
+            description="Owner sign-off, call-offs, site measurement and WhatsApp share link at 360 px (plan B10, preview only). Illustrative fixtures; actions queue on this device and are never sent."
+          >
+            <PhonePreview />
+          </SurfacePanel>
+        )}
         <footer className="border-t pt-4 text-xs text-muted-foreground">
           Owner-only engineering preview · deterministic fixture data · no persistence · not a benchmark · not a commercial release
         </footer>
