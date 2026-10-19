@@ -8,13 +8,15 @@ import {
 import { RevisionDeltaPanel } from "@/preview/RevisionDeltaPanel";
 import { SurfacePanel, type PreviewLine } from "@/preview/shared";
 import { MeasurementSheet } from "@/preview/measurement/MeasurementSheet";
+import { PhonePreview } from "@/preview/phone/PhonePreview";
+import { ProcurementPanel } from "@/preview/procurement/ProcurementPanel";
 import { SAMPLE_MEASUREMENT_LINES } from "@/preview/measurement/sampleLines";
 import { statePill } from "@/preview/statePill";
 import { SignOffPanel } from "@/preview/SignOffPanel";
 import { VerifyQueuePanel } from "@/preview/VerifyQueuePanel";
 import WorkspaceShell from "@/preview/workspace/WorkspaceShell";
 
-type Surface = "workspace" | "verify" | "coverage" | "signoff" | "revision" | "measurement";
+type Surface = "workspace" | "verify" | "coverage" | "signoff" | "revision" | "measurement" | "procurement" | "phone";
 
 const INITIAL_LINES: PreviewLine[] = [
   {
@@ -85,6 +87,8 @@ const SURFACES: { id: Surface; label: string }[] = [
   { id: "signoff", label: "Sign-off sheet" },
   { id: "revision", label: "Revision delta" },
   { id: "measurement", label: "Measurement sheet" },
+  { id: "procurement", label: "Procurement" },
+  { id: "phone", label: "Phone views" },
 ];
 
 const formatMoney = (value: number) =>
@@ -228,6 +232,15 @@ export default function EngineeringPreview() {
             description="IS 1200-style No × L × B × D rows with deductions, drawing references and rule citations (plan B3, preview only). Sample data; citations are not verified against the standard."
           >
             <MeasurementSheet initialLines={SAMPLE_MEASUREMENT_LINES} />
+          </SurfacePanel>
+        )}
+        {surface === "procurement" && <ProcurementPanel />}
+        {surface === "phone" && (
+          <SurfacePanel
+            title="Phone views"
+            description="Owner sign-off, call-offs, site measurement and WhatsApp share link at 360 px (plan B10, preview only). Illustrative fixtures; actions queue on this device and are never sent."
+          >
+            <PhonePreview />
           </SurfacePanel>
         )}
         <footer className="border-t pt-4 text-xs text-muted-foreground">
