@@ -16,7 +16,7 @@ This file is that register. It records what was attempted, what could not be rea
 
 | # | Topic | Status | Why |
 |---|---|---|---|
-| 1 | BIS IS 1200 parts, editions, deduction rules | **BLOCKED** | bis.gov.in, services.bis.gov.in, standardsbis.bsbedge.com, law.resource.org and archive.org all unreachable. No IS 1200 text was read. |
+| 1 | BIS IS 1200 parts, editions, deduction rules | **DEFERRED (owner decision, 20 Oct 2026)** | The owner decided to skip deductions for now. No IS 1200 text has been read, so deduction rules stay **unconfirmed** and no deduction may be presented as rule-verified. Earlier status: BLOCKED (hosts unreachable, §0) |
 | 2 | CPWD DSR 2023: volumes, titles, rate basis date, cost-index method | **CONFIRMED (Vol. 1)** | Two volumes, rate basis April 2023 / 01.04.2023, and sub-heads 1–12 in Vol. 1 with 13–26 in Vol. 2, all from Vol. 1 pp. 3–8 (§2.1). Vol. 2 itself has not been read. |
 | 3 | GST treatment in DSR 2023 rates | **CONFIRMED (Vol. 1)** | Item rates include GST @18% (preface §6.2, p. 5). Basic rates exclude GST, contractor's profit and overheads (pp. 14, 18). **The app added GST again on DSR rates; see §3.1.** |
 | 4 | Cost-index values applicable to DSR 2023 | **PARTLY CONFIRMED** | DSR 2023 is itself at cost index 107 against PAR 2021 = 100 as on 01.04.2021 (preface ¶3, p. 5). Location cost indices relative to DSR 2023 (for example for Srikakulam) are **not** in this volume and remain open. |
