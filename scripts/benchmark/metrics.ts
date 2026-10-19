@@ -21,8 +21,8 @@
 
 import type { AccuracyReport, SystemItem } from "@/lib/e2e/boqEndToEndScorer";
 import { canonicalUnit, convertQuantity, statusOf, type ReferenceBoqLine } from "@/lib/e2e/boqReference";
-import { buildDsrIndex, matchLine, type DsrIndex } from "@/lib/dsr/match";
-import type { DsrItem } from "@/lib/dsr/catalogue";
+import type { DsrIndex } from "@/lib/dsr/match";
+import { PRICING_SCHEDULE, buildPricingIndex, rateLine } from "@/lib/priceFirst/rateLine";
 
 // ── Element categories ───────────────────────────────────────────────────────
 
@@ -71,7 +71,7 @@ export function categoryOf(name: string | null | undefined, unit: string | null 
 
 // ── DSR pricing of reference lines ───────────────────────────────────────────
 
-export const PRICING_SCHEDULE = { source: "DSR", year: "2023" } as const;
+export { PRICING_SCHEDULE, buildPricingIndex };
 
 export type LinePrice =
   | { priced: true; rate: number; dsrCode: string; dsrUnit: string | null; basis: "reference_dsr_code" | "matcher_reliable" }
@@ -84,22 +84,14 @@ export const referenceDsrCode = (line: ReferenceBoqLine): string | null => {
   return typeof raw === "string" && raw.trim() ? raw.trim() : null;
 };
 
-export const buildPricingIndex = (catalogue: DsrItem[]): DsrIndex => buildDsrIndex(catalogue, PRICING_SCHEDULE.source, PRICING_SCHEDULE.year);
-
-/** Rate one reference line: by its own stated DSR code when it gives one (and
- *  the matcher calls that code reliable for the line), otherwise by the
- *  matcher's reliable description match. Anything else is unpriced. */
+/** Rate one reference line with the shared rule (src/lib/priceFirst/rateLine.ts):
+ *  by its own stated DSR code when it gives one (and the matcher calls that
+ *  code reliable for the line), otherwise by the matcher's reliable
+ *  description match. Anything else is unpriced. */
 export function priceReferenceLine(line: ReferenceBoqLine, ix: DsrIndex): LinePrice {
-  const code = referenceDsrCode(line);
-  const m = matchLine({ description: line.item, unit: line.unit, dsr_code: code }, ix);
-  const best = m.candidates[0];
-  if (code && m.basis !== "code") return { priced: false, reason: `Reference code ${code} is not an item in DSR ${PRICING_SCHEDULE.year}; no other item is substituted.` };
-  if (m.verdict !== "reliable" || !best) {
-    return { priced: false, reason: `${code ? `Reference code ${code}` : "Matcher"}: verdict ${m.verdict} — ${m.reasons.join(" ")}`.trim() };
-  }
-  if (best.unit !== "match") return { priced: false, reason: `DSR ${best.item.code} is in ${best.item.unit}, the line in ${line.unit}; no conversion is assumed.` };
-  if (best.item.rate == null) return { priced: false, reason: `DSR ${best.item.code} has no rate in the seed.` };
-  return { priced: true, rate: best.item.rate, dsrCode: best.item.code, dsrUnit: best.item.unit, basis: code ? "reference_dsr_code" : "matcher_reliable" };
+  const d = rateLine({ description: line.item, unit: line.unit, dsr_code: referenceDsrCode(line) }, ix);
+  if (d.kind === "unrated") return { priced: false, reason: d.reason };
+  return { priced: true, rate: d.rate, dsrCode: d.code, dsrUnit: d.unit, basis: d.basis === "stated_code" ? "reference_dsr_code" : "matcher_reliable" };
 }
 
 // ── Per-line records ─────────────────────────────────────────────────────────
