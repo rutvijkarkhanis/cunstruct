@@ -63,7 +63,7 @@ describe("CSV", () => {
   it("measured rows are unchanged; the pending line is in the pending section with a blank Qty and its source", () => {
     const body = csvBody(buildBoqCsv(csvRowsFrom(MIXED), META, pendingItemsFrom(MIXED)));
     expect(body).toEqual([
-      "1.00 Drawing review — added,1.01,,Floor area — LIFT,sqm,4.23,1000,1000,=F5*H5,Ground Floor Plan,3,",
+      "1.00 Drawing review — added,1.01,,Floor area — LIFT,sqm,4.23,1000,1000,=F5*H5,Ground Floor Plan,3,,DSR 2023 rate (incl. GST @18%)",
       "",
       "IDENTIFIED — PENDING QUANTIFICATION (not priced; confirm a quantity to price)",
       "Pending,P.01,,Floor area — CORRIDOR — Quantity pending: not yet measured,sqm,,,,,Ground Floor Plan,3,",

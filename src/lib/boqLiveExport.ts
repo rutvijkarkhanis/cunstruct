@@ -10,7 +10,7 @@
 // listed in the document's pending section — never as a measured 0, never
 // silently dropped.
 import { buildBoqCsv, computeCommercials, type DsrQuotePayload, type QuoteCommercials } from "@/lib/boqDsrDocument";
-import { countedAmount, effectiveRate } from "@/lib/quantity";
+import { countedAmount, dsrWorksTotal, effectiveRate } from "@/lib/quantity";
 import {
   buildRevisionLines, csvRowsFrom, pendingItemsFrom, quoteSubheadsFrom,
   type RevisionQuoteContext, type WorkingLine, type WorkingSubhead,
@@ -29,6 +29,9 @@ export const effRate = (l: Pick<WorkingLine, "dsr_rate" | "custom_rate">) => eff
 export const lineAmount = (l: RatedLine) => countedAmount(l);
 export const includedTotal = (ls: (RatedLine & { included: boolean })[]) =>
   ls.filter((l) => l.included).reduce((s, l) => s + lineAmount(l), 0);
+/** The part of includedTotal priced AT the DSR rate (no custom override) — DSR
+ *  2023 rates already include GST @18%, so commercialsFor adds no GST on it. */
+export const includedDsrTotal = (ls: (RatedLine & { included: boolean })[]) => dsrWorksTotal(ls);
 
 /** The sub-head title shown in the editor and printed on exports. Apply
  *  files new review lines under an internal section (DRAWING_REVIEW_SECTION)
@@ -62,8 +65,10 @@ export function groupSubheads<L extends WorkingLine>(source: L[]): SubheadGroup<
 }
 
 /** Commercials (cost index, contingency, overhead, cess, GST) live in boq.spec.
- *  Defaults follow common CPWD practice. */
-export function commercialsFor(worksTotal: number, sp: Spec): QuoteCommercials {
+ *  Defaults follow common CPWD practice. `dsrWorks` (includedDsrTotal) is the
+ *  part of worksTotal at DSR rates: GST @ _gst_pct is added only on the rest,
+ *  because DSR 2023 rates already include GST @18% (see computeCommercials). */
+export function commercialsFor(worksTotal: number, sp: Spec, dsrWorks = 0): QuoteCommercials {
   const pct = (k: string, d: number) => Number(sp[k] ?? d);
   return computeCommercials(worksTotal, {
     costIndexPct: pct("_cost_index_pct", 0),
@@ -71,7 +76,7 @@ export function commercialsFor(worksTotal: number, sp: Spec): QuoteCommercials {
     overheadPct: pct("_overhead_pct", 15),
     cessPct: pct("_cess_pct", 1),
     gstPct: pct("_gst_pct", 18),
-  });
+  }, dsrWorks);
 }
 
 export interface ExportProject {

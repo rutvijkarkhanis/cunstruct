@@ -8,6 +8,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { computeCommercials } from "../boqDsrDocument";
 import {
   handleBootstrap, handleDrawingUrl, handleBoqLines, isLinkActive,
   type ShareReadDeps,
@@ -176,13 +177,30 @@ describe("handleBoqLines", () => {
     const subTotal = worksAdjusted + contingencyAmt + overheadAmt;
     const cessAmt = round(subTotal * 0.01);
     const taxable = subTotal + cessAmt;
-    const gstAmt = round(taxable * 0.18);
-    const grandTotal = taxable + gstAmt;
+    // l1 is priced at its DSR rate, which already includes GST @18% (DSR 2023
+    // preface §6.2) — so no GST is added on it.
+    const grandTotal = taxable;
 
     const commercials = res.body.commercials as { works: number; subTotal: number; grandTotal: number };
     expect(commercials.works).toBe(works);
     expect(commercials.subTotal).toBe(subTotal);
     expect(commercials.grandTotal).toBe(grandTotal);
+    expect(commercials).toEqual({ works, subTotal, grandTotal: computeCommercials(1000, { costIndexPct: 0, contingencyPct: 3, overheadPct: 15, cessPct: 1, gstPct: 18 }, 1000).grandTotal });
+  });
+
+  it("showPricing: true — a custom-rated line is charged GST; the same waterfall as computeCommercials", async () => {
+    const d = deps({
+      listBoqLines: vi.fn(async () => [
+        { ...LINES[0] },                                     // 1000 at DSR rate
+        { ...LINES[0], id: "l3", customRate: 80 },           // 800 at own rate (DSR item overridden)
+      ]),
+      getBoqForProject: vi.fn(async () => ({ id: "boq-1", name: "Floor 1", spec: { gstPct: 18, overheadPct: 15, contingencyPct: 3, cessPct: 1, costIndexPct: 0 } })),
+    });
+    const res = await handleBoqLines({ projectId: "proj-1", boqId: "boq-1", showPricing: true }, d);
+    if (!res.body.ok) throw new Error("expected ok");
+    const expected = computeCommercials(1800, { costIndexPct: 0, contingencyPct: 3, overheadPct: 15, cessPct: 1, gstPct: 18 }, 1000);
+    expect(res.body.commercials).toEqual({ works: expected.works, subTotal: expected.subTotal, grandTotal: expected.grandTotal });
+    expect(expected.grandTotal).toBe(2317);
   });
 });
 

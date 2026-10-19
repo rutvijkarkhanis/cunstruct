@@ -69,8 +69,7 @@ describe("buildBoqCsv", () => {
 
   it("Scope H: appends Source Document / Source Page AFTER the existing 9 columns, formula untouched", () => {
     // spec deliberately comma-free here so a plain split(",") on the data row lines
-    // up with real column indices (the header row's own "Rate (ref, excl GST)" has
-    // an embedded comma, so the header is checked with toContain instead).
+    // up with real column indices (the header is checked with toContain).
     const csv = buildBoqCsv([
       { subhead: "4.00 RCC", itemNo: "4.01", code: "5.3", spec: "RCC M20 concrete", unit: "cum", qty: 13.4, rate: 11505, sourceDocument: "Floor 1 Plan", sourcePage: "3" },
     ], meta);

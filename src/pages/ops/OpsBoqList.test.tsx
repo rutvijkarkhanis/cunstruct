@@ -46,6 +46,20 @@ describe("OpsBoqList — works totals", () => {
     expect(screen.queryByText("₹2,200")).toBeNull();
   });
 
+  it("adds GST only on lines not at the DSR rate — DSR 2023 rates already include GST @18%", async () => {
+    db.lines = [
+      { boq_id: "b1", qty: 10, dsr_rate: 100, custom_rate: null, included: true, quantity_status: "MEASURED", basis: null },  // 1000 at DSR rate
+      { boq_id: "b1", qty: 5, dsr_rate: 100, custom_rate: 200, included: true, quantity_status: "MEASURED", basis: null },   // 1000 own rate
+    ];
+    renderList();
+    expect(await screen.findByText("GST @18% — included in DSR 2023 rates (DSR 2023 preface §6.2)")).toBeInTheDocument();
+    expect(screen.getByText("GST @ 18% on non-DSR items")).toBeInTheDocument();
+    expect(screen.getByText("₹180")).toBeInTheDocument();     // 18% of the 1000 at own rate only
+    expect(screen.getByText("₹2,180")).toBeInTheDocument();   // grand total
+    expect(screen.queryByText("₹2,360")).toBeNull();          // the former GST-on-everything total
+    expect(screen.queryByText("Total (excl. GST)")).toBeNull();
+  });
+
   it("a failed line load is reported instead of showing totals", async () => {
     db.linesError = { message: "permission denied" };
     renderList();

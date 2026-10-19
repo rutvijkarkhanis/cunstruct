@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { disciplineByKey } from "@/lib/disciplines";
-import { countedAmount, qtyPending } from "@/lib/quantity";
+import { countedAmount, dsrRated, qtyPending } from "@/lib/quantity";
+import { DSR_GST_INCLUDED_LABEL } from "@/lib/boqDsrDocument";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -55,6 +56,8 @@ export default function OpsBoqList() {
       // the effective rate (the shared rule in @/lib/quantity — a pending
       // quantity is never priced). Pending lines are counted, not summed.
       const totals = new Map<string, number>();
+      // Part of each total at DSR rates — DSR 2023 rates already include GST @18%.
+      const dsrTotals = new Map<string, number>();
       const pending = new Map<string, number>();
       if (rows.length) {
         const { data: lines, error: linesError } = await supabase.from("boq_line")
@@ -64,6 +67,7 @@ export default function OpsBoqList() {
           if (!l.included) continue;
           if (qtyPending(l)) pending.set(l.boq_id, (pending.get(l.boq_id) ?? 0) + 1);
           totals.set(l.boq_id, (totals.get(l.boq_id) ?? 0) + countedAmount(l));
+          if (dsrRated(l)) dsrTotals.set(l.boq_id, (dsrTotals.get(l.boq_id) ?? 0) + countedAmount(l));
         }
       }
 
@@ -75,11 +79,11 @@ export default function OpsBoqList() {
       }
 
       // Group by project (standalone bucketed under a null key).
-      const groups = new Map<string, { name: string; boqs: (BoqRow & { works: number; pending: number })[] }>();
+      const groups = new Map<string, { name: string; boqs: (BoqRow & { works: number; dsrWorks: number; pending: number })[] }>();
       for (const r of rows) {
         const key = r.project_id ?? "__standalone";
         if (!groups.has(key)) groups.set(key, { name: r.project_id ? names.get(r.project_id) ?? "—" : "Standalone", boqs: [] });
-        groups.get(key)!.boqs.push({ ...r, works: totals.get(r.id) ?? 0, pending: pending.get(r.id) ?? 0 });
+        groups.get(key)!.boqs.push({ ...r, works: totals.get(r.id) ?? 0, dsrWorks: dsrTotals.get(r.id) ?? 0, pending: pending.get(r.id) ?? 0 });
       }
       return [...groups.values()];
     },
@@ -108,7 +112,10 @@ export default function OpsBoqList() {
       ) : (
         data.map((g) => {
           const works = g.boqs.reduce((s, b) => s + b.works, 0);
-          const grand = works * (1 + GST);
+          const dsrWorks = g.boqs.reduce((s, b) => s + b.dsrWorks, 0);
+          // GST is added only on lines NOT at the DSR rate (own/custom rates).
+          const gst = (works - dsrWorks) * GST;
+          const grand = works + gst;
           return (
             <Card key={g.name}>
               <CardHeader className="pb-2">
@@ -139,8 +146,11 @@ export default function OpsBoqList() {
                 ))}
                 {/* Grand abstract — d21 style */}
                 <div className="mt-2 pt-2 border-t space-y-0.5 text-sm">
-                  <div className="flex justify-between text-muted-foreground"><span>Total (excl. GST)</span><span className="tabular-nums">{inr(works)}</span></div>
-                  <div className="flex justify-between text-muted-foreground"><span>GST @ 18%</span><span className="tabular-nums">{inr(works * GST)}</span></div>
+                  <div className="flex justify-between text-muted-foreground"><span>Total of works</span><span className="tabular-nums">{inr(works)}</span></div>
+                  {dsrWorks > 0 && (
+                    <div className="flex justify-between text-muted-foreground"><span>{DSR_GST_INCLUDED_LABEL}</span><span>included</span></div>
+                  )}
+                  <div className="flex justify-between text-muted-foreground"><span>{dsrWorks > 0 ? "GST @ 18% on non-DSR items" : "GST @ 18%"}</span><span className="tabular-nums">{inr(gst)}</span></div>
                   <div className="flex justify-between font-semibold"><span>Grand total</span><span className="tabular-nums">{inr(grand)}</span></div>
                 </div>
               </CardContent>

@@ -220,12 +220,16 @@ describe("WorkspaceBoqPanel — Stage C5A: selected BOQ with line items", () => 
     expect(await screen.findByText("2 lines")).toBeInTheDocument();
 
     // Only the included line (qty 10 * rate 100 = 1000) counts toward the
-    // total; the excluded line must never be silently folded in.
-    const commercials = computeCommercials(1000, { costIndexPct: 0, contingencyPct: 3, overheadPct: 15, cessPct: 1, gstPct: 18 });
+    // total; the excluded line must never be silently folded in. It is priced
+    // at its DSR rate (GST @18% already included), so dsrWorks = 1000 and no
+    // GST is added on top.
+    const commercials = computeCommercials(1000, { costIndexPct: 0, contingencyPct: 3, overheadPct: 15, cessPct: 1, gstPct: 18 }, 1000);
+    expect(commercials.grandTotal).toBe(1192);
     expect(await screen.findByText("Subtotal")).toBeInTheDocument();
     expect(await screen.findByText("Grand Total")).toBeInTheDocument();
     expect((await screen.findAllByText(formatINR(commercials.works))).length).toBeGreaterThan(0);
     expect((await screen.findAllByText(formatINR(commercials.grandTotal))).length).toBeGreaterThan(0);
+    expect(screen.queryByText(formatINR(1407))).toBeNull(); // the former double-GST figure
 
     // Line preview itself: description, qty+unit+rate, and the line's own
     // amount — both lines show (preview isn't filtered to included-only).

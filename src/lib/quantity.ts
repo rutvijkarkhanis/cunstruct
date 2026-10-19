@@ -100,6 +100,18 @@ export const countedAmount = (l: RatedFields): number => pricedAmount(l) ?? 0;
 export const worksTotal = (lines: (RatedFields & { included: boolean })[]): number =>
   lines.filter((l) => l.included).reduce((s, l) => s + countedAmount(l), 0);
 
+/** True when the rate in effect IS the line's DSR rate: no estimator override
+ *  (custom_rate) and a DSR rate present. DSR 2023 item rates already include
+ *  GST @18% (CPWD DSR 2023 Vol. 1, Preface §6.2); a custom/own rate does not.
+ *  A DSR item with a custom override is therefore NOT DSR-rated. */
+export const dsrRated = (l: Pick<RatedFields, "dsr_rate" | "custom_rate">): boolean =>
+  l.custom_rate == null && l.dsr_rate != null;
+
+/** The part of worksTotal priced at DSR rates (GST already inside the rate).
+ *  Same counting rule as worksTotal — pending and unrated lines add nothing. */
+export const dsrWorksTotal = (lines: (RatedFields & { included: boolean })[]): number =>
+  lines.filter((l) => l.included && dsrRated(l)).reduce((s, l) => s + countedAmount(l), 0);
+
 // ── Provenance ───────────────────────────────────────────────────────────────
 
 /** basis_note written by applyFinding.addReviewItemAsLine. Apply now also
