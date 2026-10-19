@@ -154,6 +154,39 @@ Some of these texts may be paid on the BIS store. If so, they need a human with 
 
 These facts supersede the interpretations in §2.2 where they overlap: the volume count is **two**, and the rate basis is **April 2023 / 01.04.2023**.
 
+### 2.5 Item-level check of the DSR seed against Vol. 1 (sub-heads 2–12)
+
+The seed is in `dsr_item` (DSR 2023) and in `supabase/migrations/20260731001000_dsr_seed_civil.sql`; the two are identical row for row. It has 1,113 items in sub-heads 2–12.
+
+**How the check was done.** Each item was looked up in the OCR text of Vol. 1. Every item OCR could not settle was then read from 300-dpi page renders by eye. Results per item are in `docs/benchmarks/e3/dsr2023-vol1-item-check.csv`.
+
+| Result | Items |
+|---|---|
+| Rate matches the printed rate | **1,075** |
+| Rate differs | **1**: **6.44** brick edging, printed **₹59.45 per metre**, seed ₹60.85 (p. 141, checked on the page image) |
+| Line printed without code or rate | 1: **6.25** "Extra for laying brick work in or under foul position", printed with unit cum and no rate, so the seed's ₹467.55 cannot be checked (p. 139) |
+| Unresolved, because the source page is blank in the uploaded copy | **36**: pp. 157–158 (9.1.1–9.6.1), p. 174 (9.122–9.123A), p. 180 (9.146, 9.147) and p. 224 (12.65.x, 12.66.x). These pages hold no image in the PDF (checked with `pdfimages`) |
+| Printed in Vol. 1 but **missing from the seed** | **104**, listed in `docs/benchmarks/e3/dsr2023-vol1-missing-items.json` |
+
+**Unit wording.** Three items match on rate but word the unit differently. 6.24 and 7.34 are printed "cum per metre depth" and 12.33 "sqm per metre height"; the seed has "metre" for all three.
+
+**The 104 missing items.** These include:
+- **Whole sub-item families where the seed kept only the first sub-item:**
+  - 9.147 uPVC windows/doors: 54 sub-items
+  - 11.41A: 14
+  - 4.20A: 7
+  - 5.22A: 5
+- **Standalone items:** 3.18, 4.9A, 4.9B, 4.12, 4.15, 4.18, 5.10.1–5.10.4, 5.28, 5.33A.x, 5.49, 7.22, 8.32, 9.115, 9.161, 9.172, 10.22 and 2.25(a).
+- **Percentage extras** (2.24.1, 2.24.2, 5.9.14): rates expressed as a percentage, not money.
+
+Any items printed on the blank pages are unknown.
+
+**Sub-head 1 (Carriage of Materials).** It is absent from the seed entirely. Vol. 1 pp. 94–99 print 77 priced rows, most of them with distance-band rates.
+
+**Status.** The seed is accurate where it has an item: 1,075 of the 1,076 checkable rates match. It is incomplete, however, and one rate is wrong.
+- **Corrections not applied.** Fixing it means a data migration to production, which needs the owner's explicit approval (plan v1.2 §7.3). No correction has been applied.
+- **Still to come.** The 36 unresolved items need a complete copy of pp. 157–158, 174, 180 and 224. Sub-heads 13–26 need Vol. 2.
+
 ### 2.2 Interpretations
 
 - **Volume count.** Search summaries describe the Railway Board letter of 03.07.2025 as referring to "CPWD DSR-2023 (Vol. I, Vol. II)". This is consistent with the repo seed header "DSR Civil (Vol 1+2)". It is **unverified**, because the letter was not read.
