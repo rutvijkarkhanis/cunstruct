@@ -15,7 +15,7 @@ import { AlertTriangle, FileDown, FileText, Sheet } from "lucide-react";
 import { db } from "@/lib/untypedDb";
 import { downloadCsv, openQuoteWindow } from "@/lib/boqDsrDocument";
 import {
-  commercialsFor, exportDate, groupSubheads, includedTotal, liveCsv, liveFileStem, liveQuotePayload,
+  commercialsFor, exportDate, groupSubheads, includedDsrTotal, includedTotal, liveCsv, liveFileStem, liveQuotePayload,
   quoteContextFor, workingSubheadsFrom,
 } from "@/lib/boqLiveExport";
 import { loadProjectDrawings, resolveDrawingSource } from "@/lib/review/drawingStorage";
@@ -103,7 +103,7 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
     const { spec, subheads, generatedOn } = build(fresh);
     const payload = liveQuotePayload({
       boqName: boqQ.data!.name, context: quoteContextFor(project, spec), generatedOn, blankRates,
-      subheads, commercials: commercialsFor(includedTotal(fresh), spec), unresolvedReviewCount: unresolved,
+      subheads, commercials: commercialsFor(includedTotal(fresh), spec, includedDsrTotal(fresh)), unresolvedReviewCount: unresolved,
     });
     if (!payload) { win.fail("Nothing to export yet: every line of this BOQ is excluded."); toast.error("Nothing to export yet"); return; }
     win.show(payload, { autoPrint: !blankRates });

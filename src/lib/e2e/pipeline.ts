@@ -161,7 +161,7 @@ export function parseCsv(csv: string): string[][] {
   return rows;
 }
 
-const CSV_HEADER = ["Sub-head", "Item", "Code", "Specification", "Unit", "Qty", "Rate (ref, excl GST)", "Your rate", "Amount", "Source Document", "Source Page", "Quantity basis"];
+const CSV_HEADER = ["Sub-head", "Item", "Code", "Specification", "Unit", "Qty", "Rate (ref)", "Your rate", "Amount", "Source Document", "Source Page", "Quantity basis", "Rate basis"];
 
 function csvRecordsOf(csv: string): CsvRecord[] {
   const rows = parseCsv(csv);

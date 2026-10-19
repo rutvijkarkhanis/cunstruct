@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { AlertTriangle, ClipboardCheck, ExternalLink, Plus } from "lucide-react";
 import { formatINR } from "@/lib/forecastEngine";
 import { computeCommercials } from "@/lib/boqDsrDocument";
-import { effectiveRate, pricedAmount, qtyPending, quantityState, worksTotal } from "@/lib/quantity";
+import { dsrWorksTotal, effectiveRate, pricedAmount, qtyPending, quantityState, worksTotal } from "@/lib/quantity";
 import AiStateBadge from "@/components/review/AiStateBadge";
 import { useBoqManagement, NEW_SCOPE, type BoqRow } from "@/hooks/useBoqManagement";
 import { SCOPE_KINDS } from "@/lib/projectDocs";
@@ -194,7 +194,7 @@ function ActiveBoqCard({ projectId, boq, onReview, onChange }: { projectId: stri
     overheadPct: pct("_overhead_pct", 15),
     cessPct: pct("_cess_pct", 1),
     gstPct: pct("_gst_pct", 18),
-  });
+  }, dsrWorksTotal(includedLines)); // GST only on non-DSR lines: DSR 2023 rates include GST @18%
 
   const previewLines = (lines ?? []).slice(0, LINE_PREVIEW_CAP);
   const remaining = lineCount - previewLines.length;

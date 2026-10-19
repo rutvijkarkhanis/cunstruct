@@ -2,9 +2,15 @@
  * Client-ready quote for the DSR BOQ, structured like a real tender BOQ:
  * grouped by DSR SUB-HEAD (type of work) in chapter order — which is also the
  * construction sequence — with items numbered per sub-head (2.01, 2.02 …), the
- * full DSR specification, and Rate/Amount excluding GST. A separate Abstract of
+ * full DSR specification, and Rate/Amount per line. A separate Abstract of
  * Cost page rolls the sub-heads up through the commercial waterfall
  * (cost index → contingency → overhead → cess → GST → grand total in words).
+ *
+ * GST: DSR 2023 item rates already INCLUDE GST @18% — CPWD Delhi Schedule of
+ * Rates 2023, Vol. 1, Preface §6.2: "The effect of GST @18% on works contract
+ * has been incorporated in all items." Only lines priced at the estimator's
+ * own/custom rate are exclusive of GST, so the abstract adds GST on that part
+ * only (see computeCommercials).
  */
 
 import { roundRupee } from "./quantity";
@@ -15,8 +21,12 @@ export interface QuoteItem {
   spec: string;          // full DSR nomenclature
   qty: number;
   unit: string;
-  rate: number | null;   // excl. GST
+  rate: number | null;   // DSR-rated: incl. GST @18%; own/custom rate: excl. GST
   amount: number | null;
+  /** Where the rate came from (lib/boqRevision RateBasis): "dsr" = the DSR 2023
+   *  rate itself (GST included), "custom" = the estimator's own rate (GST
+   *  excluded). Absent = not stated (e.g. a caller that does not know). */
+  rateBasis?: "dsr" | "custom" | "none" | null;
   /** Scope H — drawing-source traceability, read-only passthrough of whatever the
    *  caller already resolved (e.g. OpsBoqBuilder.tsx's drawingsById lookup). Never
    *  resolved or fabricated here: absent/null means no source reference at all, and
@@ -55,7 +65,26 @@ export interface QuoteCommercials extends CommercialInputs {
   gstAmt: number;
   grandTotal: number;
   grandTotalWords: string;
+  /** Part of `works` priced at DSR 2023 rates — GST @18% already inside the
+   *  rate, so no GST is added on it. Optional only because commercials frozen
+   *  in a revision before this split existed do not carry it; computeCommercials
+   *  always sets it. */
+  dsrWorks?: number;
+  /** works − dsrWorks: priced at the estimator's own/custom rates, excl. GST. */
+  nonDsrWorks?: number;
+  /** The amount GST @ gstPct is charged on: the non-DSR share of the taxable
+   *  value (works after cost index, contingency, overhead and cess). */
+  gstBase?: number;
 }
+
+/** GST rate CPWD states is already built into every DSR 2023 item rate. */
+export const DSR_GST_INCLUDED_PCT = 18;
+/** The one wording every view uses for the GST already inside DSR rates. */
+export const DSR_GST_INCLUDED_LABEL = `GST @${DSR_GST_INCLUDED_PCT}% — included in DSR 2023 rates (DSR 2023 preface §6.2)`;
+/** Label for the GST the abstract adds. When part of the works is DSR-rated the
+ *  label says the GST is on the non-DSR items only. */
+export const gstAddLabel = (c: Pick<QuoteCommercials, "gstPct" | "dsrWorks">): string =>
+  (c.dsrWorks ?? 0) > 0 ? `Add: GST @ ${c.gstPct}% on non-DSR items` : `Add: GST @ ${c.gstPct}%`;
 /** A requirement identified on the drawing but not yet quantified — listed for
  *  completeness, never priced (qty deliberately absent, not zero). */
 export interface QuotePendingItem {
@@ -179,9 +208,23 @@ export { roundRupee };
  * CPWD-style abstract: works → +cost index → +contingency → +overhead → +cess → +GST.
  * Every stage is rounded to whole rupees and each subsequent stage is computed from
  * the rounded running value, so the waterfall the reader sees is internally exact.
+ *
+ * `dsrWorks` is the part of `works` priced AT the DSR 2023 rate (no override).
+ * Those rates already include GST @18% (DSR 2023 Vol. 1, Preface §6.2), so GST
+ * @ gstPct is charged only on the non-DSR part. Approach: cost index,
+ * contingency, overhead and cess are uniform percentage uplifts on the whole
+ * works, so each part carries them in proportion to its share of works; the GST
+ * base is therefore the taxable value × (non-DSR works ÷ works), rounded once.
+ * With dsrWorks = 0 (the default) this is exactly the previous result.
+ *
+ * UNVERIFIED: whether DSR item rates also already include the contractor's
+ * profit and overheads is NOT confirmed by the source available here, so
+ * contingency/overhead/cess are still applied to the whole works, unchanged.
  */
-export function computeCommercials(works: number, i: CommercialInputs): QuoteCommercials {
+export function computeCommercials(works: number, i: CommercialInputs, dsrWorks = 0): QuoteCommercials {
   const w = roundRupee(works);
+  const dsr = Math.min(Math.max(roundRupee(dsrWorks), 0), Math.max(w, 0));
+  const nonDsrWorks = w - dsr;
   const costIndexAmt = roundRupee(w * (i.costIndexPct / 100));
   const worksAdjusted = w + costIndexAmt;
   const contingencyAmt = roundRupee(worksAdjusted * (i.contingencyPct / 100));
@@ -189,13 +232,54 @@ export function computeCommercials(works: number, i: CommercialInputs): QuoteCom
   const subTotal = worksAdjusted + contingencyAmt + overheadAmt;
   const cessAmt = roundRupee(subTotal * (i.cessPct / 100));
   const taxable = subTotal + cessAmt;
-  const gstAmt = roundRupee(taxable * (i.gstPct / 100));
+  const gstBase = dsr === 0 ? taxable : w > 0 ? roundRupee(taxable * (nonDsrWorks / w)) : 0;
+  const gstAmt = roundRupee(gstBase * (i.gstPct / 100));
   const grandTotal = taxable + gstAmt;
   return {
     ...i, works: w, costIndexAmt, worksAdjusted, contingencyAmt, overheadAmt,
     subTotal, cessAmt, gstAmt, grandTotal, grandTotalWords: amountInWords(grandTotal),
+    dsrWorks: dsr, nonDsrWorks, gstBase,
   };
 }
+
+/** The abstract rows from "Cost of works" down to GST (the grand total row is
+ *  the caller's). Shared by the single-BOQ and the project quote so both state
+ *  the GST basis identically. Commercials frozen before the DSR split (no
+ *  dsrWorks) render with neutral wording and GST on the whole, as computed. */
+function abstractRowsHtml(c: QuoteCommercials): string {
+  const row = (label: string, value: string) => `<tr><td>${label}</td><td class="num">${value}</td></tr>`;
+  const wrow = (label: string, amt: number, show: boolean) => (show ? row(label, inr(amt)) : "");
+  const split = c.dsrWorks != null;
+  const dsrPart = c.dsrWorks ?? 0;
+  const nonDsr = c.nonDsrWorks ?? c.works - dsrPart;
+  const worksRows = !split
+    ? row("Cost of works", inr(c.works))
+    : dsrPart === 0
+      ? row("Cost of works (own/custom rates, excl. GST)", inr(c.works))
+      : row("Cost of works", inr(c.works)) +
+        row("&nbsp;&nbsp;of which at DSR 2023 rates (incl. GST @18%)", inr(dsrPart)) +
+        (nonDsr > 0 ? row("&nbsp;&nbsp;of which at own/custom rates (excl. GST)", inr(nonDsr)) : "");
+  return worksRows +
+    wrow(`Add: Cost index @ ${c.costIndexPct}%`, c.costIndexAmt, c.costIndexPct !== 0) +
+    wrow(`Add: Contingencies @ ${c.contingencyPct}%`, c.contingencyAmt, c.contingencyPct !== 0) +
+    wrow(`Add: Overhead &amp; profit @ ${c.overheadPct}%`, c.overheadAmt, c.overheadPct !== 0) +
+    wrow(`Add: Labour cess @ ${c.cessPct}%`, c.cessAmt, c.cessPct !== 0) +
+    (dsrPart > 0 ? row(esc(DSR_GST_INCLUDED_LABEL), "included") : "") +
+    wrow(esc(gstAddLabel(c)), c.gstAmt, c.gstPct !== 0 && (!split || nonDsr > 0));
+}
+
+/** Small per-line note under a rate saying whether GST is inside it. */
+const rateTag = (l: Pick<QuoteItem, "rate" | "rateBasis">) =>
+  l.rate == null ? ""
+    : l.rateBasis === "dsr" ? `<span class="rb">DSR 2023, incl. GST</span>`
+    : l.rateBasis === "custom" ? `<span class="rb">own rate, excl. GST</span>`
+    : "";
+
+/** True when any priced line, or the commercials, are at DSR rates. */
+const hasDsrRated = (subheads: QuoteSubHead[], c?: QuoteCommercials) =>
+  (c?.dsrWorks ?? 0) > 0 || subheads.some((sh) => sh.lines.some((l) => l.rateBasis === "dsr" && l.rate != null));
+
+const DSR_GST_NOTE = `Lines marked "DSR 2023, incl. GST" are priced at Delhi Schedule of Rates 2023 item rates, which already include GST @18% (DSR 2023 Vol. 1, Preface §6.2: "The effect of GST @18% on works contract has been incorporated in all items"); GST is not added on them again.`;
 
 const INCOMPLETE_SCOPE = "Incomplete scope.";
 /** The one incomplete-scope statement every BOQ view and export uses: drawing-review
@@ -234,7 +318,7 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
         <td class="spec">${l.code ? `<span class="code">${esc(l.code)}</span>` : ""}${esc(l.spec)}${srcRef(l)}</td>
         <td class="num">${qtyFmt(l.qty)}</td>
         <td class="unit">${esc(l.unit)}</td>
-        <td class="num">${money(l.rate)}</td>
+        <td class="num">${money(l.rate)}${blank ? "" : rateTag(l)}</td>
         <td class="num amt">${money(l.amount)}</td>
       </tr>`).join("")}
   `).join("");
@@ -257,8 +341,6 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
     s === "equipment" ? "Client equipment" : s === "needs_confirmation" ? "Needs confirmation" : "Works";
 
   const c = p.commercials;
-  const wrow = (label: string, amt: number, show = true) =>
-    show ? `<tr><td>${label}</td><td class="num">${inr(amt)}</td></tr>` : "";
   // Partial-pricing status: identified scope that is not (yet) priced — drawing
   // items awaiting a catalogue rate mapping, and requirements awaiting a quantity.
   // When present, the abstract total covers only the PRICED scope, so it is
@@ -277,12 +359,7 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
     : "";
   const summary = `
     <table class="summary">
-      <tr><td>Cost of works${dsr ? " (at DSR rates, excl. GST)" : " (excl. GST)"}</td><td class="num">${inr(c.works)}</td></tr>
-      ${wrow(`Add: Cost index @ ${c.costIndexPct}%`, c.costIndexAmt, c.costIndexPct !== 0)}
-      ${wrow(`Add: Contingencies @ ${c.contingencyPct}%`, c.contingencyAmt, c.contingencyPct !== 0)}
-      ${wrow(`Add: Overhead &amp; profit @ ${c.overheadPct}%`, c.overheadAmt, c.overheadPct !== 0)}
-      ${wrow(`Add: Labour cess @ ${c.cessPct}%`, c.cessAmt, c.cessPct !== 0)}
-      ${wrow(`Add: GST @ ${c.gstPct}%`, c.gstAmt, c.gstPct !== 0)}
+      ${abstractRowsHtml(c)}
       <tr class="grand"><td>${grandLabel}</td><td class="num">${inr(c.grandTotal)}</td></tr>
       <tr class="words"><td colspan="2">Rupees ${esc(c.grandTotalWords)} only</td></tr>
       ${statusRow}
@@ -385,6 +462,7 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
   td.spec { line-height:1.45; }
   td.spec .code { display:inline-block; font-family:ui-monospace,Menlo,monospace; font-size:10px; color:#b06d08; background:#fdf4e3; padding:0 5px; border-radius:3px; margin-right:6px; white-space:nowrap; }
   td.spec .srcref { color:#99a; font-size:10.5px; font-style:italic; }
+  td.num .rb { display:block; color:#99a; font-size:9px; font-weight:400; }
   tr.sub td { background:#1b2233; color:#fff; font-weight:700; font-size:12px; padding:8px 8px; letter-spacing:.02em; }
   tr.sub .ssub { float:right; font-weight:700; color:#f7c877; }
   .summary { width:380px; margin-left:auto; margin-top:14px; }
@@ -421,7 +499,7 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
   <h2>Bill of Quantities</h2>
   <table>
     <thead><tr>
-      <th>Sl. No</th><th>Description</th><th class="num">Qty</th><th>Unit</th><th class="num">Rate (excl. GST)</th><th class="num">Amount (excl. GST)</th>
+      <th>Sl. No</th><th>Description</th><th class="num">Qty</th><th>Unit</th><th class="num">Rate</th><th class="num">Amount</th>
     </tr></thead>
     <tbody>${rows || `<tr><td colspan="6">No items.</td></tr>`}</tbody>
   </table>
@@ -438,8 +516,8 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
 
   <div class="foot">
     <b>Basis &amp; conditions.</b> ${dsr
-      ? `Rates are composite rates from the Delhi Schedule of Rates ${esc(p.rateYear)} (material + labour + plant), exclusive of GST, adjusted by the stated cost index for location. Non-Schedule (NS) items, where shown, are outside the DSR and their rates are to be analysed from prevailing market / State PWD rates.`
-      : `Rates are the estimator's own composite rates (material, labour and installation), exclusive of GST, and are confirmed separately with the architect/client. This is a private-project quotation and is not priced on any government schedule of rates.`}
+      ? `Rates are composite item rates from the Delhi Schedule of Rates ${esc(p.rateYear)} (material + labour + plant), adjusted by the stated cost index for location. DSR 2023 item rates include GST @18% (DSR 2023 Vol. 1, Preface §6.2: "The effect of GST @18% on works contract has been incorporated in all items"), so GST is not added on lines priced at the DSR rate. Rates entered by the estimator (own/custom rates) are exclusive of GST, which is added in the abstract on those lines only. Non-Schedule (NS) items, where shown, are outside the DSR and their rates are to be analysed from prevailing market / State PWD rates.`
+      : `Rates are the estimator's own composite rates (material, labour and installation), exclusive of GST, and are confirmed separately with the architect/client. This is a private-project quotation and is not priced on any government schedule of rates.${hasDsrRated(p.subheads, c) ? ` ${esc(DSR_GST_NOTE)}` : ""}`}
     ${statesBasis(p.subheads, p.pendingItems)
       ? `<b>Each quantity states its recorded basis.</b> "From drawing summary" is the estimator's own reading of the supplied drawings, not an
     independent measurement; a calculated quantity states its derivation; an assumption is marked as an assumption; "as stated in imported data"
@@ -470,7 +548,17 @@ export interface CsvRow {
   /** Recorded quantity basis label — appended after "Source Page" (column L)
    *  for the same reason as the source columns. Absent = not stated. */
   basis?: string | null;
+  /** Where the reference rate came from (see QuoteItem.rateBasis) — column M,
+   *  "Rate basis", saying whether GST is inside the rate. Absent = not stated. */
+  rateBasis?: "dsr" | "custom" | "none" | null;
 }
+
+/** CSV "Rate basis" wording: whether GST is inside the reference rate. */
+export const csvRateBasis = (r: Pick<CsvRow, "rate" | "rateBasis">): string =>
+  r.rate == null ? ""
+    : r.rateBasis === "dsr" ? "DSR 2023 rate (incl. GST @18%)"
+    : r.rateBasis === "custom" ? "Own/custom rate (excl. GST)"
+    : "";
 export const csvCell = (v: unknown) => {
   const s = String(v ?? "");
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -486,10 +574,10 @@ export function buildBoqCsv(
   // columns (A–I). The Amount formula below references columns F and H by letter
   // ("=F{n}*H{n}"); these new columns must never be inserted before Amount, or
   // every row's formula would silently point at the wrong cells.
-  const head = ["Sub-head", "Item", "Code", "Specification", "Unit", "Qty", "Rate (ref, excl GST)", "Your rate", "Amount", "Source Document", "Source Page", "Quantity basis"];
+  const head = ["Sub-head", "Item", "Code", "Specification", "Unit", "Qty", "Rate (ref)", "Your rate", "Amount", "Source Document", "Source Page", "Quantity basis", "Rate basis"];
   const lines: string[] = [
     csvCell(`Bill of Quantities — ${meta.boqName}`),
-    csvCell(`${meta.project ?? "Standalone"}  ·  ${meta.generatedOn}  ·  Quantities from drawings; enter "Your rate" (excl. GST)`),
+    csvCell(`${meta.project ?? "Standalone"}  ·  ${meta.generatedOn}  ·  Quantities from drawings; enter "Your rate". DSR 2023 rates include GST @18% (DSR 2023 preface §6.2); own/custom rates exclude GST`),
     // The incomplete-scope notice takes the spacer row, so HEADER_LINE and every
     // row's Amount formula stay where they were.
     csvCell(incompleteScopeNotice(meta.unresolvedReviewCount) ?? ""),
@@ -500,7 +588,7 @@ export function buildBoqCsv(
     const amount = r.rate != null ? `=F${ln}*H${ln}` : "";   // Qty(F) × Your rate(H)
     lines.push([
       r.subhead, r.itemNo, r.code ?? "", r.spec, r.unit, r.qty, r.rate ?? "", r.rate ?? "", amount,
-      r.sourceDocument ?? "", r.sourceDocument ? (r.sourcePage ?? "") : "", r.basis ?? "",
+      r.sourceDocument ?? "", r.sourceDocument ? (r.sourcePage ?? "") : "", r.basis ?? "", csvRateBasis(r),
     ].map(csvCell).join(","));
   });
   // Identified-but-unquantified drawing requirements — listed with a blank Qty
@@ -617,12 +705,10 @@ export function buildProjectQuoteHtml(p: ProjectQuotePayload, boqs: ProjectQuote
           <td class="spec">${l.code ? `<span class="code">${esc(l.code)}</span>` : ""}${esc(l.spec)}${srcRef(l)}</td>
           <td class="num">${qtyFmt(l.qty)}</td>
           <td class="unit">${esc(l.unit)}</td>
-          <td class="num">${inr(l.rate)}</td>
+          <td class="num">${inr(l.rate)}${rateTag(l)}</td>
           <td class="num amt">${inr(l.amount)}</td>
         </tr>`).join("")}`).join("");
     const c = b.commercials;
-    const wrow = (label: string, amt: number, show: boolean) =>
-      show ? `<tr><td>${label}</td><td class="num">${inr(amt)}</td></tr>` : "";
     // Same rows as the single-BOQ document's pending section: Qty reads "pending".
     const pending = b.pendingItems ?? [];
     const pendingTable = pending.length ? `
@@ -640,16 +726,11 @@ export function buildProjectQuoteHtml(p: ProjectQuotePayload, boqs: ProjectQuote
     return `
       <h2>${i + 1}. ${esc(b.name)}${b.scope ? ` <span style="color:#889;font-weight:400;text-transform:none">— ${esc(b.scope)}</span>` : ""}</h2>
       <table>
-        <thead><tr><th>Sl. No</th><th>Description</th><th class="num">Qty</th><th>Unit</th><th class="num">Rate (excl. GST)</th><th class="num">Amount (excl. GST)</th></tr></thead>
+        <thead><tr><th>Sl. No</th><th>Description</th><th class="num">Qty</th><th>Unit</th><th class="num">Rate</th><th class="num">Amount</th></tr></thead>
         <tbody>${rows || `<tr><td colspan="6">No priced items.</td></tr>`}</tbody>
       </table>${pendingTable}
       <table class="summary">
-        <tr><td>Cost of works (excl. GST)</td><td class="num">${inr(c.works)}</td></tr>
-        ${wrow(`Add: Cost index @ ${c.costIndexPct}%`, c.costIndexAmt, c.costIndexPct !== 0)}
-        ${wrow(`Add: Contingencies @ ${c.contingencyPct}%`, c.contingencyAmt, c.contingencyPct !== 0)}
-        ${wrow(`Add: Overhead &amp; profit @ ${c.overheadPct}%`, c.overheadAmt, c.overheadPct !== 0)}
-        ${wrow(`Add: Labour cess @ ${c.cessPct}%`, c.cessAmt, c.cessPct !== 0)}
-        ${wrow(`Add: GST @ ${c.gstPct}%`, c.gstAmt, c.gstPct !== 0)}
+        ${abstractRowsHtml(c)}
         <tr class="grand"><td>${esc(b.name)} total</td><td class="num">${inr(c.grandTotal)}</td></tr>
       </table>`;
   };
@@ -693,6 +774,7 @@ export function buildProjectQuoteHtml(p: ProjectQuotePayload, boqs: ProjectQuote
   td.spec { line-height:1.45; }
   td.spec .code { display:inline-block; font-family:ui-monospace,Menlo,monospace; font-size:10px; color:#b06d08; background:#fdf4e3; padding:0 5px; border-radius:3px; margin-right:6px; white-space:nowrap; }
   td.spec .srcref { color:#99a; font-size:10.5px; font-style:italic; }
+  td.num .rb { display:block; color:#99a; font-size:9px; font-weight:400; }
   tr.sub td { background:#1b2233; color:#fff; font-weight:700; font-size:12px; padding:8px 8px; letter-spacing:.02em; }
   tr.sub .ssub { float:right; font-weight:700; color:#f7c877; }
   .summary { width:380px; margin-left:auto; margin-top:14px; }
@@ -734,7 +816,7 @@ export function buildProjectQuoteHtml(p: ProjectQuotePayload, boqs: ProjectQuote
       ? "Each quantity states its recorded basis (the estimator's drawing summary, a calculation, an assumption, or \"Basis not recorded\") — not an independent measurement."
       : "This document does not state the basis of each quantity."} Rates are composite rates
     (material, labour and installation), exclusive of GST unless stated, and are confirmed separately. This is a private-project quotation and is
-    not priced on any government schedule of rates. Final measurements and specifications should be verified before execution. This quotation is
+    not priced on any government schedule of rates.${boqs.some((b) => hasDsrRated(b.subheads, b.commercials)) ? ` ${esc(DSR_GST_NOTE)}` : ""} Final measurements and specifications should be verified before execution. This quotation is
     indicative and valid for 15 days from the date above.
   </div>
 
