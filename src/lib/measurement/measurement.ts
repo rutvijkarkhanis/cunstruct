@@ -236,3 +236,19 @@ export function citationLabel(rule: RuleCitation | null): string {
 
 /** Unit symbol for display. */
 export const UNIT_LABEL: Record<LineUnit, string> = { nos: "nos", m: "m", sqm: "m²", cum: "m³" };
+
+/** The editable numeric fields of a row. */
+export type RowField = "no" | Dimension;
+
+/** A copy of `line` with one row value replaced (null = not entered). A
+ *  dimension keeps its row's length unit, or metres when it had none. */
+export function setRowValue(line: MeasurementLine, rowId: string, field: RowField, value: number | null): MeasurementLine {
+  return {
+    ...line,
+    rows: line.rows.map((r) => {
+      if (r.id !== rowId) return r;
+      if (field === "no") return { ...r, no: value };
+      return { ...r, [field]: { value, unit: r[field]?.unit ?? "m" } };
+    }),
+  };
+}

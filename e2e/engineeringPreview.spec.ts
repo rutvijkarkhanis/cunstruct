@@ -25,6 +25,10 @@ async function openPreview(page: Page) {
   await seedAuthSession(page, E2E_FAKE_SUPABASE_URL);
   await page.goto("/ops/engineering-preview");
   await expect(page.getByRole("tab").first()).toBeVisible({ timeout: 20_000 });
+  // Let the Ops layout's own start-up requests (session, roles, its
+  // pending-review count) settle, so the "before" snapshot callers take
+  // includes them and only the preview's own requests are compared after.
+  await page.waitForLoadState("networkidle");
   return { consoleErrors, supabaseRequests };
 }
 
@@ -34,10 +38,6 @@ for (const vp of VIEWPORTS) {
 
     test("every tab opens with no Supabase request, no write and no console error", async ({ page }) => {
       const { consoleErrors, supabaseRequests } = await openPreview(page);
-      // Let the Ops layout's own start-up queries (session, roles, pending-review
-      // count) finish first: one of them could land after the first tab was
-      // visible and be miscounted as the preview's.
-      await page.waitForLoadState("networkidle");
       const before = supabaseRequests.length;
       const tabs = page.getByRole("tab");
       const count = await tabs.count();
@@ -56,6 +56,29 @@ for (const vp of VIEWPORTS) {
       await page.waitForLoadState("networkidle");
       expect(supabaseRequests.slice(before).map((r) => `${r.method()} ${r.url()}`)).toEqual([]);
       expect(supabaseRequests.filter(isWrite).map((r) => `${r.method()} ${r.url()}`)).toEqual([]);
+      expect(consoleErrors).toEqual([]);
+    });
+
+    test("integrated flow: a measurement edit and a queue check update the other surfaces, with no request", async ({ page }) => {
+      const { consoleErrors, supabaseRequests } = await openPreview(page);
+      const before = supabaseRequests.length;
+      await page.getByRole("tab", { name: "Integrated flow" }).click();
+      const fl1 = page.getByTestId("flow-line-FL-1");
+      await page.getByTestId("flow-queue-FL-1").getByRole("button", { name: /^Accept/ }).click();
+      await expect(fl1).toContainText("Accepted · demo");
+      const depth = page.getByLabel("Footing trenches, grid B: D (m)");
+      await depth.fill("1.35");
+      await depth.press("Enter");
+      await expect(fl1).toContainText("29.16");
+      await expect(fl1).toContainText("Reset: inputs changed");
+      // The pending line never shows an amount.
+      await expect(page.getByTestId("flow-line-FL-6")).toContainText("Not priced — quantity pending");
+      await expect(page.getByRole("button", { name: "Certification unavailable" })).toBeDisabled();
+      if (vp.name === "mobile") {
+        const { scroll, inner } = await page.evaluate(() => ({ scroll: document.scrollingElement!.scrollWidth, inner: window.innerWidth }));
+        expect(scroll).toBeLessThanOrEqual(inner);
+      }
+      expect(supabaseRequests.slice(before).map((r) => `${r.method()} ${r.url()}`)).toEqual([]);
       expect(consoleErrors).toEqual([]);
     });
   });

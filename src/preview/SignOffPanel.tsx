@@ -1,12 +1,10 @@
 // Sign-off sheet (B7 logic, preview only): sampling plan and evaluation from
 // src/lib/preview/sampling.ts over the demo lines. The preview never certifies.
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { formatINR } from "@/design/money";
-import { coverageStatus, type CoverageGap } from "@/lib/preview/coverage";
-import {
-  allocateTolerable, buildPools, evaluateAttribute, evaluateMus, planAttribute, planMus, signOffBlockers, widenMus,
-  type MusFinding, type MusPlan,
-} from "@/lib/preview/sampling";
+import type { CoverageGap } from "@/lib/preview/coverage";
+import { signOffReadiness } from "@/lib/preview/flow";
+import { widenMus } from "@/lib/preview/sampling";
 import type { EngineLine } from "@/lib/preview/types";
 import { SurfacePanel } from "./shared";
 
@@ -20,30 +18,11 @@ export function SignOffPanel({ lines, gaps, noDetectionRegionIds, materiality, t
   reviewer: string;
   drawingRevision: string;
 }) {
-  const pools = useMemo(() => buildPools(lines, materiality), [lines, materiality]);
-  const [teAccepted, teVerified] = allocateTolerable(tolerableError, [pools.acceptedNonKey, pools.verified]);
   const [widened, setWidened] = useState<Record<string, number>>({});
   const [findings, setFindings] = useState<Record<string, number>>({});
   const [regionMisses, setRegionMisses] = useState<Record<string, boolean>>({});
-
-  const plans: { plan: MusPlan; items: typeof pools.acceptedNonKey }[] = [
-    { items: pools.acceptedNonKey, plan: planMus("Accepted non-key lines", pools.acceptedNonKey, teAccepted || tolerableError, seed, widened["Accepted non-key lines"]) },
-    { items: pools.verified, plan: planMus("Verified lines", pools.verified, teVerified || tolerableError, seed + 1, widened["Verified lines"]) },
-  ];
-  const evals = plans.map(({ plan }) => evaluateMus(plan, Object.entries(findings).map(([id, found]): MusFinding => ({ id, found }))));
-  const regionPlan = planAttribute("No-detection regions", noDetectionRegionIds, 0.1, seed + 2);
-  const regionEval = evaluateAttribute(regionPlan, regionMisses);
-  const allEvaluated = evals.every((e) => e.complete) && regionEval.complete;
-  const allWithin = evals.every((e) => e.withinTolerance !== false) && regionEval.passed !== false;
-  const keyUnverified = lines.filter((l) => pools.keyIds.includes(l.id) && l.reviewState !== "verified").length;
-  const coverage = coverageStatus(gaps);
-  const blockers = signOffBlockers({
-    keyItemsUnverified: keyUnverified,
-    pendingQuantities: pools.blocked.pending.length,
-    linesWithoutRate: pools.blocked.noRate.length,
-    coverageCleared: coverage.cleared,
-    sampling: { evaluated: allEvaluated, withinTolerance: allEvaluated ? allWithin : null },
-    previewMode: true,
+  const { pools, plans, evals, regionPlan, keyUnverified, coverage, blockers } = signOffReadiness({
+    lines, gaps, noDetectionRegionIds, materiality, tolerableError, seed, findings, regionMisses, widened, previewMode: true,
   });
 
   return (

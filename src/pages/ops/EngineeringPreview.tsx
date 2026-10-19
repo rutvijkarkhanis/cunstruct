@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { coverageGaps, reopenGap, resolveGap, type CoverageGap, type GapResolution } from "@/lib/preview/coverage";
 import { CoveragePanel } from "@/preview/CoveragePanel";
+import { FlowPanel } from "@/preview/flow/FlowPanel";
 import {
   DEMO_COVERAGE, DEMO_DRAWING_REVISION, DEMO_MATERIALITY, DEMO_REVIEWER, DEMO_REVISION_A, DEMO_SEED, DEMO_TOLERABLE_ERROR,
 } from "@/preview/fixtures";
@@ -16,7 +17,7 @@ import { SignOffPanel } from "@/preview/SignOffPanel";
 import { VerifyQueuePanel } from "@/preview/VerifyQueuePanel";
 import WorkspaceShell from "@/preview/workspace/WorkspaceShell";
 
-type Surface = "workspace" | "verify" | "coverage" | "signoff" | "revision" | "measurement" | "procurement" | "phone";
+type Surface = "workspace" | "verify" | "coverage" | "signoff" | "revision" | "measurement" | "flow" | "procurement" | "phone";
 
 const INITIAL_LINES: PreviewLine[] = [
   {
@@ -87,6 +88,7 @@ const SURFACES: { id: Surface; label: string }[] = [
   { id: "signoff", label: "Sign-off sheet" },
   { id: "revision", label: "Revision delta" },
   { id: "measurement", label: "Measurement sheet" },
+  { id: "flow", label: "Integrated flow" },
   { id: "procurement", label: "Procurement" },
   { id: "phone", label: "Phone views" },
 ];
@@ -183,12 +185,13 @@ export default function EngineeringPreview() {
           </div>
         </header>
 
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {/* The integrated flow has its own project and summary; these figures describe the other tabs' demo lines. */}
+        {surface !== "flow" && <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Metric label="Illustrative BOQ lines" value={String(lines.length)} detail="Mock records" />
           <Metric label="Awaiting review" value={String(reviewable.length)} detail="Local demo state" />
           <Metric label="Quantity pending" value={String(totals.pending)} detail="Excluded from money totals" />
           <Metric label="Illustrative priced subtotal" value={formatMoney(totals.priced)} detail="Not a project estimate" />
-        </div>
+        </div>}
 
         {surface === "workspace" && (
           <SurfacePanel
@@ -234,6 +237,7 @@ export default function EngineeringPreview() {
             <MeasurementSheet initialLines={SAMPLE_MEASUREMENT_LINES} />
           </SurfacePanel>
         )}
+        {surface === "flow" && <FlowPanel />}
         {surface === "procurement" && <ProcurementPanel />}
         {surface === "phone" && (
           <SurfacePanel
