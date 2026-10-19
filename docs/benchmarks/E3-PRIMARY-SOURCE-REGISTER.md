@@ -17,11 +17,11 @@ This file is that register. It records what was attempted, what could not be rea
 | # | Topic | Status | Why |
 |---|---|---|---|
 | 1 | BIS IS 1200 parts, editions, deduction rules | **DEFERRED (owner decision, 20 Oct 2026)** | The owner decided to skip deductions for now. No IS 1200 text has been read, so deduction rules stay **unconfirmed** and no deduction may be presented as rule-verified. Earlier status: BLOCKED (hosts unreachable, §0) |
-| 2 | CPWD DSR 2023: volumes, titles, rate basis date, cost-index method | **CONFIRMED (Vol. 1)** | Two volumes, rate basis April 2023 / 01.04.2023, and sub-heads 1–12 in Vol. 1 with 13–26 in Vol. 2, all from Vol. 1 pp. 3–8 (§2.1). Vol. 2 itself has not been read. |
+| 2 | CPWD DSR 2023: volumes, titles, rate basis date, cost-index method | **CONFIRMED (Vol. 1 and Vol. 2)** | Two volumes, rate basis April 2023 / 01.04.2023, and sub-heads 1–12 in Vol. 1 with 13–26 in Vol. 2 (§2.1, §2.6). |
 | 3 | GST treatment in DSR 2023 rates | **CONFIRMED (Vol. 1)** | Item rates include GST @18% (preface §6.2, p. 5). Basic rates exclude GST, contractor's profit and overheads (pp. 14, 18). **The app added GST again on DSR rates; see §3.1.** |
 | 4 | Cost-index values applicable to DSR 2023 | **PARTLY CONFIRMED** | DSR 2023 is itself at cost index 107 against PAR 2021 = 100 as on 01.04.2021 (preface ¶3, p. 5). Location cost indices relative to DSR 2023 (for example for Srikakulam) are **not** in this volume and remain open. |
 | 5 | Blank-versus-zero rules (CPPP, GeM, state portals) | **BLOCKED** | eprocure.gov.in, gem.gov.in and mahatenders.gov.in unreachable. One tender-specific lead (USOF) was found in search results only. |
-| — | Repo/database DSR seed cross-check | **DONE for sub-heads 2–12** | The seed was checked item by item against Vol. 1 (§2.5). Sub-heads 13–26 wait for Vol. 2. |
+| — | Repo/database DSR seed cross-check | **DONE for sub-heads 2–26** | Every seed item was checked against Vol. 1 (§2.5) and Vol. 2 (§2.6). 2,702 rates match; 20 seed rows have a wrong rate, wrong unit or are a parse artefact; 366 printed items are missing; 36 Vol. 1 items are on pages blank in the scan. |
 
 Verified primary-source facts in this register: **0** on 2026-10-17. On 2026-10-19 the facts in §2.1, §3.1 and §4.1 were added, each with its page reference.
 
@@ -186,6 +186,27 @@ Any items printed on the blank pages are unknown.
 **Status.** The seed is accurate where it has an item: 1,075 of the 1,076 checkable rates match. It is incomplete, however, and one rate is wrong.
 - **Corrections not applied.** Fixing it means a data migration to production, which needs the owner's explicit approval (plan v1.2 §7.3). No correction has been applied.
 - **Still to come.** The 36 unresolved items need a complete copy of pp. 157–158, 174, 180 and 224. Sub-heads 13–26 need Vol. 2.
+
+### 2.6 Item-level check of the DSR seed against Vol. 2 (sub-heads 13–26)
+
+**Source.** CPWD, *Delhi Schedule of Rates 2023*, Vol. 2. A 226-page scan supplied by the owner on 2026-10-19 as `project-drawings/DSR Vol 2.pdf` (37,511,705 bytes, SHA-256 `aa292c6019c8c79c83113526b39f66cf1aa741bf46f375b8c26c4176a91e1170`). Its foreword and preface (pp. 4–5) repeat Vol. 1's basis facts word for word: two volumes, April 2023 / 01.04.2023, GST @18% incorporated in all items, and cost index 107. Vol. 2 reads clearly "CPWD Specifications 2019 Vol.-I & II".
+
+**Coverage.** All 1,645 seed items in sub-heads 13–26 were checked. Rate pages are pp. 14–177 (printed pp. 217–380), with continuous page numbers. The 23 blank pages are section breaks, so no rate page is missing. Pp. 178–225 are appendices of cement and bitumen consumption coefficients, not rates. Results per item are in `docs/benchmarks/e3/dsr2023-vol2-item-check.csv`.
+
+| Result | Items |
+|---|---|
+| Rate matches the printed rate | **1,627** |
+| **Wrong rate in the seed** | **5**, each checked on the page image: 13.67.1 (printed 233.80, seed 236.10, p. 19); **13.114 (printed 1,192.30, seed 138.10, p. 22)**; 13.116 (3,049.85 vs 1,360.45, p. 23); 14.78 (422.70 vs 84.85, p. 31); 26.42.1 (3,580.65 vs 3,903.35, p. 162) |
+| **Seed holds an appendix coefficient instead of the rate** | **8**: 26.53 (2,604.30 vs 0.72); 26.73.1.1, .3 and .5 (1,287.25, 1,822.60 and 2,717.10 vs 0.36, 0.54 and 0.84); 26.74.1–.4 (20,928.70, 245.65, 450.40 and 573.20 vs 3.70, 0.30, 0.55 and 0.70); pp. 166–170 |
+| **Seed row is a parse artefact** | **1**: 26.82, printed sqm 2,293.30; the seed has unit "No" and rate 16.25, with a description taken from the appendix (p. 172) |
+| **Rate right, unit wrong** | **4**: 15.15.1, 15.16.1, 15.20 and 15.21 are printed as "per metre span / height" units; the seed has "metre" (p. 37) |
+| Printed but **missing from the seed** | **262**, listed in `docs/benchmarks/e3/dsr2023-vol2-missing-items.json`. Mostly water-supply fittings in sub-head 18 (163), plus sub-head 26 (55) and pile load tests in 20.6–20.9 |
+
+**Description text.** Thirteen seed descriptions carry page-footer or appendix text, for example 15.60, 16.96 and 18.105.3. Their rates are unaffected.
+
+**Use in saved BOQs.** As of 2026-10-20, none of the 27 BOQs uses any item with a wrong rate or unit, whether from Vol. 1 or Vol. 2. The wrong rates would only affect new BOQs.
+
+**Status.** No correction has been applied. Corrections are a production data change and need the owner's approval (plan v1.2 §7.3).
 
 ### 2.2 Interpretations
 
