@@ -34,7 +34,11 @@ for (const vp of VIEWPORTS) {
 
     test("every tab opens with no Supabase request, no write and no console error", async ({ page }) => {
       const { consoleErrors, supabaseRequests } = await openPreview(page);
-      const before = supabaseRequests.length; // the Ops layout's own session and role checks
+      // Let the Ops layout's own start-up queries (session, roles, pending-review
+      // count) finish first: one of them could land after the first tab was
+      // visible and be miscounted as the preview's.
+      await page.waitForLoadState("networkidle");
+      const before = supabaseRequests.length;
       const tabs = page.getByRole("tab");
       const count = await tabs.count();
       expect(count).toBeGreaterThanOrEqual(5);
