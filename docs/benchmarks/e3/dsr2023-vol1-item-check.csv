@@ -1,0 +1,1218 @@
+code,pdf_page,db_unit,db_rate,pdf_unit,pdf_rate,status,note
+2.1.1,102,sqm,129.85,sqm,129.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.2.1,102,cum,395.30,cum,395.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.3.1,102,cum,197.90,cum,197.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.4,102,cum,5.25,cum,5.25,match,visual check p102
+2.5,102,cum,14.25,cum,14.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.6.1,102,cum,177.50,cum,177.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.7.1,102,cum,498.90,cum,498.90,match,"code misread ""Pe Ty"" by OCR; visual check p102 (2.7.1 Ordinary rock)"
+2.7.2,102,cum,874.40,cum,874.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.7.3,102,cum,1432.95,cum,1432.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.8.1,102,cum,260.30,cum,260.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.9.1,102,cum,632.95,cum,632.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.9.2,102,cum,1049.80,cum,1049.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.9.3,103,cum,1523.05,cum,1523.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.10.1.1,103,metre,215.60,metre,215.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.10.1.2,103,metre,352.15,metre,352.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.10.1.3,103,metre,549.75,metre,549.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.13.1.1,103,metre,403.30,metre,403.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.13.1.2,103,metre,998.65,metre,998.65,match,"OCR split rate ""998 65""; visual check"
+2.13.1.3,103,metre,1149.10,metre,1149.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.13.2.1,103,metre,603.20,metre,603.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.13.2.2,103,metre,1493.60,metre,1493.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.13.2.3,103,metre,1718.45,metre,1718.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.13.3.1,103,metre,826.80,metre,826.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.13.3.2,103,metre,2047.30,metre,2047.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.13.3.3,103,metre,2355.75,metre,2355.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.14.1.1,103,metre,729.80,metre,729.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.14.1.2,103,metre,867.45,metre,867.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.14.2.1,103,metre,1091.45,metre,1091.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.14.2.2,104,metre,1297.40,metre,1297.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.14.3.1,104,metre,1496.10,metre,1496.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.14.3.2,104,metre,1778.15,metre,1778.15,match,"OCR read code as ""2.14.3,2""; re-OCR 300dpi"
+2.15.1.1,104,metre,2352.25,metre,2352.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+3.2,110,cum,5138.00,cum,5138.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.16.1,104,sqm,139.95,sqm,139.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.16.2,104,sqm,155.30,sqm,155.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.16.3,104,sqm,189.65,sqm,189.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.17.1,104,sqm,151.50,sqm,151.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.17.2,104,sqm,184.00,sqm,184.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.17.3,104,sqm,218.20,sqm,218.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.18.1,104,sqm,125.80,sqm,125.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.18.2,104,sqm,144.10,sqm,144.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.18.3,104,sqm,163.15,sqm,163.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.19,104,sqm,1692.45,sqm,1692.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.20.1,104,sqm,72.05,sqm,72.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.20.2,104,sqm,81.60,sqm,81.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.20.3,104,sqm,97.25,sqm,97.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.21.1,104,sqm,66.40,sqm,66.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.21.2,104,sqm,81.65,sqm,81.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.21.3,104,sqm,101.85,sqm,101.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.22.1,104,sqm,44.85,sqm,44.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.22.2,105,sqm,54.95,sqm,54.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.22.3,105,sqm,71.30,sqm,71.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.23,105,sqm,872.55,sqm,872.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.25,105,cum,196.00,cum,196.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.26.1,105,cum,126.80,cum,126.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.26.2,105,cum,227.40,cum,227.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.27,105,cum,2123.75,cum,2123.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.28.1,105,sqm,34.15,sqm,34.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.29.1,105,sqm,34.60,sqm,34.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.30.1,105,each,82.45,each,82.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.30.2,105,each,194.25,each,194.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.30.3,105,each,319.30,each,319.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.30.4,105,each,461.30,each,461.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.31,106,sqm,17.60,sqm,17.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.32,106,sqm,8.95,sqm,8.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.33.1,106,each,532.35,each,532.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.33.2,106,each,2373.50,each,2373.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.33.3,106,each,11020.15,each,11020.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.33.4,106,each,22075.20,each,22075.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.34.1,106,litre,234.75,litre,234.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.35.1.1,106,metre,38.90,metre,38.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.35.2.1,106,metre,53.45,metre,53.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.35.3.1,106,sqm,310.05,sqm,310.05,match,"OCR read code as ""2.35,3,1""; re-OCR 300dpi"
+2.35.4.1,106,metre,43.00,metre,43.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.35.5,106,metre,279.70,metre,279.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.36,106,cum,93.05,cum,93.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.37,107,cum,281.05,cum,281.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+2.38,107,cum,308.20,cum,308.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+3.1,110,cum,6658.25,cum,6658.25,match,"first row of 3.0 table, OCR dropped line; visual check"
+3.3,110,cum,4379.05,cum,4379.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+3.4,110,cum,3708.80,cum,3708.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+3.5,110,cum,3347.85,cum,3347.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+3.6,110,cum,3038.50,cum,3038.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+3.7,110,cum,5584.50,cum,5584.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+3.8,110,cum,4881.95,cum,4881.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+3.9,110,cum,4211.70,cum,4211.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+3.10,110,cum,3850.75,cum,3850.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+3.11,110,cum,3541.40,cum,3541.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+3.12,110,cum,5252.00,cum,5252.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+3.13,110,cum,5328.00,cum,5328.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+3.14,110,cum,3561.85,cum,3561.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+3.15,110,cum,8961.90,cum,8961.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+3.16,110,cum,7318.50,cum,7318.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+3.17,110,cum,5218.50,cum,5218.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+3.19,110,cum,2880.65,cum,2880.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.1.2,114,cum,8340.85,cum,8340.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.1.2A,114,cum,8127.80,cum,8127.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.1.3,114,cum,7878.50,cum,7878.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.1.3A,114,cum,7654.85,cum,7654.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.1.4,114,cum,7780.30,cum,7780.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.1.5,114,cum,7294.70,cum,7294.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.1.5A,114,cum,6347.75,cum,6347.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.1.5B,114,cum,5639.85,cum,5639.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.1.6,114,cum,7178.75,cum,7178.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.1.6A,114,cum,5572.00,cum,5572.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.1.8,114,cum,6812.00,cum,6812.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.1.8A,114,cum,5205.25,cum,5205.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.1.10,114,cum,6518.60,cum,6518.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.21,196,kg,278.30,kg,278.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.1.10A,115,cum,4911.85,cum,4911.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.1.11,115,cum,6189.65,cum,6189.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.1.12,115,cum,6667.25,cum,6667.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.1.12A,115,cum,5130.65,cum,5130.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.1.13,115,cum,6311.95,cum,6311.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.1.13A,115,cum,4796.40,cum,4796.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.2.2,115,cum,10357.55,cum,10357.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.2.2A,115,cum,10144.50,cum,10144.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.2.3,115,cum,9895.20,cum,9895.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.2.3A,115,cum,9671.50,cum,9671.50,match,"OCR read code as ""42.3A""; visual check"
+4.2.5,115,cum,9311.40,cum,9311.40,match,"OCR read code as ""42.5""; visual check"
+4.2.5A,115,cum,8364.45,cum,8364.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.2.5B,116,cum,7656.55,cum,7656.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.2.8,116,cum,8519.20,cum,8519.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.2.8A,116,cum,6912.45,cum,6912.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.3.1,116,sqm,392.15,sqm,392.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.3.2,116,sqm,842.50,sqm,842.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.3.3,116,sqm,961.30,sqm,961.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.4.1,116,cum,8340.85,cum,8340.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.4.1A,116,cum,8127.80,cum,8127.80,match,"OCR read code as ""441A""; visual check"
+4.5.1,116,cum,10105.10,cum,10105.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.5.1A,116,cum,9893.45,cum,9893.45,match,"OCR read code as ""45.1A""; visual check"
+4.6.1,116,cum,8726.85,cum,8726.85,match,"OCR read code as ""46.1""; visual check"
+4.6.1A,117,cum,8514.85,cum,8514.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.7.1,117,cum,17889.25,cum,17889.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.7.1A,117,cum,17677.25,cum,17677.25,match,"OCR read code as ""47.1A""; visual check"
+4.8.1,117,cum,14624.20,cum,14624.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.8.1A,117,cum,14526.20,cum,14526.20,match,first pass flagged split rate; visual check confirms 14526.20
+5.1.2,124,cum,9045.75,cum,9045.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.1.2A,124,cum,8874.95,cum,8874.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.9,117,each,929.80,each,929.80,match,"OCR read code as ""49""; visual check"
+4.10,118,sqm,410.85,sqm,410.85,match,"OCR read code as ""4,10""; visual check"
+4.10A,118,sqm,402.50,sqm,402.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.11,118,sqm,495.75,sqm,495.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.11A,118,sqm,484.60,sqm,484.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.13,118,sqm,146.15,sqm,146.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.14,118,cum,169.45,cum,169.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.16,118,cum,467.55,cum,467.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.17,119,sqm,749.30,sqm,749.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.17A,119,sqm,702.30,sqm,702.30,match,"OCR read code as ""417A""; visual check"
+4.17B,119,sqm,666.90,sqm,666.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.20.1.1,119,cum,8835.15,cum,8835.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.20.1.2,119,cum,8986.15,cum,8986.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.1.3,124,cum,8583.40,cum,8583.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.9.2,126,sqm,842.50,sqm,842.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.20.1.3,119,cum,9212.60,cum,9212.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.20.1.4,119,cum,9439.05,cum,9439.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.20.2.1,119,cum,9190.80,cum,9190.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.20.2.2,119,cum,9341.80,cum,9341.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.20.2.3,120,cum,9568.25,cum,9568.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.20.2.4,120,cum,9794.70,cum,9794.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+4.20A,120,cum,7936.10,cum,7936.10,match,"first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page; DB code 4.20A holds sub-item 4.20A.1.1 (M10, 7936.10); other 7 sub-items are missing_from_db rows"
+5.1.3A,124,cum,8404.05,cum,8404.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.2.2,124,cum,10852.95,cum,10852.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.2.2A,124,cum,10682.15,cum,10682.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.3,124,cum,11505.50,cum,11505.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.3A,124,cum,11334.70,cum,11334.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.4,124,cum,8821.65,cum,8821.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.4A,125,cum,8650.85,cum,8650.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.5,125,cum,12205.85,cum,12205.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.5A,125,cum,12035.00,cum,12035.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.6,125,cum,11125.20,cum,11125.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.6A,125,cum,10954.40,cum,10954.40,match,"OCR split rate ""10954 .40""; visual check"
+5.7,125,cum,8424.60,cum,8424.60,match,visual check (OCR dropped rate line)
+5.7A,125,cum,8253.80,cum,8253.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.8,125,cum,11454.35,cum,11454.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.8A,125,cum,11283.55,cum,11283.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.9.1,126,sqm,392.15,sqm,392.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.10.1,144,cum,1060.50,cum,1060.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.9.3,126,sqm,927.25,sqm,927.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.9.4,126,sqm,927.25,sqm,927.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.9.5,126,sqm,736.40,sqm,736.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.9.6,126,sqm,961.30,sqm,961.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.9.7,126,sqm,764.95,sqm,764.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.9.8,126,sqm,798.35,sqm,798.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.9.9,126,sqm,2154.35,sqm,2154.35,match,"OCR read code as ""§.9.9""; visual check"
+5.9.10,126,sqm,608.15,sqm,608.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.9.11,126,sqm,803.25,sqm,803.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.9.12,126,sqm,263.65,sqm,263.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.9.13,126,sqm,1296.70,sqm,1296.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.9.15,126,sqm,392.15,sqm,392.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.9.16.1,126,metre,208.55,metre,208.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.9.16.2,126,sqm,879.05,sqm,879.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.9.17,126,sqm,856.80,sqm,856.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.9.18,126,sqm,964.85,sqm,964.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.9.19,126,sqm,951.10,sqm,951.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.9.20,126,sqm,1028.40,sqm,1028.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.9.21,126,sqm,841.95,sqm,841.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.11.1,127,sqm,384.30,sqm,384.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.12,127,cum,10585.90,cum,10585.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.12A,127,cum,10416.75,cum,10416.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.13,127,cum,14325.95,cum,14325.95,match,"OCR read code as ""5,13""; visual check"
+5.13A,127,cum,14155.35,cum,14155.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.14,127,cum,18234.95,cum,18234.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.14A,127,cum,18064.15,cum,18064.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.15,127,cum,13899.20,cum,13899.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.15A,128,cum,13728.40,cum,13728.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.16,128,cum,20355.80,cum,20355.80,match,visual check (OCR dropped rate line)
+5.16A,128,cum,20185.00,cum,20185.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.17,128,cum,12043.35,cum,12043.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.17A,128,cum,11872.55,cum,11872.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.18.1,128,sqm,1886.90,sqm,1886.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.18.2,128,sqm,1706.55,sqm,1706.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.18.3,128,sqm,1539.00,sqm,1539.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.19,128,cum,16089.40,cum,16089.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.19A,129,cum,15918.60,cum,15918.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.20,129,cum,9663.25,cum,9663.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.20A,129,cum,9492.45,cum,9492.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.21,129,sqm,485.05,sqm,485.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.152,187,each,185.50,each,185.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.22.1,129,kg,107.10,kg,107.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.22.2,129,kg,95.80,kg,95.80,match,OCR garbled code; visual check
+5.22.3,129,kg,107.85,kg,107.85,match,"OCR read code as ""§.22.3""; visual check"
+5.22.4,129,kg,107.85,kg,107.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.22.5,129,kg,102.20,kg,102.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.22.6,129,kg,107.85,kg,107.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.22A,129,kg,107.10,kg,107.10,match,"first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page; DB code 5.22A holds sub-item 5.22A.1 (Mild steel and Medium Tensile steel bars, kg 107.10); 5.22A.2-.6 are missing_from_db rows"
+5.22B,129,kg,99.65,kg,99.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page; DB code 5.22B holds its only sub-item 5.22B.1
+5.22C,130,kg,99.65,kg,99.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page; DB code 5.22C holds its only sub-item 5.22C.1
+5.23,130,sqm,300.45,sqm,300.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.24,130,sqm,150.50,sqm,150.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.25,130,kg,811.85,kg,811.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.26,130,cum,74854.65,cum,74854.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.27,130,cum,28212.60,cum,28212.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.29.1.1,130,metre,245.45,metre,245.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.29.1.2,130,metre,330.20,metre,330.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.29.2.1,130,metre,567.60,metre,567.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.29.2.2,130,metre,753.85,metre,753.85,match,"OCR read code as ""§.29.2.2""; visual check"
+5.29.3.1,130,metre,237.40,metre,237.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.29.3.2,130,metre,319.40,metre,319.40,match,"OCR read code as ""§.29.3.2""; visual check"
+5.30,130,metre,78.40,metre,78.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.31,130,cum,1098.80,cum,1098.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.32,130,cum,467.55,cum,467.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.42.2,132,each,160.10,each,160.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.13.2,139,sqm,1123.80,sqm,1123.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.33.1.1,131,cum,9504.75,cum,9504.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.33.1.2,131,cum,9655.70,cum,9655.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.33.1.3,131,cum,9806.70,cum,9806.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.33.1.4,131,cum,9957.65,cum,9957.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.33.1.5,131,cum,10108.65,cum,10108.65,match,"OCR read code as ""§.33.1.5""; visual check"
+5.33.2.1,131,cum,9860.40,cum,9860.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.42.3,132,each,228.95,each,228.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.14,139,sqm,15.00,sqm,15.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.15,139,sqm,104.80,sqm,104.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.33.2.2,131,cum,10011.35,cum,10011.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.33.2.3,131,cum,10162.35,cum,10162.35,match,"OCR read code as ""§.33.2.3""; visual check"
+5.33.2.4,131,cum,10313.30,cum,10313.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.33.2.5,131,cum,10464.30,cum,10464.30,match,first pass flagged split rate; visual check
+5.35,132,quintal,733.50,quintal,733.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.36,132,cum,33018.75,cum,33018.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.36A,132,cum,32847.95,cum,32847.95,match,visual check (OCR dropped rate line)
+5.38,132,cum,355.65,cum,355.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.41.1,132,sqm,69.05,sqm,69.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.42.1,132,each,115.10,each,115.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.12.1,139,sqm,931.75,sqm,931.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.42.4,132,each,267.55,each,267.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.42.5,132,each,318.80,each,318.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.43.1,132,metre,859.75,metre,859.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.43.2,132,metre,1208.05,metre,1208.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.44.1,133,metre,6392.55,metre,6392.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.44.2,133,metre,7812.35,metre,7812.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.44.3,133,metre,9903.65,metre,9903.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.45.1,133,metre,5305.65,metre,5305.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.45.2,133,metre,5981.40,metre,5981.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.45.3,133,metre,6889.05,metre,6889.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.46.1,134,metre,5985.70,metre,5985.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.46.2,134,metre,6699.85,metre,6699.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.46.3,134,metre,7927.60,metre,7927.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.47.1,134,metre,814.85,metre,814.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.47.2,134,metre,757.10,metre,757.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.47.3,134,metre,727.30,metre,727.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.12.2,139,sqm,905.05,sqm,905.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.13.1,139,sqm,1150.50,sqm,1150.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.48.1,134,cum,8509.95,cum,8509.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.48.2,134,cum,9500.30,cum,9500.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+5.48.3,134,cum,664.85,cum,664.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.1.1,138,cum,7370.65,cum,7370.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.1.2,138,cum,7132.25,cum,7132.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.2.1,138,cum,6504.90,cum,6504.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.2.2,138,cum,6295.15,cum,6295.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.3.1,138,cum,9299.90,cum,9299.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.3.2,138,cum,8942.35,cum,8942.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.4.1,138,cum,9344.35,cum,9344.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.4.2,138,cum,9105.95,cum,9105.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.5,138,cum,169.45,cum,169.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.6,138,sqm,234.20,sqm,234.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.7,138,metre,300.75,metre,300.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.8,138,sqm,865.65,sqm,865.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.9,138,cum,15077.95,cum,15077.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.10,138,cum,19066.10,cum,19066.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.11,138,sqm,608.15,sqm,608.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.16.1,139,cum,11212.50,cum,11212.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.16.2,139,cum,10831.05,cum,10831.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.17,139,cum,11328.50,cum,11328.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.18,139,cum,12883.05,cum,12883.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.20,139,cum,18975.15,cum,18975.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.21,139,cum,23019.75,cum,23019.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.22,139,sqm,885.45,sqm,885.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.23,139,sqm,711.50,sqm,711.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.24,139,metre,1098.80,cum per metre depth,1098.80,match,"first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page; unit differs in wording: PDF 'cum per metre depth', DB 'metre'"
+6.25,139,cum,467.55,cum,,not_in_pdf,"PDF p139 last line prints the description ""Extra for laying brick work in or under foul position."" with unit cum but NO code number and NO rate (visual check of 300-dpi render; p140 starts with EXPOSED BRICK WALL/6.26). DB rate 467.55 cannot be verified from this scan"
+6.26.1,140,cum,7361.35,cum,7361.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.26.2,140,cum,9439.75,cum,9439.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.27.1,140,cum,6339.20,cum,6339.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.27.2,140,cum,8312.90,cum,8312.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.28.1,140,cum,6997.40,cum,6997.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.28.2,140,cum,8971.10,cum,8971.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.29.1,140,cum,7581.15,cum,7581.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.29.2,140,cum,9481.70,cum,9481.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.30.1,140,cum,7370.30,cum,7370.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.30.2,140,cum,9344.00,cum,9344.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.31.1,140,cum,7032.05,cum,7032.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.8.2,144,cum,10128.10,cum,10128.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.31.2,140,cum,9005.75,cum,9005.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.32.1,140,cum,9333.45,cum,9333.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.32.2,140,cum,9095.05,cum,9095.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.34.1,140,cum,8962.35,cum,8962.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.34.2,140,cum,8752.55,cum,8752.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.35.1,141,cum,9793.75,cum,9793.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.35.2,141,cum,9583.95,cum,9583.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.36.1,141,cum,7197.75,cum,7197.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.37,141,cum,13427.30,cum,13427.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.38,141,cum,10195.45,cum,10195.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.40,141,sqm,1023.60,sqm,1023.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.41,141,sqm,181.15,sqm,181.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.44,141,metre,60.85,metre,59.45,differs,visual check: PDF 59.45 vs DB 60.85
+6.45.1,141,sqm,1132.50,sqm,1132.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.45.2,141,sqm,1105.80,sqm,1105.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+6.47,141,cum,8333.65,cum,8333.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.1.1,144,cum,7311.25,cum,7311.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.2.1,144,cum,9275.45,cum,9275.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.4.1,144,cum,956.00,cum,956.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.4.2,144,cum,2530.60,cum,2530.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.5,144,cum,1046.20,cum,1046.20,match,"first pass mislocated to p138; OCR read code as ""75""; visual check p144"
+7.6.1,144,cum,8812.05,cum,8812.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.7.1,144,cum,8198.55,cum,8198.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.8.1,144,cum,10741.60,cum,10741.60,match,"OCR read code as ""7.8.4""; visual check"
+7.10.2,144,cum,2874.20,cum,2874.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.11,144,cum,1133.65,cum,1133.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.12.1.1,144,cum,68294.00,cum,68294.00,match,"OCR split rate ""68294 00""; visual check"
+7.12.1.2,144,cum,82518.00,cum,82518.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.12.2.1,144,cum,91295.00,cum,91295.00,match,"OCR read code as ""7.12.2.""; visual check"
+7.12.2.2,144,cum,105519.00,cum,105519.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.13.1.1,145,cum,75263.00,cum,75263.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.13.1.2,145,cum,89487.00,cum,89487.00,match,OCR split rate; visual check
+7.13.2.1,145,cum,98265.00,cum,98265.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.13.2.2,145,cum,112488.00,cum,112488.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.14.1.1,145,cum,114277.00,cum,114277.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.14.1.2,145,cum,128500.00,cum,128500.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.14.2.1,145,cum,169953.00,cum,169953.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.14.2.2,145,cum,184177.00,cum,184177.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.15.1.1,145,cum,64926.00,cum,64926.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.15.1.2,145,cum,79150.00,cum,79150.00,match,"OCR read code as ""7.16.1.2""; visual check"
+7.15.2.1,145,cum,84560.00,cum,84560.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.15.2.2,145,cum,98784.00,cum,98784.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.16,145,cum,169.45,cum,169.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.17.1,145,cum,2896.00,cum,2896.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.18,145,cum,2014.00,cum,2014.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.73.1,167,each,463.15,each,463.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.19,145,sqm,608.15,sqm,608.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.20.1,145,cum,94463.00,cum,94463.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.20.2,145,cum,108686.00,cum,108686.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.21.1,146,cum,3779.00,cum,3779.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.21.2,146,cum,10706.00,cum,10706.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.24,146,cum,2896.00,cum,2896.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.26,146,each,54.55,each,54.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.28.1.1,146,sqm,2854.35,sqm,2854.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.28.2.1,146,sqm,2932.60,sqm,2932.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.29.1,146,sqm,1833.25,sqm,1833.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.29.2,146,sqm,1901.55,sqm,1901.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.30,146,sqm,2159.90,sqm,2159.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.31,146,each,6788.85,each,6788.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.32.1,146,cum,93741.10,cum,93741.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.32.2,146,cum,107965.10,cum,107965.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.33.1,147,sqm,14931.55,sqm,14931.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.33.2,147,sqm,14994.15,sqm,14994.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.34,147,metre,1098.80,cum per metre depth,1098.80,match,"visual check (OCR dropped rate line); unit differs in wording: PDF 'cum per metre depth', DB 'metre'"
+7.35,147,cum,467.55,cum,467.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.38.1.1,147,sqm,3094.55,sqm,3094.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+7.38.1.2,147,sqm,2766.45,sqm,2766.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.1.1.1,150,sqm,5742.55,sqm,5742.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.1.1.2,150,sqm,5938.00,sqm,5938.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.2.1.1,150,sqm,3414.80,sqm,3414.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.2.1.2,150,sqm,3078.40,sqm,3078.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.2.2.1,150,sqm,5413.50,sqm,5413.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.2.2.2,150,sqm,5136.30,sqm,5136.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.2.3.1,150,sqm,4170.70,sqm,4170.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.2.3.2,150,sqm,3848.70,sqm,3848.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.3.1,150,metre,298.60,metre,298.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.3.2,150,metre,510.95,metre,510.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.4,150,metre,568.55,metre,568.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.5,150,each,978.70,each,978.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.6,150,sqm,506.70,sqm,506.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.7.1,151,kg,723.45,kg,723.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.7.2,151,kg,714.40,kg,714.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.73.2,167,each,414.60,each,414.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.8.1.1,151,each,36.75,each,36.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.8.1.2,151,each,40.00,each,40.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.8.1.3,151,each,61.70,each,61.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.9.1.1,151,sqm,3190.30,sqm,3190.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.9.1.2,151,sqm,3617.55,sqm,3617.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.10.1,151,sqm,3500.45,sqm,3500.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.10.2,151,sqm,4051.85,sqm,4051.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.11.1,151,sqm,10414.80,sqm,10414.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.14.1.1,151,sqm,6282.40,sqm,6282.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.14.1.2,151,sqm,6035.85,sqm,6035.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.14.1.3,151,sqm,5789.90,sqm,5789.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.14.1.4,151,sqm,5542.60,sqm,5542.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.14.1.5,151,sqm,5295.90,sqm,5295.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.14.2.1,152,sqm,8502.25,sqm,8502.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.14.2.2,152,sqm,8255.75,sqm,8255.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.14.2.3,152,sqm,8009.75,sqm,8009.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.14.2.4,152,sqm,7762.50,sqm,7762.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.14.2.5,152,sqm,7515.80,sqm,7515.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.14.3.1,152,sqm,7278.20,sqm,7278.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.14.3.2,152,sqm,6889.45,sqm,6889.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.14.3.3,152,sqm,6501.55,sqm,6501.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.14.3.4,152,sqm,6110.75,sqm,6110.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.14.3.5,152,sqm,5722.60,sqm,5722.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.14.4.1,152,sqm,9498.10,sqm,9498.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.14.4.2,152,sqm,9109.30,sqm,9109.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.14.4.3,152,sqm,8721.45,sqm,8721.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.14.4.4,152,sqm,8330.65,sqm,8330.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.24.3,153,each,28.30,each,28.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.73.3,167,each,381.75,each,381.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.14.4.5,152,sqm,7942.50,sqm,7942.50,match,"OCR read code as ""8.14.45""; visual check"
+8.14.5.1,152,sqm,3256.65,sqm,3256.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.14.5.2,152,sqm,3119.20,sqm,3119.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.15,152,kg,714.40,kg,714.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.16,152,each,43.90,each,43.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.17,152,sqm,3135.00,sqm,3135.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.18.1.1,152,sqm,2651.35,sqm,2651.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.19,152,sqm,165.85,sqm,165.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.20.1,153,sqm,2902.65,sqm,2902.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.20.2,153,sqm,3040.10,sqm,3040.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.21,153,kg,269.95,kg,269.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.22,153,each,437.00,each,437.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.23,153,each,40.85,each,40.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.24.1,153,each,22.35,each,22.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.24.2,153,each,24.05,each,24.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.24.4,153,each,29.75,each,29.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.25.1,153,sqm,6646.70,sqm,6646.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.25.2,153,sqm,4437.80,sqm,4437.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.25.3,153,sqm,3601.30,sqm,3601.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.25.4,153,sqm,2423.25,sqm,2423.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.26.1,154,sqm,1430.20,sqm,1430.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.26.2,154,sqm,1492.80,sqm,1492.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.26.3,154,sqm,1979.50,sqm,1979.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.27.1,154,cum,187277.65,cum,187277.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.28.1,154,sqm,1946.25,sqm,1946.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.29,154,sqm,1825.05,sqm,1825.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.30.1,154,sqm,1976.45,sqm,1976.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.30.2,154,sqm,2463.10,sqm,2463.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+8.31,154,sqm,1267.95,sqm,1267.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.1.1,158,cum,142949.70,,,unresolved,"expected on PDF p158 (first page of sub-head 9.0, between divider p156 and 9.6.2 at top of p159); pages 157-158 of the downloaded PDF contain no image/text (blank), so the item cannot be read"
+9.1.2,158,cum,116520.30,,,unresolved,"expected on PDF p158 (first page of sub-head 9.0, between divider p156 and 9.6.2 at top of p159); pages 157-158 of the downloaded PDF contain no image/text (blank), so the item cannot be read"
+9.1.3,158,cum,83378.05,,,unresolved,"expected on PDF p158 (first page of sub-head 9.0, between divider p156 and 9.6.2 at top of p159); pages 157-158 of the downloaded PDF contain no image/text (blank), so the item cannot be read"
+9.2,158,cum,131981.10,,,unresolved,"expected on PDF p158 (first page of sub-head 9.0, between divider p156 and 9.6.2 at top of p159); pages 157-158 of the downloaded PDF contain no image/text (blank), so the item cannot be read"
+9.3.1,158,cum,104754.35,,,unresolved,"expected on PDF p158 (first page of sub-head 9.0, between divider p156 and 9.6.2 at top of p159); pages 157-158 of the downloaded PDF contain no image/text (blank), so the item cannot be read"
+9.3.2,158,cum,71337.85,,,unresolved,"expected on PDF p158 (first page of sub-head 9.0, between divider p156 and 9.6.2 at top of p159); pages 157-158 of the downloaded PDF contain no image/text (blank), so the item cannot be read"
+9.4.1,158,cum,14294.95,,,unresolved,"expected on PDF p158 (first page of sub-head 9.0, between divider p156 and 9.6.2 at top of p159); pages 157-158 of the downloaded PDF contain no image/text (blank), so the item cannot be read"
+9.4.2,158,cum,11652.05,,,unresolved,"expected on PDF p158 (first page of sub-head 9.0, between divider p156 and 9.6.2 at top of p159); pages 157-158 of the downloaded PDF contain no image/text (blank), so the item cannot be read"
+9.4.3,158,cum,8338.10,,,unresolved,"expected on PDF p158 (first page of sub-head 9.0, between divider p156 and 9.6.2 at top of p159); pages 157-158 of the downloaded PDF contain no image/text (blank), so the item cannot be read"
+9.5.1.1,158,sqm,4111.95,,,unresolved,"expected on PDF p158 (first page of sub-head 9.0, between divider p156 and 9.6.2 at top of p159); pages 157-158 of the downloaded PDF contain no image/text (blank), so the item cannot be read"
+9.5.1.2,158,sqm,3747.30,,,unresolved,"expected on PDF p158 (first page of sub-head 9.0, between divider p156 and 9.6.2 at top of p159); pages 157-158 of the downloaded PDF contain no image/text (blank), so the item cannot be read"
+9.5.2.1,158,sqm,2869.10,,,unresolved,"expected on PDF p158 (first page of sub-head 9.0, between divider p156 and 9.6.2 at top of p159); pages 157-158 of the downloaded PDF contain no image/text (blank), so the item cannot be read"
+9.5.2.2,158,sqm,2676.85,,,unresolved,"expected on PDF p158 (first page of sub-head 9.0, between divider p156 and 9.6.2 at top of p159); pages 157-158 of the downloaded PDF contain no image/text (blank), so the item cannot be read"
+9.5.3.1,158,sqm,3638.35,,,unresolved,"expected on PDF p158 (first page of sub-head 9.0, between divider p156 and 9.6.2 at top of p159); pages 157-158 of the downloaded PDF contain no image/text (blank), so the item cannot be read"
+9.5.3.2,158,sqm,3338.65,,,unresolved,"expected on PDF p158 (first page of sub-head 9.0, between divider p156 and 9.6.2 at top of p159); pages 157-158 of the downloaded PDF contain no image/text (blank), so the item cannot be read"
+9.6.1,158,sqm,3069.05,,,unresolved,"expected on PDF p158 (first page of sub-head 9.0, between divider p156 and 9.6.2 at top of p159); pages 157-158 of the downloaded PDF contain no image/text (blank), so the item cannot be read"
+9.6.2,159,sqm,3212.70,sqm,3212.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.6.3,159,sqm,3450.30,sqm,3450.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.7.1,159,sqm,3323.20,sqm,3323.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.7.2,159,sqm,2327.10,sqm,2327.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.7.3.1,159,sqm,2724.25,sqm,2724.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.7.3.2,159,sqm,2698.40,sqm,2698.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.51.2,164,sqm,939.20,sqm,939.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.7.4.1,159,sqm,2907.05,sqm,2907.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.7.5.1,159,sqm,1693.00,sqm,1693.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.7.5.2,159,sqm,2012.05,sqm,2012.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.7.5.3,159,sqm,2081.05,sqm,2081.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.7.5.4,159,sqm,2053.45,sqm,2053.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.7.6.1,159,sqm,2253.45,sqm,2253.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.7.7.1,159,sqm,2241.80,sqm,2241.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.7.7.2,160,sqm,2600.45,sqm,2600.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.7.8,160,sqm,1800.45,sqm,1800.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.9.1.1,160,sqm,4940.20,sqm,4940.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.9.1.2,160,sqm,4523.40,sqm,4523.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.9.2.1,160,sqm,3524.85,sqm,3524.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.9.2.2,160,sqm,3305.20,sqm,3305.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.9.3.1,160,sqm,4401.55,sqm,4401.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.9.3.2,160,sqm,4059.05,sqm,4059.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.10.1,160,sqm,3066.20,sqm,3066.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.11.1,160,sqm,295.90,sqm,295.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.12,160,sqm,176.40,sqm,176.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.13,160,sqm,73.95,sqm,73.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.14,160,sqm,193.55,sqm,193.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.15.1.1,160,sqm,253.30,sqm,253.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.15.2.1,161,sqm,59.80,sqm,59.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.16.1.1,161,sqm,4402.85,sqm,4402.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.16.1.2,161,sqm,4542.90,sqm,4542.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.16.2.1,161,sqm,4193.25,sqm,4193.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.16.2.2,161,sqm,4241.15,sqm,4241.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.17.1,161,sqm,802.95,sqm,802.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.17.2,161,sqm,1020.95,sqm,1020.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.18.1,161,sqm,1245.75,sqm,1245.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.18.2,161,sqm,1715.20,sqm,1715.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.20.1,161,sqm,3473.85,sqm,3473.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.20.2,161,sqm,3167.95,sqm,3167.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.20.3,161,sqm,2819.25,sqm,2819.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.21.1,162,sqm,2392.65,sqm,2392.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.21.2,162,sqm,2172.10,sqm,2172.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.52,164,sqm,155.10,sqm,155.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.21.3,162,sqm,2093.70,sqm,2093.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.22.1,162,sqm,478.00,sqm,478.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.23,162,sqm,462.35,sqm,462.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.24.1,162,sqm,199.15,sqm,199.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.24.2,162,sqm,206.30,sqm,206.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.25.1,162,sqm,405.45,sqm,405.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.26,162,sqm,106.70,sqm,106.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.27.1.1.1,162,sqm,4852.30,sqm,4852.30,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 4852.30"
+9.27.1.1.2,162,sqm,3599.20,sqm,3599.20,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 3599.20"
+9.27.1.1.3,162,sqm,4375.00,sqm,4375.00,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 4375.00"
+9.27.1.2.1,162,sqm,5045.85,sqm,5045.85,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 5045.85"
+9.27.1.2.2,162,sqm,3792.75,sqm,3792.75,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 3792.75"
+9.27.1.2.3,162,sqm,4568.50,sqm,4568.50,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 4568.50"
+9.27.2.1.1,162,sqm,4326.80,sqm,4326.80,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 4326.80"
+9.27.2.1.2,163,sqm,3254.25,sqm,3254.25,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 3254.25"
+9.27.2.1.3,163,sqm,3918.15,sqm,3918.15,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 3918.15"
+9.27.2.2.1,163,sqm,4520.30,sqm,4520.30,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 4520.30"
+9.27.2.2.2,163,sqm,3447.80,sqm,3447.80,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 3447.80"
+9.27.2.2.3,163,sqm,4111.70,sqm,4111.70,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 4111.70"
+9.73.4,167,each,339.20,each,339.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.31.1,163,sqm,3066.20,sqm,3066.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.31.2,163,sqm,2803.00,sqm,2803.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.40.1.1,163,metre,221.10,metre,221.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.40.1.2,163,metre,271.75,metre,271.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.40.2.1,163,metre,185.95,metre,185.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.40.2.2,163,metre,213.20,metre,213.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.41.1,163,sqm,2945.10,sqm,2945.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.42,163,metre,600.55,metre,600.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.43,163,metre,725.85,metre,725.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.44.1,164,metre,38.70,metre,38.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.44.2,164,metre,125.20,metre,125.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.45,164,metre,73.70,metre,73.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.46.1,164,metre,285.10,metre,285.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.46.2,164,metre,393.25,metre,393.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.46.3,164,metre,525.55,metre,525.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.47.1,164,metre,175.00,metre,175.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.47.2,164,metre,186.40,metre,186.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.48.1,164,kg,219.10,kg,219.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.48.2,164,kg,238.35,kg,238.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.49,164,sqm,1421.95,sqm,1421.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.50,164,sqm,1641.15,sqm,1641.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.51.1,164,sqm,1308.35,sqm,1308.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.62.2,166,each,193.70,each,193.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.53,164,each,228.85,each,228.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.54.1,164,cum,103140.10,cum,103140.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.54.2,164,cum,69178.05,cum,69178.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.55.1,165,each,53.00,each,53.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.55.2,165,each,45.00,each,45.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.55.3,165,each,39.30,each,39.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.55.4,165,each,18.85,each,18.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.56.1,165,each,71.25,each,71.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.56.2,165,each,62.05,each,62.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.56.3,165,each,48.15,each,48.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.56.4,165,each,27.50,each,27.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.57.1,165,each,55.75,each,55.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.57.2,165,each,48.20,each,48.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.57.3,165,each,40.50,each,40.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.57.4,165,each,20.00,each,20.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.58.1,165,each,91.70,each,91.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.58.2,165,each,86.00,each,86.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.58.3,165,each,75.35,each,75.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.58.4,165,each,66.65,each,66.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.59.1,165,each,291.35,each,291.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.59.2,165,each,262.90,each,262.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.59.3,165,each,232.70,each,232.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.60.1,165,each,326.90,each,326.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.60.2,165,each,291.35,each,291.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.60.3,165,each,261.15,each,261.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.61.1,165,metre,336.45,metre,336.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.61.2,165,metre,337.90,metre,337.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.61.3,165,metre,357.80,metre,357.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.62.1,166,each,216.55,each,216.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.63.1,166,each,83.90,each,83.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.63.2,166,each,69.40,each,69.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.63.3,166,each,59.45,each,59.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.63.4,166,each,44.30,each,44.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.64,166,each,122.15,each,122.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.65.1,166,each,98.35,each,98.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.65.2,166,each,79.85,each,79.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.66.1,166,each,39.95,each,39.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.66.2,166,each,32.55,each,32.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.66.3,166,each,29.70,each,29.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.67.1,166,each,33.10,each,33.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.67.2,166,each,29.70,each,29.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.67.3,166,each,25.30,each,25.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.68.1,166,each,67.40,each,67.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.68.2,166,each,61.05,each,61.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.68.3,166,each,53.95,each,53.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.69,166,each,100.60,each,100.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.70.1,166,each,118.20,each,118.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.70.2,166,each,107.10,each,107.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.70.3,166,each,80.05,each,80.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.70.4,166,each,43.75,each,43.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.71.1,167,each,129.85,each,129.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.71.2,167,each,106.35,each,106.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.71.3,167,each,89.30,each,89.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.72.1,167,each,268.65,each,268.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.72.2,167,each,185.15,each,185.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.72.3,167,each,206.40,each,206.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.72.4,167,each,148.25,each,148.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.72.5,167,each,173.40,each,173.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.72.6,167,each,101.85,each,101.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.72.7,167,each,40.90,each,40.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.74.1,167,each,441.60,each,441.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.74.2,167,each,358.40,each,358.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.74.3,167,each,287.25,each,287.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.74.4,167,each,197.50,each,197.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.75.1,167,each,322.20,each,322.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.75.2,167,each,308.00,each,308.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.76,167,each,854.65,each,854.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.77,167,each,726.60,each,726.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.78,167,each,1183.30,each,1183.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.79.1,167,each,311.20,each,311.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.79.2,167,each,356.75,each,356.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.79.3,167,each,362.40,each,362.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.79.4,167,each,386.60,each,386.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.80,167,each,74.25,each,74.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.81.1,168,each,256.65,each,256.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.81.2,168,each,234.70,each,234.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.81.3,168,each,184.95,each,184.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.82,168,each,121.65,each,121.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.83,168,each,1124.85,each,1124.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.84,168,each,983.15,each,983.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.85,168,each,89.00,each,89.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.86.1,168,each,218.15,each,218.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.86.2,168,each,175.80,each,175.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.86.3,168,each,167.25,each,167.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.87.1,168,each,139.10,each,139.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.87.2,168,each,126.00,each,126.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.87.3,168,each,111.05,each,111.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.88,168,each,998.35,each,998.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.89,168,each,952.80,each,952.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.90.1,168,each,319.75,each,319.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.90.2,168,each,333.95,each,333.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.90.3,168,each,372.40,each,372.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.90.4,168,each,409.35,each,409.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.91,168,each,151.05,each,151.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.92.1,168,each,231.05,each,231.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.92.2,168,each,206.25,each,206.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.92.3,168,each,176.40,each,176.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.93,169,each,155.45,each,155.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.94.1,169,each,215.20,each,215.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.94.2,169,each,191.00,each,191.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.94.3,169,each,166.80,each,166.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.95.1,169,each,150.10,each,150.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.95.2,169,each,126.65,each,126.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.95.3,169,each,115.40,each,115.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.95.4,169,each,104.75,each,104.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.95.5,169,each,96.90,each,96.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.95.6,169,each,87.90,each,87.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.95.7,169,each,81.50,each,81.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.95.8,169,each,76.50,each,76.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.96.1,169,each,303.25,each,303.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.96.2,169,each,260.60,each,260.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.97.1,169,each,130.10,each,130.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.97.2,169,each,115.15,each,115.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.97.3,169,each,99.70,each,99.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.97.4,169,each,82.55,each,82.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.97.5,169,each,64.70,each,64.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.98,169,each,100.80,each,100.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.99,169,each,239.40,each,239.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.100.1,169,each,66.25,each,66.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.100.2,169,each,59.55,each,59.55,match,visual check (last line of p169)
+9.100.3,170,each,51.75,each,51.75,match,visual check (first line of p170)
+9.101.1,170,each,39.60,each,39.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.101.2,170,each,72.35,each,72.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.102,170,each,71.50,each,71.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.103,170,each,868.95,each,868.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.104,170,metre,160.35,metre,160.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.105.1,170,sqm,2131.10,sqm,2131.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.105.2,170,sqm,1818.15,sqm,1818.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.105.3,170,sqm,2225.00,sqm,2225.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.105.4,171,sqm,2062.85,sqm,2062.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.105.5,171,sqm,2034.40,sqm,2034.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.106.1,171,each,42.95,each,42.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.106.2,171,each,41.55,each,41.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.107.1,171,each,75.90,each,75.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.107.2,171,each,89.10,each,89.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.108.1,171,each,69.75,each,69.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.108.2,171,each,106.15,each,106.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.109,171,each,40.05,each,40.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.110,171,sqm,689.40,sqm,689.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.111.1,171,metre,354.35,metre,354.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.112,171,metre,102.15,metre,102.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.113,171,each,850.05,each,850.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.114.1,171,each,52.50,each,52.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.114.2,171,each,39.70,each,39.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.116,171,each,20.40,each,20.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.117.1,172,metre,270.20,metre,270.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.117.2,172,metre,331.35,metre,331.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.118.1,172,sqm,2969.25,sqm,2969.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.118.2,172,sqm,3253.80,sqm,3253.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.118.3,173,sqm,3068.85,sqm,3068.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.119,173,metre,492.70,metre,492.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.120.1,173,sqm,3182.95,sqm,3182.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.120.2,173,sqm,3663.80,sqm,3663.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.121,173,metre,570.95,metre,570.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.122.1,174,sqm,3720.75,,,unresolved,"expected on PDF p174 (9.122 header ends p173, 9.124.1 starts p175); p174 of the downloaded PDF is blank (no image), cannot be read"
+9.122.2,174,sqm,4488.95,,,unresolved,"expected on PDF p174 (9.122 header ends p173, 9.124.1 starts p175); p174 of the downloaded PDF is blank (no image), cannot be read"
+9.123,174,metre,696.00,,,unresolved,"expected on PDF p174 (9.122 header ends p173, 9.124.1 starts p175); p174 of the downloaded PDF is blank (no image), cannot be read"
+9.123A,174,metre,135.80,,,unresolved,"expected on PDF p174 (9.122 header ends p173, 9.124.1 starts p175); p174 of the downloaded PDF is blank (no image), cannot be read"
+9.124.1,175,sqm,3754.20,sqm,3754.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.124.2,175,sqm,4138.35,sqm,4138.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.134.2.1.2,177,sqm,3426.05,sqm,3426.05,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 3426.05"
+9.134.2.2.1,177,sqm,4692.10,sqm,4692.10,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 4692.10"
+9.124.3,175,sqm,4678.95,sqm,4678.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.126.1,175,sqm,2486.25,sqm,2486.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.126.2,175,sqm,2777.70,sqm,2777.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.127.1,175,sqm,1045.95,sqm,1045.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.127.2,175,sqm,897.30,sqm,897.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.128,175,sqm,5207.45,sqm,5207.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.129,175,sqm,2307.35,sqm,2307.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.130.1,176,sqm,1927.50,sqm,1927.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.130.2,176,sqm,1809.40,sqm,1809.40,match,visual check
+9.131.1,176,sqm,1801.60,sqm,1801.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.132,176,kg,596.15,kg,596.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.134.2.1.3,177,sqm,4090.00,sqm,4090.00,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 4090.00"
+9.150,187,each,204.00,each,204.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.133.1.1,176,sqm,1790.95,sqm,1790.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.133.2.1,176,sqm,1443.45,sqm,1443.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.133.2.2,176,sqm,1427.80,sqm,1427.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.133.3.1,176,sqm,1308.85,sqm,1308.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.134.1.1.1,177,sqm,5024.15,sqm,5024.15,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 5024.15"
+9.134.1.1.2,177,sqm,3771.00,sqm,3771.00,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 3771.00"
+9.134.1.1.3,177,sqm,4546.80,sqm,4546.80,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 4546.80"
+9.134.1.2.1,177,sqm,5217.65,sqm,5217.65,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 5217.65"
+9.134.1.2.2,177,sqm,3964.55,sqm,3964.55,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 3964.55"
+9.134.1.2.3,177,sqm,4740.30,sqm,4740.30,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 4740.30"
+9.134.2.1.1,177,sqm,4498.60,sqm,4498.60,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 4498.60"
+9.151,187,each,115.80,each,115.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.134.2.2.2,177,sqm,3619.60,sqm,3619.60,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 3619.60"
+9.134.2.2.3,177,sqm,4283.50,sqm,4283.50,match,"5-level code missed by first-pass regex; 300-dpi re-OCR and visual check confirm code, unit sqm and rate 4283.50"
+9.135.1,177,sqm,1597.15,sqm,1597.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.135.2,177,sqm,1228.00,sqm,1228.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.136,177,metre,1709.25,metre,1709.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.137,178,sqm,7533.20,sqm,7533.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.138,178,sqm,40405.55,sqm,40405.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.139,178,each,8366.15,each,8366.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.140.1,178,sqm,1224.65,sqm,1224.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.141,178,metre,573.45,metre,573.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.142.1,179,sqm,3997.45,sqm,3997.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.148.5,187,each,610.35,each,610.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.149,187,each,231.05,each,231.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.142.2,179,sqm,4713.05,sqm,4713.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.143,179,metre,623.00,metre,623.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.144,179,sqm,4076.05,sqm,4076.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.145,179,metre,763.85,metre,763.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.146,180,sqm,4362.00,,,unresolved,"expected on PDF p180 (9.145 starts at foot of p179, p181 begins with 9.147.A1.2); p180 of the downloaded PDF is blank (no image), cannot be read"
+9.147,180,sqm,8298.85,,,unresolved,"expected on PDF p180 (9.145 starts at foot of p179, p181 begins with 9.147.A1.2); p180 of the downloaded PDF is blank (no image), cannot be read"
+9.148.1,187,each,381.30,each,381.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.148.2,187,each,422.55,each,422.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.148.3,187,each,459.55,each,459.55,match,visual check
+9.148.4,187,each,624.60,each,624.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.153,187,each,198.30,each,198.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.154,187,kg,166.80,kg,166.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.155,187,sqm,1956.90,sqm,1956.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.156.1,188,sqm,1031.50,sqm,1031.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.156.2,188,sqm,1248.00,sqm,1248.00,match,visual check
+9.157.1,188,sqm,1415.70,sqm,1415.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.157.2,188,sqm,1874.70,sqm,1874.70,match,visual check
+9.158.1,188,sqm,1212.75,sqm,1212.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.158.2,188,sqm,1436.55,sqm,1436.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.158.3,188,sqm,1912.25,sqm,1912.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.159,188,sqm,2135.25,sqm,2135.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.160.1,188,sqm,2076.65,sqm,2076.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.160.2,188,sqm,2552.40,sqm,2552.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.162,189,sqm,12017.90,sqm,12017.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.4,194,sqm,6566.20,sqm,6566.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.5.1,194,sqm,5804.35,sqm,5804.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.163,189,metre,2202.90,metre,2202.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.164,189,sqm,43677.65,sqm,43677.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.165.1,189,each,119.20,each,119.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.165.2,189,each,90.45,each,90.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.165.3,189,each,58.75,each,58.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.166.1,190,sqm,1362.30,sqm,1362.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.167,190,sqm,1010.60,sqm,1010.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.168,190,sqm,2829.25,sqm,2829.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.169,190,sqm,2593.15,sqm,2593.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.170.1,190,each,186.65,each,186.65,match,visual check
+9.171,190,each,272.00,each,272.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.173,190,kg,533.25,kg,533.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+9.174,190,metre,43.80,metre,43.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.1,194,kg,117.35,kg,117.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.2,194,kg,133.70,kg,133.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.3,194,sqm,11439.60,sqm,11439.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.5.2,194,sqm,5563.75,sqm,5563.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.6.1,194,sqm,3653.20,sqm,3653.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.6.2,194,sqm,3307.05,sqm,3307.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.6.3,194,sqm,3191.35,sqm,3191.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.7,194,each,492.35,each,492.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.8.1,194,sqm,1281.35,sqm,1281.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.8.2,194,sqm,1181.80,sqm,1181.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.9,194,sqm,768.25,sqm,768.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.10.1,195,kg,82.45,kg,82.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.10.2,195,kg,40.80,kg,40.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.11.1,195,kg,131.05,kg,131.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.11.2,195,kg,128.25,kg,128.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.12,195,metre,49.60,metre,49.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.13.1,195,kg,141.70,kg,141.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.13.2,195,kg,136.00,kg,136.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.19,196,kg,97.20,kg,97.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.20,196,kg,159.35,kg,159.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.14.1.1,195,metre,583.30,metre,583.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.14.1.2,195,metre,570.40,metre,570.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.14.2.1,195,metre,611.75,metre,611.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.14.2.2,196,metre,598.85,metre,598.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.14.3.1,196,metre,640.20,metre,640.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.14.3.2,196,metre,627.30,metre,627.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.15.1,196,kg,195.20,kg,195.20,match,visual check
+10.15.2,196,kg,181.25,kg,181.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.16.1,196,kg,194.40,kg,194.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.16.2,196,kg,206.35,kg,206.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.16.3,196,kg,194.40,kg,194.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.17,196,each,226.00,each,226.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.18,196,each,220.65,each,220.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.25.1,196,kg,123.60,kg,123.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.25.2,196,kg,172.60,kg,172.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.26.1,197,kg,196.80,kg,196.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.26.2,197,kg,205.75,kg,205.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.26.3,197,kg,203.05,kg,203.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.27.1,197,each,131.10,each,131.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.27.2,197,each,137.65,each,137.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.27.3,197,each,170.95,each,170.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.27.4,197,each,182.20,each,182.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.27.5,197,each,224.50,each,224.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.28,197,kg,772.40,kg,772.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.29.1,197,sqm,844.70,sqm,844.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.29.2,197,sqm,1133.55,sqm,1133.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.30.1,197,sqm,1064.65,sqm,1064.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.30.2,197,sqm,1390.15,sqm,1390.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+10.31,197,kg,130.50,kg,130.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.1.1,200,sqm,1006.95,sqm,1006.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.1.2,200,sqm,965.55,sqm,965.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.2,200,sqm,792.05,sqm,792.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.3.1,200,sqm,614.20,sqm,614.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.4,200,sqm,978.45,sqm,978.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.5,200,sqm,1056.15,sqm,1056.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.6.1,200,sqm,662.05,sqm,662.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.7,200,cum,8595.15,cum,8595.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.8,200,sqm,83.85,sqm,83.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.9.1,200,sqm,1065.75,sqm,1065.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.9.2,200,sqm,1092.50,sqm,1092.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.9.3,200,sqm,1075.10,sqm,1075.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.9.4,201,sqm,1067.50,sqm,1067.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.9.5,201,sqm,1061.70,sqm,1061.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.9.6,201,sqm,1034.25,sqm,1034.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.10.1,201,sqm,1072.10,sqm,1072.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.10.2,201,sqm,1110.30,sqm,1110.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.10.3,201,sqm,1085.45,sqm,1085.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.10.4,201,sqm,1071.05,sqm,1071.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.10.5,201,sqm,1066.35,sqm,1066.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.10.6,201,sqm,1027.10,sqm,1027.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.11.1,201,sqm,1110.75,sqm,1110.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.11.2,201,sqm,1164.25,sqm,1164.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.11.3,201,sqm,1129.45,sqm,1129.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.11.4,201,sqm,1109.85,sqm,1109.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.11.5,201,sqm,1102.70,sqm,1102.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.11.6,201,sqm,1048.25,sqm,1048.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.12.1.1,201,sqm,1864.30,sqm,1864.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.12.1.2,201,sqm,1891.05,sqm,1891.05,match,"OCR garbled code (""WAZA.""); visual check"
+11.12.1.3,201,sqm,1873.65,sqm,1873.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.12.1.4,201,sqm,1863.60,sqm,1863.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.12.1.5,201,sqm,1860.25,sqm,1860.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.12.1.6,201,sqm,1832.80,sqm,1832.80,match,"OCR read code as ""11.12.16""; visual check"
+11.13.1,201,metre,91.75,metre,91.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.14,202,sqm,97.65,sqm,97.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.15.1,202,sqm,1714.80,sqm,1714.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.16.1,202,sqm,1549.45,sqm,1549.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.16.2,202,sqm,1507.10,sqm,1507.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.16.3,202,sqm,1450.00,sqm,1450.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.16.4,202,sqm,1386.80,sqm,1386.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.17,202,sqm,124.05,sqm,124.05,match,"OCR read code as ""14.47""; visual check"
+11.18.1,202,sqm,2422.80,sqm,2422.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.18.2,202,sqm,2370.95,sqm,2370.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.18.3,202,sqm,2308.75,sqm,2308.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.18.4,202,sqm,2229.15,sqm,2229.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.19.1,202,sqm,1533.80,sqm,1533.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.19.2,202,sqm,1483.60,sqm,1483.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.19.3,202,sqm,1442.15,sqm,1442.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.19.4,202,sqm,1379.00,sqm,1379.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.20.1,202,sqm,1402.00,sqm,1402.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.20.2,202,sqm,1328.35,sqm,1328.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.20.3,203,sqm,1119.50,sqm,1119.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.20.4,203,sqm,1056.35,sqm,1056.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.21.1.1,203,sqm,1738.15,sqm,1738.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.21.2.1,203,sqm,1884.90,sqm,1884.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.22.1.1,203,sqm,1475.35,sqm,1475.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.23.1,203,sqm,3737.45,sqm,3737.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.23.2,203,sqm,2346.80,sqm,2346.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.23.3,203,sqm,3164.80,sqm,3164.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.23.4,203,sqm,3001.20,sqm,3001.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.23.5,203,sqm,2428.60,sqm,2428.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.23.6,203,sqm,2510.40,sqm,2510.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.24,203,metre,719.90,metre,719.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.25,203,sqm,851.80,sqm,851.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.26.1,203,sqm,1948.25,sqm,1948.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.27,203,sqm,2354.70,sqm,2354.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.28.1,203,sqm,1280.10,sqm,1280.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.28.2,204,sqm,1342.65,sqm,1342.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.29.1,204,sqm,1526.05,sqm,1526.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.29.2,204,sqm,1588.65,sqm,1588.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.30.1,204,sqm,1647.00,sqm,1647.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.30.2,204,sqm,1709.60,sqm,1709.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.31,204,metre,191.40,metre,191.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.32,204,sqm,44.15,sqm,44.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.33.1,204,sqm,4508.95,sqm,4508.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.33.2,204,sqm,3029.75,sqm,3029.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.34,204,sqm,12020.45,sqm,12020.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page; first-pass PDF-only candidate '2.45' on p204 was the text '@ 2.45 kg per sqm' inside this item; not a code
+11.35,204,kg,177.80,kg,177.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.37,204,sqm,1096.55,sqm,1096.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.37A,204,sqm,1112.70,sqm,1112.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.38,205,sqm,1315.30,sqm,1315.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.39,205,sqm,1330.00,sqm,1330.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.40,205,sqm,1439.40,sqm,1439.40,match,visual check (rate on line after description; OCR rate line not attached)
+11.41.1,205,sqm,1524.30,sqm,1524.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.41.2,205,sqm,1553.45,sqm,1553.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.13.3,213,metre,567.20,metre,567.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.41.3,205,sqm,1885.50,sqm,1885.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.41.4,205,sqm,2089.65,sqm,2089.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.41A,205,sqm,1453.65,sqm,1453.65,match,"DB row 11.41A carries the rate of sub-item 11.41A.1.1 (600x600 double charge polished) = 1453.65; PDF has 15 priced sub-items 11.41A.1.1-11.41A.3.5, the other 14 are missing from DB (see missing_from_db rows); visual check"
+11.42,206,sqm,850.10,sqm,850.10,match,visual check
+11.43,206,sqm,753.25,sqm,753.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.44,206,sqm,954.15,sqm,954.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.45,206,sqm,1708.10,sqm,1708.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.46.1,206,sqm,1593.90,sqm,1593.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.46.2,206,sqm,1623.05,sqm,1623.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.46.3,206,sqm,1958.45,sqm,1958.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.46.4,206,sqm,2162.60,sqm,2162.60,match,"OCR read code as ""11,.46.4""; visual check"
+11.46A,206,metre,216.20,metre,216.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.47.1,207,sqm,1864.75,sqm,1864.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.47.2,207,sqm,1893.90,sqm,1893.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.47.3,207,sqm,2229.25,sqm,2229.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.47.4,207,sqm,2433.40,sqm,2433.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.48.1,207,sqm,373.35,sqm,373.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.48.2,207,sqm,309.05,sqm,309.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.48.3,207,sqm,244.75,sqm,244.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.48.4,207,sqm,174.50,sqm,174.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.49.1,207,sqm,1696.20,sqm,1696.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.49.2,207,sqm,1725.35,sqm,1725.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.49.3,207,sqm,2060.75,sqm,2060.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.49.4,207,sqm,2264.90,sqm,2264.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.49A,207,sqm,3623.95,sqm,3623.95,match,"OCR read code as ""11.494""; visual check"
+11.50,207,sqm,13.30,sqm,13.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.51.1,207,sqm,6603.35,sqm,6603.35,match,"OCR read code as ""11.561.1""; visual check"
+11.52.1,208,sqm,6927.35,sqm,6927.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.53,208,sqm,3891.15,sqm,3891.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.54.1,209,sqm,5623.95,sqm,5623.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.54.2,209,sqm,5977.35,sqm,5977.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.55.1,209,sqm,3186.70,sqm,3186.70,match,"OCR read code as ""11,55.1""; visual check"
+11.56.1,209,sqm,4481.30,sqm,4481.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+11.56.2,209,sqm,3071.05,sqm,3071.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.1.1,212,sqm,1457.15,sqm,1457.15,match,"OCR read code as ""124.1""; visual check"
+12.1.2,212,sqm,1257.55,sqm,1257.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.1.3,212,sqm,1087.65,sqm,1087.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.2.1,212,metre,116.15,metre,116.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.2.2,212,metre,92.95,metre,92.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.2.3,212,metre,92.95,metre,92.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.3.1,212,metre,671.45,metre,671.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.3.2,212,metre,536.30,metre,536.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.3.3,212,metre,536.30,metre,536.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.4.1,212,metre,1083.30,metre,1083.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.4.2,212,metre,980.50,metre,980.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.5.1,212,metre,1863.90,metre,1863.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.6.1,212,metre,857.55,metre,857.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.7.1,212,metre,1029.65,metre,1029.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.7.2,212,metre,944.05,metre,944.05,match,"OCR read code as ""Tata""; visual check"
+12.8,212,sqm,536.40,sqm,536.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.9,213,metre,92.95,metre,92.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.10,213,metre,256.70,metre,256.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.11,213,metre,195.60,metre,195.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.12.1,213,metre,522.95,metre,522.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.12.2,213,metre,522.95,metre,522.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.12.3,213,metre,585.70,metre,585.70,match,"OCR read code as ""124123""; visual check"
+12.12.4,213,metre,521.85,metre,521.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.13.1,213,metre,428.50,metre,428.50,match,"OCR read code as ""12131""; visual check"
+12.13.2,213,metre,345.05,metre,345.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.13.4,213,metre,627.30,metre,627.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.13.5,213,metre,724.65,metre,724.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.13.6,213,pair,303.70,pair,303.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.13.7,213,each,1013.85,each,1013.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.13.8,213,metre,560.05,metre,560.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.14,213,metre,92.40,metre,92.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.15.1,213,sqm,166.20,sqm,166.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.16.1,213,sqm,1050.20,sqm,1050.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.17.1,214,sqm,1074.50,sqm,1074.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.18,214,sqm,24.20,sqm,24.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.19.1,214,sqm,607.40,sqm,607.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.20,214,sqm,709.75,sqm,709.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.21.1,214,metre,305.15,metre,305.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.22,214,each,298.25,each,298.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.23.1.1,214,sqm,1138.20,sqm,1138.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.23.2.1,214,sqm,1106.90,sqm,1106.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.24.1.1,214,sqm,924.35,sqm,924.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.24.2.1,214,sqm,966.60,sqm,966.60,match,"OCR read code as ""12.24 2.1""; visual check"
+12.24.3.1,214,sqm,1121.55,sqm,1121.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.25.1,214,sqm,1070.60,sqm,1070.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.26.1,215,sqm,921.95,sqm,921.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.26.2,215,sqm,890.65,sqm,890.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.27.1,215,metre,726.30,metre,726.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.27.2.1,215,metre,487.00,metre,487.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.27.3.1,215,metre,492.25,metre,492.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.27.4.1,215,metre,511.50,metre,511.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.27.5.1,215,metre,470.10,metre,470.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.27.5.2,215,metre,485.70,metre,485.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.28,215,sqm,453.10,sqm,453.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.31.1,215,sqm,1718.95,sqm,1718.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.31.2,215,sqm,2067.45,sqm,2067.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.32,215,sqm,607.45,sqm,607.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.33,215,metre,265.70,sqm per metre height,265.70,match,"first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page; unit differs in wording: PDF 'sqm per metre height', DB 'metre'"
+12.34,215,sqm,703.05,sqm,703.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.35,215,sqm,297.25,sqm,297.25,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.36.1,215,sqm,321.75,sqm,321.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.36.2,215,sqm,353.05,sqm,353.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.37.1,215,each,164.20,each,164.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.38.1,216,each,362.85,each,362.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.38.2,216,each,395.60,each,395.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.39.1,216,each,580.50,each,580.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.39.2,216,each,798.00,each,798.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.40.1.1,216,each,511.90,each,511.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.41.1,216,metre,248.80,metre,248.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.41.2,216,metre,377.40,metre,377.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.42.1.1,216,each,91.70,each,91.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.42.1.2,216,each,136.15,each,136.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.42.2.1,216,each,93.10,each,93.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.42.2.2,216,each,127.60,each,127.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.42.3.1,216,each,164.20,each,164.20,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.42.3.2,216,each,234.15,each,234.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.42.4.1,216,each,144.30,each,144.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.42.4.2,216,each,221.35,each,221.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.42.5.1,216,each,105.90,each,105.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.42.5.2,216,each,150.35,each,150.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.42.6.1,216,each,93.10,each,93.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.42.6.2,216,each,131.85,each,131.85,match,"OCR read rate as ""131,85""; visual check"
+12.43.1,217,each,369.85,each,369.85,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.43.2,217,each,371.30,each,371.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.44,217,each,54.70,each,54.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.45.1,217,sqm,1355.80,sqm,1355.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.51.1,218,metre,532.35,metre,532.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.45.2,217,sqm,1520.10,sqm,1520.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.45.3,217,sqm,1529.10,sqm,1529.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.45.4,217,sqm,1744.15,sqm,1744.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.46,218,each,84.55,each,84.55,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.47.1,218,sqm,1401.35,sqm,1401.35,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.47.2,218,sqm,1245.65,sqm,1245.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.48,218,sqm,433.45,sqm,433.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.49,218,metre,96.90,metre,96.90,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.50,218,sqm,738.65,sqm,738.65,match,"first pass matched a false hit on p39 (basic-rates table); real location p218, visual check"
+12.51.2,218,metre,485.60,metre,485.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.51.3,218,metre,546.10,metre,546.10,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.51.4,218,metre,451.50,metre,451.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.51.5,218,sqm,496.75,sqm,496.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.51.6,218,metre,1313.70,metre,1313.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.52.1,219,sqm,1902.95,sqm,1902.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.52.2,219,sqm,2068.75,sqm,2068.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.52.3,219,sqm,2215.15,sqm,2215.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.57,221,sqm,358.50,sqm,358.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.52.4,219,sqm,1528.00,sqm,1528.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.53,220,sqm,2158.15,sqm,2158.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.54.1,220,sqm,2221.70,sqm,2221.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.54.2,221,sqm,2354.65,sqm,2354.65,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.55,221,sqm,1703.95,sqm,1703.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.56,221,sqm,1570.00,sqm,1570.00,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.58.1,222,sqm,1789.45,sqm,1789.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.59.1,222,sqm,1572.30,sqm,1572.30,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.60,222,sqm,667.05,sqm,667.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.61,222,sqm,316.05,sqm,316.05,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.62,222,sqm,322.50,sqm,322.50,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.63,223,sqm,357.60,sqm,357.60,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.64.1,223,sqm,1034.10,sqm,1034.10,match,visual check (rate on 3rd description line)
+12.64.2,223,sqm,1252.75,sqm,1252.75,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.64.3,223,sqm,1572.80,sqm,1572.80,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.66.5,224,metre,914.70,,,unresolved,"expected on PDF p224 (p223 ends with 12.64.9; p225 is the back cover); p224 of the downloaded PDF is blank (no image), cannot be read"
+12.64.4,223,sqm,1313.70,sqm,1313.70,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.64.5,223,sqm,1616.45,sqm,1616.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.64.6,223,sqm,2026.40,sqm,2026.40,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.64.7,223,sqm,1012.15,sqm,1012.15,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.64.8,223,sqm,1256.95,sqm,1256.95,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.64.9,223,sqm,1596.45,sqm,1596.45,match,first pass: rate matched in OCR text; corroborated by independent 300-dpi OCR rate on same/adjacent page
+12.65.1,224,sqm,1176.70,,,unresolved,"expected on PDF p224 (p223 ends with 12.64.9; p225 is the back cover); p224 of the downloaded PDF is blank (no image), cannot be read"
+12.65.2,224,sqm,1430.20,,,unresolved,"expected on PDF p224 (p223 ends with 12.64.9; p225 is the back cover); p224 of the downloaded PDF is blank (no image), cannot be read"
+12.66.6,224,metre,1808.65,,,unresolved,"expected on PDF p224 (p223 ends with 12.64.9; p225 is the back cover); p224 of the downloaded PDF is blank (no image), cannot be read"
+12.65.3,224,sqm,1797.75,,,unresolved,"expected on PDF p224 (p223 ends with 12.64.9; p225 is the back cover); p224 of the downloaded PDF is blank (no image), cannot be read"
+12.65.4,224,sqm,1484.00,,,unresolved,"expected on PDF p224 (p223 ends with 12.64.9; p225 is the back cover); p224 of the downloaded PDF is blank (no image), cannot be read"
+12.65.5,224,sqm,1865.60,,,unresolved,"expected on PDF p224 (p223 ends with 12.64.9; p225 is the back cover); p224 of the downloaded PDF is blank (no image), cannot be read"
+12.65.6,224,sqm,2335.45,,,unresolved,"expected on PDF p224 (p223 ends with 12.64.9; p225 is the back cover); p224 of the downloaded PDF is blank (no image), cannot be read"
+12.65.7,224,sqm,1221.15,,,unresolved,"expected on PDF p224 (p223 ends with 12.64.9; p225 is the back cover); p224 of the downloaded PDF is blank (no image), cannot be read"
+12.65.8,224,sqm,1533.00,,,unresolved,"expected on PDF p224 (p223 ends with 12.64.9; p225 is the back cover); p224 of the downloaded PDF is blank (no image), cannot be read"
+12.66.1,224,metre,1066.20,,,unresolved,"expected on PDF p224 (p223 ends with 12.64.9; p225 is the back cover); p224 of the downloaded PDF is blank (no image), cannot be read"
+12.66.2,224,metre,977.15,,,unresolved,"expected on PDF p224 (p223 ends with 12.64.9; p225 is the back cover); p224 of the downloaded PDF is blank (no image), cannot be read"
+12.66.3,224,metre,1055.90,,,unresolved,"expected on PDF p224 (p223 ends with 12.64.9; p225 is the back cover); p224 of the downloaded PDF is blank (no image), cannot be read"
+12.66.4,224,metre,813.25,,,unresolved,"expected on PDF p224 (p223 ends with 12.64.9; p225 is the back cover); p224 of the downloaded PDF is blank (no image), cannot be read"
+2.24.1,105,,,metre depth,20%,missing_from_db,"percentage extra on the rate of the relevant item, not a money rate"
+2.24.2,105,,,metre depth,25%,missing_from_db,"percentage extra on the rate of the relevant item, not a money rate"
+2.25(a),105,,,cum,700.50,missing_from_db,
+3.18,110,,,cum,940.55,missing_from_db,
+4.9A,117,,,each,900.15,missing_from_db,printed as '4.9 A'
+4.9B,118,,,each,878.90,missing_from_db,printed as '4.9 B'
+4.12,118,,,per bag of 50kg cement used,18.15,missing_from_db,
+4.15,118,,,cum per metre depth,1098.80,missing_from_db,
+4.18,119,,,per bag of 50 kg of cement,70.35,missing_from_db,
+4.20A.1.2,120,,,cum,8779.40,missing_from_db,DB row 4.20A carries only sub-item 4.20A.1.1 (7936.10)
+4.20A.1.3,120,,,cum,9005.85,missing_from_db,DB row 4.20A carries only sub-item 4.20A.1.1 (7936.10)
+4.20A.1.4,120,,,cum,9232.30,missing_from_db,DB row 4.20A carries only sub-item 4.20A.1.1 (7936.10)
+4.20A.2.1,120,,,cum,8291.75,missing_from_db,DB row 4.20A carries only sub-item 4.20A.1.1 (7936.10)
+4.20A.2.2,120,,,cum,9135.05,missing_from_db,DB row 4.20A carries only sub-item 4.20A.1.1 (7936.10)
+4.20A.2.3,121,,,cum,9361.50,missing_from_db,DB row 4.20A carries only sub-item 4.20A.1.1 (7936.10)
+4.20A.2.4,121,,,cum,9587.95,missing_from_db,DB row 4.20A carries only sub-item 4.20A.1.1 (7936.10)
+5.9.14,126,,,sqm,20%,missing_from_db,"percentage extra on the respective centering and shuttering item, not a money rate"
+5.10.1,126,,,each set,156.05,missing_from_db,
+5.10.2,126,,,each set,170.25,missing_from_db,
+5.10.3,126,,,each set,184.50,missing_from_db,
+5.10.4,126,,,each set,201.55,missing_from_db,
+5.22A.2,129,,,kg,95.80,missing_from_db,DB row 5.22A carries only sub-item 5.22A.1 (107.10)
+5.22A.3,129,,,kg,107.85,missing_from_db,DB row 5.22A carries only sub-item 5.22A.1 (107.10)
+5.22A.4,129,,,kg,107.85,missing_from_db,DB row 5.22A carries only sub-item 5.22A.1 (107.10)
+5.22A.5,129,,,kg,102.20,missing_from_db,DB row 5.22A carries only sub-item 5.22A.1 (107.10)
+5.22A.6,129,,,kg,107.85,missing_from_db,DB row 5.22A carries only sub-item 5.22A.1 (107.10)
+5.28,130,,,per cm depth per 100m,655.75,missing_from_db,
+5.33A.1.1,132,,,cum,9333.95,missing_from_db,
+5.33A.2.1,132,,,cum,9689.60,missing_from_db,
+5.49,134,,,cum,20460.45,missing_from_db,description runs p134-p135; rate printed on p135
+7.22,146,,,per metre per cm girth (60cm deep),303.50,missing_from_db,
+8.32,154,,,sqm,5015.05,missing_from_db,description runs p154-p155; rate printed on p155
+9.115,171,,,one set,414.20,missing_from_db,
+9.147.A1.2,181,,,sqm,8799.25,missing_from_db,top-level 9.147 text and 9.147.A1 sub-header not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.A1.3,181,,,sqm,9628.60,missing_from_db,top-level 9.147 text and 9.147.A1 sub-header not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.A2.1,181,,,sqm,7860.35,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.A2.2,181,,,sqm,8579.55,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.A3.1,181,,,sqm,9873.05,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.A3.2,181,,,sqm,9968.70,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.A4.1,181,,,sqm,10993.55,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.A4.2,181,,,sqm,10874.20,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.A4.3,182,,,sqm,12372.25,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.A5.1,182,,,sqm,8748.35,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.A5.2,182,,,sqm,8543.60,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.A5.3,182,,,sqm,9888.35,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.B1.1,182,,,sqm,8106.30,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.B1.2,182,,,sqm,7732.85,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.B2.1,182,,,sqm,7345.35,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.B2.2,182,,,sqm,7196.70,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.B3.1,183,,,sqm,10078.95,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.B3.2,183,,,sqm,9894.80,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.B4.1,183,,,sqm,8287.05,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.B4.2,183,,,sqm,7943.95,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.C1.1,183,,,sqm,8247.25,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.C1.2,183,,,sqm,8054.75,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.C1.3,183,,,sqm,7080.05,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.C1.4,183,,,sqm,6032.85,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.C2.1,183,,,sqm,9155.20,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.C2.2,183,,,sqm,8765.40,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.C2.3,183,,,sqm,7827.75,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.C2.4,183,,,sqm,6528.80,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.D1.1,183,,,sqm,13201.20,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.D1.2,184,,,sqm,12254.90,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.D1.3,184,,,sqm,11919.85,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.E1.1,184,,,sqm,14449.25,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.E1.2,184,,,sqm,13387.15,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.E1.3,184,,,sqm,14587.05,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.E2.1,184,,,sqm,13078.70,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.E2.2,184,,,sqm,12472.95,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.E2.3,184,,,sqm,13477.10,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.E3.1,184,,,sqm,11715.95,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.E3.2,184,,,sqm,11466.80,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.E3.3,185,,,sqm,12496.30,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.E4.1,185,,,sqm,9870.15,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.E4.2,185,,,sqm,9308.00,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.E4.3,185,,,sqm,10212.60,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.E5.1,185,,,sqm,10474.05,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.E5.2,185,,,sqm,10051.20,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.E5.3,185,,,sqm,10200.75,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.E6.1,186,,,sqm,22785.35,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.E7.1,186,,,sqm,20576.30,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.E8.1,186,,,sqm,19047.60,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.F1.1,186,,,sqm,12496.05,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.F1.2,186,,,sqm,12454.40,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.F2.1,186,,,sqm,11903.75,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.F2.2,187,,,sqm,11818.95,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.147.F3.1,187,,,sqm,19994.40,missing_from_db,top-level 9.147 text not readable: PDF p180 is blank in the downloaded file; parent text taken from DB row 9.147 (marked [from DB 9.147])
+9.161,188,,,metre,2202.90,missing_from_db,description runs p188-p189; rate printed on p189; same rate as DB 9.163 (a different item: fixed frame for glazed partition)
+9.172,190,,,one set,885.10,missing_from_db,
+10.22,196,,,cm,3.70,missing_from_db,
+11.41A.1.2,205,,,sqm,1534.85,missing_from_db,DB row 11.41A carries only sub-item 11.41A.1.1 (1453.65)
+11.41A.1.3,205,,,sqm,1577.15,missing_from_db,DB row 11.41A carries only sub-item 11.41A.1.1 (1453.65)
+11.41A.1.4,205,,,sqm,1870.25,missing_from_db,DB row 11.41A carries only sub-item 11.41A.1.1 (1453.65)
+11.41A.1.5,205,,,sqm,1801.70,missing_from_db,DB row 11.41A carries only sub-item 11.41A.1.1 (1453.65)
+11.41A.2.1,205,,,sqm,1502.75,missing_from_db,DB row 11.41A carries only sub-item 11.41A.1.1 (1453.65)
+11.41A.2.2,205,,,sqm,1798.80,missing_from_db,DB row 11.41A carries only sub-item 11.41A.1.1 (1453.65)
+11.41A.2.3,205,,,sqm,1728.80,missing_from_db,DB row 11.41A carries only sub-item 11.41A.1.1 (1453.65)
+11.41A.2.4,206,,,sqm,2056.90,missing_from_db,DB row 11.41A carries only sub-item 11.41A.1.1 (1453.65)
+11.41A.2.5,206,,,sqm,2541.00,missing_from_db,DB row 11.41A carries only sub-item 11.41A.1.1 (1453.65)
+11.41A.3.1,206,,,sqm,1464.85,missing_from_db,DB row 11.41A carries only sub-item 11.41A.1.1 (1453.65)
+11.41A.3.2,206,,,sqm,1797.30,missing_from_db,DB row 11.41A carries only sub-item 11.41A.1.1 (1453.65)
+11.41A.3.3,206,,,sqm,1724.40,missing_from_db,DB row 11.41A carries only sub-item 11.41A.1.1 (1453.65)
+11.41A.3.4,206,,,sqm,2056.90,missing_from_db,DB row 11.41A carries only sub-item 11.41A.1.1 (1453.65)
+11.41A.3.5,206,,,sqm,2838.50,missing_from_db,DB row 11.41A carries only sub-item 11.41A.1.1 (1453.65)
