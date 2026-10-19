@@ -18,7 +18,7 @@ import { addLineRecorded, addLinesRecorded, editTookEffect, lineAddMessage, line
 import { PDF_REREAD_FAILED_MESSAGE, linesChanged } from "@/lib/exportFreshness";
 import { LineRemovalError, removeLineWithSnapshot, restoreRemovedLine, type RemovedLine } from "@/lib/lineRemoval";
 import { saveErrorMessage } from "@/lib/saveError";
-import { commercialsFor, effRate, groupSubheads as groupSubheadsOf, includedTotal, lineAmount, liveCsv, liveFileStem, liveQuotePayload, quoteContextFor, workingSubheadsFrom } from "@/lib/boqLiveExport";
+import { commercialsFor, effRate, groupSubheads as groupSubheadsOf, includedDsrTotal, includedTotal, lineAmount, liveCsv, liveFileStem, liveQuotePayload, quoteContextFor, workingSubheadsFrom } from "@/lib/boqLiveExport";
 import { loadProjectDrawings, resolveDrawingSource } from "@/lib/review/drawingStorage";
 import { latestRunForBoq, loadReviewItems } from "@/lib/review/reviewStore";
 import BoqDocumentsPanel from "@/components/ops/BoqDocumentsPanel";
@@ -254,7 +254,7 @@ export default function OpsBoqBuilder() {
     if (error) throw new Error(error.message);
     return ((data as unknown as { spec: Spec | null } | null)?.spec ?? {}) as Spec;
   };
-  const commercialsOf = (ls: BoqLine[], sp: Spec) => commercialsFor(includedTotal(ls), sp);
+  const commercialsOf = (ls: BoqLine[], sp: Spec) => commercialsFor(includedTotal(ls), sp, includedDsrTotal(ls));
   const grandOf = (ls: BoqLine[], sp: Spec) => commercialsOf(ls, sp).grandTotal;
   // boq.spec is shared with other writers (the DSR check's decisions): change
   // only these keys, guarded on boq.updated_at and moving it forward
@@ -721,7 +721,8 @@ export default function OpsBoqBuilder() {
   // Commercials (cost index, contingency, overhead, cess, GST) live in boq.spec so
   // no migration is needed. Defaults follow common CPWD practice.
   const spec = useMemo(() => (boq?.spec ?? {}) as Spec, [boq?.spec]);
-  const commercials = useMemo(() => commercialsFor(total, spec), [total, spec]);
+  const dsrTotal = useMemo(() => includedDsrTotal(lines), [lines]);
+  const commercials = useMemo(() => commercialsFor(total, spec, dsrTotal), [total, spec, dsrTotal]);
   const displayGrand = useCountUp(commercials.grandTotal);
   const netDelta = firstTotal != null ? commercials.grandTotal - firstTotal : 0;
 

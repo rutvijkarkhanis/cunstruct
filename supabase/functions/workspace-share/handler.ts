@@ -28,7 +28,7 @@
 // guessed id from a DIFFERENT project ever being served through a link
 // scoped to this one.
 
-import { pricedAmount, quantityProvenance, quantityState, worksTotal, type QuantityState } from "../../../src/lib/quantity.ts";
+import { dsrWorksTotal, pricedAmount, quantityProvenance, quantityState, worksTotal, type QuantityState } from "../../../src/lib/quantity.ts";
 
 export interface ShareSourceDoc {
   id: string;
@@ -131,8 +131,10 @@ export async function handleDrawingUrl(input: { projectId: string; documentId?: 
  *  file isn't a plain cross-environment module (it pulls in other browser
  *  code); both sides share the same CommercialInputs shape and defaults as
  *  WorkspaceBoqPanel.tsx's ActiveBoqCard. Keep this in lockstep with that
- *  file if its waterfall ever changes. */
-function computeCommercialsLocal(works: number, spec: CommercialSpec) {
+ *  file if its waterfall ever changes. `dsrWorks` is the part of works at DSR
+ *  rates: DSR 2023 rates already include GST @18% (DSR 2023 Vol. 1, Preface
+ *  §6.2), so GST is charged on the non-DSR share of the taxable value only. */
+function computeCommercialsLocal(works: number, spec: CommercialSpec, dsrWorks = 0) {
   const pct = (v: number | undefined, d: number) => v ?? d;
   const round = (n: number) => Math.round(n);
   const w = round(works);
@@ -143,7 +145,9 @@ function computeCommercialsLocal(works: number, spec: CommercialSpec) {
   const subTotal = worksAdjusted + contingencyAmt + overheadAmt;
   const cessAmt = round(subTotal * (pct(spec.cessPct, 1) / 100));
   const taxable = subTotal + cessAmt;
-  const gstAmt = round(taxable * (pct(spec.gstPct, 18) / 100));
+  const dsr = Math.min(Math.max(round(dsrWorks), 0), Math.max(w, 0));
+  const gstBase = dsr === 0 ? taxable : w > 0 ? round(taxable * ((w - dsr) / w)) : 0;
+  const gstAmt = round(gstBase * (pct(spec.gstPct, 18) / 100));
   const grandTotal = taxable + gstAmt;
   return { works: w, subTotal, grandTotal };
 }
@@ -186,8 +190,9 @@ export async function handleBoqLines(
     return { status: 200, body: { ok: true, boq: { id: boq.id, name: boq.name }, lines } };
   }
 
-  const works = worksTotal(rows.map((r) => ({ ...asQty(r), dsr_rate: r.dsrRate, custom_rate: r.customRate, included: r.included })));
-  const commercials = computeCommercialsLocal(works, boq.spec ?? {});
+  const rated = rows.map((r) => ({ ...asQty(r), dsr_rate: r.dsrRate, custom_rate: r.customRate, included: r.included }));
+  const works = worksTotal(rated);
+  const commercials = computeCommercialsLocal(works, boq.spec ?? {}, dsrWorksTotal(rated));
 
   return { status: 200, body: { ok: true, boq: { id: boq.id, name: boq.name }, lines, commercials } };
 }

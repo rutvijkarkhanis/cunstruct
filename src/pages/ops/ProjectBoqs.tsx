@@ -237,10 +237,11 @@ export default function ProjectBoqs() {
         let item = 0;
         const lines = g.map((l) => {
           const rate = l.custom_rate ?? l.dsr_rate;
+          const rateBasis = l.custom_rate != null ? "custom" as const : l.dsr_rate != null ? "dsr" as const : "none" as const;
           const { sourceDocument, sourcePage } = resolveDrawingSource(l.source_document_id, l.source_page, drawingsById, drawingsLoading);
           return {
             no: `${no}.${String(++item).padStart(2, "0")}`, code: l.dsr_code, spec: l.description ?? "", qty: l.qty, unit: l.unit ?? "",
-            rate, amount: rate != null ? roundRupee(l.qty * rate) : null, sourceDocument, sourcePage, basis: quantityProvenance(l).label,
+            rate, rateBasis, amount: rate != null ? roundRupee(l.qty * rate) : null, sourceDocument, sourcePage, basis: quantityProvenance(l).label,
           };
         });
         const subtotal = lines.reduce((s, l) => s + (l.amount ?? 0), 0);
@@ -287,10 +288,12 @@ export default function ProjectBoqs() {
         const spec = specById.get(b.id) ?? {};
         const pct = (k: string, d: number) => Number(spec[k] ?? d);
         const works = subheads.reduce((s, sh) => s + sh.subtotal, 0);
+        // DSR 2023 rates already include GST @18%: GST is added on the rest only.
+        const dsrWorks = subheads.reduce((s, sh) => s + sh.lines.reduce((t, l) => t + (l.rateBasis === "dsr" ? l.amount ?? 0 : 0), 0), 0);
         const commercials = computeCommercials(works, {
           costIndexPct: pct("_cost_index_pct", 0), contingencyPct: pct("_contingency_pct", 3),
           overheadPct: pct("_overhead_pct", 15), cessPct: pct("_cess_pct", 1), gstPct: pct("_gst_pct", 18),
-        });
+        }, dsrWorks);
         quoteBoqs.push({ name: b.name, scope: scopeName(b.scope_id), subheads, commercials, pendingItems });
       }
       if (!quoteBoqs.length) return toast.error("No priced BOQ lines to share yet — add rates first");

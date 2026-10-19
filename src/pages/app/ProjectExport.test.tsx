@@ -107,7 +107,7 @@ describe("ProjectExport — current BOQ", () => {
     const [payload, opts] = openDsrQuote.mock.calls[0] as unknown as [Record<string, unknown> & { subheads: { items: Record<string, unknown>[] }[] }, unknown];
     expect(opts).toEqual({ autoPrint: true });
     expect(payload).toMatchObject({ boqName: "Civil BOQ", projectName: "Sample Apartment", blankRates: false, unresolvedReviewCount: 1 });
-    expect(payload.commercials).toEqual(commercialsFor(1000, { _gst_pct: 12 }));
+    expect(payload.commercials).toEqual(commercialsFor(1000, { _gst_pct: 12 }, 1000)); // every priced line is at its DSR rate (GST included)
     expect(JSON.stringify(payload.subheads)).toContain("GF Plan");
     expect(payload.pendingItems).toHaveLength(1);
     expect(JSON.stringify(payload)).not.toContain("Old item"); // excluded line absent
@@ -225,7 +225,7 @@ describe("ProjectExport — exports never silently miss a change saved elsewhere
     await waitFor(() => expect(openDsrQuote).toHaveBeenCalledTimes(1));
     const [payload] = openDsrQuote.mock.calls[0] as unknown as [{ subheads: { lines: { qty: number; spec: string }[] }[]; commercials: unknown }];
     expect(payload.subheads.flatMap((sh) => sh.lines).find((l) => l.spec === "Brick wall")!.qty).toBe(99);
-    expect(payload.commercials).toEqual(commercialsFor(9900, { _gst_pct: 12 })); // totals from the same fresh lines
+    expect(payload.commercials).toEqual(commercialsFor(9900, { _gst_pct: 12 }, 9900)); // totals from the same fresh lines (all at DSR rates)
     expect(quoteFailed).not.toHaveBeenCalled();
   });
 

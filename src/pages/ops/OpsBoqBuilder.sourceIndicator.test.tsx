@@ -256,10 +256,13 @@ describe("OpsBoqBuilder — export wiring (Scope H)", () => {
     expect(item).toMatchObject({ qty: 10, unit: "cum", rate: 100, amount: 1000 });
 
     // All three fixture lines are included with qty > 0: 10, 5, 8 × rate 100.
+    // All are priced at their DSR rate (GST @18% already included — DSR 2023
+    // preface §6.2), so the whole works is the DSR portion and no GST is added.
     const works = 1000 + 500 + 800;
     const expected = computeCommercials(works, {
       costIndexPct: 0, contingencyPct: 3, overheadPct: 15, cessPct: 1, gstPct: 18,
-    });
+    }, works);
+    expect(expected.gstAmt).toBe(0);
     expect(payload.commercials.works).toBe(expected.works);
     expect(payload.commercials.grandTotal).toBe(expected.grandTotal);
   });

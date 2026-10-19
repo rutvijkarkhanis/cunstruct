@@ -31,15 +31,15 @@ describe("CSV — a 'Quantity basis' column after the source columns", () => {
     const csv = liveCsv({ ...ARGS, subheads: WITH_BASIS })!;
     const rows = csv.split("\r\n");
     const header = rows.find((r) => r.startsWith("Sub-head,"))!;
-    expect(header.split(",").slice(-3)).toEqual(["Source Document", "Source Page", "Quantity basis"]);
-    expect(rows.find((r) => r.includes(",tiles,"))).toMatch(/=F\d+\*H\d+,GF Plan,2,From drawing summary \(estimator's reading\)$/);
-    expect(rows.find((r) => r.includes(",plaster,"))).toMatch(/,Basis not recorded$/);
-    expect(rows.find((r) => r.includes(",paint,"))).toMatch(/,Assumption$/);
+    expect(header.split(",").slice(-4)).toEqual(["Source Document", "Source Page", "Quantity basis", "Rate basis"]);
+    expect(rows.find((r) => r.includes(",tiles,"))).toMatch(/=F\d+\*H\d+,GF Plan,2,From drawing summary \(estimator's reading\),DSR 2023 rate \(incl\. GST @18%\)$/);
+    expect(rows.find((r) => r.includes(",plaster,"))).toMatch(/,Basis not recorded,DSR 2023 rate \(incl\. GST @18%\)$/);
+    expect(rows.find((r) => r.includes(",paint,"))).toMatch(/,Assumption,DSR 2023 rate \(incl\. GST @18%\)$/);
     expect(rows.find((r) => r.startsWith("Pending,"))).toMatch(/door — Quantity pending.*,Awaiting quantity$/);
   });
   it("lines that carry no basis fields leave the column blank rather than inventing one", () => {
     const csv = liveCsv({ ...ARGS, subheads: sh([{ ...wl({ id: "x" }) }]) })!;
-    expect(csv.split("\r\n").find((r) => r.includes(",x,"))).toMatch(/,GF Plan,2,$/);
+    expect(csv.split("\r\n").find((r) => r.includes(",x,"))).toMatch(/,GF Plan,2,,DSR 2023 rate \(incl\. GST @18%\)$/);
   });
 });
 

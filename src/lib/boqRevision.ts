@@ -237,6 +237,7 @@ export function quoteSubheadsFrom(lines: RevisionLine[]): QuoteSubHead[] {
       no: l.item_no, code: l.dsr_code, spec: l.description ?? "", qty: l.qty as number, unit: l.unit ?? "",
       rate: l.rate, amount: l.rate != null ? roundRupee((l.qty as number) * l.rate) : null,
       sourceDocument: l.source_document_name, sourcePage: l.source_page, basis: basisLabelOf(l),
+      rateBasis: l.rate_basis ?? null,
     })),
   })).filter((sh) => sh.lines.length > 0);
 }
@@ -248,6 +249,7 @@ export function csvRowsFrom(lines: RevisionLine[]): CsvRow[] {
     subhead: `${g.no}.00 ${g.name}`, itemNo: l.item_no, code: l.dsr_code, spec: l.description ?? "",
     unit: l.unit ?? "", qty: l.qty as number, rate: l.rate,
     sourceDocument: l.source_document_name, sourcePage: l.source_page, basis: basisLabelOf(l),
+    rateBasis: l.rate_basis ?? null,
   })));
 }
 
