@@ -21,7 +21,7 @@ This file is that register. It records what was attempted, what could not be rea
 | 3 | GST treatment in DSR 2023 rates | **CONFIRMED (Vol. 1)** | Item rates include GST @18% (preface §6.2, p. 5). Basic rates exclude GST, contractor's profit and overheads (pp. 14, 18). **The app added GST again on DSR rates; see §3.1.** |
 | 4 | Cost-index values applicable to DSR 2023 | **PARTLY CONFIRMED** | DSR 2023 is itself at cost index 107 against PAR 2021 = 100 as on 01.04.2021 (preface ¶3, p. 5). Location cost indices relative to DSR 2023 (for example for Srikakulam) are **not** in this volume and remain open. |
 | 5 | Blank-versus-zero rules (CPPP, GeM, state portals) | **BLOCKED** | eprocure.gov.in, gem.gov.in and mahatenders.gov.in unreachable. One tender-specific lead (USOF) was found in search results only. |
-| — | Repo/database DSR seed cross-check | **DONE for sub-heads 2–26** | Every seed item was checked against Vol. 1 (§2.5) and Vol. 2 (§2.6). 2,702 rates match; 20 seed rows have a wrong rate, wrong unit or are a parse artefact; 366 printed items are missing; 36 Vol. 1 items are on pages blank in the scan. |
+| — | Repo/database DSR seed cross-check | **DONE for sub-heads 2–26** | Every seed item was checked against Vol. 1 (§2.5) and Vol. 2 (§2.6). 2,702 rates match; 19 seed rows have a wrong rate, wrong unit or are a parse artefact; 366 printed items are missing; 36 Vol. 1 items are on pages blank in the scan. |
 
 Verified primary-source facts in this register: **0** on 2026-10-17. On 2026-10-19 the facts in §2.1, §3.1 and §4.1 were added, each with its page reference.
 
