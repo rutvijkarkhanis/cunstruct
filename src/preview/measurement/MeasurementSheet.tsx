@@ -17,10 +17,12 @@ import {
   UNIT_LABEL,
   citationLabel,
   evaluateLine,
+  setRowValue,
   type Dimension,
   type LineResult,
   type MeasurementLine,
   type MeasurementRow,
+  type RowField,
 } from "@/lib/measurement/measurement";
 import "@/design/tokens.css";
 
@@ -31,7 +33,7 @@ const BADGE: Record<LineResult["status"], SemanticState> = {
   invalid: "BLOCKING",
 };
 
-type Field = "no" | Dimension;
+type Field = RowField;
 
 interface CellProps {
   label: string;
@@ -96,7 +98,7 @@ function NumberCell({ label, value, onCommit }: CellProps) {
   );
 }
 
-function LineTable({ line, onChange }: { line: MeasurementLine; onChange: (rowId: string, field: Field, value: number | null) => void }) {
+export function LineTable({ line, onChange }: { line: MeasurementLine; onChange: (rowId: string, field: Field, value: number | null) => void }) {
   const result = evaluateLine(line);
   const unit = UNIT_LABEL[line.unit];
   const required = REQUIRED_DIMENSIONS[line.unit];
@@ -215,14 +217,7 @@ function LineTable({ line, onChange }: { line: MeasurementLine; onChange: (rowId
 export function MeasurementSheet({ initialLines }: { initialLines: MeasurementLine[] }) {
   const [lines, setLines] = useState(initialLines);
   const update = (lineId: string, rowId: string, field: Field, value: number | null) =>
-    setLines((ls) => ls.map((l) => l.id !== lineId ? l : {
-      ...l,
-      rows: l.rows.map((r) => {
-        if (r.id !== rowId) return r;
-        if (field === "no") return { ...r, no: value };
-        return { ...r, [field]: { value, unit: r[field]?.unit ?? "m" } };
-      }),
-    }));
+    setLines((ls) => ls.map((l) => (l.id !== lineId ? l : setRowValue(l, rowId, field, value))));
 
   return (
     <div className="space-y-4">

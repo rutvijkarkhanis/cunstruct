@@ -63,13 +63,16 @@ describe("I4 — the engineering preview never reaches production", () => {
     for (const name of tabs.map((t) => t.textContent ?? "")) {
       fireEvent.click(screen.getByRole("tab", { name }));
       // Press each enabled control once; re-query after every press, since a
-      // press can re-render or remove controls.
+      // press can re-render or remove controls. `hidden: true` includes
+      // controls hidden from the accessibility tree (stricter, not looser) and
+      // skips jsdom's per-element computed-style check, which made this test
+      // exceed its timeout once the integrated-flow tab was added.
       const seen = new Set<string>();
       for (let guard = 0; guard < 200; guard++) {
         const panel = screen.queryByRole("tabpanel") ?? document.body;
         const next = within(panel as HTMLElement)
-          .queryAllByRole("button")
-          .concat(within(panel as HTMLElement).queryAllByRole("checkbox"))
+          .queryAllByRole("button", { hidden: true })
+          .concat(within(panel as HTMLElement).queryAllByRole("checkbox", { hidden: true }))
           .find((b) => !(b as HTMLButtonElement).disabled && b.getAttribute("role") !== "tab" && !seen.has(controlKey(b)));
         if (!next) break;
         seen.add(controlKey(next));
