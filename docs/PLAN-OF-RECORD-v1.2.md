@@ -47,10 +47,10 @@ Statuses below reflect evidence available when this version was written. Re-chec
 | R1 | Exclude-instead/share-panel core fix | **DONE** — PR #161 merged; prior evidence in v1.0 |
 | R2 | Ready Production deployment of the current `main` commit, with no newer failed deployment | **DONE (§8 evidence, 18 Oct 2026)** — Production deployment `7153607502` of `main` @ `e64cf6c`, status success; newest Production deployment. Re-check against the release commit |
 | R3 | Deployed `workspace-share` version/date plus live pending-line share check | **PARKED (owner decision, 20 Oct 2026)**: sharing is not needed now and is set aside completely; it may be picked up later. Not done, and not to be worked on until the owner reopens it |
-| R4 | Separate staging Supabase project and guarded connection | **BLOCKED BY CURRENT CONSTRAINT** — only the production project is active/available; do not substitute production |
-| R5 | Apply `20260921000000_boq_review_apply.sql` on staging | **BLOCKED BY R4** — not run |
-| R6 | Verify Apply, conflict, undo, DSR decision and rate-edit write paths on staging | **BLOCKED BY R5** — not run |
-| R7 | Apply the change-history migration to production | **BLOCKED BY R6 AND EXPLICIT APPROVAL** — do not run |
+| R4 | Separate staging Supabase project and guarded connection | **REPLACED (owner decision, 20 Oct 2026)**: the local Postgres rehearsal (PR #177) stands in for staging; no staging project will be created |
+| R5 | Apply `20260921000000_boq_review_apply.sql` on staging | **REPLACED (owner decision, 20 Oct 2026)**: the migration was applied and re-run in the local rehearsal, PR #177, 17/17 |
+| R6 | Verify Apply, conflict, undo, DSR decision and rate-edit write paths on staging | **REPLACED (owner decision, 20 Oct 2026)**: write paths verified in the local rehearsal (PR #177): Apply, conflict, undo, DSR decisions, rate edits |
+| R7 | Apply the change-history migration to production | **APPROVED (owner decision, 20 Oct 2026), NOT YET APPLIED**: execute per `docs/R7-PRODUCTION-MIGRATION-RUNBOOK.md` with a verified backup first. Not done until the post-checks pass |
 | R8 | Decide whether to include the deferred commercial-migration chain | **DEFER FOR THIS SCOPE** — no staging environment is available and no part of the chain may be applied to production under this plan |
 | R9 | Deferred migration chain on staging | **DEFERRED** under R8 |
 | R10 | Click-to-Identify pre-existing Playwright failure | **DONE** — PR #169 merged; evidence recorded in v1.0 §7 |
@@ -68,8 +68,8 @@ These criteria remain required for commercial claims, but are not prerequisites 
 | E1 | 10–20 independent real drawing sets across the required typologies and modalities | **BLOCKED** — no qualifying set collection exists; previously used drawings cannot be counted as independent benchmark sets |
 | E2 | Protocol v1.1 scoring, gates G1–G6, category metrics and raw versus human-corrected results | **NOT STARTED / BLOCKED BY E1** — existing tooling and synthetic tests are not real benchmark evidence |
 | E3 | Primary-source confirmation of IS 1200, CPWD DSR basis and tender blank-versus-zero rules | **PARTIAL (§8, 19 Oct 2026)**: the DSR 2023 basis is confirmed from the owner-supplied CPWD Vol. 1 (two volumes; basis 01.04.2023; GST @18% included in item rates; cost index 107 vs PAR 2021). IS 1200 deduction rules are **deferred by owner decision (20 Oct 2026)**, and tender blank-versus-zero rules are unverified, so E3 is **not** done |
-| E4 | 10–12 contextual interviews and an evidence-based synthesis | **BLOCKED BY CURRENT SCOPE** — no recruitment or outreach |
-| E5 | Positioning decision supported by real E2 and E4 evidence | **BLOCKED BY E2 AND E4** — no claims of customer validation or proven positioning |
+| E4 | 10–12 contextual interviews and an evidence-based synthesis | **DROPPED FOR CLOSURE (owner decision, 20 Oct 2026: "drop unimportant things")**: no outreach under current scope. Not done |
+| E5 | Positioning decision supported by real E2 and E4 evidence | **DROPPED FOR CLOSURE (owner decision, 20 Oct 2026: "drop unimportant things")**: no outreach under current scope. Not done |
 
 Use the current repository DSR/AOR catalogue for internal development where appropriate, but label outputs as provisional and catalogue-derived. Do not claim that the catalogue itself proves official rates, source dates, code compliance or take-off accuracy.
 
@@ -148,6 +148,8 @@ No synthetic score, repository-only check, successful build, or owner walkthroug
 | 19 Oct 2026 | — (release defect) | [PR #189](https://github.com/rutvijkarkhanis/cunstruct/pull/189) merged at `ca3880b`. GST was being added a second time on DSR-rated lines, against DSR 2023 preface §6.2; it is now added only on lines priced at the estimator's own rate. All 27 saved BOQs used the defaults: an all-DSR BOQ of ₹1,00,000 works now totals ₹1,19,180 instead of ₹1,40,632. Full Vitest 3,184/3,184; tsc 406. The `workspace-share` edge-function change is **not deployed**, so public share links still show the old total until it is. LOCAL evidence | Claude Code |
 | 20 Oct 2026 | E3 (IS 1200 deductions) | **Owner decision:** "We will have to skip deductions for now." IS 1200 deduction-rule confirmation is deferred. This is not evidence: deduction rules remain unconfirmed, E3 cannot be marked DONE while they are deferred, and no deduction may be labelled as rule-verified | Owner, recorded by Claude Code |
 | 20 Oct 2026 | R3 / sharing | **Owner decision:** "There is no sharing that is needed anymore. We may pick it up later on, but we need to park it completely." R3, the share-link edge-function redeploy and the share-link parts of B10 are parked. This is not evidence: R3 is not done. One existing production share link (project "Srikakulam Apartment", named "rahul") is still active and was not changed | Owner, recorded by Claude Code |
+| 20 Oct 2026 | R4–R7 | **Owner decisions:** "Accept the local rehearsal in place of staging (R4–R6)" and "go" for R7. R4–R6 are marked REPLACED; their evidence is the LOCAL rehearsal (PR #177), not staging. R7 is approved but **not applied**: this environment has no database credentials, so it must be run by the owner in the SQL editor per the runbook, or by Claude Code once a database connection secret is provided | Owner, recorded by Claude Code |
+| 20 Oct 2026 | Scope for closure | **Owner instruction:** "Drop unimportant things". Selected by Claude Code under that instruction, and the owner may reverse any of it. Dropped for closure: E4, E5, the D3 multi-participant study, the external pilot (P1), B10 phone surfaces and B12 removal of old surfaces. Already parked or deferred: R3 / sharing, R8, R9, R11, and IS 1200 deductions. These are **not done**; they are removed from the closure path, not passed | Owner, recorded by Claude Code |
 
 ## 9. Change history
 
