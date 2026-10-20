@@ -16,7 +16,7 @@ This file is that register. It records what was attempted, what could not be rea
 
 | # | Topic | Status | Why |
 |---|---|---|---|
-| 1 | BIS IS 1200 parts, editions, deduction rules | **DEFERRED (owner decision, 20 Oct 2026)** | The owner decided to skip deductions for now. No IS 1200 text has been read, so deduction rules stay **unconfirmed** and no deduction may be presented as rule-verified. Earlier status: BLOCKED (hosts unreachable, §0) |
+| 1 | BIS IS 1200 parts, editions, deduction rules | **CONFIRMED (texts read, 20 Oct 2026)** | All 28 parts were supplied by the owner and catalogued (§1.0). The deduction and measurement rules for building BOQs are extracted with clause and page references (`e3/is1200-rules.md`). **Encoding them in the app stays deferred by owner decision.** Part 5 (formwork) is superseded by a 2025 revision cited in Part 2:2025, which was not supplied |
 | 2 | CPWD DSR 2023: volumes, titles, rate basis date, cost-index method | **CONFIRMED (Vol. 1 and Vol. 2)** | Two volumes, rate basis April 2023 / 01.04.2023, and sub-heads 1–12 in Vol. 1 with 13–26 in Vol. 2 (§2.1, §2.6). |
 | 3 | GST treatment in DSR 2023 rates | **CONFIRMED (Vol. 1)** | Item rates include GST @18% (preface §6.2, p. 5). Basic rates exclude GST, contractor's profit and overheads (pp. 14, 18). **The app added GST again on DSR rates; see §3.1.** |
 | 4 | Cost-index values applicable to DSR 2023 | **PARTLY CONFIRMED** | DSR 2023 is itself at cost index 107 against PAR 2021 = 100 as on 01.04.2021 (preface ¶3, p. 5). Location cost indices relative to DSR 2023 (for example for Srikakulam) are **not** in this volume and remain open. |
@@ -62,6 +62,30 @@ Two tools were used, and neither could read a primary source:
 ---
 
 ## 1. BIS IS 1200 — Method of measurement of building and civil engineering works
+
+### 1.0 Source documents (owner-supplied, 2026-10-20)
+
+**What was supplied.** The owner uploaded 29 PDFs of IS 1200, parts 1–28, to Supabase Storage (bucket `project-drawings`, bucket root). Each file is catalogued in `docs/benchmarks/e3/is1200-register.json`: part, title, edition, year, reaffirmation, amendments, pages, SHA-256, completeness and provenance. The rules a building BOQ depends on are in `docs/benchmarks/e3/is1200-rules.md`, each with clause number, PDF page and the printed figures quoted.
+
+**Facts the register replaces.** The part titles below are as printed, and they replace the assumptions in §1.2:
+- Part 1 is Earthwork. There is no general-rules part; each part states its own rules.
+- Part 9 is Roof Covering.
+- Woodwork, doors and windows are Part 21.
+- Painting coefficients for doors, windows and grills are in Part 15, Table 1.
+
+**Editions.** Most parts date from 1971–1994. Part 2 (Concrete) is the Fourth Revision, 2025.
+
+**Completeness.**
+- Part 3 lacks its cover and printed pp. 1–2 (the committee list), but all of clauses 1–26 are present.
+- One of the two Part 12 copies lacks its front pages. The other copy is complete and is the reference copy.
+
+**Currency.** Part 2:2025 cites a 2025 revision of Part 5, which was not supplied. The files cannot show whether BIS has revised any other part since these editions were printed.
+
+**Where the files come from.** Most carry the Public.Resource.Org cover. Parts 2, 8 and 13 are BIS-licensed downloads that print the downloader's personal details on every page. Those details are kept out of this repository, and the files must not be republished as they are.
+
+**Errors in the files that matter.**
+- **Part 15, Table 1:** the flush shutter factor is **1·20** on the page image; the text layer misreads it as 1.10.
+- **Part 13, clause 3.7 (RCC jallies):** Amendment 1 (2002) replaces 50 / 70 percent with **100 / 150 / 200 percent**.
 
 ### 1.1 Verified facts (primary source seen)
 
