@@ -132,21 +132,25 @@ export async function handleDrawingUrl(input: { projectId: string; documentId?: 
  *  code); both sides share the same CommercialInputs shape and defaults as
  *  WorkspaceBoqPanel.tsx's ActiveBoqCard. Keep this in lockstep with that
  *  file if its waterfall ever changes. `dsrWorks` is the part of works at DSR
- *  rates: DSR 2023 rates already include GST @18% (DSR 2023 Vol. 1, Preface
- *  §6.2), so GST is charged on the non-DSR share of the taxable value only. */
+ *  rates: DSR 2023 rates already include GST @18%, contractor's profit &
+ *  overheads 15% and labour cess 1% (CPWD DAR 2023 Vol. I rate build-up; DSR
+ *  2023 Vol. 1, Preface §6.2), so overhead, cess and GST are charged on the
+ *  non-DSR share only; cost index and contingency apply to the whole works. */
 function computeCommercialsLocal(works: number, spec: CommercialSpec, dsrWorks = 0) {
   const pct = (v: number | undefined, d: number) => v ?? d;
   const round = (n: number) => Math.round(n);
   const w = round(works);
+  const dsr = Math.min(Math.max(round(dsrWorks), 0), Math.max(w, 0));
+  const share = (x: number) => (dsr === 0 ? x : w > 0 ? round(x * ((w - dsr) / w)) : 0);
   const costIndexAmt = round(w * (pct(spec.costIndexPct, 0) / 100));
   const worksAdjusted = w + costIndexAmt;
   const contingencyAmt = round(worksAdjusted * (pct(spec.contingencyPct, 3) / 100));
-  const overheadAmt = round(worksAdjusted * (pct(spec.overheadPct, 15) / 100));
+  const overheadAmt = round(share(worksAdjusted) * (pct(spec.overheadPct, 15) / 100));
   const subTotal = worksAdjusted + contingencyAmt + overheadAmt;
-  const cessAmt = round(subTotal * (pct(spec.cessPct, 1) / 100));
+  const cessBase = share(worksAdjusted + contingencyAmt) + overheadAmt;
+  const cessAmt = round(cessBase * (pct(spec.cessPct, 1) / 100));
   const taxable = subTotal + cessAmt;
-  const dsr = Math.min(Math.max(round(dsrWorks), 0), Math.max(w, 0));
-  const gstBase = dsr === 0 ? taxable : w > 0 ? round(taxable * ((w - dsr) / w)) : 0;
+  const gstBase = cessBase + cessAmt;
   const gstAmt = round(gstBase * (pct(spec.gstPct, 18) / 100));
   const grandTotal = taxable + gstAmt;
   return { works: w, subTotal, grandTotal };

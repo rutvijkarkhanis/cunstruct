@@ -32,11 +32,11 @@ describe("computeCommercials — GST only on the non-DSR part of the works", () 
   it("all-DSR BOQ: no GST is added (it is already inside the DSR rates)", () => {
     const c = computeCommercials(100000, DEFAULTS, 100000);
     expect(c).toMatchObject({ dsrWorks: 100000, nonDsrWorks: 0, gstBase: 0, gstAmt: 0 });
-    // contingency 3000 + overhead 15000 + cess 1180 unchanged; no GST on top.
+    // contingency 3000 only; overhead, cess and GST are all inside DSR rates (CPWD DAR 2023).
     expect(c.contingencyAmt).toBe(3000);
-    expect(c.overheadAmt).toBe(15000);
-    expect(c.cessAmt).toBe(1180);
-    expect(c.grandTotal).toBe(119180);
+    expect(c.overheadAmt).toBe(0);
+    expect(c.cessAmt).toBe(0);
+    expect(c.grandTotal).toBe(103000);
   });
 
   it("all-custom BOQ: GST exactly as before (on the whole taxable value)", () => {
@@ -48,11 +48,12 @@ describe("computeCommercials — GST only on the non-DSR part of the works", () 
 
   it("mixed BOQ: GST only on the custom part's proportional share of the taxable value", () => {
     const c = computeCommercials(100000, DEFAULTS, 60000);
-    // taxable 119180 × 40000/100000 = 47672; GST 18% = 8580.96 → 8581.
-    expect(c).toMatchObject({ dsrWorks: 60000, nonDsrWorks: 40000, gstBase: 47672, gstAmt: 8581, grandTotal: 127761 });
-    // Contingency / overhead / cess behaviour is unchanged by the split.
+    // overhead 15% of 40000 = 6000; cess 1% of (103000 × 0.4 + 6000 = 47200) = 472;
+    // GST base 47200 + 472 = 47672; GST 18% = 8580.96 → 8581.
+    expect(c).toMatchObject({ dsrWorks: 60000, nonDsrWorks: 40000, gstBase: 47672, gstAmt: 8581, grandTotal: 118053 });
+    // Contingency is still on the whole works.
     const old = computeCommercials(100000, DEFAULTS);
-    expect([c.contingencyAmt, c.overheadAmt, c.cessAmt, c.subTotal]).toEqual([old.contingencyAmt, old.overheadAmt, old.cessAmt, old.subTotal]);
+    expect(c.contingencyAmt).toBe(old.contingencyAmt);
     // The stages still add up exactly.
     expect(c.works + c.costIndexAmt + c.contingencyAmt + c.overheadAmt + c.cessAmt + c.gstAmt).toBe(c.grandTotal);
   });
@@ -79,8 +80,9 @@ describe("which lines are DSR-rated", () => {
     expect(includedTotal(lines)).toBe(1800);
     expect(includedDsrTotal(lines)).toBe(1000);
     const c = commercialsFor(includedTotal(lines), {}, includedDsrTotal(lines));
-    // taxable: 1800 + 54 + 270 = 2124, + cess 21 = 2145; GST base round(2145 × 800/1800) = 953; GST 172.
-    expect(c).toMatchObject({ works: 1800, dsrWorks: 1000, nonDsrWorks: 800, gstBase: 953, gstAmt: 172, grandTotal: 2317 });
+    // contingency 54 (whole works); overhead 15% of 800 = 120; cess 1% of (1854 × 800/1800 = 824, + 120 = 944) = 9;
+    // GST base 944 + 9 = 953; GST 172. Total 1800 + 54 + 120 + 9 + 172 = 2155.
+    expect(c).toMatchObject({ works: 1800, dsrWorks: 1000, nonDsrWorks: 800, gstBase: 953, gstAmt: 172, grandTotal: 2155 });
   });
 
   it("pending quantities, unrated and excluded lines never add to the DSR part (or any amount)", () => {
@@ -112,15 +114,16 @@ describe("documents state which rates include GST", () => {
     expect(html).toContain("own/custom rates) are exclusive of GST");
     expect(html).toContain("DSR 2023, incl. GST");      // per-line tag on the DSR-rated line
     expect(html).toContain("own rate, excl. GST");      // per-line tag on the overridden line
-    expect(html).toContain("₹2,317");                    // grand total = commercialsFor above
+    expect(html).toContain("₹2,155");                    // grand total = commercialsFor above
   });
 
   it("all-DSR quote: no GST is added and none is claimed to be", () => {
     const html = docFor([wl({ id: "brick", qty: 10, dsr_rate: 100 })]);
     expect(html).toContain(DSR_GST_INCLUDED_LABEL);
     expect(html).not.toContain("Add: GST");
-    expect(html).toContain("₹1,192");                    // 1000 + 30 + 150 + 12, no GST
+    expect(html).toContain("₹1,030");                    // 1000 + contingency 30; no overhead, cess or GST
     expect(html).not.toContain("₹1,407");                // the former double-GST total
+    expect(html).not.toContain("₹1,192");                // the former double-overhead/cess total
   });
 
   it("all-custom private quote: GST added as before; the private-project wording stays", () => {
@@ -150,7 +153,7 @@ describe("documents state which rates include GST", () => {
     expect(html).not.toContain("Cost of works (excl. GST)");
     expect(html).toContain(DSR_GST_INCLUDED_LABEL);
     expect(html).toContain("Add: GST @ 18% on non-DSR items");
-    expect(html).toContain("₹2,317");
+    expect(html).toContain("₹2,155");
   });
 
   it("a revision frozen before the split (no dsrWorks) renders as computed, without claiming a basis", () => {
