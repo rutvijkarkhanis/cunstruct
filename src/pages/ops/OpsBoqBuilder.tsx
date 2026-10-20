@@ -1400,36 +1400,21 @@ export default function OpsBoqBuilder() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Material &amp; labour schedule</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Exploded from {schedule.matchedCodes} DSR code{schedule.matchedCodes === 1 ? "" : "s"} via the AOR.
-              {schedule.unmatchedCodes.length > 0 && ` ${schedule.unmatchedCodes.length} line${schedule.unmatchedCodes.length === 1 ? "" : "s"} have no AOR data yet.`}
-            </p>
           </CardHeader>
           <CardContent>
-            {schedule.rows.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-6 text-center">
-                No AOR coefficients matched these lines — add DSR-coded lines, or the AOR has no data for them.
+            {/* Withheld: the stored AOR coefficients (dsr_coefficient) were checked against CPWD DAR 2023
+                (docs/benchmarks/E3-PRIMARY-SOURCE-REGISTER.md) and are not per DSR unit — they are the DAR's
+                per-batch quantities (per 100 sqm, per 10 cum, per quintal …) — and whole material groups
+                (bricks, mortar and concrete sub-analyses) are missing. Multiplying them out would show invented
+                quantities, so no figures are shown until the coefficient table is rebuilt from DAR 2023. */}
+            <div role="status" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+              <p className="font-medium">Material quantities are not available yet.</p>
+              <p className="mt-1">
+                The stored rate-analysis coefficients did not match CPWD DAR 2023 when checked: they are recorded per
+                batch rather than per unit, and some materials are missing. No quantities are shown until they are
+                rebuilt. {schedule.matchedCodes} DSR code{schedule.matchedCodes === 1 ? "" : "s"} on this BOQ would be affected.
               </p>
-            ) : (
-              (["material", "labour", "plant"] as const).map((kind) => {
-                const rows = schedule.rows.filter((r) => r.kind === kind);
-                if (!rows.length) return null;
-                return (
-                  <div key={kind} className="mb-4 last:mb-0">
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">
-                      {kind === "material" ? "Materials" : kind === "labour" ? "Labour" : "Plant & machinery"}
-                    </div>
-                    {rows.map((r, i) => (
-                      <div key={i} className="grid grid-cols-[1fr_6rem_4rem] items-center gap-2 py-1.5 border-b last:border-0">
-                        <span className="text-sm">{r.resource}</span>
-                        <span className="text-sm tabular-nums text-right">{r.qty.toLocaleString("en-IN")}</span>
-                        <span className="text-xs text-muted-foreground">{r.unit}</span>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })
-            )}
+            </div>
           </CardContent>
         </Card>
       ) : linesLoading ? (

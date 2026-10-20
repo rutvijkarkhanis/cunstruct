@@ -109,6 +109,8 @@ function chain(table: string) {
       return resolve({ data: fixtures.DOCS, error: null });
     }
     if (table === "document_revision") return resolve({ data: fixtures.REVISIONS, error: null });
+    // A stored AOR row in its real (per-batch) form: 6.80 Beldar days for 100 sqm of item 2.1.
+    if (table === "dsr_coefficient") return resolve({ data: [{ item_code: "2.1", kind: "labour", resource: "Beldar", qty: 6.8, unit: "day", product_id: "0114" }], error: null });
     return resolve({ data: [], error: null });
   };
   return obj;
@@ -325,5 +327,17 @@ describe("OpsBoqBuilder — drawing-source indicator (Scope D)", () => {
       expect(updateCall).toBeTruthy();
       expect((updateCall!.payload as Record<string, unknown>).included).toBe(false);
     });
+  });
+});
+
+describe("OpsBoqBuilder — material schedule withheld (AOR coefficients failed the DAR 2023 check)", () => {
+  it("shows why quantities are unavailable and never shows an exploded quantity", async () => {
+    renderBoqBuilder();
+    await screen.findAllByText("RCC footing — resolved source");
+    fireEvent.click(screen.getAllByRole("button", { name: /Materials/ })[0]);
+    expect(await screen.findByText("Material quantities are not available yet.")).toBeInTheDocument();
+    // 23 included qty × 6.8 would be 156.4 Beldar days; neither the row nor the figure may appear.
+    expect(screen.queryByText("Beldar")).not.toBeInTheDocument();
+    expect(screen.queryByText("156.4")).not.toBeInTheDocument();
   });
 });
