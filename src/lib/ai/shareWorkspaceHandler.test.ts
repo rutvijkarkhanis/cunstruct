@@ -173,13 +173,11 @@ describe("handleBoqLines", () => {
     const works = round(1000); // only the included line (l1) counts toward the total
     const worksAdjusted = works + round(works * 0);
     const contingencyAmt = round(worksAdjusted * 0.03);
-    const overheadAmt = round(worksAdjusted * 0.15);
-    const subTotal = worksAdjusted + contingencyAmt + overheadAmt;
-    const cessAmt = round(subTotal * 0.01);
-    const taxable = subTotal + cessAmt;
-    // l1 is priced at its DSR rate, which already includes GST @18% (DSR 2023
-    // preface §6.2) — so no GST is added on it.
-    const grandTotal = taxable;
+    // l1 is priced at its DSR rate, which already includes GST @18%, overheads &
+    // profit 15% and cess 1% (CPWD DAR 2023 rate build-up; DSR 2023 preface §6.2)
+    // — so no overhead, cess or GST is added on it; contingency still applies.
+    const subTotal = worksAdjusted + contingencyAmt;
+    const grandTotal = subTotal;
 
     const commercials = res.body.commercials as { works: number; subTotal: number; grandTotal: number };
     expect(commercials.works).toBe(works);
@@ -200,7 +198,7 @@ describe("handleBoqLines", () => {
     if (!res.body.ok) throw new Error("expected ok");
     const expected = computeCommercials(1800, { costIndexPct: 0, contingencyPct: 3, overheadPct: 15, cessPct: 1, gstPct: 18 }, 1000);
     expect(res.body.commercials).toEqual({ works: expected.works, subTotal: expected.subTotal, grandTotal: expected.grandTotal });
-    expect(expected.grandTotal).toBe(2317);
+    expect(expected.grandTotal).toBe(2155);
   });
 });
 

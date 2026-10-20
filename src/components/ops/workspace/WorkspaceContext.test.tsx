@@ -135,20 +135,22 @@ describe("WorkspaceContext — mode=boq (Stage C3/C5A: real selector/creator, no
     expect(await screen.findByText("Ground Floor BOQ")).toBeInTheDocument();
     expect(await screen.findByText("2 lines")).toBeInTheDocument();
     // Subtotal = 10*100 (included); the excluded line (5*50) must NOT be
-    // counted. Grand Total applies the default commercial waterfall
-    // (contingency 3% + overhead 15% + cess 1%) via the SAME
-    // computeCommercials() OpsBoqBuilder itself uses — 1000 -> 1192 — never a
-    // second, competing calculation, and never mislabeled as each other. The
-    // line is priced at its DSR rate, which already includes GST @18% (DSR
-    // 2023 preface §6.2), so no GST is added: the former ₹1,407 charged it twice.
+    // counted. Grand Total applies the default commercial waterfall via the SAME
+    // computeCommercials() OpsBoqBuilder itself uses — never a second, competing
+    // calculation, and never mislabeled as each other. The line is priced at its
+    // DSR rate, which already includes GST @18%, overheads & profit 15% and cess
+    // 1% (CPWD DAR 2023 rate build-up; DSR 2023 preface §6.2), so only
+    // contingency 3% is added — 1000 -> 1030. The former ₹1,407 charged GST
+    // twice and ₹1,192 charged overhead and cess twice.
     expect(await screen.findByText("Subtotal")).toBeInTheDocument();
     // "₹1,000" also appears in the line-item preview (line-1's own amount is
     // coincidentally the same figure as the subtotal here) — assert presence
     // via getAllByText rather than requiring a single match.
     expect((await screen.findAllByText("₹1,000")).length).toBeGreaterThan(0);
     expect(await screen.findByText("Grand Total")).toBeInTheDocument();
-    expect(await screen.findByText("₹1,192")).toBeInTheDocument();
+    expect(await screen.findByText("₹1,030")).toBeInTheDocument();
     expect(screen.queryByText("₹1,407")).toBeNull();
+    expect(screen.queryByText("₹1,192")).toBeNull();
   });
 
   it("links to the existing full BOQ editor rather than rebuilding it", async () => {

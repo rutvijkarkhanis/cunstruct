@@ -11,6 +11,12 @@
  * has been incorporated in all items." Only lines priced at the estimator's
  * own/custom rate are exclusive of GST, so the abstract adds GST on that part
  * only (see computeCommercials).
+ *
+ * Overheads & profit and labour cess: DSR 2023 item rates ALSO already include
+ * water charges 1%, contractor's profit & overheads 15% (CPOH) and labour cess
+ * 1% — CPWD Delhi Analysis of Rates (DAR) 2023 Vol. I builds every item rate
+ * that way. The abstract therefore adds `_overhead_pct` and `_cess_pct` on the
+ * non-DSR part only (see computeCommercials).
  */
 
 import { roundRupee } from "./quantity";
@@ -75,6 +81,13 @@ export interface QuoteCommercials extends CommercialInputs {
   /** The amount GST @ gstPct is charged on: the non-DSR share of the taxable
    *  value (works after cost index, contingency, overhead and cess). */
   gstBase?: number;
+  /** The amount overhead @ overheadPct is charged on: the non-DSR share of the
+   *  works after cost index. Absent on commercials frozen before overhead/cess
+   *  were split (those charged overhead and cess on the whole works). */
+  overheadBase?: number;
+  /** The amount cess @ cessPct is charged on: the non-DSR share of (works after
+   *  cost index + contingency) plus the overhead. Absent as for overheadBase. */
+  cessBase?: number;
 }
 
 /** GST rate CPWD states is already built into every DSR 2023 item rate. */
@@ -85,6 +98,23 @@ export const DSR_GST_INCLUDED_LABEL = `GST @${DSR_GST_INCLUDED_PCT}% — include
  *  label says the GST is on the non-DSR items only. */
 export const gstAddLabel = (c: Pick<QuoteCommercials, "gstPct" | "dsrWorks">): string =>
   (c.dsrWorks ?? 0) > 0 ? `Add: GST @ ${c.gstPct}% on non-DSR items` : `Add: GST @ ${c.gstPct}%`;
+/** Contractor's profit & overheads and labour cess CPWD builds into every DSR
+ *  2023 item rate (DAR 2023 Vol. I: "Add 15% CPOH on Y", "Add Cess @ 1% on Z"). */
+export const DSR_CPOH_INCLUDED_PCT = 15;
+export const DSR_CESS_INCLUDED_PCT = 1;
+/** The one wording every view uses for the overhead and cess already inside DSR rates. */
+export const DSR_CPOH_CESS_INCLUDED_LABEL =
+  `Overheads & profit ${DSR_CPOH_INCLUDED_PCT}% and cess ${DSR_CESS_INCLUDED_PCT}% — included in DSR 2023 rates (CPWD DAR 2023 rate build-up)`;
+/** True when these commercials charge overhead/cess on the non-DSR part only
+ *  (computed by this version). Commercials frozen earlier charged them on the
+ *  whole works and must keep their original wording. */
+const overheadSplit = (c: Pick<QuoteCommercials, "dsrWorks" | "overheadBase">) => c.dsrWorks != null && c.overheadBase != null;
+/** Labels for the overhead and cess the abstract adds; "on non-DSR items" when
+ *  part of the works is DSR-rated and the split applies. */
+export const overheadAddLabel = (c: Pick<QuoteCommercials, "overheadPct" | "dsrWorks" | "overheadBase">): string =>
+  overheadSplit(c) && (c.dsrWorks ?? 0) > 0 ? `Add: Overhead & profit @ ${c.overheadPct}% on non-DSR items` : `Add: Overhead & profit @ ${c.overheadPct}%`;
+export const cessAddLabel = (c: Pick<QuoteCommercials, "cessPct" | "dsrWorks" | "overheadBase">): string =>
+  overheadSplit(c) && (c.dsrWorks ?? 0) > 0 ? `Add: Labour cess @ ${c.cessPct}% on non-DSR items` : `Add: Labour cess @ ${c.cessPct}%`;
 /** A requirement identified on the drawing but not yet quantified — listed for
  *  completeness, never priced (qty deliberately absent, not zero). */
 export interface QuotePendingItem {
@@ -210,35 +240,53 @@ export { roundRupee };
  * the rounded running value, so the waterfall the reader sees is internally exact.
  *
  * `dsrWorks` is the part of `works` priced AT the DSR 2023 rate (no override).
- * Those rates already include GST @18% (DSR 2023 Vol. 1, Preface §6.2), so GST
- * @ gstPct is charged only on the non-DSR part. Approach: cost index,
- * contingency, overhead and cess are uniform percentage uplifts on the whole
- * works, so each part carries them in proportion to its share of works; the GST
- * base is therefore the taxable value × (non-DSR works ÷ works), rounded once.
- * With dsrWorks = 0 (the default) this is exactly the previous result.
+ * Those rates already include GST, contractor's profit & overheads (CPOH) and
+ * labour cess. Source: CPWD Delhi Analysis of Rates (DAR) 2023 Vol. I, e.g. DSR
+ * item 2.1.1, "Details of cost for 100 Sqm":
+ *   labour total                                         9126.40  W
+ *   Add 1 % Water charges on "W"                           91.26  X  9217.66
+ *   Add GST on "X" (multiplying factor 0.2127)           1960.60  Y 11178.26
+ *   Add 15% CPOH on "Y"                                  1676.74  Z 12855.00
+ *   Add Cess @ 1% on "Z"                                  128.55    12983.55
+ *   = 129.84/sqm, the DSR 2023 rate 129.85/sqm.
+ * (DSR 2023 Vol. 1, Preface §6.2 also states GST @18% is incorporated.)
  *
- * UNVERIFIED: whether DSR item rates also already include the contractor's
- * profit and overheads is NOT confirmed by the source available here, so
- * contingency/overhead/cess are still applied to the whole works, unchanged.
+ * So overhead @ overheadPct, cess @ cessPct and GST @ gstPct are charged only
+ * on the non-DSR part (own/custom/catalogue rates, incl. a custom override of a
+ * DSR item). Cost index (a location adjustment) and contingency (an
+ * estimate-level allowance) still apply to the whole works, as before.
+ *
+ * Arithmetic: cost index and contingency are uniform uplifts on the whole
+ * works, so the non-DSR part carries them in proportion to its share of works
+ * (nonDsr ÷ works). Following the existing waterfall order:
+ *   overheadBase = share(works after cost index)
+ *   cessBase     = share(works after cost index + contingency) + overhead
+ *   gstBase      = cessBase + cess
+ * where share(x) = round(x × nonDsr ÷ works). With dsrWorks = 0 (the default)
+ * share(x) = x and every stage is exactly the previous result; with an all-DSR
+ * works only cost index and contingency are added.
  */
 export function computeCommercials(works: number, i: CommercialInputs, dsrWorks = 0): QuoteCommercials {
   const w = roundRupee(works);
   const dsr = Math.min(Math.max(roundRupee(dsrWorks), 0), Math.max(w, 0));
   const nonDsrWorks = w - dsr;
+  const share = (x: number) => (dsr === 0 ? x : w > 0 ? roundRupee(x * (nonDsrWorks / w)) : 0);
   const costIndexAmt = roundRupee(w * (i.costIndexPct / 100));
   const worksAdjusted = w + costIndexAmt;
   const contingencyAmt = roundRupee(worksAdjusted * (i.contingencyPct / 100));
-  const overheadAmt = roundRupee(worksAdjusted * (i.overheadPct / 100));
+  const overheadBase = share(worksAdjusted);
+  const overheadAmt = roundRupee(overheadBase * (i.overheadPct / 100));
   const subTotal = worksAdjusted + contingencyAmt + overheadAmt;
-  const cessAmt = roundRupee(subTotal * (i.cessPct / 100));
+  const cessBase = share(worksAdjusted + contingencyAmt) + overheadAmt;
+  const cessAmt = roundRupee(cessBase * (i.cessPct / 100));
   const taxable = subTotal + cessAmt;
-  const gstBase = dsr === 0 ? taxable : w > 0 ? roundRupee(taxable * (nonDsrWorks / w)) : 0;
+  const gstBase = cessBase + cessAmt;
   const gstAmt = roundRupee(gstBase * (i.gstPct / 100));
   const grandTotal = taxable + gstAmt;
   return {
     ...i, works: w, costIndexAmt, worksAdjusted, contingencyAmt, overheadAmt,
     subTotal, cessAmt, gstAmt, grandTotal, grandTotalWords: amountInWords(grandTotal),
-    dsrWorks: dsr, nonDsrWorks, gstBase,
+    dsrWorks: dsr, nonDsrWorks, gstBase, overheadBase, cessBase,
   };
 }
 
@@ -262,8 +310,9 @@ function abstractRowsHtml(c: QuoteCommercials): string {
   return worksRows +
     wrow(`Add: Cost index @ ${c.costIndexPct}%`, c.costIndexAmt, c.costIndexPct !== 0) +
     wrow(`Add: Contingencies @ ${c.contingencyPct}%`, c.contingencyAmt, c.contingencyPct !== 0) +
-    wrow(`Add: Overhead &amp; profit @ ${c.overheadPct}%`, c.overheadAmt, c.overheadPct !== 0) +
-    wrow(`Add: Labour cess @ ${c.cessPct}%`, c.cessAmt, c.cessPct !== 0) +
+    (overheadSplit(c) && dsrPart > 0 ? row(esc(DSR_CPOH_CESS_INCLUDED_LABEL), "included") : "") +
+    wrow(esc(overheadAddLabel(c)), c.overheadAmt, c.overheadPct !== 0 && (!overheadSplit(c) || nonDsr > 0)) +
+    wrow(esc(cessAddLabel(c)), c.cessAmt, c.cessPct !== 0 && (!overheadSplit(c) || nonDsr > 0)) +
     (dsrPart > 0 ? row(esc(DSR_GST_INCLUDED_LABEL), "included") : "") +
     wrow(esc(gstAddLabel(c)), c.gstAmt, c.gstPct !== 0 && (!split || nonDsr > 0));
 }
@@ -280,6 +329,9 @@ const hasDsrRated = (subheads: QuoteSubHead[], c?: QuoteCommercials) =>
   (c?.dsrWorks ?? 0) > 0 || subheads.some((sh) => sh.lines.some((l) => l.rateBasis === "dsr" && l.rate != null));
 
 const DSR_GST_NOTE = `Lines marked "DSR 2023, incl. GST" are priced at Delhi Schedule of Rates 2023 item rates, which already include GST @18% (DSR 2023 Vol. 1, Preface §6.2: "The effect of GST @18% on works contract has been incorporated in all items"); GST is not added on them again.`;
+/** Stated wherever overhead/cess were charged on the non-DSR part only. */
+const DSR_CPOH_NOTE = `DSR 2023 item rates also already include water charges 1%, contractor's profit & overheads 15% and labour cess 1% (CPWD Delhi Analysis of Rates 2023, Vol. I rate build-up), so overhead and cess are added in the abstract only on lines priced at own/custom rates.`;
+const cpohNote = (c?: QuoteCommercials) => (c && overheadSplit(c) && (c.dsrWorks ?? 0) > 0 ? ` ${esc(DSR_CPOH_NOTE)}` : "");
 
 const INCOMPLETE_SCOPE = "Incomplete scope.";
 /** The one incomplete-scope statement every BOQ view and export uses: drawing-review
@@ -516,8 +568,8 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
 
   <div class="foot">
     <b>Basis &amp; conditions.</b> ${dsr
-      ? `Rates are composite item rates from the Delhi Schedule of Rates ${esc(p.rateYear)} (material + labour + plant), adjusted by the stated cost index for location. DSR 2023 item rates include GST @18% (DSR 2023 Vol. 1, Preface §6.2: "The effect of GST @18% on works contract has been incorporated in all items"), so GST is not added on lines priced at the DSR rate. Rates entered by the estimator (own/custom rates) are exclusive of GST, which is added in the abstract on those lines only. Non-Schedule (NS) items, where shown, are outside the DSR and their rates are to be analysed from prevailing market / State PWD rates.`
-      : `Rates are the estimator's own composite rates (material, labour and installation), exclusive of GST, and are confirmed separately with the architect/client. This is a private-project quotation and is not priced on any government schedule of rates.${hasDsrRated(p.subheads, c) ? ` ${esc(DSR_GST_NOTE)}` : ""}`}
+      ? `Rates are composite item rates from the Delhi Schedule of Rates ${esc(p.rateYear)} (material + labour + plant), adjusted by the stated cost index for location. DSR 2023 item rates include GST @18% (DSR 2023 Vol. 1, Preface §6.2: "The effect of GST @18% on works contract has been incorporated in all items"), so GST is not added on lines priced at the DSR rate. Rates entered by the estimator (own/custom rates) are exclusive of GST, which is added in the abstract on those lines only.${cpohNote(c)} Non-Schedule (NS) items, where shown, are outside the DSR and their rates are to be analysed from prevailing market / State PWD rates.`
+      : `Rates are the estimator's own composite rates (material, labour and installation), exclusive of GST, and are confirmed separately with the architect/client. This is a private-project quotation and is not priced on any government schedule of rates.${hasDsrRated(p.subheads, c) ? ` ${esc(DSR_GST_NOTE)}${cpohNote(c)}` : ""}`}
     ${statesBasis(p.subheads, p.pendingItems)
       ? `<b>Each quantity states its recorded basis.</b> "From drawing summary" is the estimator's own reading of the supplied drawings, not an
     independent measurement; a calculated quantity states its derivation; an assumption is marked as an assumption; "as stated in imported data"
@@ -816,7 +868,7 @@ export function buildProjectQuoteHtml(p: ProjectQuotePayload, boqs: ProjectQuote
       ? "Each quantity states its recorded basis (the estimator's drawing summary, a calculation, an assumption, or \"Basis not recorded\") — not an independent measurement."
       : "This document does not state the basis of each quantity."} Rates are composite rates
     (material, labour and installation), exclusive of GST unless stated, and are confirmed separately. This is a private-project quotation and is
-    not priced on any government schedule of rates.${boqs.some((b) => hasDsrRated(b.subheads, b.commercials)) ? ` ${esc(DSR_GST_NOTE)}` : ""} Final measurements and specifications should be verified before execution. This quotation is
+    not priced on any government schedule of rates.${boqs.some((b) => hasDsrRated(b.subheads, b.commercials)) ? ` ${esc(DSR_GST_NOTE)}` : ""}${boqs.map((b) => cpohNote(b.commercials)).find(Boolean) ?? ""} Final measurements and specifications should be verified before execution. This quotation is
     indicative and valid for 15 days from the date above.
   </div>
 
