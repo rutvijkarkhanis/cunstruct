@@ -63,9 +63,9 @@ function chain(table: string) {
 }
 vi.mock("@/integrations/supabase/client", () => ({ supabase: { from: (t: string) => chain(t) } }));
 
-function renderBoqBuilder() {
+function renderBoqBuilder(client = new QueryClient()) {
   return render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={["/ops/projects/proj-1/boqs/boq-1"]}>
         <Routes><Route path="/ops/projects/:id/boqs/:boqId" element={<OpsBoqBuilder />} /></Routes>
       </MemoryRouter>
@@ -166,5 +166,81 @@ describe("OpsBoqBuilder — manual rate edits", () => {
     ));
     expect(db.lines[0].custom_rate).toBe(950);
     expect(db.writes.filter((w) => w.table === "boq_line_change_log")).toHaveLength(0);
+  });
+});
+
+// B1: the rate field is uncontrolled, and once typed into, a changed defaultValue
+// no longer shows — so Undo/Redo/re-reads left the old text in the field.
+describe("OpsBoqBuilder — rate field follows the saved rate", () => {
+  const undoRedo = async (name: "Undo" | "Redo") => {
+    if (!screen.queryByRole("button", { name })) fireEvent.click(screen.getByText("Advanced settings"));
+    fireEvent.click(await screen.findByRole("button", { name }));
+  };
+  const saveRate = async (v: string) => {
+    typeRate(v);
+    await waitFor(() => expect(db.lines[0].custom_rate).toBe(Number(v)));
+    await waitFor(() => expect(rateInput().value).toBe(v));
+  };
+
+  it("rate edit → Undo: the field shows the restored rate, not the undone one", async () => {
+    renderBoqBuilder();
+    await screen.findByText("Vitrified tiles");
+    await saveRate("1100");
+    await undoRedo("Undo");
+    await waitFor(() => expect(db.lines[0].custom_rate).toBeNull());
+    await waitFor(() => expect(rateInput().value).toBe("900")); // back to the DSR rate
+  });
+
+  it("rate edit → Undo → Redo: the field shows the redone rate", async () => {
+    renderBoqBuilder();
+    await screen.findByText("Vitrified tiles");
+    await saveRate("1100");
+    await undoRedo("Undo");
+    await waitFor(() => expect(rateInput().value).toBe("900"));
+    await undoRedo("Redo");
+    await waitFor(() => expect(db.lines[0].custom_rate).toBe(1100));
+    await waitFor(() => expect(rateInput().value).toBe("1100"));
+  });
+
+  it("after a re-read brings a new saved rate, the field shows it", async () => {
+    const client = new QueryClient();
+    renderBoqBuilder(client);
+    await screen.findByText("Vitrified tiles");
+    await saveRate("1100");
+    db.lines[0].custom_rate = 1250; // saved elsewhere
+    await client.invalidateQueries({ queryKey: ["boq-lines", "boq-1"] });
+    await waitFor(() => expect(rateInput().value).toBe("1250"));
+  });
+
+  it("never overwrites a rate the user is still typing, and saves it on leaving the field", async () => {
+    const client = new QueryClient();
+    renderBoqBuilder(client);
+    await screen.findByText("Vitrified tiles");
+    const input = rateInput();
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "1200" } });
+    db.lines[0].custom_rate = 1250; // a re-read lands mid-edit
+    await client.invalidateQueries({ queryKey: ["boq-lines", "boq-1"] });
+    await screen.findByText("Vitrified tiles");
+    expect(rateInput().value).toBe("1200");
+    // Leaving the field submits what was typed, guarded on the rate it was typed over:
+    // the line changed meanwhile, so nothing is written and the saved rate is shown.
+    fireEvent.blur(rateInput());
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "This line's rate was changed elsewhere since you opened it — nothing was saved. The current rate is shown.",
+    ));
+    expect(db.lines[0].custom_rate).toBe(1250);
+  });
+
+  it("leaving the field without typing writes nothing, even if the saved rate changed while it had focus", async () => {
+    const client = new QueryClient();
+    renderBoqBuilder(client);
+    await screen.findByText("Vitrified tiles");
+    fireEvent.focus(rateInput());
+    db.lines[0].custom_rate = 1250;
+    await client.invalidateQueries({ queryKey: ["boq-lines", "boq-1"] });
+    fireEvent.blur(rateInput());
+    await waitFor(() => expect(rateInput().value).toBe("1250"));
+    expect(db.writes).toHaveLength(0);
   });
 });

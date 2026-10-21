@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -144,6 +144,36 @@ function useCountUp(value: number, ms = 450): number {
 
 const shortDesc = (l: { dsr_code: string | null; description: string | null }) =>
   (l.description ?? l.dsr_code ?? "Line").slice(0, 30);
+
+/** An uncontrolled input that keeps showing the saved value. React writes
+ *  `defaultValue` into the field once, on mount; after that a new saved value
+ *  (an Undo/Redo, a re-read) changed nothing on screen. This puts the saved
+ *  value back whenever it changes, except while the user is typing in the
+ *  field. Leaving the field commits only what was typed, together with the
+ *  saved value it was typed over, so the caller can guard on that. */
+function SavedValueInput({ saved, onCommit, ...props }: Omit<ComponentProps<typeof Input>, "defaultValue" | "value" | "onFocus" | "onChange" | "onBlur"> & {
+  saved: string;
+  onCommit: (input: HTMLInputElement, typedOver: string) => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  const focused = useRef(false);
+  const typedOver = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focused.current && typedOver.current === null && ref.current) ref.current.value = saved;
+  }, [saved]);
+  return (
+    <Input {...props} ref={ref} defaultValue={saved}
+      onFocus={() => { focused.current = true; }}
+      onChange={() => { if (typedOver.current === null) typedOver.current = saved; }}
+      onBlur={(e) => {
+        focused.current = false;
+        const over = typedOver.current;
+        typedOver.current = null;
+        if (over === null) { e.target.value = saved; return; }
+        onCommit(e.target, over);
+      }} />
+  );
+}
 
 export default function OpsBoqBuilder() {
   // Works at BOTH the legacy route (/ops/boq/:id → id is the BOQ id) and the
@@ -1615,10 +1645,16 @@ export default function OpsBoqBuilder() {
                           if (!v) { input.value = saved; if (saved) toast.error("Unit cannot be empty — not saved."); return; }
                           if (v !== saved && !(await updateLine(l.id, unitEditPatch(l, v)))) input.value = saved;
                         }} />
-                      <Input type="number" min={0} className="h-8 hidden sm:block" defaultValue={rate ?? ""} placeholder="rate"
+                      <SavedValueInput type="number" min={0} className="h-8 hidden sm:block" saved={String(rate ?? "")} placeholder="rate"
                         aria-label={`Rate for ${l.description || `line ${itemNo}`}`}
                         title={l.custom_rate != null ? "Your rate (overrides DSR)" : "DSR reference rate — edit to set your rate"}
-                        onBlur={(e) => { const v = e.target.value === "" ? null : Number(e.target.value); if (v !== rate) requestRateEdit(l, v, e.target); }} />
+                        onCommit={(input, typedOver) => {
+                          const v = input.value === "" ? null : Number(input.value);
+                          // The rate changed under the edit (a re-read landed while typing):
+                          // never write over it on the strength of the newer value.
+                          if (typedOver !== String(rate ?? "")) { input.value = String(rate ?? ""); toast.error(manualRateFailureMessage({ status: "conflict" }, v)); return; }
+                          if (v !== rate) requestRateEdit(l, v, input);
+                        }} />
                       <span className="text-sm tabular-nums text-right hidden sm:block pt-1.5">
                         {lineAmountText(l, rate)}
                       </span>
