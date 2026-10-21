@@ -1,0 +1,1723 @@
+{
+ "captured_at": "2026-10-21T05:55:36.676937+00:00",
+ "server_version": "17.6",
+ "columns": [
+  {
+   "table": "public.analysis_review_item",
+   "col": "id",
+   "type": "uuid",
+   "nullable": "NO",
+   "default": "gen_random_uuid()"
+  },
+  {
+   "table": "public.analysis_review_item",
+   "col": "run_id",
+   "type": "uuid",
+   "nullable": "NO",
+   "default": null
+  },
+  {
+   "table": "public.analysis_review_item",
+   "col": "boq_id",
+   "type": "uuid",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.analysis_review_item",
+   "col": "project_id",
+   "type": "uuid",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.analysis_review_item",
+   "col": "item_key",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.analysis_review_item",
+   "col": "item_name",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.analysis_review_item",
+   "col": "ai_json",
+   "type": "jsonb",
+   "nullable": "NO",
+   "default": null
+  },
+  {
+   "table": "public.analysis_review_item",
+   "col": "reviewer_json",
+   "type": "jsonb",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.analysis_review_item",
+   "col": "review_status",
+   "type": "text",
+   "nullable": "NO",
+   "default": "'PENDING_REVIEW'::text"
+  },
+  {
+   "table": "public.analysis_review_item",
+   "col": "flag_reason",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.analysis_review_item",
+   "col": "review_note",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.analysis_review_item",
+   "col": "reviewed_by",
+   "type": "uuid",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.analysis_review_item",
+   "col": "reviewed_at",
+   "type": "timestamp with time zone",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.analysis_review_item",
+   "col": "sort",
+   "type": "integer",
+   "nullable": "NO",
+   "default": "0"
+  },
+  {
+   "table": "public.analysis_review_item",
+   "col": "created_at",
+   "type": "timestamp with time zone",
+   "nullable": "NO",
+   "default": "now()"
+  },
+  {
+   "table": "public.boq",
+   "col": "id",
+   "type": "uuid",
+   "nullable": "NO",
+   "default": "gen_random_uuid()"
+  },
+  {
+   "table": "public.boq",
+   "col": "project_id",
+   "type": "uuid",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq",
+   "col": "name",
+   "type": "text",
+   "nullable": "NO",
+   "default": "'BOQ'::text"
+  },
+  {
+   "table": "public.boq",
+   "col": "status",
+   "type": "text",
+   "nullable": "NO",
+   "default": "'draft'::text"
+  },
+  {
+   "table": "public.boq",
+   "col": "rate_year",
+   "type": "text",
+   "nullable": "NO",
+   "default": "'2023'::text"
+  },
+  {
+   "table": "public.boq",
+   "col": "spec",
+   "type": "jsonb",
+   "nullable": "NO",
+   "default": "'{}'::jsonb"
+  },
+  {
+   "table": "public.boq",
+   "col": "created_by",
+   "type": "uuid",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq",
+   "col": "created_at",
+   "type": "timestamp with time zone",
+   "nullable": "NO",
+   "default": "now()"
+  },
+  {
+   "table": "public.boq",
+   "col": "updated_at",
+   "type": "timestamp with time zone",
+   "nullable": "NO",
+   "default": "now()"
+  },
+  {
+   "table": "public.boq",
+   "col": "discipline",
+   "type": "text",
+   "nullable": "NO",
+   "default": "'civil'::text"
+  },
+  {
+   "table": "public.boq",
+   "col": "contractor_id",
+   "type": "uuid",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq",
+   "col": "scope_id",
+   "type": "uuid",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq",
+   "col": "sort",
+   "type": "integer",
+   "nullable": "NO",
+   "default": "0"
+  },
+  {
+   "table": "public.boq",
+   "col": "description",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq_line",
+   "col": "id",
+   "type": "uuid",
+   "nullable": "NO",
+   "default": "gen_random_uuid()"
+  },
+  {
+   "table": "public.boq_line",
+   "col": "boq_id",
+   "type": "uuid",
+   "nullable": "NO",
+   "default": null
+  },
+  {
+   "table": "public.boq_line",
+   "col": "section",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq_line",
+   "col": "dsr_code",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq_line",
+   "col": "description",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq_line",
+   "col": "unit",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq_line",
+   "col": "qty",
+   "type": "numeric",
+   "nullable": "NO",
+   "default": "0"
+  },
+  {
+   "table": "public.boq_line",
+   "col": "dsr_rate",
+   "type": "numeric",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq_line",
+   "col": "custom_rate",
+   "type": "numeric",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq_line",
+   "col": "catalog_product_id",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq_line",
+   "col": "catalog_price",
+   "type": "numeric",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq_line",
+   "col": "included",
+   "type": "boolean",
+   "nullable": "NO",
+   "default": "true"
+  },
+  {
+   "table": "public.boq_line",
+   "col": "source",
+   "type": "text",
+   "nullable": "NO",
+   "default": "'auto'::text"
+  },
+  {
+   "table": "public.boq_line",
+   "col": "sort",
+   "type": "integer",
+   "nullable": "NO",
+   "default": "0"
+  },
+  {
+   "table": "public.boq_line",
+   "col": "created_at",
+   "type": "timestamp with time zone",
+   "nullable": "NO",
+   "default": "now()"
+  },
+  {
+   "table": "public.boq_line",
+   "col": "cost",
+   "type": "numeric",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq_line",
+   "col": "basis",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq_line",
+   "col": "basis_note",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq_line",
+   "col": "drawing",
+   "type": "jsonb",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq_line",
+   "col": "source_document_id",
+   "type": "uuid",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq_line",
+   "col": "source_revision_id",
+   "type": "uuid",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq_line",
+   "col": "source_page",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq_line",
+   "col": "measurement_method",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq_line",
+   "col": "calculation",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq_line",
+   "col": "confidence",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq_line",
+   "col": "quantity_status",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq_line",
+   "col": "external_key",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.boq_line",
+   "col": "scope_id",
+   "type": "uuid",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.dsr_item",
+   "col": "id",
+   "type": "uuid",
+   "nullable": "NO",
+   "default": "gen_random_uuid()"
+  },
+  {
+   "table": "public.dsr_item",
+   "col": "source",
+   "type": "text",
+   "nullable": "NO",
+   "default": "'DSR'::text"
+  },
+  {
+   "table": "public.dsr_item",
+   "col": "rate_year",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.dsr_item",
+   "col": "code",
+   "type": "text",
+   "nullable": "NO",
+   "default": null
+  },
+  {
+   "table": "public.dsr_item",
+   "col": "chapter",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.dsr_item",
+   "col": "subhead",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.dsr_item",
+   "col": "description",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.dsr_item",
+   "col": "unit",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.dsr_item",
+   "col": "rate",
+   "type": "numeric",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.dsr_item",
+   "col": "billable",
+   "type": "boolean",
+   "nullable": "NO",
+   "default": "true"
+  },
+  {
+   "table": "public.dsr_item",
+   "col": "stage_id",
+   "type": "uuid",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.dsr_item",
+   "col": "created_at",
+   "type": "timestamp with time zone",
+   "nullable": "NO",
+   "default": "now()"
+  },
+  {
+   "table": "public.projects",
+   "col": "id",
+   "type": "uuid",
+   "nullable": "NO",
+   "default": "gen_random_uuid()"
+  },
+  {
+   "table": "public.projects",
+   "col": "name",
+   "type": "text",
+   "nullable": "NO",
+   "default": null
+  },
+  {
+   "table": "public.projects",
+   "col": "client_name",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.projects",
+   "col": "location",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.projects",
+   "col": "project_type",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.projects",
+   "col": "scope",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.projects",
+   "col": "floors",
+   "type": "integer",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.projects",
+   "col": "area_sqft",
+   "type": "numeric",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.projects",
+   "col": "current_stage_id",
+   "type": "uuid",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.projects",
+   "col": "progress_pct",
+   "type": "numeric",
+   "nullable": "NO",
+   "default": "0"
+  },
+  {
+   "table": "public.projects",
+   "col": "velocity_days_per_pct",
+   "type": "numeric",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.projects",
+   "col": "estimated_completion",
+   "type": "date",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.projects",
+   "col": "account_manager_id",
+   "type": "uuid",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.projects",
+   "col": "owner_id",
+   "type": "uuid",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.projects",
+   "col": "status",
+   "type": "text",
+   "nullable": "NO",
+   "default": "'active'::text"
+  },
+  {
+   "table": "public.projects",
+   "col": "historical_avg_velocity",
+   "type": "numeric",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.projects",
+   "col": "projected_completion_date",
+   "type": "date",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.projects",
+   "col": "customer_name",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.projects",
+   "col": "customer_phone",
+   "type": "text",
+   "nullable": "YES",
+   "default": null
+  },
+  {
+   "table": "public.projects",
+   "col": "onboarded_at",
+   "type": "timestamp with time zone",
+   "nullable": "NO",
+   "default": "now()"
+  },
+  {
+   "table": "public.projects",
+   "col": "created_at",
+   "type": "timestamp with time zone",
+   "nullable": "NO",
+   "default": "now()"
+  },
+  {
+   "table": "public.projects",
+   "col": "updated_at",
+   "type": "timestamp with time zone",
+   "nullable": "NO",
+   "default": "now()"
+  },
+  {
+   "table": "public.projects",
+   "col": "quality_tier",
+   "type": "text",
+   "nullable": "NO",
+   "default": "'standard'::text"
+  },
+  {
+   "table": "public.projects",
+   "col": "bedrooms",
+   "type": "integer",
+   "nullable": "NO",
+   "default": "0"
+  },
+  {
+   "table": "public.projects",
+   "col": "bathrooms",
+   "type": "integer",
+   "nullable": "NO",
+   "default": "0"
+  },
+  {
+   "table": "public.projects",
+   "col": "kitchens",
+   "type": "integer",
+   "nullable": "NO",
+   "default": "0"
+  },
+  {
+   "table": "public.projects",
+   "col": "ai_processing_enabled",
+   "type": "boolean",
+   "nullable": "NO",
+   "default": "false"
+  }
+ ],
+ "constraints": [
+  {
+   "table": "activities",
+   "name": "activities_user_id_fkey",
+   "def": "FOREIGN KEY (user_id) REFERENCES auth.users(id)"
+  },
+  {
+   "table": "ai_operation_log",
+   "name": "ai_operation_log_project_id_fkey",
+   "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "ai_operation_log",
+   "name": "ai_operation_log_user_id_fkey",
+   "def": "FOREIGN KEY (user_id) REFERENCES auth.users(id)"
+  },
+  {
+   "table": "analysis_observation",
+   "name": "analysis_observation_project_id_fkey",
+   "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "analysis_review_item",
+   "name": "analysis_review_item_boq_id_fkey",
+   "def": "FOREIGN KEY (boq_id) REFERENCES boq(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "analysis_review_item",
+   "name": "analysis_review_item_pkey",
+   "def": "PRIMARY KEY (id)"
+  },
+  {
+   "table": "analysis_review_item",
+   "name": "analysis_review_item_project_id_fkey",
+   "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "analysis_review_item",
+   "name": "analysis_review_item_review_status_check",
+   "def": "CHECK ((review_status = ANY (ARRAY['PENDING_REVIEW'::text, 'VERIFIED'::text, 'EDITED'::text, 'FLAGGED'::text, 'MARKED_PENDING'::text])))"
+  },
+  {
+   "table": "analysis_review_item",
+   "name": "analysis_review_item_reviewed_by_fkey",
+   "def": "FOREIGN KEY (reviewed_by) REFERENCES auth.users(id)"
+  },
+  {
+   "table": "analysis_review_item",
+   "name": "analysis_review_item_run_id_fkey",
+   "def": "FOREIGN KEY (run_id) REFERENCES analysis_run(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "analysis_run",
+   "name": "analysis_run_boq_id_fkey",
+   "def": "FOREIGN KEY (boq_id) REFERENCES boq(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "analysis_run",
+   "name": "analysis_run_created_by_fkey",
+   "def": "FOREIGN KEY (created_by) REFERENCES auth.users(id)"
+  },
+  {
+   "table": "analysis_run",
+   "name": "analysis_run_project_id_fkey",
+   "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "analysis_run_source",
+   "name": "analysis_run_source_boq_id_fkey",
+   "def": "FOREIGN KEY (boq_id) REFERENCES boq(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "analysis_run_source",
+   "name": "analysis_run_source_claimed_by_fkey",
+   "def": "FOREIGN KEY (claimed_by) REFERENCES auth.users(id)"
+  },
+  {
+   "table": "analysis_run_source",
+   "name": "analysis_run_source_project_id_fkey",
+   "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "auth.identities",
+   "name": "identities_user_id_fkey",
+   "def": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "auth.mfa_factors",
+   "name": "mfa_factors_user_id_fkey",
+   "def": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "auth.mfa_recovery_code_sets",
+   "name": "mfa_recovery_code_sets_user_id_fkey",
+   "def": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "auth.oauth_authorizations",
+   "name": "oauth_authorizations_user_id_fkey",
+   "def": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "auth.oauth_consents",
+   "name": "oauth_consents_user_id_fkey",
+   "def": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "auth.one_time_tokens",
+   "name": "one_time_tokens_user_id_fkey",
+   "def": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "auth.scim_users",
+   "name": "scim_users_user_id_fkey",
+   "def": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE SET NULL"
+  },
+  {
+   "table": "auth.sessions",
+   "name": "sessions_user_id_fkey",
+   "def": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "auth.users",
+   "name": "users_email_change_confirm_status_check",
+   "def": "CHECK (((email_change_confirm_status >= 0) AND (email_change_confirm_status <= 2)))"
+  },
+  {
+   "table": "auth.users",
+   "name": "users_phone_key",
+   "def": "UNIQUE (phone)"
+  },
+  {
+   "table": "auth.users",
+   "name": "users_pkey",
+   "def": "PRIMARY KEY (id)"
+  },
+  {
+   "table": "auth.webauthn_challenges",
+   "name": "webauthn_challenges_user_id_fkey",
+   "def": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "auth.webauthn_credentials",
+   "name": "webauthn_credentials_user_id_fkey",
+   "def": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "boq",
+   "name": "boq_contractor_id_fkey",
+   "def": "FOREIGN KEY (contractor_id) REFERENCES contractor_profile(id) ON DELETE SET NULL"
+  },
+  {
+   "table": "boq",
+   "name": "boq_created_by_fkey",
+   "def": "FOREIGN KEY (created_by) REFERENCES auth.users(id)"
+  },
+  {
+   "table": "boq",
+   "name": "boq_pkey",
+   "def": "PRIMARY KEY (id)"
+  },
+  {
+   "table": "boq",
+   "name": "boq_project_id_fkey",
+   "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "boq",
+   "name": "boq_scope_id_fkey",
+   "def": "FOREIGN KEY (scope_id) REFERENCES project_scope(id) ON DELETE SET NULL"
+  },
+  {
+   "table": "boq",
+   "name": "boq_status_check",
+   "def": "CHECK ((status = ANY (ARRAY['draft'::text, 'finalized'::text, 'sent'::text])))"
+  },
+  {
+   "table": "boq_audit_finding",
+   "name": "boq_audit_finding_boq_id_fkey",
+   "def": "FOREIGN KEY (boq_id) REFERENCES boq(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "boq_audit_finding",
+   "name": "boq_audit_finding_boq_line_id_fkey",
+   "def": "FOREIGN KEY (boq_line_id) REFERENCES boq_line(id) ON DELETE SET NULL"
+  },
+  {
+   "table": "boq_audit_finding",
+   "name": "boq_audit_finding_resolved_by_fkey",
+   "def": "FOREIGN KEY (resolved_by) REFERENCES auth.users(id)"
+  },
+  {
+   "table": "boq_audit_run",
+   "name": "boq_audit_run_boq_id_fkey",
+   "def": "FOREIGN KEY (boq_id) REFERENCES boq(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "boq_audit_run",
+   "name": "boq_audit_run_created_by_fkey",
+   "def": "FOREIGN KEY (created_by) REFERENCES auth.users(id)"
+  },
+  {
+   "table": "boq_audit_run",
+   "name": "boq_audit_run_project_id_fkey",
+   "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "boq_document",
+   "name": "boq_document_boq_id_fkey",
+   "def": "FOREIGN KEY (boq_id) REFERENCES boq(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "boq_line",
+   "name": "boq_line_boq_id_fkey",
+   "def": "FOREIGN KEY (boq_id) REFERENCES boq(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "boq_line",
+   "name": "boq_line_pkey",
+   "def": "PRIMARY KEY (id)"
+  },
+  {
+   "table": "boq_line",
+   "name": "boq_line_scope_id_fkey",
+   "def": "FOREIGN KEY (scope_id) REFERENCES project_scope(id) ON DELETE SET NULL"
+  },
+  {
+   "table": "boq_line",
+   "name": "boq_line_source_check",
+   "def": "CHECK ((source = ANY (ARRAY['auto'::text, 'manual'::text])))"
+  },
+  {
+   "table": "boq_line",
+   "name": "boq_line_source_document_id_fkey",
+   "def": "FOREIGN KEY (source_document_id) REFERENCES project_document(id) ON DELETE SET NULL"
+  },
+  {
+   "table": "boq_line",
+   "name": "boq_line_source_revision_id_fkey",
+   "def": "FOREIGN KEY (source_revision_id) REFERENCES document_revision(id) ON DELETE SET NULL"
+  },
+  {
+   "table": "catalog_gaps",
+   "name": "catalog_gaps_project_id_fkey",
+   "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL"
+  },
+  {
+   "table": "contractor_profile",
+   "name": "contractor_profile_created_by_fkey",
+   "def": "FOREIGN KEY (created_by) REFERENCES auth.users(id)"
+  },
+  {
+   "table": "document_folder",
+   "name": "document_folder_project_id_fkey",
+   "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "dsr_item",
+   "name": "dsr_item_pkey",
+   "def": "PRIMARY KEY (id)"
+  },
+  {
+   "table": "dsr_item",
+   "name": "dsr_item_stage_id_fkey",
+   "def": "FOREIGN KEY (stage_id) REFERENCES stage_master(id) ON DELETE SET NULL"
+  },
+  {
+   "table": "followups",
+   "name": "followups_user_id_fkey",
+   "def": "FOREIGN KEY (user_id) REFERENCES auth.users(id)"
+  },
+  {
+   "table": "forecasts",
+   "name": "forecasts_project_id_fkey",
+   "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "lead_edit_history",
+   "name": "lead_edit_history_changed_by_fkey",
+   "def": "FOREIGN KEY (changed_by) REFERENCES auth.users(id)"
+  },
+  {
+   "table": "leads",
+   "name": "leads_assigned_to_fkey",
+   "def": "FOREIGN KEY (assigned_to) REFERENCES auth.users(id)"
+  },
+  {
+   "table": "leads",
+   "name": "leads_owner_id_fkey",
+   "def": "FOREIGN KEY (owner_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "photos",
+   "name": "photos_user_id_fkey",
+   "def": "FOREIGN KEY (user_id) REFERENCES auth.users(id)"
+  },
+  {
+   "table": "profiles",
+   "name": "profiles_id_fkey",
+   "def": "FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "project_alerts",
+   "name": "project_alerts_project_id_fkey",
+   "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "project_document",
+   "name": "project_document_project_id_fkey",
+   "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "project_rooms",
+   "name": "project_rooms_project_id_fkey",
+   "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "project_scope",
+   "name": "project_scope_project_id_fkey",
+   "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "project_share_link",
+   "name": "project_share_link_created_by_fkey",
+   "def": "FOREIGN KEY (created_by) REFERENCES auth.users(id)"
+  },
+  {
+   "table": "project_share_link",
+   "name": "project_share_link_project_id_fkey",
+   "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "project_stages",
+   "name": "project_stages_project_id_fkey",
+   "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "projects",
+   "name": "projects_account_manager_id_fkey",
+   "def": "FOREIGN KEY (account_manager_id) REFERENCES profiles(id)"
+  },
+  {
+   "table": "projects",
+   "name": "projects_current_stage_id_fkey",
+   "def": "FOREIGN KEY (current_stage_id) REFERENCES stage_master(id)"
+  },
+  {
+   "table": "projects",
+   "name": "projects_owner_id_fkey",
+   "def": "FOREIGN KEY (owner_id) REFERENCES auth.users(id)"
+  },
+  {
+   "table": "projects",
+   "name": "projects_pkey",
+   "def": "PRIMARY KEY (id)"
+  },
+  {
+   "table": "projects",
+   "name": "projects_project_type_check",
+   "def": "CHECK ((project_type = ANY (ARRAY['Residential'::text, 'Commercial'::text, 'Retail'::text, 'Office'::text, 'Hospital'::text, 'Other'::text])))"
+  },
+  {
+   "table": "projects",
+   "name": "projects_quality_tier_check",
+   "def": "CHECK ((quality_tier = ANY (ARRAY['economy'::text, 'standard'::text, 'premium'::text])))"
+  },
+  {
+   "table": "projects",
+   "name": "projects_scope_check",
+   "def": "CHECK ((scope = ANY (ARRAY['Civil'::text, 'MEP'::text, 'Finishing'::text, 'Turnkey'::text])))"
+  },
+  {
+   "table": "stage_updates",
+   "name": "stage_updates_created_by_fkey",
+   "def": "FOREIGN KEY (created_by) REFERENCES auth.users(id)"
+  },
+  {
+   "table": "stage_updates",
+   "name": "stage_updates_project_id_fkey",
+   "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "user_roles",
+   "name": "user_roles_user_id_fkey",
+   "def": "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+  },
+  {
+   "table": "whatsapp_messages",
+   "name": "whatsapp_messages_project_id_fkey",
+   "def": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE"
+  }
+ ],
+ "indexes": [
+  {
+   "table": "analysis_review_item",
+   "name": "analysis_review_item_pkey",
+   "def": "CREATE UNIQUE INDEX analysis_review_item_pkey ON public.analysis_review_item USING btree (id)"
+  },
+  {
+   "table": "analysis_review_item",
+   "name": "analysis_review_item_run_idx",
+   "def": "CREATE INDEX analysis_review_item_run_idx ON public.analysis_review_item USING btree (run_id)"
+  },
+  {
+   "table": "boq",
+   "name": "boq_discipline_idx",
+   "def": "CREATE INDEX boq_discipline_idx ON public.boq USING btree (project_id, discipline)"
+  },
+  {
+   "table": "boq",
+   "name": "boq_pkey",
+   "def": "CREATE UNIQUE INDEX boq_pkey ON public.boq USING btree (id)"
+  },
+  {
+   "table": "boq",
+   "name": "boq_project_idx",
+   "def": "CREATE INDEX boq_project_idx ON public.boq USING btree (project_id)"
+  },
+  {
+   "table": "boq",
+   "name": "boq_scope_idx",
+   "def": "CREATE INDEX boq_scope_idx ON public.boq USING btree (scope_id)"
+  },
+  {
+   "table": "boq_line",
+   "name": "boq_line_boq_idx",
+   "def": "CREATE INDEX boq_line_boq_idx ON public.boq_line USING btree (boq_id)"
+  },
+  {
+   "table": "boq_line",
+   "name": "boq_line_external_key_idx",
+   "def": "CREATE INDEX boq_line_external_key_idx ON public.boq_line USING btree (external_key)"
+  },
+  {
+   "table": "boq_line",
+   "name": "boq_line_identity_scoped_idx",
+   "def": "CREATE UNIQUE INDEX boq_line_identity_scoped_idx ON public.boq_line USING btree (boq_id, external_key, scope_id) WHERE ((external_key IS NOT NULL) AND (scope_id IS NOT NULL))"
+  },
+  {
+   "table": "boq_line",
+   "name": "boq_line_identity_unscoped_idx",
+   "def": "CREATE UNIQUE INDEX boq_line_identity_unscoped_idx ON public.boq_line USING btree (boq_id, external_key) WHERE ((external_key IS NOT NULL) AND (scope_id IS NULL))"
+  },
+  {
+   "table": "boq_line",
+   "name": "boq_line_pkey",
+   "def": "CREATE UNIQUE INDEX boq_line_pkey ON public.boq_line USING btree (id)"
+  },
+  {
+   "table": "boq_line",
+   "name": "boq_line_scope_idx",
+   "def": "CREATE INDEX boq_line_scope_idx ON public.boq_line USING btree (scope_id)"
+  },
+  {
+   "table": "dsr_item",
+   "name": "dsr_item_chapter_idx",
+   "def": "CREATE INDEX dsr_item_chapter_idx ON public.dsr_item USING btree (chapter)"
+  },
+  {
+   "table": "dsr_item",
+   "name": "dsr_item_code_idx",
+   "def": "CREATE INDEX dsr_item_code_idx ON public.dsr_item USING btree (code)"
+  },
+  {
+   "table": "dsr_item",
+   "name": "dsr_item_pkey",
+   "def": "CREATE UNIQUE INDEX dsr_item_pkey ON public.dsr_item USING btree (id)"
+  },
+  {
+   "table": "dsr_item",
+   "name": "dsr_item_uq",
+   "def": "CREATE UNIQUE INDEX dsr_item_uq ON public.dsr_item USING btree (source, COALESCE(rate_year, ''::text), code)"
+  },
+  {
+   "table": "projects",
+   "name": "idx_projects_status",
+   "def": "CREATE INDEX idx_projects_status ON public.projects USING btree (status)"
+  },
+  {
+   "table": "projects",
+   "name": "projects_pkey",
+   "def": "CREATE UNIQUE INDEX projects_pkey ON public.projects USING btree (id)"
+  }
+ ],
+ "policies": [
+  {
+   "table": "analysis_review_item",
+   "name": "analysis_review_item owner read",
+   "cmd": "SELECT",
+   "roles": [
+    "public"
+   ],
+   "qual": "(EXISTS ( SELECT 1\n   FROM projects p\n  WHERE ((p.id = analysis_review_item.project_id) AND (p.owner_id = auth.uid()))))",
+   "with_check": null
+  },
+  {
+   "table": "analysis_review_item",
+   "name": "analysis_review_item staff manage",
+   "cmd": "ALL",
+   "roles": [
+    "public"
+   ],
+   "qual": "is_staff(auth.uid())",
+   "with_check": "is_staff(auth.uid())"
+  },
+  {
+   "table": "boq",
+   "name": "boq owner read",
+   "cmd": "SELECT",
+   "roles": [
+    "public"
+   ],
+   "qual": "(EXISTS ( SELECT 1\n   FROM projects p\n  WHERE ((p.id = boq.project_id) AND (p.owner_id = auth.uid()))))",
+   "with_check": null
+  },
+  {
+   "table": "boq",
+   "name": "boq staff manage",
+   "cmd": "ALL",
+   "roles": [
+    "public"
+   ],
+   "qual": "is_staff(auth.uid())",
+   "with_check": "is_staff(auth.uid())"
+  },
+  {
+   "table": "boq_line",
+   "name": "boq_line owner read",
+   "cmd": "SELECT",
+   "roles": [
+    "public"
+   ],
+   "qual": "(EXISTS ( SELECT 1\n   FROM (boq b\n     JOIN projects p ON ((p.id = b.project_id)))\n  WHERE ((b.id = boq_line.boq_id) AND (p.owner_id = auth.uid()))))",
+   "with_check": null
+  },
+  {
+   "table": "boq_line",
+   "name": "boq_line staff manage",
+   "cmd": "ALL",
+   "roles": [
+    "public"
+   ],
+   "qual": "is_staff(auth.uid())",
+   "with_check": "is_staff(auth.uid())"
+  },
+  {
+   "table": "dsr_item",
+   "name": "dsr_item manage",
+   "cmd": "ALL",
+   "roles": [
+    "public"
+   ],
+   "qual": "is_staff(auth.uid())",
+   "with_check": "is_staff(auth.uid())"
+  },
+  {
+   "table": "dsr_item",
+   "name": "dsr_item read",
+   "cmd": "SELECT",
+   "roles": [
+    "public"
+   ],
+   "qual": "(auth.role() = 'authenticated'::text)",
+   "with_check": null
+  },
+  {
+   "table": "projects",
+   "name": "Owner deletes own project",
+   "cmd": "DELETE",
+   "roles": [
+    "public"
+   ],
+   "qual": "(auth.uid() = owner_id)",
+   "with_check": null
+  },
+  {
+   "table": "projects",
+   "name": "Owner inserts own project",
+   "cmd": "INSERT",
+   "roles": [
+    "authenticated"
+   ],
+   "qual": null,
+   "with_check": "(auth.uid() = owner_id)"
+  },
+  {
+   "table": "projects",
+   "name": "Owner views own project",
+   "cmd": "SELECT",
+   "roles": [
+    "public"
+   ],
+   "qual": "(auth.uid() = owner_id)",
+   "with_check": null
+  },
+  {
+   "table": "projects",
+   "name": "Staff manage all projects",
+   "cmd": "ALL",
+   "roles": [
+    "public"
+   ],
+   "qual": "is_staff(auth.uid())",
+   "with_check": "is_staff(auth.uid())"
+  }
+ ],
+ "rls": [
+  {
+   "table": "boq_line",
+   "rls": true,
+   "force": false
+  },
+  {
+   "table": "analysis_review_item",
+   "rls": true,
+   "force": false
+  },
+  {
+   "table": "projects",
+   "rls": true,
+   "force": false
+  },
+  {
+   "table": "boq",
+   "rls": true,
+   "force": false
+  },
+  {
+   "table": "dsr_item",
+   "rls": true,
+   "force": false
+  }
+ ],
+ "triggers": [
+  {
+   "table": "projects",
+   "name": "projects_touch",
+   "def": "CREATE TRIGGER projects_touch BEFORE UPDATE ON public.projects FOR EACH ROW EXECUTE FUNCTION touch_updated_at()"
+  },
+  {
+   "table": "auth.users",
+   "name": "on_auth_user_created",
+   "def": "CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION handle_new_user()"
+  }
+ ],
+ "functions": [
+  {
+   "sig": "is_staff(uuid)",
+   "def": "CREATE OR REPLACE FUNCTION public.is_staff(_user_id uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\n  SELECT EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = _user_id AND role IN ('ops','admin'))\r\n$function$\n"
+  }
+ ],
+ "grants_dsr_item": [
+  {
+   "grantee": "anon",
+   "priv": "DELETE"
+  },
+  {
+   "grantee": "anon",
+   "priv": "INSERT"
+  },
+  {
+   "grantee": "anon",
+   "priv": "REFERENCES"
+  },
+  {
+   "grantee": "anon",
+   "priv": "SELECT"
+  },
+  {
+   "grantee": "anon",
+   "priv": "TRIGGER"
+  },
+  {
+   "grantee": "anon",
+   "priv": "TRUNCATE"
+  },
+  {
+   "grantee": "anon",
+   "priv": "UPDATE"
+  },
+  {
+   "grantee": "authenticated",
+   "priv": "DELETE"
+  },
+  {
+   "grantee": "authenticated",
+   "priv": "INSERT"
+  },
+  {
+   "grantee": "authenticated",
+   "priv": "REFERENCES"
+  },
+  {
+   "grantee": "authenticated",
+   "priv": "SELECT"
+  },
+  {
+   "grantee": "authenticated",
+   "priv": "TRIGGER"
+  },
+  {
+   "grantee": "authenticated",
+   "priv": "TRUNCATE"
+  },
+  {
+   "grantee": "authenticated",
+   "priv": "UPDATE"
+  },
+  {
+   "grantee": "postgres",
+   "priv": "DELETE"
+  },
+  {
+   "grantee": "postgres",
+   "priv": "INSERT"
+  },
+  {
+   "grantee": "postgres",
+   "priv": "REFERENCES"
+  },
+  {
+   "grantee": "postgres",
+   "priv": "SELECT"
+  },
+  {
+   "grantee": "postgres",
+   "priv": "TRIGGER"
+  },
+  {
+   "grantee": "postgres",
+   "priv": "TRUNCATE"
+  },
+  {
+   "grantee": "postgres",
+   "priv": "UPDATE"
+  },
+  {
+   "grantee": "service_role",
+   "priv": "DELETE"
+  },
+  {
+   "grantee": "service_role",
+   "priv": "INSERT"
+  },
+  {
+   "grantee": "service_role",
+   "priv": "REFERENCES"
+  },
+  {
+   "grantee": "service_role",
+   "priv": "SELECT"
+  },
+  {
+   "grantee": "service_role",
+   "priv": "TRIGGER"
+  },
+  {
+   "grantee": "service_role",
+   "priv": "TRUNCATE"
+  },
+  {
+   "grantee": "service_role",
+   "priv": "UPDATE"
+  }
+ ],
+ "change_log_absent": true,
+ "migration_history": [
+  {
+   "name": "c6eabf3e-bb50-4d92-a499-42327777a6ab",
+   "version": "20260517113312",
+   "statements": []
+  },
+  {
+   "name": "763e46a1-761e-418c-9097-ccebe12e580b",
+   "version": "20260517113350",
+   "statements": []
+  },
+  {
+   "name": "df1a293d-2819-4648-aeba-30d4695823d0",
+   "version": "20260517113424",
+   "statements": []
+  },
+  {
+   "name": "e1a5e423-a44e-48e3-868b-a67062a3f06d",
+   "version": "20260517115835",
+   "statements": []
+  },
+  {
+   "name": "31e998ec-d324-4b49-865f-c39d8f54b6af",
+   "version": "20260517121445",
+   "statements": []
+  },
+  {
+   "name": "28376b19-e76b-4538-8e07-b7c5d7a21dde",
+   "version": "20260517141406",
+   "statements": []
+  },
+  {
+   "name": "df7ee091-5156-4b1c-a549-1d8d8cf7381b",
+   "version": "20260517151808",
+   "statements": []
+  },
+  {
+   "name": "8ac6b17e-12e7-4a09-9ef9-d6c90e1e22a3",
+   "version": "20260517153304",
+   "statements": []
+  },
+  {
+   "name": "b9cfef1e-a050-4fee-8a20-b7c5d4dc7253",
+   "version": "20260517153354",
+   "statements": []
+  },
+  {
+   "name": "cc531e6f-633e-41bc-89d0-6d1fcb63af23",
+   "version": "20260517160443",
+   "statements": []
+  },
+  {
+   "name": "ed160cba-1f39-4232-b52c-ca5d231462dc",
+   "version": "20260518023847",
+   "statements": []
+  },
+  {
+   "name": "d3cefa4b-7412-4858-80f4-7d54b4a8eb9f",
+   "version": "20260518024336",
+   "statements": []
+  },
+  {
+   "name": "659af6a3-5e58-4450-be46-48ff6371d302",
+   "version": "20260518035129",
+   "statements": []
+  },
+  {
+   "name": "boq_order_items",
+   "version": "20260729120000",
+   "statements": []
+  },
+  {
+   "name": "project_rooms",
+   "version": "20260730120000",
+   "statements": []
+  },
+  {
+   "name": "boq_template_catalog_gaps",
+   "version": "20260730130000",
+   "statements": []
+  },
+  {
+   "name": "boq_template_seed_more",
+   "version": "20260730140000",
+   "statements": []
+  },
+  {
+   "name": "project_basics",
+   "version": "20260730150000",
+   "statements": []
+  },
+  {
+   "name": "dsr_knowledge_bank",
+   "version": "20260731000000",
+   "statements": []
+  },
+  {
+   "name": "dsr_seed_civil",
+   "version": "20260731001000",
+   "statements": []
+  },
+  {
+   "name": "dar_coefficients",
+   "version": "20260731002000",
+   "statements": []
+  },
+  {
+   "name": "boq_module",
+   "version": "20260803120000",
+   "statements": []
+  },
+  {
+   "name": "boq_discipline",
+   "version": "20260806090000",
+   "statements": []
+  },
+  {
+   "name": "boq_line_cost",
+   "version": "20260807100000",
+   "statements": []
+  },
+  {
+   "name": "contractor_profile",
+   "version": "20260808120000",
+   "statements": []
+  },
+  {
+   "name": "boq_line_basis",
+   "version": "20260810120000",
+   "statements": []
+  },
+  {
+   "name": "boq_line_drawing",
+   "version": "20260811120000",
+   "statements": []
+  },
+  {
+   "name": "project_workspace",
+   "version": "20260901000000",
+   "statements": []
+  },
+  {
+   "name": "scope_taxonomy",
+   "version": "20260910000000",
+   "statements": []
+  },
+  {
+   "name": "boq_audit",
+   "version": "20260915000000",
+   "statements": []
+  },
+  {
+   "name": "ai_security_foundation",
+   "version": "20260916000000",
+   "statements": []
+  },
+  {
+   "name": "boq_analysis_review",
+   "version": "20260917000000",
+   "statements": []
+  },
+  {
+   "name": "drawing_storage",
+   "version": "20260918000000",
+   "statements": []
+  },
+  {
+   "name": "analysis_run_document_mapping",
+   "version": "20260919000000",
+   "statements": []
+  },
+  {
+   "name": "document_page_titles",
+   "version": "20260920000000",
+   "statements": []
+  },
+  {
+   "name": "boq_review_apply",
+   "version": "20260921000000",
+   "statements": []
+  },
+  {
+   "name": "document_folders",
+   "version": "20260922000000",
+   "statements": [
+    "-- DOCUMENT FOLDERS \u2014 user-created organizational containers for project documents.\n--\n-- Cunstruct never prescribes a folder structure (no Architectural/Structural/\n-- Electrical taxonomy baked in). A folder is just a free-named, user-created\n-- container a project owner/staff member can nest arbitrarily deep, mirroring\n-- whatever filing structure they already use outside Cunstruct.\n--\n-- Purely additive: existing project_document rows get folder_id = null\n-- (\"Unfiled\"), and every existing query/pipeline that reads project_document\n-- by id (evidence resolution, analysis, review, apply-to-BOQ) is unaffected \u2014\n-- none of them read folder_id. Storage paths are keyed by document/revision id\n-- already, never by name or folder, so this has zero storage implications.\n\ncreate table if not exists public.document_folder (\n  id          uuid primary key default gen_random_uuid(),\n  project_id  uuid not null references public.projects(id) on delete cascade,\n  -- Self-reference for nesting. on delete cascade: removing a folder removes\n  -- its subfolders too (documents inside are only unfiled, never deleted \u2014\n  -- see project_document.folder_id below).\n  parent_id   uuid references public.document_folder(id) on delete cascade,\n  name        text not null,\n  sort        int not null default 0,\n  created_at  timestamptz not null default now()\n)",
+    "create index if not exists document_folder_project_idx on public.document_folder (project_id)",
+    "create index if not exists document_folder_parent_idx on public.document_folder (parent_id)",
+    "-- Nullable: null = \"Unfiled\" (project root). Deleting a folder never deletes\n-- the documents inside it \u2014 they fall back to Unfiled.\nalter table public.project_document\n  add column if not exists folder_id uuid references public.document_folder(id) on delete set null",
+    "create index if not exists project_document_folder_idx on public.project_document (folder_id)",
+    "-- \u2500\u2500 RLS \u2014 identical shape to project_document's existing policy \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nalter table public.document_folder enable row level security",
+    "do $$\nbegin\n  if not exists (select 1 from pg_policies where schemaname='public' and tablename='document_folder' and policyname='document_folder staff manage') then\n    create policy \"document_folder staff manage\" on public.document_folder for all\n      using (public.is_staff(auth.uid())) with check (public.is_staff(auth.uid()));\n  end if;\n  if not exists (select 1 from pg_policies where schemaname='public' and tablename='document_folder' and policyname='document_folder owner read') then\n    create policy \"document_folder owner read\" on public.document_folder for select\n      using (exists (select 1 from public.projects p where p.id = document_folder.project_id and p.owner_id = auth.uid()));\n  end if;\nend $$"
+   ]
+  },
+  {
+   "name": "ai_analysis_pipeline",
+   "version": "20260923000000",
+   "statements": [
+    "-- AI ANALYSIS PIPELINE \u2014 content-hash identity, contract versioning, and a\n-- DB-enforced claim ledger so a real OpenAI analysis call can never be sent\n-- twice for the same (project, file content, contract, model).\n--\n-- Purely additive. Existing analysis_run/analysis_review_item rows are\n-- unaffected (new columns are nullable / defaulted); the JSON-import path\n-- (createAnalysisRun in reviewStore.ts) keeps working exactly as today \u2014\n-- it simply leaves the new columns null, same as before this migration.\n\n-- \u2500\u2500 1) Content identity on the existing revision row \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n-- SHA-256 of the actual uploaded bytes, computed SERVER-SIDE (by the\n-- ai-analysis edge function, on demand \u2014 never trusted from the client).\n-- Nullable: a revision has no hash until something needs one; JSON-import-only\n-- projects may never compute it at all.\nalter table public.document_revision\n  add column if not exists content_hash text",
+    "create index if not exists document_revision_content_hash_idx on public.document_revision (content_hash)",
+    "-- \u2500\u2500 2) Provenance + billing metadata on the existing run row \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n-- contract_version identifies the exact prompt+schema+extraction-rules version\n-- that produced this run (distinct from schema_version, which is the JSON\n-- shape). Token/cost columns are internal bookkeeping only \u2014 never shown in\n-- the normal reviewer UI; the ops/admin-only panel reads them directly.\nalter table public.analysis_run\n  add column if not exists contract_version text,\n  add column if not exists input_tokens int,\n  add column if not exists output_tokens int,\n  add column if not exists total_tokens int,\n  add column if not exists estimated_cost_usd numeric,\n  add column if not exists actual_cost_usd numeric,\n  add column if not exists cost_currency text not null default 'USD'",
+    "-- \u2500\u2500 3) The source-file ledger + idempotent claim \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n-- One row per (project, file content, contract, provider, model) that was ever\n-- claimed for analysis. This is the SAME row that answers three different\n-- questions, deliberately unified rather than split into three tables:\n--   * \"has this exact file content already been analysed under this exact\n--     contract/model?\" (duplicate/cost protection \u2014 the unique constraint)\n--   * \"is a worker already processing this file right now?\" (concurrency \u2014\n--     PROCESSING blocks a second claim; two tabs / a double-click / a retry\n--     race on the unique constraint and only one wins the insert)\n--   * \"which stored file (document/revision/filename) produced which run?\"\n--     (source provenance for evidence)\n--\n-- Status lifecycle: no row = ELIGIBLE (never claimed). A row is inserted as\n-- PROCESSING (the claim). It becomes SUCCEEDED once the run+review items are\n-- persisted, or FAILED on any error \u2014 FAILED is retryable (a later request\n-- may re-claim it by flipping FAILED -> PROCESSING), SUCCEEDED never is.\ncreate table if not exists public.analysis_run_source (\n  id                          uuid primary key default gen_random_uuid(),\n  project_id                  uuid not null references public.projects(id) on delete cascade,\n  content_hash                text not null,\n  contract_version            text not null,\n  provider                    text not null,\n  model                       text not null,\n  status                      text not null default 'PROCESSING'\n                               check (status in ('PROCESSING','SUCCEEDED','FAILED')),\n  document_id                 uuid references public.project_document(id) on delete set null,\n  document_revision_id        uuid references public.document_revision(id) on delete set null,\n  -- The filename as it was at the moment this claim was made \u2014 kept even if\n  -- the document/revision is later renamed, moved, or deleted, since this\n  -- row is the durable provenance record, not a live pointer.\n  filename_at_time_of_analysis text,\n  analysis_run_id             uuid references public.analysis_run(id) on delete set null,\n  claimed_by                  uuid references auth.users(id),\n  error                       text,\n  claimed_at                  timestamptz not null default now(),\n  completed_at                timestamptz,\n  -- The identity that must never be double-sent to the provider: same\n  -- project + same bytes + same contract + same provider/model = same\n  -- logical analysis request, regardless of filename/folder/document id.\n  unique (project_id, content_hash, contract_version, provider, model)\n)",
+    "create index if not exists analysis_run_source_project_idx on public.analysis_run_source (project_id)",
+    "create index if not exists analysis_run_source_run_idx on public.analysis_run_source (analysis_run_id)",
+    "create index if not exists analysis_run_source_hash_idx on public.analysis_run_source (project_id, content_hash)",
+    "-- \u2500\u2500 RLS \u2014 identical shape to every other project-scoped table \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nalter table public.analysis_run_source enable row level security",
+    "do $$\nbegin\n  if not exists (select 1 from pg_policies where schemaname='public' and tablename='analysis_run_source' and policyname='analysis_run_source staff manage') then\n    create policy \"analysis_run_source staff manage\" on public.analysis_run_source for all\n      using (public.is_staff(auth.uid())) with check (public.is_staff(auth.uid()));\n  end if;\n  if not exists (select 1 from pg_policies where schemaname='public' and tablename='analysis_run_source' and policyname='analysis_run_source owner read') then\n    create policy \"analysis_run_source owner read\" on public.analysis_run_source for select\n      using (exists (select 1 from public.projects p where p.id = analysis_run_source.project_id and p.owner_id = auth.uid()));\n  end if;\nend $$"
+   ]
+  },
+  {
+   "name": "boq_line_scope",
+   "version": "20260924000000",
+   "statements": [
+    "-- BOQ LINE SCOPE \u2014 a per-line override so a bare `external_key` match can be\n-- disambiguated when the same mark code is reused across floors within ONE\n-- consolidated BOQ (e.g. \"W1\" on Stilt, Ground, and a Typical floor). Most\n-- BOQs are already effectively scoped as a whole via boq.scope_id\n-- (20260901000000_project_workspace.sql); this is only for the rarer case\n-- where a single boq_id spans more than one scope and individual lines need\n-- their own.\n--\n-- Purely additive: nullable, no backfill, no constraint. A line with\n-- scope_id = null behaves in applyReview.ts exactly as it does today \u2014 this\n-- column is consulted ONLY when a review item's external_key matches more\n-- than one line in the same BOQ (see classifyReviewItem), which no existing\n-- data triggers until this feature starts writing/reading it.\n--\n-- Deliberately NOT the existing boq_line.drawing jsonb `location` field:\n-- that field is an established display/PDF/Excel value (a room-level string\n-- like \"Living / TV area\", paired with a Works-vs-Equipment `scope`) with\n-- its own meaning already in production use. Reusing it here would silently\n-- overload a display field with an identity meaning it was never designed\n-- to carry. scope_id is a distinct, dedicated column for exactly one job.\n\nalter table public.boq_line\n  add column if not exists scope_id uuid references public.project_scope(id) on delete set null",
+    "create index if not exists boq_line_scope_idx on public.boq_line (scope_id)"
+   ]
+  },
+  {
+   "name": "analysis_mode",
+   "version": "20260925000000",
+   "statements": [
+    "-- ANALYSIS MODE \u2014 plumbing only (Phase 3). Adds `mode` to analysis_run and\n-- analysis_run_source so a run can be tagged BOQ / LOCATION / BOQ_AND_LOCATION\n-- and so the SAME file, under the SAME contract/provider/model, can be\n-- claimed independently once per mode instead of colliding with a run of a\n-- different mode. This migration does not change what any mode actually\n-- extracts (still identical BOQ extraction for all three today) \u2014 see\n-- supabase/functions/_shared/contract.ts.\n--\n-- Purely additive plus one constraint replacement. Existing rows in both\n-- tables get mode = 'BOQ' via the column default \u2014 no backfill statement is\n-- needed (ADD COLUMN ... NOT NULL DEFAULT is a fast, no-rewrite metadata\n-- change in Postgres 11+, and every pre-existing row reads the same literal\n-- default value).\n\nalter table public.analysis_run\n  add column if not exists mode text not null default 'BOQ'\n    check (mode in ('BOQ','LOCATION','BOQ_AND_LOCATION'))",
+    "alter table public.analysis_run_source\n  add column if not exists mode text not null default 'BOQ'\n    check (mode in ('BOQ','LOCATION','BOQ_AND_LOCATION'))",
+    "-- \u2500\u2500 Replace the 5-column uniqueness with a 6-column one that also scopes by\n-- mode. Safety: the existing constraint already guarantees no two current\n-- rows collide on (project_id, content_hash, contract_version, provider,\n-- model); every existing row gets the IDENTICAL new `mode` value ('BOQ') from\n-- the column default above; appending an identical constant to every row of\n-- an already-unique tuple can never create a new collision \u2014 two rows\n-- distinct in the original 5 columns remain distinct in the expanded\n-- 6-tuple. This holds for any existing data, regardless of row count or\n-- content, so no data inspection or backfill is required for correctness.\n--\n-- The existing constraint's name is discovered from Postgres's own catalog\n-- by its exact column set rather than hardcoded \u2014 `unique(...)` was declared\n-- inline in the original migration, so Postgres auto-named it, and that\n-- generated name is not guaranteed here without querying it (and could in\n-- principle be silently truncated to fit the 63-byte identifier limit).\ndo $$\ndeclare\n  old_constraint text;\nbegin\n  -- Column-SET comparison (both sides sorted by attnum), not an exact-array\n  -- match: conkey stores columns in the constraint's DECLARATION order, which\n  -- is not guaranteed to match physical column order, so an unsorted\n  -- comparison could miss the real constraint depending on how it was\n  -- originally written. Sorting both sides makes this robust either way.\n  select con.conname into old_constraint\n  from pg_constraint con\n  join pg_class rel on rel.oid = con.conrelid\n  where rel.relname = 'analysis_run_source'\n    and con.contype = 'u'\n    and (select array_agg(k order by k) from unnest(con.conkey) as k) = (\n      select array_agg(attnum order by attnum)\n      from pg_attribute\n      where attrelid = rel.oid\n        and attname in ('project_id', 'content_hash', 'contract_version', 'provider', 'model')\n    );\n  if old_constraint is not null then\n    execute format('alter table public.analysis_run_source drop constraint %I', old_constraint);\n  end if;\nend $$",
+    "-- If the old constraint wasn't found (e.g. this migration re-runs after the\n-- new one already exists), this simply no-ops via IF NOT EXISTS-equivalent\n-- guard below rather than erroring on a duplicate constraint name.\ndo $$\nbegin\n  if not exists (\n    select 1 from pg_constraint where conname = 'analysis_run_source_identity_key'\n  ) then\n    alter table public.analysis_run_source\n      add constraint analysis_run_source_identity_key\n      unique (project_id, content_hash, contract_version, provider, model, mode);\n  end if;\nend $$"
+   ]
+  },
+  {
+   "name": "analysis_observation",
+   "version": "20260926000000",
+   "statements": [
+    "-- ANALYSIS OBSERVATION \u2014 LOCATION mode's output (Phase 4). Construction-\n-- relevant facts extracted directly from a drawing, independent of any BOQ,\n-- each with exact evidence and exact document/revision provenance. BOQ\n-- matching is explicitly NOT this table's job (Phase 5); there is no\n-- matched_boq_item_key or boq_id column here, and none should be added\n-- without a real join model that can represent zero/one/many matches.\n--\n-- Purely additive: a new table only, no existing table or column touched.\n--\n-- document_id/revision_id are nullable at the DB level ONLY so a later\n-- document/revision deletion can null them out (on delete set null) while\n-- preserving the observation as a historical record \u2014 mirroring the exact\n-- same precedent already established by analysis_run.resolved_document_id\n-- and analysis_run_source.document_id. The application (ai-analysis edge\n-- function) never inserts a row without both populated; see\n-- observationSource.ts's resolveObservationSource(), which pins both from\n-- the SAME claimed-file record so they can never disagree.\n--\n-- document_id IS NULL OR revision_id IS NULL means the pinned source is no\n-- longer resolvable \u2014 a future viewer must treat that as \"source\n-- unavailable\" and must resolve by the exact pinned revision_id, never\n-- silently substitute the document's current revision (see documentResolve.ts's\n-- existing \"never silently substitute a different document\" principle,\n-- extended here to revision granularity).\n\ncreate table if not exists public.analysis_observation (\n  id                     uuid primary key default gen_random_uuid(),\n  run_id                 uuid not null references public.analysis_run(id) on delete cascade,\n  project_id             uuid not null references public.projects(id) on delete cascade,\n  document_id            uuid references public.project_document(id) on delete set null,\n  revision_id            uuid references public.document_revision(id) on delete set null,\n  -- Free text at the DB level (never enforced here \u2014 same convention as\n  -- doc_type/discipline), but bounded in practice: the only writer is\n  -- observationSchemaV1.ts's parser, which only ever accepts a value from\n  -- OBSERVATION_TYPES, and the OpenAI-facing schema constrains it with a\n  -- strict enum before that.\n  observation_type       text not null,\n  mark                   text,\n  scope_hint             text,\n  location_text          text,\n  -- Bounded to {dimension, specification, material} by the parser \u2014 see\n  -- ObservationAttributes in observationSchemaV1.ts. No \"quantity_hint\" or\n  -- any other key: LOCATION mode never asserts a quantity.\n  attributes             jsonb not null default '{}'::jsonb,\n  -- The parsed AnalysisSource shape (documentId, page, evidence[], pageSize?)\n  -- \u2014 the EXACT existing evidence/coordinate contract items already use, not\n  -- a second one. documentId inside this JSON is the model's own (informal)\n  -- claim; document_id/revision_id above are Cunstruct's authoritative,\n  -- validated identity, resolved FROM this field (see observationSource.ts).\n  evidence               jsonb not null,\n  evidence_completeness  text not null default 'FULL'\n                          check (evidence_completeness in ('FULL','PARTIAL','LIMITED')),\n  created_at             timestamptz not null default now()\n)",
+    "create index if not exists analysis_observation_run_idx on public.analysis_observation (run_id)",
+    "create index if not exists analysis_observation_doc_idx on public.analysis_observation (project_id, document_id)",
+    "-- \u2500\u2500 RLS \u2014 mirrors analysis_review_item's exact staff-manage/owner-read pattern \u2500\nalter table public.analysis_observation enable row level security",
+    "do $$\nbegin\n  if not exists (select 1 from pg_policies where schemaname='public' and tablename='analysis_observation' and policyname='analysis_observation staff manage') then\n    create policy \"analysis_observation staff manage\" on public.analysis_observation for all\n      using (public.is_staff(auth.uid())) with check (public.is_staff(auth.uid()));\n  end if;\n  if not exists (select 1 from pg_policies where schemaname='public' and tablename='analysis_observation' and policyname='analysis_observation owner read') then\n    create policy \"analysis_observation owner read\" on public.analysis_observation for select\n      using (exists (select 1 from public.projects p\n        where p.id = analysis_observation.project_id and p.owner_id = auth.uid()));\n  end if;\nend $$"
+   ]
+  },
+  {
+   "name": "boq_line_identity_constraint",
+   "version": "20260929000000",
+   "statements": [
+    "-- BOQ LINE IDENTITY CONSTRAINT \u2014 makes (boq_id, external_key, resolved scope)\n-- a real, database-enforced identity for boq_line rows, closing a race that\n-- let two independent operations both insert a \"new\" line for the exact same\n-- mark: applyReviewPlan's in-memory createdNewLineIdentities Set (added to\n-- stop this within a single call) is recreated fresh on every invocation, so\n-- it cannot see an insert made by a SEPARATE, independent applyReviewPlan()\n-- call \u2014 two reviewers, two tabs, or any apply that ran in between, each\n-- classifying the same review item against a \"no existing line yet\"\n-- snapshot. The result was two boq_line rows for the same identity, silently\n-- doubling the quantity, with the second insert reported as a success.\n--\n-- This mirrors the existing precedent in this codebase for exactly this\n-- class of problem: analysis_run_source's\n-- `unique (project_id, content_hash, contract_version, provider, model)`\n-- (20260923000000_ai_analysis_pipeline.sql) plus insert-then-catch-23505\n-- (supabase/functions/_shared/claiming.ts, ai-analysis/index.ts). The\n-- application side (src/lib/applyFinding.ts) is updated in the same commit\n-- to catch the resulting 23505 here and treat it as a conflict \u2014 never a\n-- fabricated success \u2014 reusing the existing conflictedReviewItemIds/\n-- unresolvedCount mechanism from #133/#134/#135.\n--\n-- \u2500\u2500 NULL semantics \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n-- scope_id is nullable (20260924000000_boq_line_scope.sql): most BOQs are a\n-- single scope as a whole, so most lines are never individually scoped. A\n-- naive `unique (boq_id, external_key, scope_id)` would NOT prevent two\n-- duplicate rows that are BOTH unscoped (scope_id IS NULL) sharing the same\n-- external_key \u2014 Postgres treats NULL as distinct from NULL in a unique\n-- index \u2014 which is exactly the common case this bug reproduces in (a review\n-- item with no location). Two partial unique indexes correctly cover both\n-- cases without inventing a sentinel value for NULL:\n--   1. Scoped rows: unique per (boq_id, external_key, scope_id) whenever a\n--      real scope is set.\n--   2. Unscoped rows: unique per (boq_id, external_key) whenever scope_id is\n--      NULL \u2014 the identity IS the (boq_id, external_key) pair in that case,\n--      matching classifyReviewItem's own single-candidate-matches-\n--      unconditionally-when-unscoped semantics (src/lib/review/applyReview.ts).\n-- A row with external_key IS NULL (e.g. a manually-added BOQ line with no\n-- mark code, or the deterministic template-generated lines that never set\n-- external_key at all) has no identity to protect and is correctly excluded\n-- from both indexes \u2014 any number of such rows may still coexist, exactly as\n-- today. Different external_keys, and the same external_key resolved to\n-- genuinely different scopes, are never constrained against each other by\n-- either index.\n--\n-- Purely additive: no existing column changed or dropped, no data migrated\n-- or deleted, both indexes are IF NOT EXISTS. Deployment note: if any\n-- deployment's boq_line already holds duplicate rows for the same identity\n-- (a preexisting instance of the exact bug this migration closes),\n-- CREATE UNIQUE INDEX will fail until those rows are manually reconciled \u2014\n-- documented here rather than silently deleting or merging data.\n\ncreate unique index if not exists boq_line_identity_scoped_idx\n  on public.boq_line (boq_id, external_key, scope_id)\n  where external_key is not null and scope_id is not null",
+    "create unique index if not exists boq_line_identity_unscoped_idx\n  on public.boq_line (boq_id, external_key)\n  where external_key is not null and scope_id is null"
+   ]
+  },
+  {
+   "name": "project_share_link",
+   "version": "20260930000000",
+   "statements": [
+    "-- PROJECT SHARE LINK \u2014 a public, unauthenticated, read-only link into ONE\n-- project's Workspace view (Sources + drawing canvas + BOQ panel), for an\n-- external reviewer with no Cunstruct login. Nothing in this schema has ever\n-- granted anonymous access before \u2014 every existing table uses exactly the\n-- staff/owner RLS pattern below, with no anon-role policy anywhere. That\n-- pattern is kept unchanged here too: this table's OWN rows are never read\n-- by an anonymous caller. The public read path goes entirely through the\n-- workspace-share Edge Function (service-role key, like whatsapp-webhook),\n-- which validates the token server-side and never exposes this table or any\n-- other directly to the browser. See src/lib/review/shareToken.ts for the\n-- token generation/hashing this table's token_hash column is built from.\n--\n-- Only a SHA-256 hash of the share token is ever stored (token_hash), never\n-- the raw token \u2014 the same discipline as a password-reset token. The raw\n-- token is shown to the staff member who created it exactly once, in the\n-- management UI, and is never retrievable again afterward; losing it means\n-- revoking the link and creating a new one.\n--\n-- Purely additive. `on delete cascade` from projects means deleting a\n-- project cleans up its share links automatically.\n\ncreate table if not exists public.project_share_link (\n  id                uuid primary key default gen_random_uuid(),\n  project_id        uuid not null references public.projects(id) on delete cascade,\n  name              text not null,\n  token_hash        text not null unique,\n  -- Whether the shared BOQ panel includes rate/amount/Subtotal/Grand Total\n  -- figures, or only description/unit/qty. Per-link, not per-project, so a\n  -- staff member can create one priced link and one unpriced link for the\n  -- same project without affecting each other.\n  show_pricing      boolean not null default true,\n  created_by        uuid references auth.users(id),\n  created_at        timestamptz not null default now(),\n  -- null = indefinite. Enforced by the edge function (isLinkActive), not by\n  -- a DB constraint \u2014 the row stays readable to staff after expiry so it\n  -- still shows up (greyed out) in the management list.\n  expires_at        timestamptz,\n  -- null = active. Set once, never cleared \u2014 a revoked link's token is dead\n  -- forever; staff create a new link rather than un-revoking.\n  revoked_at        timestamptz,\n  -- Best-effort bookkeeping only, written by the edge function on a\n  -- successful validation. Never consulted by any access-control check.\n  last_accessed_at  timestamptz\n)",
+    "create index if not exists project_share_link_project_idx on public.project_share_link (project_id)",
+    "-- \u2500\u2500 RLS \u2014 identical shape to every other project-scoped table in this\n-- schema (document_folder, project_document, boq, ...): staff manage\n-- everything, an owner can read their own project's rows. No anon policy \u2014\n-- see the header comment above for why that's deliberate. \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nalter table public.project_share_link enable row level security",
+    "do $$\nbegin\n  if not exists (select 1 from pg_policies where schemaname='public' and tablename='project_share_link' and policyname='project_share_link staff manage') then\n    create policy \"project_share_link staff manage\" on public.project_share_link for all\n      using (public.is_staff(auth.uid())) with check (public.is_staff(auth.uid()));\n  end if;\n  if not exists (select 1 from pg_policies where schemaname='public' and tablename='project_share_link' and policyname='project_share_link owner read') then\n    create policy \"project_share_link owner read\" on public.project_share_link for select\n      using (exists (select 1 from public.projects p where p.id = project_share_link.project_id and p.owner_id = auth.uid()));\n  end if;\nend $$"
+   ]
+  },
+  {
+   "name": "analysis_run_source_boq_scope",
+   "version": "20261001000000",
+   "statements": [
+    "-- ANALYSIS RUN SOURCE \u2014 BOQ-SCOPED CLAIM IDENTITY. Phase A: a single\n-- document (e.g. an architectural floor plan) may legitimately feed MULTIPLE\n-- disciplines' BOQs (Civil, Electrical, Plumbing, ...), each via its own\n-- generateAnalysis({mode:\"BOQ\", boqId}) call. Before this migration, the\n-- claim/dedup identity was (project_id, content_hash, contract_version,\n-- provider, model, mode) \u2014 with NO boq_id component \u2014 so the FIRST BOQ to\n-- claim a shared document's content hash permanently \"won\" it project-wide:\n-- every other BOQ's later call over the identical content+mode saw it as\n-- already analysed and silently got zero items from it. That is the exact\n-- bug this migration fixes for BOQ-mode claims.\n--\n-- LOCATION stays exactly as it was: one call per DISTINCT document, reused by\n-- every BOQ that references it \u2014 never multiplied by how many BOQs a\n-- document feeds. So the new identity is mode-dependent:\n--   BOQ / BOQ_AND_LOCATION:  (project_id, content_hash, contract_version,\n--                             provider, model, mode, boq_id) \u2014 boq_id REQUIRED\n--   LOCATION:                (project_id, content_hash, contract_version,\n--                             provider, model, mode) \u2014 boq_id ignored, exactly\n--                             the pre-migration identity\n--\n-- A single table-wide UNIQUE constraint can't express two different column\n-- sets depending on a row's own `mode` value, so this uses two PARTIAL\n-- unique indexes instead (Postgres has no partial UNIQUE CONSTRAINT syntax,\n-- only partial unique INDEXES, which enforce identically).\n--\n-- Purely additive plus one constraint replacement, same discipline as\n-- 20260925000000_analysis_mode.sql:\n--   - new `boq_id` column is nullable \u2014 every existing row (BOQ or LOCATION)\n--     gets NULL, never backfilled/rewritten.\n--   - Dropping the old 6-column unique constraint and replacing it with two\n--     NARROWER (partial, row-subset) unique indexes can never newly collide:\n--     every row was already guaranteed unique on those exact 6 columns\n--     project-wide; a partial index over a SUBSET of rows on the SAME (or a\n--     superset of) those columns stays unique for the same reason appending\n--     a column to an already-unique tuple never merges two distinct rows\n--     (20260925000000's own reasoning, applied twice here: once for\n--     subsetting by mode, once for appending boq_id).\n--   - The new CHECK constraint is added NOT VALID: it protects every future\n--     INSERT/UPDATE from this point on, but is never validated against\n--     historical rows, so a pre-existing BOQ-mode row with boq_id = NULL\n--     (every row before this migration) stays exactly as it is \u2014 readable,\n--     never rewritten, never flagged.\n\nalter table public.analysis_run_source\n  add column if not exists boq_id uuid references public.boq(id) on delete cascade",
+    "create index if not exists analysis_run_source_boq_idx on public.analysis_run_source (boq_id)",
+    "-- \u2500\u2500 Replace the old project-wide (no boq_id) uniqueness with the two\n-- mode-dependent partial indexes described above. \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\nalter table public.analysis_run_source drop constraint if exists analysis_run_source_identity_key",
+    "do $$\nbegin\n  if not exists (\n    select 1 from pg_indexes\n    where schemaname = 'public' and tablename = 'analysis_run_source'\n      and indexname = 'analysis_run_source_boq_identity_key'\n  ) then\n    create unique index analysis_run_source_boq_identity_key\n      on public.analysis_run_source (project_id, content_hash, contract_version, provider, model, mode, boq_id)\n      where mode in ('BOQ', 'BOQ_AND_LOCATION');\n  end if;\nend $$",
+    "do $$\nbegin\n  if not exists (\n    select 1 from pg_indexes\n    where schemaname = 'public' and tablename = 'analysis_run_source'\n      and indexname = 'analysis_run_source_location_identity_key'\n  ) then\n    create unique index analysis_run_source_location_identity_key\n      on public.analysis_run_source (project_id, content_hash, contract_version, provider, model, mode)\n      where mode = 'LOCATION';\n  end if;\nend $$",
+    "-- \u2500\u2500 Defense in depth: a BOQ/BOQ_AND_LOCATION claim must always carry a real\n-- boq_id \u2014 the application (ai-analysis edge function) is responsible for\n-- rejecting such a request up front when boqId is missing, but this makes\n-- \"never silently fall back to NULL for a BOQ analysis claim\" a DB-enforced\n-- invariant too, for every future row, without requiring historical rows\n-- (which do have boq_id = NULL) to satisfy it retroactively. \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\ndo $$\nbegin\n  if not exists (\n    select 1 from pg_constraint where conname = 'analysis_run_source_boq_mode_requires_boq_id'\n  ) then\n    alter table public.analysis_run_source\n      add constraint analysis_run_source_boq_mode_requires_boq_id\n      check (mode not in ('BOQ', 'BOQ_AND_LOCATION') or boq_id is not null) not valid;\n  end if;\nend $$"
+   ]
+  },
+  {
+   "name": "boq_audit_finding_signal_key",
+   "version": "20261002000000",
+   "statements": [
+    "-- BOQ AUDIT FINDING \u2014 SIGNAL KEY (PR #156). Gives an internal, deterministic\n-- Finding producer (Coverage's generateCoverageSignals()) a way to persist\n-- idempotently into the EXISTING boq_audit_finding table, without touching\n-- the existing pasted-external-audit workflow (auditImport.ts's\n-- importAuditRun()) at all.\n--\n-- boq_audit_finding today has NO identity/dedup mechanism of its own \u2014 every\n-- import is a deliberate human paste, so two imports are always meant to be\n-- two independent sets of rows, even if they happen to repeat a finding\n-- (see auditImport.ts: a plain bulk `.insert()`, no uniqueness anywhere).\n-- That is correct for a human-pasted audit and WRONG for Coverage: the same\n-- deterministic (boq, document, normalized key) gap will be regenerated\n-- every time the user re-runs analysis, reopens the project, or refreshes\n-- readiness, and must resolve to the SAME logical finding every time \u2014 never\n-- a fresh duplicate row, and never silently reopening/resetting a human's\n-- prior Accept/Dismiss/Resolve/Keep-Pending decision on it (that decision\n-- lives entirely on the one row this index lets Coverage find again).\n--\n-- signal_key is nullable and, for every existing/future human-pasted\n-- finding, is simply never set (NULL forever) \u2014 those rows keep today's\n-- exact behavior, no dedup, unconstrained. Only a row that sets a real\n-- signal_key (today: only Coverage, via its own\n-- `coverage\u00a6${boqId}\u00a6${documentId}\u00a6${normalizedKey}` identity \u2014\n-- coverageSignals.ts's CoverageSignal.signalKey, verbatim) is constrained to\n-- be globally unique.\n--\n-- This mirrors the EXACT existing precedent for this problem shape \u2014\n-- 20260929000000_boq_line_identity_constraint.sql's partial unique indexes\n-- on boq_line, paired with insert-then-catch-23505 at the application layer\n-- (src/lib/applyFinding.ts's isBoqLineIdentityConflict) rather than a\n-- Supabase `.upsert()` \u2014 a bulk multi-row insert aborts entirely on a single\n-- conflicting row, and `.upsert({onConflict})` cannot target a PARTIAL\n-- unique index via PostgREST, only a full one (see boq_document's own full,\n-- non-partial `unique(boq_id, document_id)` for the one case that works).\n-- src/lib/auditImport.ts's persistCoverageFindings() therefore inserts one\n-- candidate finding at a time and treats this exact index's 23505 as \"this\n-- signal already has a finding\" \u2014 a no-op, never a fabricated success and\n-- never an overwrite of the existing row's lifecycle state.\n--\n-- Purely additive: one nullable column, one partial index, no existing\n-- column/row touched, no existing constraint altered.\n\nalter table public.boq_audit_finding\n  add column if not exists signal_key text",
+    "create unique index if not exists boq_audit_finding_signal_key_idx\n  on public.boq_audit_finding (signal_key)\n  where signal_key is not null"
+   ]
+  }
+ ],
+ "migration_history_md5": "87f16a526b97dcd3758b86877b313947",
+ "migration_history_count": 45
+}

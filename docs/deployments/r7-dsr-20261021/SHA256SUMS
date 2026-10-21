@@ -1,0 +1,3 @@
+61fe9f16571a12be1b13b92fa49c04237d9578724742b94d69290e06520c6f96  recovery-point-schema-20261021.json
+ddcb3ff37c80423dcb913d1a67d3a24721befb9a6b0bdc678082ae9ca0c991f0  dsr-correction-diff.json
+f52399d7aca4ab83ba790c572816059206d47bbe873f766b897152a5e1450de4  dsr-correction-rollback.sql
