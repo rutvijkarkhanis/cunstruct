@@ -1,7 +1,8 @@
 # BUG B2: BOQ builder quantity, unit, description and cost fields go stale
 
-**Status: FIXED IN CODE on `claude/boq-builder-input-sync` (2026-10-21), stacked on the B1 fix.
-Not merged or deployed; not verified in a real browser (jsdom component tests only).**
+**Status: FIXED IN CODE, merged to `main` via [PR #202](https://github.com/rutvijkarkhanis/cunstruct/pull/202)
+(2026-10-21), after the B1 fix. Verified by jsdom component tests only, not in a real browser.
+Production rollout follows the `main` → Vercel deploy; see the deployment log.**
 Found while following up B1 ([BOQ-BUILDER-STALE-RATE-AFTER-UNDO.md](BOQ-BUILDER-STALE-RATE-AFTER-UNDO.md)).
 
 ## Confirmed defects (each reproduced by a failing test before the fix)
