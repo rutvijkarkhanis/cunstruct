@@ -45,7 +45,7 @@ Statuses below reflect evidence available when this version was written. Re-chec
 | ID | Requirement | Current status and evidence |
 |---|---|---|
 | R1 | Exclude-instead/share-panel core fix | **DONE** — PR #161 merged; prior evidence in v1.0 |
-| R2 | Ready Production deployment of the current `main` commit, with no newer failed deployment | **DONE (§8 evidence, 18 Oct 2026)** — Production deployment `7153607502` of `main` @ `e64cf6c`, status success; newest Production deployment. Re-check against the release commit |
+| R2 | Ready Production deployment of the current `main` commit, with no newer failed deployment | **PARTIALLY VERIFIED (21 Oct 2026)** — GitHub Vercel status for current `main` @ `10c12ff7e49d854a3088e0d512ccb961b84a6f86` reports `Deployment has completed` (success, 08:24:54Z; target `CyAVtovnxpkZjuk1Y32ov8oStvpn`). The Vercel deployment-history query returned 403 for team scope `whistleblower`, so the required newest-deployment/no-newer-failure check is unverified. Do not mark R2 DONE until the owner checks the Production deployment list for this project and confirms this is the latest Production deployment with no newer failure, or grants the existing Vercel connection read access to the team |
 | R3 | Deployed `workspace-share` version/date plus live pending-line share check | **PARKED (owner decision, 20 Oct 2026)**: sharing is not needed now and is set aside completely; it may be picked up later. Not done, and not to be worked on until the owner reopens it |
 | R4 | Separate staging Supabase project and guarded connection | **REPLACED (owner decision, 20 Oct 2026)**: the local Postgres rehearsal (PR #177) stands in for staging; no staging project will be created |
 | R5 | Apply `20260921000000_boq_review_apply.sql` on staging | **REPLACED (owner decision, 20 Oct 2026)**: the migration was applied and re-run in the local rehearsal, PR #177, 17/17 |
@@ -176,3 +176,40 @@ No synthetic score, repository-only check, successful build, or owner walkthroug
 | v1.0 | 17 Oct 2026 | Historical frozen plan | Original closure-sprint release plan |
 | v1.1 | 17 Oct 2026 | Historical plan | Added first-set milestone, a defined D3 study, and a deferrable migration chain |
 | v1.2 | 18 Oct 2026 | Separates an owner-only engineering preview from commercial release; adds I1–I4; keeps real evidence and production-migration gates intact; records current constraints and defers the optional migration chain | The current operating constraints exclude new Supabase projects, external drawing acquisition, outreach and external-source research. This permits material, testable engineering progress without falsely claiming validation or bypassing production safety gates |
+
+
+## 10. Frozen-plan closure snapshot (21 Oct 2026)
+
+### Closure definition
+
+This closure snapshot closes the **owner-only plan accounting** for v1.2 by classifying every scoped item against its stated evidence and recording unresolved work truthfully. It does not mean the commercial-release gate passed, does not authorize production changes, and does not convert partial, synthetic, local, owner-accepted or dropped work into completed evidence. v1.0 and v1.1 remain frozen historical records. No v1.2 commercial gate may be relabelled DONE without the evidence required in its acceptance criterion.
+
+### Counted scope: 21 items (I1–I4, R1–R11, E1a, E1–E5)
+
+| Closure class | Items | Count | Basis |
+|---|---|---:|---|
+| **DONE** | I1–I4, R1, R7, R10 | **7** | Existing v1.2 evidence; I4 evidence applies to preview at `a4afb42`. R7 is applied and post-checked with the documented production smoke-test limits and owner acceptance of local-only V1/V2 coverage. |
+| **ACCEPTED / REPLACED** | R4–R6 | **3** | Owner accepted the local Postgres rehearsal as replacement for staging evidence. This is not staging or production evidence. |
+| **DEFERRED / PARKED** | R3, R8, R9, R11 | **4** | R3 sharing is parked by owner decision. R8–R9–R11 deferred migration chain is out of this preview scope and remains unapproved. |
+| **BLOCKED / INCOMPLETE** | R2, E1a, E1, E2, E3 | **5** | R2 has current-head deployment success, but newest Production deployment ordering is unverified. E1a/E1 lack a qualifying independent drawing set; E2 cannot start without E1; E3 remains partial with unresolved source/encoding items. |
+| **DROPPED BY OWNER DECISION** | E4, E5 | **2** | Removed from this closure path on 20 Oct 2026; neither item is done. |
+| **Total** |  | **21** | **7/21 done** in the strict current evidence count. The earlier 8/21 tally counted R2 against its old `e64cf6c` evidence; it is no longer a valid DONE count after `main` advanced. |
+
+### Remaining plan areas outside the 21-item count
+
+| Area | Closure status |
+|---|---|
+| D1 | DONE; design system implementation merged in PR #164. |
+| D2-commercial | NOT DONE; blocked by E1a and its adjudicated reference. |
+| D3-commercial | DROPPED from the current closure path by owner decision; no study occurred and it is not done. |
+| B1 / B2 | FIXED IN CODE and merged via PRs #201 / #202. jsdom tests passed; real-browser acceptance is absent, and production rollout is not claimed here. These fixes do not constitute B-series commercial acceptance. |
+| Remaining B-series acceptance | NOT CLOSED by this snapshot. No complete B1–B12 commercial acceptance evidence exists. B10 phone surfaces and B12 old-surface removal were dropped from this closure path by owner decision; that is not completion. |
+| P1 external pilot | DROPPED from this closure path by owner decision; no pilot occurred. |
+| Commercial release | **NOT ACHIEVED; gate remains CLOSED.** No signed release decision or live pilot is claimed. |
+| Owner-only preview | I1–I4 complete against the recorded preview criteria/evidence; preview means engineering interaction only. |
+
+### The single owner decision needed to close the plan direction
+
+Choose one path: **(A)** permit use of an existing qualifying drawing set or provide a qualifying set, so E1a can be assessed and the real-drawing evidence lane can resume; or **(B)** accept the owner-only preview as the finished engineering scope and formally freeze commercial release as **not achieved** under this plan. Choosing B closes the plan direction only; it does not close E1a/E1/E2/E3, assert commercial readiness, or open the release gate. Until that choice is recorded, retain the statuses above.
+
+The separate R2 verification action is operational, not a second scope decision: the owner must inspect Vercel Production deployments and confirm no newer failed deployment, or grant the already-connected Vercel integration read access to the existing team. No new credential is needed or requested by this record.
