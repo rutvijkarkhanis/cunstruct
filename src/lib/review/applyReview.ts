@@ -13,7 +13,10 @@
 // specification, and location stay visible in the review workstation but have
 // no destination field on boq_line; writing them into basis_note or the
 // `drawing` jsonb blob would risk overwriting unrelated structured data already
-// on the line, so this never attempts it.
+// on the line, so this never attempts it. (A NEW line's description is the
+// one exception: it is created with the item's name plus the descriptive text
+// the analysis extracted for it — see newLineDescription. Existing lines'
+// descriptions are never touched.)
 //
 // Because those three fields have no destination, a reviewer correction to
 // them must never be reported as "no change" — that would silently discard an
@@ -166,6 +169,43 @@ function effectiveQty(item: StoredReviewItem): number | null {
 const lineQtyDisplay = (line: BoqLineForApply) =>
   quantityState({ qty: line.qty, quantity_status: line.quantity_status, basis: line.basis }) === "pending" ? "pending" : String(line.qty);
 const norm = (s: string | null | undefined) => (s ?? "").trim();
+
+/** Spellings of "a count of discrete items" that mean exactly the same thing.
+ *  "set" and "pair" are not here: they count groups, not single items. */
+const COUNT_UNIT_SPELLINGS = new Set(["no", "no.", "nos", "nos.", "nr", "nr.", "number", "numbers", "each", "ea"]);
+/** The app's one spelling of a single-item count (quantityMethod COUNT,
+ *  measurement LineUnit, tender export). */
+export const CANONICAL_COUNT_UNIT = "nos";
+
+/** A count unit in its one canonical spelling ("nr", "No.", "each" -> "nos");
+ *  every other unit is returned exactly as given (trimmed). Never converts. */
+export function canonicalApplyUnit(unit: string | null | undefined): string | null {
+  const u = norm(unit);
+  if (!u) return null;
+  return COUNT_UNIT_SPELLINGS.has(u.toLowerCase()) ? CANONICAL_COUNT_UNIT : u;
+}
+const sameCountUnit = (a: string | null | undefined, b: string | null | undefined) =>
+  COUNT_UNIT_SPELLINGS.has(norm(a).toLowerCase()) && COUNT_UNIT_SPELLINGS.has(norm(b).toLowerCase());
+
+/**
+ * The description a NEW line is created with: the item's name (usually its
+ * drawing tag, "D3") followed by the descriptive text the analysis itself
+ * extracted for it — `ai.description` when present, else `ai.specification`:
+ * "D3 — Single leaf, solid timber …". The tag is kept for traceability; the
+ * text is used verbatim, never composed or guessed. With no such text, the
+ * name alone, as before. A specification the reviewer CORRECTED is not used
+ * at all: the AI's text would contradict the reviewer, and the correction
+ * itself stays disclosed as "not applied" and kept in the line's history
+ * (unsupportedChangesFor), exactly as before.
+ */
+export function newLineDescription(item: StoredReviewItem): string {
+  const name = norm(item.ai.item);
+  const specCorrected = unsupportedChangesFor(item).some((u) => u.field === "specification");
+  const text = norm(item.ai.description) || (specCorrected ? "" : norm(item.ai.specification));
+  // Nothing to add when the text is the name again, or already part of it.
+  if (!text || name.toLowerCase().includes(text.toLowerCase())) return name;
+  return `${name} — ${text}`;
+}
 
 /**
  * The drawing-source reference to propose for this item, or undefined when
@@ -341,7 +381,10 @@ export function classifyReviewItem(item: StoredReviewItem, lines: BoqLineForAppl
     if (fromQty !== toQty) changes.push({ field: "qty", from: fromQty, to: toQty });
 
     const fromUnit = norm(match.unit);
-    const toUnit = norm(unit);
+    // Two spellings of the same count ("nr" on the line, "nos" reviewed) are
+    // no change — the line keeps its own spelling. A real change is written
+    // in the canonical spelling.
+    const toUnit = sameCountUnit(match.unit, unit) ? fromUnit : norm(canonicalApplyUnit(unit));
     if (fromUnit !== toUnit) changes.push({ field: "unit", from: fromUnit || "—", to: toUnit || "—" });
 
     if (changes.length === 0) {
@@ -383,16 +426,17 @@ export function classifyReviewItem(item: StoredReviewItem, lines: BoqLineForAppl
   // The location is used here (it picks the scope), so it is not reported
   // as a correction the BOQ cannot hold.
   const newLineUnsupported = unsupportedChanges.filter((u) => u.field !== "location");
+  const newUnit = canonicalApplyUnit(unit);
   return {
     ...base,
     classification: "NEW_LINE",
     matchedLineId: null,
     changes: [
       { field: "qty", from: "—", to: qty == null ? "pending" : String(qty) },
-      { field: "unit", from: "—", to: unit ?? "—" },
+      { field: "unit", from: "—", to: newUnit ?? "—" },
     ],
     unsupportedChanges: newLineUnsupported,
-    newLine: { description: item.ai.item, unit, qty: qty ?? 0, pending: qty == null, location: itemLocation || null },
+    newLine: { description: newLineDescription(item), unit: newUnit, qty: qty ?? 0, pending: qty == null, location: itemLocation || null },
     source: sourceToPropose(item, null),
   };
 }
