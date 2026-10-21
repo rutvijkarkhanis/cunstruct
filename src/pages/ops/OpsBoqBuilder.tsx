@@ -142,6 +142,9 @@ function useCountUp(value: number, ms = 450): number {
   return display;
 }
 
+/** What a line field says when the line changed while it was being edited. */
+const LINE_CONFLICT = lineEditMessage({ status: "conflict" })!;
+
 const shortDesc = (l: { dsr_code: string | null; description: string | null }) =>
   (l.description ?? l.dsr_code ?? "Line").slice(0, 30);
 
@@ -149,11 +152,13 @@ const shortDesc = (l: { dsr_code: string | null; description: string | null }) =
  *  `defaultValue` into the field once, on mount; after that a new saved value
  *  (an Undo/Redo, a re-read) changed nothing on screen. This puts the saved
  *  value back whenever it changes, except while the user is typing in the
- *  field. Leaving the field commits only what was typed, together with the
- *  saved value it was typed over, so the caller can guard on that. */
-function SavedValueInput({ saved, onCommit, ...props }: Omit<ComponentProps<typeof Input>, "defaultValue" | "value" | "onFocus" | "onChange" | "onBlur"> & {
+ *  field. Leaving the field commits only what was typed; if the saved value
+ *  changed while it was being typed (a re-read landed), nothing is committed:
+ *  the field shows the saved value and `conflictMessage` is reported. */
+function SavedValueInput({ saved, onCommit, conflictMessage, ...props }: Omit<ComponentProps<typeof Input>, "defaultValue" | "value" | "onFocus" | "onChange" | "onBlur"> & {
   saved: string;
-  onCommit: (input: HTMLInputElement, typedOver: string) => void;
+  onCommit: (input: HTMLInputElement) => void;
+  conflictMessage: string;
 }) {
   const ref = useRef<HTMLInputElement>(null);
   const focused = useRef(false);
@@ -170,7 +175,8 @@ function SavedValueInput({ saved, onCommit, ...props }: Omit<ComponentProps<type
         const over = typedOver.current;
         typedOver.current = null;
         if (over === null) { e.target.value = saved; return; }
-        onCommit(e.target, over);
+        if (over !== saved) { e.target.value = saved; toast.error(conflictMessage); return; }
+        onCommit(e.target);
       }} />
   );
 }
@@ -1385,8 +1391,8 @@ export default function OpsBoqBuilder() {
                             row grid, unchanged. */}
                         <div className="hidden lg:grid grid-cols-[1fr_4.5rem_4.5rem_5rem_auto] items-center gap-2">
                           <span className="truncate text-[13px]"><span className="text-muted-foreground mr-1 font-mono text-[11px]">{itemNo}</span>{l.description}</span>
-                          <Input type="number" className="h-8" placeholder="cost" defaultValue={l.cost ?? ""}
-                            onBlur={(e) => { void saveCost(l, e.target); }} />
+                          <SavedValueInput type="number" className="h-8" placeholder="cost" saved={String(l.cost ?? "")} conflictMessage={LINE_CONFLICT}
+                            onCommit={(input) => { void saveCost(l, input); }} />
                           <span className="text-xs text-muted-foreground text-right tabular-nums">@{inr(rate)}</span>
                           <span className="text-right tabular-nums">{l.cost != null ? inr(lm) : "—"}</span>
                           <span className={cn("text-right tabular-nums text-xs w-12", below ? "text-amber-600 dark:text-amber-500 font-medium" : "text-muted-foreground")}>
@@ -1398,13 +1404,13 @@ export default function OpsBoqBuilder() {
                             (Stage C6 audit: four competing fixed-width
                             columns were squeezing it to near-nothing), cost
                             input and its margin figures move to a second row
-                            below — same Input, same onBlur handler, only the
+                            below — same field, same save handler, only the
                             layout changes. */}
                         <div className="lg:hidden space-y-1 py-1">
                           <span className="text-[13px]"><span className="text-muted-foreground mr-1 font-mono text-[11px]">{itemNo}</span>{l.description}</span>
                           <div className="flex items-center gap-2">
-                            <Input type="number" className="h-8 w-20 shrink-0" placeholder="cost" defaultValue={l.cost ?? ""}
-                              onBlur={(e) => { void saveCost(l, e.target); }} />
+                            <SavedValueInput type="number" className="h-8 w-20 shrink-0" placeholder="cost" saved={String(l.cost ?? "")} conflictMessage={LINE_CONFLICT}
+                              onCommit={(input) => { void saveCost(l, input); }} />
                             <span className="text-xs text-muted-foreground tabular-nums shrink-0">@{inr(rate)}</span>
                             <span className="ml-auto text-right tabular-nums shrink-0">{l.cost != null ? inr(lm) : "—"}</span>
                             <span className={cn("text-right tabular-nums text-xs w-10 shrink-0", below ? "text-amber-600 dark:text-amber-500 font-medium" : "text-muted-foreground")}>
@@ -1608,11 +1614,11 @@ export default function OpsBoqBuilder() {
                             </span>
                           )}
                         </div>
-                        <Input className="h-8 text-[13px] mb-1" defaultValue={l.description ?? ""} placeholder="Item description"
-                          aria-label={`Description of line ${itemNo}`}
+                        <SavedValueInput className="h-8 text-[13px] mb-1" saved={l.description ?? ""} placeholder="Item description"
+                          aria-label={`Description of line ${itemNo}`} conflictMessage={LINE_CONFLICT}
                           onClick={(e) => e.stopPropagation()}
-                          onBlur={async (e) => {
-                            const input = e.target; const v = input.value.trim(); const saved = l.description ?? "";
+                          onCommit={async (input) => {
+                            const v = input.value.trim(); const saved = l.description ?? "";
                             if (!v) { input.value = saved; if (saved) toast.error("Description cannot be empty — not saved."); return; }
                             if (v !== saved && !(await updateLine(l.id, { description: v }))) input.value = saved;
                           }} />
@@ -1628,33 +1634,28 @@ export default function OpsBoqBuilder() {
                           {rate != null ? <> · {inr(rate)}/{l.unit} · <b className="text-foreground">{lineAmountText(l, rate)}</b></> : <> · rate not set</>}
                         </div>
                       </div>
-                      <Input type="number" min={0} className="h-8 hidden sm:block" defaultValue={l.qty}
-                        aria-label={`Quantity for ${l.description || `line ${itemNo}`}`} title={String(l.qty)}
-                        onBlur={async (e) => {
-                          const input = e.target; const raw = input.value.trim();
+                      <SavedValueInput type="number" min={0} className="h-8 hidden sm:block" saved={String(l.qty)}
+                        aria-label={`Quantity for ${l.description || `line ${itemNo}`}`} title={String(l.qty)} conflictMessage={LINE_CONFLICT}
+                        onCommit={async (input) => {
+                          const raw = input.value.trim();
                           if (raw === "") { input.value = String(l.qty); return; }
                           const v = Number(raw);
                           // A negative or unreadable quantity is never saved: put back the saved one and say why.
                           if (!Number.isFinite(v) || v < 0) { input.value = String(l.qty); toast.error(`Quantity must be zero or more — not saved. It is still ${l.qty} ${l.unit ?? ""}.`.trim()); return; }
                           if (v !== l.qty && !(await updateLine(l.id, quantityEdit(l, v)))) input.value = String(l.qty);
                         }} />
-                      <Input className="h-8 hidden sm:block px-1 text-xs" defaultValue={l.unit ?? ""} placeholder="unit"
-                        aria-label={`Unit for ${l.description || `line ${itemNo}`}`}
-                        onBlur={async (e) => {
-                          const input = e.target; const v = input.value.trim(); const saved = l.unit ?? "";
+                      <SavedValueInput className="h-8 hidden sm:block px-1 text-xs" saved={l.unit ?? ""} placeholder="unit"
+                        aria-label={`Unit for ${l.description || `line ${itemNo}`}`} conflictMessage={LINE_CONFLICT}
+                        onCommit={async (input) => {
+                          const v = input.value.trim(); const saved = l.unit ?? "";
                           if (!v) { input.value = saved; if (saved) toast.error("Unit cannot be empty — not saved."); return; }
                           if (v !== saved && !(await updateLine(l.id, unitEditPatch(l, v)))) input.value = saved;
                         }} />
                       <SavedValueInput type="number" min={0} className="h-8 hidden sm:block" saved={String(rate ?? "")} placeholder="rate"
                         aria-label={`Rate for ${l.description || `line ${itemNo}`}`}
                         title={l.custom_rate != null ? "Your rate (overrides DSR)" : "DSR reference rate — edit to set your rate"}
-                        onCommit={(input, typedOver) => {
-                          const v = input.value === "" ? null : Number(input.value);
-                          // The rate changed under the edit (a re-read landed while typing):
-                          // never write over it on the strength of the newer value.
-                          if (typedOver !== String(rate ?? "")) { input.value = String(rate ?? ""); toast.error(manualRateFailureMessage({ status: "conflict" }, v)); return; }
-                          if (v !== rate) requestRateEdit(l, v, input);
-                        }} />
+                        conflictMessage={manualRateFailureMessage({ status: "conflict" }, null)}
+                        onCommit={(input) => { const v = input.value === "" ? null : Number(input.value); if (v !== rate) requestRateEdit(l, v, input); }} />
                       <span className="text-sm tabular-nums text-right hidden sm:block pt-1.5">
                         {lineAmountText(l, rate)}
                       </span>
