@@ -64,7 +64,7 @@ The R8 decision applies to the chain in `supabase/deferred-migrations/` as one u
 |---|---|---|
 | V1 | Production validation of **Apply reviewed item** (runbook §5 row 1). Apply is disabled until a BOQ's review is complete; ZZ-TEST has 65 pending items. Needs a disposable test BOQ whose review is already complete. **Do not** close the gap by changing ZZ-TEST's 65 pending review items | OPEN (follow-up validation): not exercised in production; local-only coverage accepted by the owner for this deployment (21 Oct 2026) |
 | V2 | Production validation of **DSR Accept / Reject / Defer / Undo** and **Use schedule rate** (runbook §5 rows 4 and 5a). ZZ-TEST has no DSR match or suggestion, and the app has no control to create one. Needs a test BOQ with DSR-matched lines and suggestions | OPEN (follow-up validation): not exercised in production; local-only coverage accepted by the owner for this deployment (21 Oct 2026) |
-| B1 | Bug: builder rate input shows the undone value until reload ([docs/bugs/BOQ-BUILDER-STALE-RATE-AFTER-UNDO.md](bugs/BOQ-BUILDER-STALE-RATE-AFTER-UNDO.md)). Display only; data correct | OPEN: not fixed in this deployment |
+| B1 | Bug: builder rate input shows the undone value until reload ([docs/bugs/BOQ-BUILDER-STALE-RATE-AFTER-UNDO.md](bugs/BOQ-BUILDER-STALE-RATE-AFTER-UNDO.md)). Display only; data correct | FIXED IN CODE on the feature branch (21 Oct 2026), separately from R7; not yet merged or deployed |
 | M1 | `20260910000000_scope_taxonomy` recorded in migration history but its tables are absent ([deployment-log.md](deployment-log.md), 21 Oct 2026). Separate decision, backup and approval | OPEN: not applied |
 | — | R8 (deferred commercial-migration chain) | Unchanged: separate decision, see R8/R9/R11 above |
 
