@@ -117,3 +117,31 @@ instead of full backup." Scope, recovery point, rehearsed rollback and residual 
   - The builder requests 4 deferred-chain tables, which return 404 as expected while R8 is
     undecided.
 - **Still separate:** `20260910000000_scope_taxonomy` (see the previous entry). Not applied.
+
+## 2026-10-21 — R7 + DSR deployment closed (documentation only)
+
+**R7: APPLIED AND POST-CHECKED — PRODUCTION SMOKE TESTS PARTIAL.** Closed on evidence commit
+`040d036`. No production write, migration change or DSR change was made after that commit.
+
+- **Passed in production and reversed** with the app's own Undo, on ZZ-TEST:
+  - External Door rate set, then undone
+  - line removed, then restored with Undo
+  - line excluded, then restored
+  - two-tab stale edit refused, then the first edit undone
+- **Not exercised in production:**
+  - Apply reviewed item
+  - DSR Accept / Reject / Defer / Use schedule rate
+  - Both passed local automated/rehearsal coverage only (PGlite rehearsal 17/17). This is not
+    production evidence.
+- **Full unit suite:** 3,207/3,207 passed.
+- **Not every runbook §5 test passed in production.** R7 is not marked DONE.
+- **Follow-ups** (plan of record v1.2 §3), each separate:
+  - V1: production validation of Apply. Needs a test BOQ whose review is already complete; not
+    to be done by changing ZZ-TEST's 65 pending review items.
+  - V2: production validation of DSR decisions and Use schedule rate.
+  - B1: bug, rate input shows the undone value until reload
+    ([bugs/BOQ-BUILDER-STALE-RATE-AFTER-UNDO.md](bugs/BOQ-BUILDER-STALE-RATE-AFTER-UNDO.md)).
+  - M1: `scope_taxonomy` history/schema mismatch.
+  - R8: the deferred migration chain.
+- **Credentials:** revoking `SUPABASE_ACCESS_TOKEN` and removing it from the cloud environment is
+  the operator's action. It is not recorded here as done.
