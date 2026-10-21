@@ -1,6 +1,6 @@
 # BUG: BOQ builder rate input shows the undone value until reload
 
-**Status: FIXED IN CODE on `claude/gifted-lamport-geu7ff` (2026-10-21), separately from the R7 + DSR deployment. Not yet merged or deployed; not verified in a real browser.**
+**Status: FIXED IN CODE, merged to `main` via [PR #201](https://github.com/rutvijkarkhanis/cunstruct/pull/201) (2026-10-21), separately from the R7 + DSR deployment. Verified by jsdom component tests only, not in a real browser. Production rollout follows the `main` → Vercel deploy; see the deployment log.**
 Severity: display only. The saved data is correct; the risk is a user believing the undone rate
 still applies.
 
