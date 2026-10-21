@@ -145,3 +145,19 @@ instead of full backup." Scope, recovery point, rehearsed rollback and residual 
   - R8: the deferred migration chain.
 - **Credentials:** revoking `SUPABASE_ACCESS_TOKEN` and removing it from the cloud environment is
   the operator's action. It is not recorded here as done.
+
+## 2026-10-21 — R7 DONE on owner acceptance of local-only coverage for V1/V2 (documentation only)
+
+Owner decision, 2026-10-21 (verbatim): "I formally accept the local-only test coverage for V1 and
+V2 for this deployment, with the explicit understanding that these paths were not exercised in
+production."
+
+- **R7 status:** DONE — PRODUCTION APPLIED AND POST-CHECKED; V1/V2 ACCEPTED WITH LOCAL-ONLY COVERAGE.
+- **The evidence is unchanged.** The production smoke-test suite was partial (see the closure entry
+  above). Apply reviewed item and DSR Accept/Reject/Defer/Use schedule rate were **not**
+  exercised in production; they have local automated/rehearsal coverage only.
+- **V1 and V2 stay open** as follow-up validation work. No ZZ-TEST or production data was changed
+  to close them.
+- **B1, M1 and R8** are unchanged and separate.
+- **No production write** was made by this update.
+- **`SUPABASE_ACCESS_TOKEN` revocation** remains an operator action. It is not verified here.
