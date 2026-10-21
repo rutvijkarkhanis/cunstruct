@@ -1,0 +1,44 @@
+{
+ "table": "boq_line_change_log",
+ "rls": true,
+ "columns": [
+  "id uuid NO default gen_random_uuid()",
+  "boq_id uuid NO",
+  "boq_line_id uuid YES",
+  "review_item_id uuid YES",
+  "field text NO",
+  "old_value text YES",
+  "new_value text YES",
+  "changed_by uuid YES",
+  "changed_at timestamp with time zone NO default now()"
+ ],
+ "constraints": [
+  "boq_line_change_log_boq_id_fkey: FOREIGN KEY (boq_id) REFERENCES boq(id) ON DELETE CASCADE",
+  "boq_line_change_log_boq_line_id_fkey: FOREIGN KEY (boq_line_id) REFERENCES boq_line(id) ON DELETE SET NULL",
+  "boq_line_change_log_changed_by_fkey: FOREIGN KEY (changed_by) REFERENCES auth.users(id)",
+  "boq_line_change_log_pkey: PRIMARY KEY (id)",
+  "boq_line_change_log_review_item_id_fkey: FOREIGN KEY (review_item_id) REFERENCES analysis_review_item(id) ON DELETE SET NULL"
+ ],
+ "policies": [
+  {
+   "name": "boq_line_change_log owner read",
+   "cmd": "SELECT",
+   "qual": "(EXISTS ( SELECT 1\n   FROM (boq b\n     JOIN projects p ON ((p.id = b.project_id)))\n  WHERE ((b.id = boq_line_change_log.boq_id) AND (p.owner_id = auth.uid()))))",
+   "check": null
+  },
+  {
+   "name": "boq_line_change_log staff manage",
+   "cmd": "ALL",
+   "qual": "is_staff(auth.uid())",
+   "check": "is_staff(auth.uid())"
+  }
+ ],
+ "indexes": [
+  "boq_line_change_log_boq_idx",
+  "boq_line_change_log_line_idx",
+  "boq_line_change_log_pkey"
+ ],
+ "rows": 0,
+ "history_count": 45,
+ "history_md5": "87f16a526b97dcd3758b86877b313947"
+}

@@ -84,3 +84,36 @@ block R7 (the R7 file does not reference `scope_module*`) or the DSR correction 
 `dsr_item`). It needs its own decision: confirm whether the app reads `scope_module` /
 `scope_module_suggestion` at runtime, then — after a backup and owner approval — apply the file
 unchanged (it also inserts seed rows). Do not edit migration history for it.
+
+## 2026-10-21 — R7 applied; DSR 2023 correction applied (owner-approved override of the full-backup gate)
+
+Owner override (verbatim): "Override approved for R7 + DSR 2026-10-21: targeted recovery point
+instead of full backup." Scope, recovery point, rehearsed rollback and residual risk:
+[deployments/r7-dsr-20261021/](deployments/r7-dsr-20261021/README.md). Not a full backup.
+
+- **Preflight (06:00Z):** every check matched the investigated state above. Live `dsr_item` and the
+  four checksummed tables still equalled the recovery point.
+- **R7:** `20260921000000_boq_review_apply.sql` (SHA-256 `b9fb9500…ddb53`) applied unchanged in one
+  transaction, `lock_timeout 5s`, 06:01:35Z. All runbook §4 post-checks pass
+  (`deployments/r7-dsr-20261021/r7-postcheck-20261021.json`).
+- **Migration-history reconciliation:** no history row was inserted, deleted or edited. The
+  existing `20260921000000` row (baselined on 2026-09-16 without the table) now matches the
+  schema. History: 45 rows, md5 `87f16a526b97dcd3758b86877b313947` before and after.
+- **DSR correction:** `proposed-dsr-correction.sql` (SHA-256 `ce4f1bbc…dc338e`) run unchanged at
+  06:02:02Z. 2,758 → 3,121 rows; exactly the 19 reviewed rows changed; the 363 inserts equal the
+  file. Before/after files and checksums: `benchmarks/e3/snapshots/`.
+- **Unrelated tables:** `projects`, `boq`, `boq_line`, `dsr_coefficient` count and md5 identical
+  before, after the changes, and after the smoke tests.
+- **Smoke (ZZ-TEST only):**
+  - Passed, each reversed with the app's Undo and each with history rows: manual rate, remove
+    then undo, exclude then undo, and the two-tab conflict (the stale tab is refused).
+  - Not exercisable on ZZ-TEST: Apply (blocked until the review is complete) and the DSR
+    decision / schedule-rate paths (no matches or suggestions).
+  - ZZ-TEST was left byte-identical to its before image. The 12 history rows the tests wrote
+    are kept as the record.
+- **Observed, not fixed:**
+  - The builder's rate input keeps showing the undone value until reload, because it is an
+    uncontrolled `defaultValue`. The database value is correct.
+  - The builder requests 4 deferred-chain tables, which return 404 as expected while R8 is
+    undecided.
+- **Still separate:** `20260910000000_scope_taxonomy` (see the previous entry). Not applied.

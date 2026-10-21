@@ -1,0 +1,29 @@
+{
+  "taken_at": "2026-10-21T06:02Z (after DSR correction, before smoke tests)",
+  "dsr_item": {
+    "count": 3121,
+    "canonical_md5": "2998bde3d44a76b68492abf9fdd1312a"
+  },
+  "tables": {
+    "projects": {
+      "count": 11,
+      "md5": "4deee12abe9232e16ab2f8dc0f335cbe"
+    },
+    "boq": {
+      "count": 27,
+      "md5": "2a836f658e50741c1c17037ca4dcaae1"
+    },
+    "boq_line": {
+      "count": 1111,
+      "md5": "4190873884d47410d76af259607f74ea"
+    },
+    "dsr_coefficient": {
+      "count": 8930,
+      "md5": "967969ec4010c0e806c079a81c2f715a"
+    }
+  },
+  "migration_history": {
+    "count": 45,
+    "md5": "87f16a526b97dcd3758b86877b313947"
+  }
+}

@@ -1,6 +1,6 @@
 # R7 + DSR correction — targeted recovery point and backup-gate override (2026-10-21)
 
-**Status: proposed. Requires the owner's explicit written approval before any production write.**
+**Status: APPROVED by the owner (verbatim approval in ../../deployment-log.md, 2026-10-21) and EXECUTED 2026-10-21T06:01–06:02Z.** Rollback files were not used.
 Scope: this deployment only — migration `20260921000000_boq_review_apply.sql` and
 `docs/benchmarks/e3/proposed-dsr-correction.sql`. It does not change the standing rule in
 [R7 runbook §1](../../R7-PRODUCTION-MIGRATION-RUNBOOK.md) or
