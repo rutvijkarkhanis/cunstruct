@@ -299,7 +299,7 @@ export default function MyProjectOrder() {
           </div>
           {rooms.length === 0 && (
             <p className="text-sm text-muted-foreground py-2">
-              Add your rooms to calculate accurate quantities — or hit <span className="text-foreground font-medium">Suggest</span> to
+              Add your rooms to estimate quantities (a draft to check before ordering) — or hit <span className="text-foreground font-medium">Suggest</span> to
               auto-build them from your Project basics.
             </p>
           )}
