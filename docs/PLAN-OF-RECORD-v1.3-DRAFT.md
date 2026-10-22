@@ -40,13 +40,13 @@
 | L1 | The current `main` is the newest Production deployment, with no newer failure (= v1.2 R2) | Owner's check of the Vercel Production list, or Vercel read access | **OPEN**: GitHub shows a completed Vercel deployment for `10c12ff`; the Production list is unverified (403) |
 | L2 | Change history is live in production (= v1.2 R7) | v1.2 §8, 21 Oct 2026 | **DONE** |
 | L3 | Every export and the on-screen BOQ total say that quantities and rates are unvalidated drafts for a qualified person to check, in addition to the existing pending / "To be priced" markings | Code reference plus a test per export format | **OPEN**: exports already mark pending and unpriced items; there is no general "unvalidated draft" statement |
-| L4 | No UI, export or marketing copy claims accuracy, validation, IS 1200 compliance or official rates | Copy audit listing every hit and its fix | **OPEN**: not audited |
-| L5 | No AI quantity is auto-accepted (v1.2 standing rule 2) | Test or code reference showing every AI quantity needs a human decision | **OPEN**: not re-verified for this gate |
+| L4 | No UI, export or marketing copy claims accuracy, validation, IS 1200 compliance or official rates | Copy audit listing every hit and its fix | **FIX IN REVIEW** (22 Oct): audit of `src/pages`, `src/components`, `src/lib`, `index.html` and `public/` found one claim, "calculate accurate quantities" (`MyProjectOrder.tsx:302`), fixed in PR #205 (not merged). Other hits make no such claim: the internal Ops forecast-accuracy metric, "exact" snapshot copies, and "certified" in flag-off preview fixtures. Marketing copy outside this repository is not covered |
+| L5 | No AI quantity is auto-accepted (v1.2 standing rule 2) | Test or code reference showing every AI quantity needs a human decision | **MET by code and tests (22 Oct, LOCAL)**: AI items are always created `PENDING_REVIEW` (`reviewQueue.ts` `buildReviewItems`, also used by the `ai-analysis` function); the only other writer of `review_status` is the human review action (`reviewStore.ts`); Apply refuses anything not VERIFIED/EDITED (`applyReview.ts` `classifyReviewItem`). No bulk or auto-verify path found. Review tests 90/90 |
 | L6 | Each invited user accepts terms stating the draft nature of outputs and who is responsible for checking them | Owner-approved terms text (legal adviser) plus a record of acceptance | **OPEN**: owner and legal action |
 | L7 | Rollback and support: a known previous Production deployment to roll back to; the launch adds no database migration; a named contact for incidents | Short runbook naming them | **OPEN** |
 | L8 | Owner's signed limited-launch decision (§6) | Verbatim signature below | **OPEN** |
 
-L3–L5 and L7 are repository and engineering work that can start now. L1, L6 and L8 are owner
+L3 and L7 are the remaining repository and engineering work; L4 waits on PR #205 and L5 is met. L1, L6 and L8 are owner
 actions.
 
 ## 4. The evidence lane continues in parallel (option A)
