@@ -837,10 +837,11 @@ export default function OpsBoqBuilder() {
 
   const exportExcel = async () => {
     // A download needs no pop-up, so it is built from a fresh read.
-    let fresh: BoqLine[];
-    try { fresh = await fetchLinesNow(); } catch { toast.error("Could not re-read the BOQ lines, so nothing was exported. Try again."); return; }
+    let fresh: BoqLine[]; let freshSpec: Spec;
+    try { [fresh, freshSpec] = await Promise.all([fetchLinesNow(), fetchSpecStrict()]); } catch { toast.error("Could not re-read the BOQ lines, so nothing was exported. Try again."); return; }
     if (linesChanged(lines, fresh)) refetchLines();
-    const csv = liveCsv({ boqName: boq!.name, projectName: project?.name, generatedOn: gen(), subheads: workingSubheads(groupSubheads(fresh)), unresolvedReviewCount });
+    const csv = liveCsv({ boqName: boq!.name, projectName: project?.name, generatedOn: gen(), subheads: workingSubheads(groupSubheads(fresh)), unresolvedReviewCount,
+      commercials: commercialsOf(fresh, freshSpec) });
     if (!csv) return toast.error("Nothing to export yet");
     downloadCsv(`${liveFileStem(boq!.name)}_BOQ.csv`, csv);
   };

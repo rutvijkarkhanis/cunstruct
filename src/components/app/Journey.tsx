@@ -60,9 +60,9 @@ export function StageAction({ stage, primary }: { stage: JourneyStage; primary?:
 }
 
 /** Stages A–E for one BOQ, each with what it is for, where it stands and one action. */
-export function QuantityStages({ stages, nextKey }: { stages: JourneyStage[]; nextKey: string | null }) {
+export function QuantityStages({ stages, nextKey, label = "Quantity BOQ stages" }: { stages: JourneyStage[]; nextKey: string | null; label?: string }) {
   return (
-    <ol aria-label="Quantity BOQ stages" className="divide-y">
+    <ol aria-label={label} className="divide-y">
       {stages.map((s, i) => (
         <li key={s.key} className="py-3 flex flex-wrap items-start gap-3" aria-current={s.key === nextKey ? "step" : undefined}>
           <span className="mt-0.5"><StatusIcon status={s.status} /></span>

@@ -621,7 +621,11 @@ export const csvCell = (v: unknown) => {
 
 export function buildBoqCsv(
   rows: CsvRow[],
-  meta: { boqName: string; project?: string | null; generatedOn: string; unresolvedReviewCount?: number | null },
+  meta: {
+    boqName: string; project?: string | null; generatedOn: string; unresolvedReviewCount?: number | null;
+    /** The commercial abstract the priced PDF shows (same computation); its grand total is stated under the lines. */
+    commercials?: Pick<QuoteCommercials, "works" | "grandTotal"> | null;
+  },
   pending?: { spec: string; unit: string; code?: string | null; note?: string; sourceDocument?: string | null; sourcePage?: string | null; basis?: string | null }[],
 ): string {
   const HEADER_LINE = 4;
@@ -644,6 +648,20 @@ export function buildBoqCsv(
       r.sourceDocument ?? "", r.sourceDocument ? (r.sourcePage ?? "") : "", r.basis ?? "", csvRateBasis(r),
     ].map(csvCell).join(","));
   });
+  // Totals under the lines, as the priced PDF's abstract computes them (same
+  // commercials), stated at the rates when exported. Single-cell rows like the
+  // section titles, so a reader of the table rows (lib/e2e/pipeline) skips them.
+  if (rows.length && meta.commercials) {
+    const unpriced = rows.filter((r) => r.rate == null).length;
+    const pendingCount = pending?.length ?? 0;
+    const partial = unpriced > 0 || pendingCount > 0;
+    const rs = (n: number) => "₹" + Math.round(n).toLocaleString("en-IN");
+    const notIn = [unpriced ? `${unpriced} item${unpriced === 1 ? "" : "s"} without a rate` : "", pendingCount ? `${pendingCount} with a pending quantity` : ""].filter(Boolean).join(" and ");
+    lines.push("",
+      csvCell(`Cost of works (priced items): ${rs(meta.commercials.works)}${partial ? ` — currently priced scope only; ${notIn} not included` : ""}`),
+      csvCell(`${partial ? "Grand total of currently priced scope only" : "Grand total"}, with contingency, overheads, cess and GST as in the priced PDF abstract: ${rs(meta.commercials.grandTotal)}`),
+      csvCell(`These totals are at the rates when exported. The Amount column recalculates if you change "Your rate"; these totals do not.`));
+  }
   // Identified-but-unquantified drawing requirements — listed with a blank Qty
   // (never a fabricated 0) so nothing the drawing identified is dropped, and none
   // of these is priced.

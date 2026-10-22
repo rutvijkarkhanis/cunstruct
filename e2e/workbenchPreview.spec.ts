@@ -1038,6 +1038,11 @@ test.describe("workbench preview build (flag on, fake project, :8081)", () => {
     await findLine(page, desc);
     await page.getByRole("button", { name: new RegExp(`^Show change history for ${escapeRe(desc.slice(0, 30))}`) }).click();
     await expect(page.getByRole("region", { name: /^Change history for / })).toContainText("Line created");
+    // The applied quantity is what the export carries, with its review basis.
+    await section(page, "export");
+    const csv = await exportedCsv(page);
+    const row = csv.rowBy(desc.slice(0, 100));
+    expect(row?.qty).toBe(String(added[0].qty));
     // Apply never started an analysis, and only the expected tables were written.
     expect(new Set(env.mock.writes.map((w) => `${w.method} ${w.table}`))).toEqual(new Set(["PATCH analysis_review_item", "POST boq_line", "POST boq_line_change_log"]));
     afterEachCheck(env);
@@ -1524,6 +1529,60 @@ test.describe("workbench preview build (flag on, fake project, :8081)", () => {
     await expect(page.getByText("Not renamed: this BOQ was renamed or changed elsewhere since it was loaded. The current name is now shown.")).toBeVisible();
     expect(boqRow().name).toBe("Renamed by someone else");
     await expect(boqPicker(page).locator("option:checked")).toHaveText("Renamed by someone else");
+    afterEachCheck(env);
+  });
+
+  test("pilot path: the stages include rates; each Check blocker opens its own field; the export states the totals the documents carry", async ({ page }) => {
+    const unpricedId = LINE_ID(8); // own rate 1500, no DSR rate: cleared below, so it has no rate
+    const env = await setUp(page, buildPhase2Fixtures, (f) => {
+      (f.boq_line as Row[]).forEach((l) => { if (l.id === unpricedId) l.custom_rate = null; });
+    });
+    const unpriced = env.fixtures.boq_line.find((l) => l.id === unpricedId)!;
+    const pending = env.fixtures.boq_line.find((l) => l.quantity_status === "PENDING" && l.included)!;
+    const name = (l: { description: unknown }) => String(l.description).slice(0, 40);
+
+    // Overview: the workbench's stages include Rates & costing, from the saved lines.
+    await page.goto(`/app/projects/${PROJECT_ID}/workbench/overview?boq=${BOQ_ID}`);
+    const stages = page.getByRole("list", { name: "BOQ stages" });
+    await expect(stages.getByRole("listitem").filter({ hasText: "Rates & costing" })).toContainText("1 line with a quantity still has no rate.");
+
+    // Check names the line without a rate; its link opens that line's rate editor.
+    await section(page, "check");
+    const noRate = page.getByRole("list", { name: "Lines without a rate" });
+    await noRate.getByRole("link", { name: new RegExp(`^Enter rate for ${escapeRe(name(unpriced))}`) }).click();
+    await expect(page).toHaveURL(new RegExp(`/workbench/boq\\?boq=${BOQ_ID}&line=${escapeRe(unpricedId)}&field=rate$`));
+    const rateInput = page.getByRole("textbox", { name: new RegExp(`^Rate for ${escapeRe(name(unpriced))}`) });
+    await expect(rateInput).toBeFocused();
+    await rateInput.fill("900");
+    await rateInput.press("Enter");
+    await expect.poll(() => env.mock.tables.boq_line.find((l) => l.id === unpricedId)!.custom_rate).toBe(900);
+
+    // Back in Check the rate blocker is gone; the pending quantity opens its quantity editor.
+    await section(page, "check");
+    await expect(page.getByRole("list", { name: "Lines waiting for a quantity" })).toBeVisible();
+    await expect(page.getByRole("list", { name: "Lines without a rate" })).toHaveCount(0);
+    await page.getByRole("list", { name: "Lines waiting for a quantity" }).getByRole("link", { name: new RegExp(`^Enter quantity for ${escapeRe(name(pending))}`) }).click();
+    const qtyInput = page.getByRole("textbox", { name: new RegExp(`^Quantity for ${escapeRe(name(pending))}`) });
+    await expect(qtyInput).toBeFocused();
+    await qtyInput.fill("7");
+    await qtyInput.press("Enter");
+    await expect.poll(() => env.mock.tables.boq_line.find((l) => l.id === pending.id)!.qty).toBe(7);
+    await section(page, "check");
+    await expect(page.getByRole("list", { name: "Lines waiting for a quantity" })).toHaveCount(0);
+
+    // Export: the pre-issue grand total is the commercials' grand total, and the CSV and PDF carry the same figure.
+    await section(page, "export");
+    await expect(page.getByTestId("export-issue-state")).toContainText("not an issued revision: nothing is frozen");
+    const summaryTotal = (await page.getByTestId("export-grand-total").textContent())!.trim();
+    await expect(page.locator("section[aria-labelledby=wb-commercials]").getByTestId("grand-total")).toHaveText(summaryTotal);
+    const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: /Excel \(CSV\)/ }).click()]);
+    const csvText = fs.readFileSync(await download.path(), "utf8");
+    expect(csvText).toContain("(working estimate, not frozen)");
+    expect(csvText).toContain(`as in the priced PDF abstract: ${summaryTotal}`);
+    const [pdf] = await Promise.all([page.waitForEvent("popup"), page.getByRole("button", { name: "PDF (priced)" }).click()]);
+    await expect(pdf.locator("body")).toContainText("(working estimate, not frozen)");
+    await expect(pdf.locator("tr.grand")).toContainText(summaryTotal);
+    await pdf.close();
     afterEachCheck(env);
   });
 

@@ -156,3 +156,43 @@ describe("return paths", () => {
     expect(journeyBoqFrom("/app/projects/p1/review?boq=b1", "b1")).toBe("/app/projects/p1/boq?boq=b1");
   });
 });
+
+describe("journeyStages — with rates entered on the BOQ (pricing)", () => {
+  it("adds a Rates & costing stage after the BOQ; without pricing the stages are unchanged", () => {
+    expect(journeyStages(input({ pricing: true })).map((s) => s.key)).toEqual(["drawings", "review", "boq", "rates", "checks", "export"]);
+    expect(journeyStages(input()).map((s) => s.key)).toEqual(["drawings", "review", "boq", "checks", "export"]);
+    expect(STAGE_STEP.rates).toBe("boq");
+  });
+
+  it("a missing rate is open — in Rates and in Check — and links to the lines without a rate", () => {
+    const k = byKey(input({ pricing: true, totals: T({ unpriced: 2, complete: 1 }) }));
+    const unpriced = "/app/projects/p1/boq?boq=b1&status=unpriced";
+    expect(k.rates.status).toBe("attention");
+    expect(k.rates.summary).toBe("2 lines with a quantity still have no rate.");
+    expect(k.rates.action).toEqual({ label: "Show lines without a rate", to: unpriced });
+    expect(k.checks.status).toBe("attention");
+    expect(k.checks.open).toContainEqual({ text: "2 lines without a rate", to: unpriced });
+    expect(k.checks.detail.map((d) => d.text).join()).not.toMatch(/Pricing phase/);
+    expect(nextStage(journeyStages(input({ pricing: true, totals: T({ unpriced: 2, complete: 1 }) })))!.key).toBe("rates");
+  });
+
+  it("all priced: Rates is done and leads to the commercials; a pending quantity keeps it from being done", () => {
+    const done = byKey(input({ pricing: true }));
+    expect(done.rates.status).toBe("done");
+    expect(done.rates.summary).toBe("All 3 included lines are priced.");
+    expect(done.rates.action).toEqual({ label: "Commercials and totals", to: "/app/projects/p1/export?boq=b1" });
+    expect(byKey(input({ pricing: true, totals: T({ pending: 1, complete: 2 }) })).rates.status).toBe("todo");
+  });
+
+  it("no lines or no BOQ: Rates has not started and offers nothing to do", () => {
+    expect(byKey(input({ pricing: true, lineCount: 0, totals: T({ complete: 0 }) })).rates).toMatchObject({ status: "not_started", action: null });
+    expect(byKey(input({ pricing: true, boqId: null, totals: null, review: null })).rates).toMatchObject({ status: "not_started", action: null });
+  });
+});
+
+describe("boqFilterPath — one line's editor", () => {
+  it("opens a line with its quantity or rate editor; a field without a line is ignored", () => {
+    expect(boqFilterPath("p1", "b1", { line: "l 1", field: "rate" })).toBe("/app/projects/p1/boq?boq=b1&line=l+1&field=rate");
+    expect(boqFilterPath("p1", "b1", { field: "qty" })).toBe("/app/projects/p1/boq?boq=b1");
+  });
+});

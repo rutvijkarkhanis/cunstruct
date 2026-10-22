@@ -16,7 +16,7 @@ import { loadReviewState, useBoqJourney } from "@/components/app/useBoqJourney";
 import { QuantityStages, StageAction } from "@/components/app/Journey";
 import BoqPicker from "@/components/app/BoqPicker";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useStepLink } from "@/components/app/useStepLink";
+import { useInWorkbench, useStepLink } from "@/components/app/useStepLink";
 import { Button } from "@/components/ui/button";
 
 const LINE_COLS = "boq_id, qty, quantity_status, basis, dsr_rate, custom_rate, included, source_document_id";
@@ -51,10 +51,12 @@ function Stat({ label, value, tone }: { label: string; value: number | string; t
 export default function ProjectOverview() {
   const { projectId, project } = useProjectShell();
   const step = useStepLink();
+  // In the workbench rates are entered on the BOQ, so the journey includes them.
+  const pricing = useInWorkbench();
   const drawingsQ = useQuery({ queryKey: ["boq-drawings", projectId], queryFn: () => loadProjectDrawings(projectId) });
   const boqsQ = useProjectBoqs(projectId);
   const sel = useSelectedBoq(projectId);
-  const journey = useBoqJourney(projectId, sel.selected?.id ?? null, (boqsQ.data ?? []).length > 0);
+  const journey = useBoqJourney(projectId, sel.selected?.id ?? null, (boqsQ.data ?? []).length > 0, pricing);
   const boqIds = (boqsQ.data ?? []).map((b) => b.id);
   const linesQ = useQuery({
     queryKey: ["app-overview-lines", projectId, boqIds],
@@ -105,12 +107,12 @@ export default function ProjectOverview() {
           <section aria-labelledby="ov-progress" className="rounded-md border bg-card p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 id="ov-progress" className="text-sm font-semibold inline-flex items-center gap-1.5">
-                <RouteIcon className="h-4 w-4" aria-hidden="true" />Quantity BOQ progress{sel.selected ? ` — ${sel.selected.name}` : ""}
+                <RouteIcon className="h-4 w-4" aria-hidden="true" />{pricing ? "BOQ progress" : "Quantity BOQ progress"}{sel.selected ? ` — ${sel.selected.name}` : ""}
               </h2>
               {sel.selected && sel.boqs.length > 1 && <BoqPicker boqs={sel.boqs} value={sel.selected.id} onChange={sel.select} />}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">From saved drawings, review decisions and BOQ lines. Rates are not required here — they belong to the Pricing phase.</p>
-            <QuantityStages stages={journey.stages} nextKey={next?.key ?? null} />
+            <p className="text-xs text-muted-foreground mt-1">From saved drawings, review decisions and BOQ lines{pricing ? ", including their rates" : ". Rates are not required here — they belong to the Pricing phase"}.</p>
+            <QuantityStages stages={journey.stages} nextKey={next?.key ?? null} label={pricing ? "BOQ stages" : undefined} />
           </section>
 
           <section aria-labelledby="ov-project" className="rounded-md border bg-card p-4">

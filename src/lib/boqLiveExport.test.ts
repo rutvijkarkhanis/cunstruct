@@ -64,3 +64,47 @@ describe("liveQuotePayload / liveCsv", () => {
     expect(subheads[0].rows[0].source).toEqual({ sourceDocument: "GF Plan", sourcePage: "2", sourceDocumentId: "d1" });
   });
 });
+
+describe("working-BOQ exports say what they are, and the CSV states the PDF's totals", () => {
+  const lines = [L({ id: "a" }), L({ id: "b", dsr_code: null, description: "Own item", dsr_rate: null, custom_rate: 50, qty: 4 })];
+  const subheads = workingSubheadsFrom(groupSubheads(lines), noSource);
+  const c = commercialsFor(1200, {}, 1000);
+
+  it("dates a working export as a working estimate, never as a frozen revision", () => {
+    const p = liveQuotePayload({ boqName: "B", context: quoteContextFor(null, {}), generatedOn: "1 Jan 2026", blankRates: false, subheads, commercials: c, unresolvedReviewCount: 0 })!;
+    expect(p.generatedOn).toBe("1 Jan 2026 (working estimate, not frozen)");
+    const csv = liveCsv({ boqName: "B", projectName: "P", generatedOn: "1 Jan 2026", subheads, unresolvedReviewCount: 0 })!;
+    expect(csv.split("\r\n")[1]).toContain("1 Jan 2026 (working estimate, not frozen)");
+  });
+
+  it("states the cost of works and grand total under the lines, computed as for the PDF", () => {
+    const csv = liveCsv({ boqName: "B", projectName: "P", generatedOn: "1 Jan 2026", subheads, unresolvedReviewCount: 0, commercials: c })!;
+    const rows = csv.split("\r\n");
+    const works = rows.find((r) => r.includes("Cost of works (priced items)"))!;
+    expect(works).toBe(`"Cost of works (priced items): ₹${Math.round(c.works).toLocaleString("en-IN")}"`);
+    const grand = rows.find((r) => r.includes("Grand total"))!;
+    expect(grand).toContain(`: ₹${Math.round(c.grandTotal).toLocaleString("en-IN")}`);
+    expect(grand).not.toContain("currently priced scope only");
+  });
+
+  it("says when the totals cover only the priced scope", () => {
+    const partial = workingSubheadsFrom(groupSubheads([...lines, L({ id: "c", dsr_code: null, description: "No rate yet", dsr_rate: null, qty: 2 }), L({ id: "d", qty: 0 })]), noSource);
+    const csv = liveCsv({ boqName: "B", projectName: "P", generatedOn: "1 Jan 2026", subheads: partial, unresolvedReviewCount: 0, commercials: c })!;
+    expect(csv).toContain("currently priced scope only; 1 item without a rate and 1 with a pending quantity not included");
+    expect(csv).toContain("Grand total of currently priced scope only");
+  });
+
+  it("totals are single-cell rows, which readers of the line table skip (as they do section titles)", () => {
+    const csv = liveCsv({ boqName: "B", projectName: "P", generatedOn: "1 Jan 2026", subheads, unresolvedReviewCount: 0, commercials: c })!;
+    const header = csv.split("\r\n").findIndex((r) => r.startsWith("Sub-head,"));
+    const after = csv.split("\r\n").slice(header + 1);
+    const tableRows = after.filter((r) => r !== "" && !r.startsWith('"'));
+    expect(tableRows).toHaveLength(2); // exactly the two line rows
+    for (const r of after.filter((x) => x.startsWith('"'))) expect(r.endsWith('"')).toBe(true);
+  });
+
+  it("without commercials, no totals are stated (nothing is guessed)", () => {
+    const csv = liveCsv({ boqName: "B", projectName: "P", generatedOn: "1 Jan 2026", subheads, unresolvedReviewCount: 0 })!;
+    expect(csv).not.toContain("Grand total");
+  });
+});

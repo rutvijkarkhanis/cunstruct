@@ -57,10 +57,11 @@ type RateSave = (line: BoqTableLine, rate: number | null) => Promise<boolean>;
 
 /** One editable cell. Enter or leaving the field saves; Escape cancels and
  *  never saves — including the blur that follows the editor closing. */
-function EditableCell({ line, field, display, align, onSave, onRateSave, disabled, placeholder }: {
+function EditableCell({ line, field, display, align, onSave, onRateSave, disabled, placeholder, autoStart }: {
   line: BoqTableLine; field: CellField; display: string; align?: "right";
   onSave: (line: BoqTableLine, patch: Partial<BoqTableLine>) => Promise<boolean>; disabled?: boolean;
   /** Required for field "rate". */ onRateSave?: RateSave; placeholder?: string;
+  /** Open the editor once on mount (a link to this line's field, e.g. from Check). */ autoStart?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -96,6 +97,12 @@ function EditableCell({ line, field, display, align, onSave, onRateSave, disable
     setEditing(true);
   };
   const close = () => { closed.current = true; restoreFocus.current = true; setEditing(false); };
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (autoStart && !disabled && !autoStarted.current) { autoStarted.current = true; start(); }
+    // start() reads the line as rendered now; it runs once, on the first render that allows it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart, disabled]);
   const cancel = () => close();
   const commit = async () => {
     if (closed.current || inFlight.current) return;
@@ -167,8 +174,11 @@ function EditableCell({ line, field, display, align, onSave, onRateSave, disable
 
 const RATE_SOURCE_LABEL = { own: "own rate", dsr: "DSR rate", none: "no rate" } as const;
 
-export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHref, initialStatus = "", initialQuery = "", evidenceOf, regionHref, onRateSave: rateSaveProp, showHistory: showHistoryProp, onRemove: removeProp }: {
+export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHref, initialStatus = "", initialQuery = "", evidenceOf, regionHref, onRateSave: rateSaveProp, showHistory: showHistoryProp, onRemove: removeProp, focus }: {
   lines: BoqTableLine[];
+  /** A line to bring into view, marked, with its quantity or rate editor open
+   *  (when that field is editable here) — e.g. a link from Check. */
+  focus?: { lineId: string; field: "qty" | "rate" | null } | null;
   /** Row actions (workbench): exclude/include through `onSave`, and remove (the caller confirms and writes). */
   onRemove?: (l: BoqTableLine) => void;
   /** Rates editable in the table (audited write, see the header). Absent: read-only, edited in the builder. */
@@ -211,6 +221,9 @@ export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHr
     [lines, filters, sort, sourceOf],
   );
   const filtered = filters.q.trim() !== "" || filters.section !== "" || filters.status !== "";
+  const focusMissing = !!focus && !lines.some((l) => l.id === focus.lineId);
+  const focusRow = useRef<HTMLTableRowElement>(null);
+  useEffect(() => { focusRow.current?.scrollIntoView?.({ block: "center" }); }, [focus?.lineId]);
 
   const toggleSort = (key: SortKey) =>
     setSort((s) => (s.key !== key ? { key, dir: "asc" } : s.dir === "asc" ? { key, dir: "desc" } : DEFAULT_SORT));
@@ -246,6 +259,9 @@ export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHr
         </p>
       </div>
 
+      {focusMissing && (
+        <p role="note" className="text-sm text-muted-foreground">The line in this link is no longer in this BOQ (it may have been removed). The current lines are shown.</p>
+      )}
       {/* Focusable, named scroll region so the table can be scrolled
           sideways by keyboard at phone width; `relative` keeps the
           visually-hidden caption inside it. */}
@@ -296,7 +312,8 @@ export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHr
               const ev = evidenceOf?.(l) ?? null;
               return (
                 <Fragment key={l.id}>
-                <tr className={cn(st === "excluded" && "text-muted-foreground")}>
+                <tr ref={focus?.lineId === l.id ? focusRow : undefined} data-focused={focus?.lineId === l.id ? "" : undefined}
+                  className={cn(st === "excluded" && "text-muted-foreground", focus?.lineId === l.id && "bg-amber-50 dark:bg-amber-950/40")}>
                   <td className="px-3 py-2 whitespace-nowrap">{sectionLabel(l.section)}</td>
                   <td className="px-3 py-2 whitespace-nowrap font-mono text-xs">{l.dsr_code ?? "—"}</td>
                   <td className="px-3 py-2 min-w-[14rem]">
@@ -304,7 +321,7 @@ export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHr
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
                     <EditableCell line={l} field="qty" align="right" onSave={onSave} disabled={disabled}
-                      display={qtyDisplay(l)} />
+                      display={qtyDisplay(l)} autoStart={focus?.lineId === l.id && focus.field === "qty"} />
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     <EditableCell line={l} field="unit" display={l.unit || "—"} onSave={onSave} disabled={disabled} />
@@ -314,7 +331,8 @@ export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHr
                       <>
                         <EditableCell line={l} field="rate" align="right" onSave={onSave} onRateSave={onRateSave} disabled={disabled}
                           display={rate != null ? inr(rate) : "—"}
-                          placeholder={l.dsr_rate != null ? `DSR ${inr(l.dsr_rate)}` : "No DSR rate"} />
+                          placeholder={l.dsr_rate != null ? `DSR ${inr(l.dsr_rate)}` : "No DSR rate"}
+                          autoStart={focus?.lineId === l.id && focus.field === "rate"} />
                         <span className={cn("block text-xs", rateSource(l) === "none" ? "text-orange-800 dark:text-orange-300" : "text-muted-foreground")}>{RATE_SOURCE_LABEL[rateSource(l)]}</span>
                       </>
                     ) : (

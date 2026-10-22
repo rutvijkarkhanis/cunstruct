@@ -26,7 +26,7 @@ import type { Spec } from "@/lib/boqSpec";
 import { useBoqRevisions, REVISIONS_UNAVAILABLE_MESSAGE } from "@/hooks/useBoqRevisions";
 import { appBoqLinesKey, loadAppBoqLines } from "@/lib/app/boqLines";
 import { PDF_REREAD_FAILED_MESSAGE, linesChanged } from "@/lib/exportFreshness";
-import { basisNotice, boqTotals, incompleteWarning } from "@/lib/app/boqTable";
+import { basisNotice, boqTotals, incompleteWarning, lineStatus, type BoqTableLine } from "@/lib/app/boqTable";
 import { revisionLabel } from "@/lib/app/labels";
 import { ASSUMPTION_SEARCH, UNKNOWN_BASIS_SEARCH, boqFilterPath, builderPath, journeyPath, manageBoqsPath } from "@/lib/app/journey";
 import { useProjectShell } from "@/components/app/projectShellContext";
@@ -43,6 +43,34 @@ const WorkbenchRevisions = WORKBENCH_PREVIEW_ENABLED ? lazy(() => import("@/comp
 const WorkbenchRemovedEvidence = WORKBENCH_PREVIEW_ENABLED ? lazy(() => import("@/components/app/WorkbenchRemovedEvidence")) : null;
 
 const inr = (n: number) => "₹" + Math.round(n).toLocaleString("en-IN");
+/** How many open lines of one kind Check lists by name before linking to the filtered BOQ. */
+const BLOCKER_LIST_MAX = 10;
+
+/** Open lines of one kind, each linked to its own editor in the BOQ. */
+function BlockerList({ title, lines, field, action, hrefFor, allHref }: {
+  title: string; lines: BoqTableLine[]; field: "qty" | "rate"; action: string;
+  hrefFor: (l: BoqTableLine, field: "qty" | "rate") => string; allHref: string;
+}) {
+  if (!lines.length) return null;
+  const shown = lines.slice(0, BLOCKER_LIST_MAX);
+  return (
+    <div>
+      <h4 className="text-sm font-medium">{title} ({lines.length})</h4>
+      <ul aria-label={title} className="text-sm divide-y">
+        {shown.map((l) => {
+          const name = l.description || l.dsr_code || "Line without a description";
+          return (
+            <li key={l.id} className="py-1 flex flex-wrap items-baseline justify-between gap-x-3">
+              <span className="min-w-0 break-words">{name}{l.unit ? <span className="text-muted-foreground"> · {l.unit}</span> : null}</span>
+              <Link className="underline shrink-0" to={hrefFor(l, field)} aria-label={`${action} for ${name}`}>{action}</Link>
+            </li>
+          );
+        })}
+      </ul>
+      {lines.length > shown.length && <Link className="text-sm underline" to={allHref}>Show all {lines.length}</Link>}
+    </div>
+  );
+}
 const day = (iso: string) => new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 
 export default function ProjectExport({ mode = "export" }: { mode?: "check" | "export" }) {
@@ -51,6 +79,8 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
   const here = `${pathname}${search}`;
   const step = useStepLink();
   const inWorkbench = useInWorkbench();
+  // In the workbench rates are entered on the BOQ, so a missing rate is an open item there.
+  const pricing = inWorkbench;
   const sel = useSelectedBoq(projectId);
   const qc = useQueryClient();
   const boqId = sel.selected?.id ?? null;
@@ -121,8 +151,9 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
     let fresh: typeof lines;
     try { fresh = await loadAppBoqLines(boqId!); } catch { toast.error("Could not re-read the BOQ lines, so nothing was exported. Try again."); return; }
     if (linesChanged(lines, fresh)) linesQ.refetch();
-    const { subheads, generatedOn } = build(fresh);
-    const csv = liveCsv({ boqName: boqQ.data!.name, projectName: project.name, generatedOn, subheads, unresolvedReviewCount: unresolved });
+    const { spec, subheads, generatedOn } = build(fresh);
+    const csv = liveCsv({ boqName: boqQ.data!.name, projectName: project.name, generatedOn, subheads, unresolvedReviewCount: unresolved,
+      commercials: commercialsFor(includedTotal(fresh), spec, includedDsrTotal(fresh)) });
     if (!csv) return toast.error("Nothing to export yet");
     downloadCsv(`${liveFileStem(boqQ.data!.name)}_BOQ.csv`, csv);
   };
@@ -156,7 +187,11 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
     : { to: builderHref, label: "Add rates in the BOQ builder" };
   // Open for the Quantity phase: pending quantities or review items left out.
   // A missing rate alone is Pricing — stated, linked, but not "open" here.
-  const quantityOpen = totals.pending > 0 || unresolved > 0;
+  const quantityOpen = totals.pending > 0 || unresolved > 0 || (pricing && totals.unpriced > 0);
+  const pendingLines = lines.filter((l) => lineStatus(l) === "pending");
+  const unpricedLines = lines.filter((l) => lineStatus(l) === "unpriced");
+  const lineHref = (l: BoqTableLine, field: "qty" | "rate") => step(boqFilterPath(projectId, boqId0, { line: l.id, field }));
+  const commercials = boqQ.data ? commercialsFor(includedTotal(lines), (boqQ.data.spec ?? {}) as Spec, includedDsrTotal(lines)) : null;
   const failed = boqQ.isError || linesQ.isError || reviewQ.isError || drawingsQ.isError;
 
   const header = (
@@ -211,7 +246,8 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
                 <div className="flex gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
                   <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
                   <div className="space-y-1">
-                    {warning && <p>{warning}</p>}
+                    {/* Its unpriced-only wording ("rates belong to the Pricing phase") does not apply where rates are entered here. */}
+                    {warning && !(pricing && !totals.pending) && <p>{warning}</p>}
                     {unresolved > 0 && <p>{unresolved} drawing review item{unresolved === 1 ? " is" : "s are"} not verified or corrected, so {unresolved === 1 ? "it is" : "they are"} not in this BOQ.</p>}
                     <p>You can still export: the documents state these, and nothing is hidden.</p>
                     <p className="flex flex-wrap gap-x-4">
@@ -219,17 +255,28 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
                       {unresolved > 0 && <Link className="underline" to={step(journeyPath(projectId, "review", boqId0))}>Review quantities</Link>}
                       {totals.unpriced > 0 && <Link className="underline" to={rateFix.to}>{rateFix.label}</Link>}
                     </p>
+                    {pricing && !totals.pending && totals.unpriced > 0 && <p>{totals.unpriced} line{totals.unpriced === 1 ? " has" : "s have"} a quantity but no rate, so {totals.unpriced === 1 ? "it is" : "they are"} not in the priced total.</p>}
                   </div>
                 </div>
               ) : (
                 <>
-                  <p className="text-sm">No pending quantities and no review items left out of the BOQ.</p>
-                  {totals.unpriced > 0 && (
+                  <p className="text-sm">{pricing ? "No pending quantities, no lines without a rate and no review items left out of the BOQ." : "No pending quantities and no review items left out of the BOQ."}</p>
+                  {!pricing && totals.unpriced > 0 && (
                     <p className="text-sm text-muted-foreground">
                       {warning} <Link className="underline" to={rateFix.to}>{rateFix.label}</Link>
                     </p>
                   )}
                 </>
+              )}
+              {(pendingLines.length > 0 || (pricing && unpricedLines.length > 0)) && (
+                <div className="space-y-3">
+                  <BlockerList title="Lines waiting for a quantity" lines={pendingLines} field="qty" action="Enter quantity" hrefFor={lineHref}
+                    allHref={step(boqFilterPath(projectId, boqId0, { status: "pending" }))} />
+                  {pricing && (
+                    <BlockerList title="Lines without a rate" lines={unpricedLines} field="rate" action="Enter rate" hrefFor={lineHref}
+                      allHref={step(boqFilterPath(projectId, boqId0, { status: "unpriced" }))} />
+                  )}
+                </div>
               )}
               {basis && (
                 <p className="text-sm text-muted-foreground">
@@ -267,7 +314,21 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
               <div><dt className="inline text-muted-foreground">Quantity pending: </dt><dd className="inline">{totals.pending}</dd></div>
               <div><dt className="inline text-muted-foreground">No rate: </dt><dd className="inline">{totals.unpriced}</dd></div>
               <div><dt className="inline text-muted-foreground">Review items not finished: </dt><dd className="inline">{unresolved}</dd></div>
+              <div><dt className="inline text-muted-foreground">Excluded: </dt><dd className="inline">{totals.excluded}</dd></div>
             </dl>
+            {commercials && lines.length > 0 && (
+              <dl aria-label="Totals the documents will show" className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+                <div><dt className="inline text-muted-foreground">Cost of works (priced lines): </dt><dd className="inline tabular-nums">{inr(commercials.works)}</dd></div>
+                <div>
+                  <dt className="inline text-muted-foreground">{totals.unpriced > 0 || totals.pending > 0 ? "Grand total of currently priced scope only: " : "Grand total: "}</dt>
+                  <dd className="inline font-medium tabular-nums" data-testid="export-grand-total">{inr(commercials.grandTotal)}</dd>
+                </div>
+              </dl>
+            )}
+            <p className="text-sm text-muted-foreground" data-testid="export-issue-state">
+              These documents are a working estimate of the BOQ as saved now. They are not an issued revision: nothing is frozen, and the BOQ stays editable
+              {boqQ.data?.status === "finalized" ? " (its Finalized status is internal and does not freeze it)" : ""}. Only a frozen revision is a fixed, issued copy.
+            </p>
             {basis && <p className="text-sm text-muted-foreground">{basis} Each exported line states its quantity basis.</p>}
             {quantityOpen && (
               <p role="note" className="flex gap-2 text-sm text-amber-900 dark:text-amber-100">

@@ -66,6 +66,12 @@ export default function ProjectBoq({ historyScope = "page" }: { historyScope?: "
   const [params] = useSearchParams();
   const initialStatus = statusParam(params.get("status"));
   const initialQuery = (params.get("q") ?? "").slice(0, 100);
+  // ?line= (and ?field=qty|rate): open on that line, e.g. from a Check blocker.
+  const focusLine = params.get("line");
+  const focusField = params.get("field");
+  const focus = useMemo((): { lineId: string; field: "qty" | "rate" | null } | null => (
+    focusLine ? { lineId: focusLine, field: focusField === "qty" ? "qty" : focusField === "rate" ? "rate" : null } : null
+  ), [focusLine, focusField]);
   const { pathname, search } = useLocation();
   const here = `${pathname}${search}`;
   const qc = useQueryClient();
@@ -444,7 +450,7 @@ export default function ProjectBoq({ historyScope = "page" }: { historyScope?: "
               nextSort={lines.reduce((m, l) => Math.max(m, l.sort ?? 0), 0) + 1} onAdd={addLine} /></Suspense>
           )}
           {/* Keyed on the arriving filter so a "Show …" link applies it. */}
-          <BoqTable key={`${sel.selected.id}:${initialStatus}:${initialQuery}`} lines={lines} sourceOf={sourceOf} onSave={save} disabled={undoing} rateEditHref={builderHref} initialStatus={initialStatus} initialQuery={initialQuery}
+          <BoqTable key={`${sel.selected.id}:${initialStatus}:${initialQuery}:${focusLine ?? ""}:${focusField ?? ""}`} focus={focus} lines={lines} sourceOf={sourceOf} onSave={save} disabled={undoing} rateEditHref={builderHref} initialStatus={initialStatus} initialQuery={initialQuery}
             evidenceOf={evidenceOf} regionHref={regionHref}
             onRateSave={rateEditing ? saveRate : undefined} showHistory={rateEditing}
             onRemove={rateEditing ? setPendingRemove : undefined} />

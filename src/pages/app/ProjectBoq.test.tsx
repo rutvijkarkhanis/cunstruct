@@ -195,6 +195,22 @@ describe("ProjectBoq", () => {
   });
 });
 
+describe("ProjectBoq — a link to one line (e.g. from Check)", () => {
+  it("opens with that line's quantity editor focused", async () => {
+    renderPage("/x?boq=b1&line=l2&field=qty");
+    const input = await screen.findByRole("textbox", { name: "Quantity for Plaster" });
+    await waitFor(() => expect(input).toHaveFocus());
+    expect(input.closest("tr")).toHaveAttribute("data-focused");
+  });
+
+  it("says so when the linked line is no longer in the BOQ, and shows the lines", async () => {
+    renderPage("/x?boq=b1&line=gone&field=qty");
+    expect(await screen.findByText(/The line in this link is no longer in this BOQ/)).toBeInTheDocument();
+    expect(screen.getByText("Brick wall")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /^Quantity for/ })).toBeNull();
+  });
+});
+
 describe("ProjectBoq — guarded, recorded quantity edits", () => {
   it("records the edit in the line's history when the history table exists", async () => {
     historyTableMissing = false;

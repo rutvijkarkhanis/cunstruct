@@ -172,6 +172,39 @@ describe("ProjectExport — current BOQ", () => {
   });
 });
 
+describe("ProjectExport — blockers by line, and the pre-issue summary", () => {
+  it("Check names each line waiting for a quantity, each linked to that line's quantity editor", async () => {
+    renderPage("check");
+    const list = await screen.findByRole("list", { name: "Lines waiting for a quantity" });
+    const link = within(list).getByRole("link", { name: "Enter quantity for Plaster" });
+    expect(link).toHaveAttribute("href", "/app/projects/p1/boq?boq=b1&line=l2&field=qty");
+    expect(within(list).queryByText(/Old item/)).toBeNull(); // excluded: not a blocker
+    // Outside the workbench rates stay with the builder: no per-line rate list here.
+    expect(screen.queryByRole("list", { name: "Lines without a rate" })).toBeNull();
+  });
+
+  it("Export states what the documents will contain: open items, exclusions and the PDF's grand total", async () => {
+    renderPage("export");
+    expect(await screen.findByText("Excluded:")).toBeInTheDocument();
+    expect(screen.getByText("Excluded:").nextElementSibling).toHaveTextContent("1");
+    const c = commercialsFor(1000, { _gst_pct: 12 }, 1000);
+    expect(screen.getByText("Grand total of currently priced scope only:")).toBeInTheDocument(); // a quantity is pending
+    expect(screen.getByTestId("export-grand-total")).toHaveTextContent("₹" + Math.round(c.grandTotal).toLocaleString("en-IN"));
+    expect(screen.getByTestId("export-issue-state")).toHaveTextContent("working estimate");
+    expect(screen.getByTestId("export-issue-state")).toHaveTextContent("not an issued revision: nothing is frozen");
+  });
+
+  it("the CSV is dated as a working estimate and states the same grand total", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Excel (CSV)" }));
+    await waitFor(() => expect(downloadCsv).toHaveBeenCalled());
+    const csv = (downloadCsv.mock.calls[0] as [string, string])[1];
+    const c = commercialsFor(1000, { _gst_pct: 12 }, 1000);
+    expect(csv).toContain("(working estimate, not frozen)");
+    expect(csv).toContain(`Grand total of currently priced scope only, with contingency, overheads, cess and GST as in the priced PDF abstract: ₹${Math.round(c.grandTotal).toLocaleString("en-IN")}`);
+  });
+});
+
 describe("ProjectExport — history", () => {
   const rev = {
     id: "r1", boq_id: "b1", project_id: "p1", boq_name: "Civil BOQ", project_name: "Sample", revision_no: 2, label: "Rev B",
