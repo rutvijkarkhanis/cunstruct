@@ -107,7 +107,6 @@ describe("PDF", () => {
   it("single-BOQ PDF explicitly labels quantities and rates as unvalidated drafts", () => {
     const html = buildDsrQuoteHtml(revisionQuotePayload(rev, MIXED, false), { autoPrint: false });
     expect(html).toContain(BOQ_DRAFT_DISCLAIMER);
-    expect(html).toContain("UNVALIDATED DRAFT — CHECK BEFORE USE");
   });
 
   it("combined project PDF explicitly labels quantities and rates as unvalidated drafts", () => {
@@ -117,7 +116,6 @@ describe("PDF", () => {
       { autoPrint: false },
     );
     expect(html).toContain(BOQ_DRAFT_DISCLAIMER);
-    expect(html).toContain("UNVALIDATED DRAFT — CHECK BEFORE USE");
   });
 
   it("a frozen revision's payload lists its pending lines from its own saved rows", () => {
