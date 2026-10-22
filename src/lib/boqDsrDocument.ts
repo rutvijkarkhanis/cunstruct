@@ -540,7 +540,7 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
     <button type="button" onclick="window.print()">&#8681;&nbsp; Save as PDF</button>
     <span class="hint">Opens your browser's print dialog — choose <b>Save as PDF</b> (or your printer) to download this quote.</span>
   </div>
-  <div class="draft-notice"><b>UNVALIDATED DRAFT — CHECK BEFORE USE.</b> ${esc(BOQ_DRAFT_DISCLAIMER)}</div>
+  <div class="draft-notice">${esc(BOQ_DRAFT_DISCLAIMER)}</div>
   <div class="head">
     <div>
       <div class="brand">${brandHtml}</div>
@@ -854,7 +854,7 @@ export function buildProjectQuoteHtml(p: ProjectQuotePayload, boqs: ProjectQuote
     <button type="button" onclick="window.print()">&#8681;&nbsp; Save as PDF</button>
     <span class="hint">Opens your browser's print dialog — choose <b>Save as PDF</b> to download this quote.</span>
   </div>
-  <div class="draft-notice"><b>UNVALIDATED DRAFT — CHECK BEFORE USE.</b> ${esc(BOQ_DRAFT_DISCLAIMER)}</div>
+  <div class="draft-notice">${esc(BOQ_DRAFT_DISCLAIMER)}</div>
   <div class="head">
     <div>
       ${brand}
