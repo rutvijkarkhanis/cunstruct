@@ -135,8 +135,8 @@ describe("OpsBoqBuilder — work packages by trade and location", () => {
     const [filename, csv] = vi.mocked(downloadCsv).mock.calls[0] as [string, string];
     expect(filename).toBe("Tower_A_work_packages.csv");
     const rows = csv.split("\r\n");
-    expect(rows[2]).toContain("DRAFT BOQ — All quantities and rates are unvalidated drafts.");
-    expect(rows[3]).toBe("Incomplete scope. 1 drawing-review item is still pending or flagged and is not included in this BOQ.");
+    expect(rows[1]).toContain("DRAFT BOQ — All quantities and rates are unvalidated drafts.");
+    expect(rows[2]).toBe("Incomplete scope. 1 drawing-review item is still pending or flagged and is not included in this BOQ.");
     expect(rows).toContain("1 excluded line not shown.");
     const data = rows.slice(rows.findIndex((r) => r.startsWith("Package,")) + 1);
     expect(data).toEqual([
@@ -158,9 +158,9 @@ describe("OpsBoqBuilder — work packages by trade and location", () => {
     await clickExportItem("Excel");
     await waitFor(() => expect(downloadCsv).toHaveBeenCalledTimes(1));
     const rows = (vi.mocked(downloadCsv).mock.calls[0][1] as string).split("\r\n");
-    expect(rows[2]).toContain("DRAFT BOQ — All quantities and rates are unvalidated drafts.");
-    expect(rows[3]).toBe("Incomplete scope. 3 drawing-review items are still pending or flagged and are not included in this BOQ.");
-    expect(rows[4].startsWith("Sub-head,")).toBe(true);
+    expect(rows[1]).toContain("DRAFT BOQ — All quantities and rates are unvalidated drafts.");
+    expect(rows[2]).toBe("Incomplete scope. 3 drawing-review items are still pending or flagged and are not included in this BOQ.");
+    expect(rows[3].startsWith("Sub-head,")).toBe(true);
   });
 });
 
