@@ -16,6 +16,7 @@ import { loadReviewState, useBoqJourney } from "@/components/app/useBoqJourney";
 import { QuantityStages, StageAction } from "@/components/app/Journey";
 import BoqPicker from "@/components/app/BoqPicker";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useStepLink } from "@/components/app/useStepLink";
 import { Button } from "@/components/ui/button";
 
 const LINE_COLS = "boq_id, qty, quantity_status, basis, dsr_rate, custom_rate, included, source_document_id";
@@ -49,6 +50,7 @@ function Stat({ label, value, tone }: { label: string; value: number | string; t
 
 export default function ProjectOverview() {
   const { projectId, project } = useProjectShell();
+  const step = useStepLink();
   const drawingsQ = useQuery({ queryKey: ["boq-drawings", projectId], queryFn: () => loadProjectDrawings(projectId) });
   const boqsQ = useProjectBoqs(projectId);
   const sel = useSelectedBoq(projectId);
@@ -161,7 +163,7 @@ export default function ProjectOverview() {
                       {open > 0 && (
                         <p className="text-xs text-amber-800 dark:text-amber-300 inline-flex items-center gap-1">
                           <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
-                          {open} review item{open === 1 ? " needs" : "s need"} a decision; Apply is blocked until then — <Link className="underline" to={journeyPath(projectId, "review", b.id)}>review quantities</Link>
+                          {open} review item{open === 1 ? " needs" : "s need"} a decision; Apply is blocked until then — <Link className="underline" to={step(journeyPath(projectId, "review", b.id))}>review quantities</Link>
                         </p>
                       )}
                     </li>

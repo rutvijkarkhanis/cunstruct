@@ -324,7 +324,8 @@ function BoqList({ boqs, counts, activeBoqId, onSelect, onCreate }: {
   );
 }
 
-function CreateBoqDialog({ open, onOpenChange, scopes, scopesLoaded, creating, createBoq, onCreated }: {
+/** Also used by the workbench preview's "New BOQ" (components/app/WorkbenchLayout). */
+export function CreateBoqDialog({ open, onOpenChange, scopes, scopesLoaded, creating, createBoq, onCreated }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   scopes: { id: string; name: string }[];

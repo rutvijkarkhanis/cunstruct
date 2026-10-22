@@ -6,11 +6,11 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import {
   EMPTY_UNDO, clearSessionUndoHistories, dismissRefused, popUndo, pushUndo, refuseNewest, useSessionUndoHistory,
-  type UndoEntry, type UndoState,
+  type LineUndoEntry, type UndoState,
 } from "./undoHistory";
 
-const entry = (lineId: string, label = `edit ${lineId}`): UndoEntry => ({ lineId, label, undo: { qty: 1 }, after: { id: lineId, qty: 2 } as UndoEntry["after"] });
-const build = (...es: UndoEntry[]) => es.reduce<UndoState>((s, e) => pushUndo(e)(s), EMPTY_UNDO);
+const entry = (lineId: string, label = `edit ${lineId}`): LineUndoEntry => ({ lineId, label, undo: { qty: 1 }, after: { id: lineId, qty: 2 } as LineUndoEntry["after"] });
+const build = (...es: LineUndoEntry[]) => es.reduce<UndoState>((s, e) => pushUndo(e)(s), EMPTY_UNDO);
 const labels = (s: UndoState) => s.entries.map((e) => e.label);
 
 describe("undo stack rules", () => {

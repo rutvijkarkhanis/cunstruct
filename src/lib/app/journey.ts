@@ -122,7 +122,7 @@ export function journeyBoqFrom(returnTo: string, boqId: string): string | null {
 }
 
 /** Journey steps the workbench preview also has, as workbench sections. */
-export const WORKBENCH_SECTIONS = ["drawings", "review", "boq", "check", "export"] as const;
+export const WORKBENCH_SECTIONS = ["overview", "drawings", "review", "boq", "check", "export"] as const;
 
 /** Whether a path is inside a project's workbench preview. */
 export const isWorkbenchPath = (path: string) => /^\/app\/projects\/[^/?#]+\/workbench(?=[/?#]|$)/.test(path);

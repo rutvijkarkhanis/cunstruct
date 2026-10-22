@@ -17,7 +17,7 @@ import { quantityEditPatch, unitEditPatch } from "@/lib/quantityEdit";
 import { safeJourneyReturn } from "@/lib/app/journey";
 import { addLineRecorded, addLinesRecorded, editTookEffect, lineAddMessage, lineEditMessage, linesAddMessage, saveLineEdit, type LineAddResult } from "@/lib/lineEdit";
 import { PDF_REREAD_FAILED_MESSAGE, linesChanged } from "@/lib/exportFreshness";
-import { LineRemovalError, removeLineWithSnapshot, restoreRemovedLine, type RemovedLine } from "@/lib/lineRemoval";
+import { LineRemovalError, removalGuard, removeLineWithSnapshot, restoreRemovedLine, type RemovedLine } from "@/lib/lineRemoval";
 import { saveErrorMessage } from "@/lib/saveError";
 import { commercialsFor, effRate, groupSubheads as groupSubheadsOf, includedDsrTotal, includedTotal, lineAmount, liveCsv, liveFileStem, liveQuotePayload, quoteContextFor, workingSubheadsFrom } from "@/lib/boqLiveExport";
 import { loadProjectDrawings, resolveDrawingSource } from "@/lib/review/drawingStorage";
@@ -87,13 +87,8 @@ async function selectBoqLines(boqId: string): Promise<BoqLine[]> {
 
 const inr = (n: number) => "₹" + Math.round(n).toLocaleString("en-IN");
 
-/** The values a removal is guarded on: what the editor shows of the line. */
-const GUARD_COLS = ["description", "section", "qty", "unit", "custom_rate", "dsr_rate", "cost", "included"] as const;
-function guardOf(line: object): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const k of GUARD_COLS) if (k in line) out[k] = (line as Record<string, unknown>)[k];
-  return out;
-}
+/** The values a removal is guarded on: what the editor shows of the line (lib/lineRemoval). */
+const guardOf = removalGuard;
 
 // A single reversible change to the BOQ — the unit of the session ledger.
 interface EstimateChange {
@@ -1582,7 +1577,7 @@ export default function OpsBoqBuilder() {
                             onClick={(e) => { e.stopPropagation(); setExpanded(isExp ? null : l.id); }} className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                             <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform", isExp && "rotate-180")} aria-hidden="true" />
                           </button>
-                          <span className="text-muted-foreground">{itemNo}</span>{l.dsr_code ?? "No DSR code"}
+                          <span className="text-muted-foreground">{itemNo}</span>{l.dsr_code ?? "Priced separately"}
                           {l.basis === PENDING_BASIS && (
                             <span className="text-amber-600 dark:text-amber-500 font-sans" title="Quantity pending — enter a quantity to price this line">quantity pending</span>
                           )}

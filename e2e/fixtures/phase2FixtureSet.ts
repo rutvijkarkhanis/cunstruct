@@ -74,6 +74,13 @@ export function buildPhase2Fixtures() {
   };
 }
 
+/** A dsr_item row (billable) for the DSR picker, copied from the committed snapshot. */
+export function dsrCatalogueRow(code: string) {
+  const d = (JSON.parse(readFileSync(SNAPSHOT, "utf8")) as (DsrItem & { chapter?: string | null; subhead?: string | null })[]).find((r) => r.code === code);
+  if (!d) throw new Error(`DSR code ${code} not found in the committed snapshot`);
+  return { id: `dsr-${code}`, code: d.code, description: d.description, unit: d.unit, rate: Number(d.rate), chapter: d.chapter ?? null, subhead: d.subhead ?? null, billable: true };
+}
+
 /** The second BOQ of the multi-BOQ set. */
 export const BOQ2_ID = "e2e-boq-2";
 export const BOQ2_LINE_ID = (n: number) => `p2-b2-line-${n}`;

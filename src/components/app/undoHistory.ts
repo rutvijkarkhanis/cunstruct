@@ -4,7 +4,7 @@
 // module-level store survives client-side navigation and is cleared on reload
 // (nothing is written to storage; decision A1, provisional).
 //
-// Undo is last-in, first-out. When the newest step is refused because its line
+// Undo is last-in, first-out. In the workbench, when the newest step is refused because its line
 // was changed elsewhere, it leaves the active stack — together with every
 // earlier step for the SAME line, which was made on top of a state that no
 // longer holds (the guarded write cannot say which field changed, so undoing
@@ -12,9 +12,22 @@
 // `refused`. Steps for other lines stay usable.
 import { useCallback, useSyncExternalStore } from "react";
 import type { BoqTableLine } from "@/lib/app/boqTable";
+import type { RemovedLine } from "@/lib/lineRemoval";
 
-/** `after` is the line as this edit left it — what undo expects to find. */
-export interface UndoEntry { lineId: string; label: string; undo: Partial<BoqTableLine>; after: BoqTableLine }
+/** `after` is the line as this edit left it — what undo expects to find.
+ *  `kind` says which audited path undoes it: "line" (lib/lineEdit, the
+ *  default), "rate" (lib/manualRateEdit; `undo.custom_rate` is the rate to
+ *  restore), "add" (guarded removal of the added line, lib/lineRemoval) or
+ *  "remove" (restore of `removed`, the exact row and links taken out). */
+export interface LineUndoEntry {
+  lineId: string; label: string; undo: Partial<BoqTableLine>; after: BoqTableLine;
+  kind?: "line" | "rate" | "add" | "remove"; removed?: RemovedLine;
+}
+/** A commercial input (a boq.spec key) changed from `before` to `after`
+ *  (undefined = not set, the default applies). `lineId` is "spec:<key>", so a
+ *  refused step sets aside only earlier steps on the same input. */
+export interface SpecUndoEntry { kind: "spec"; lineId: string; label: string; spec: { key: string; before: unknown; after: unknown } }
+export type UndoEntry = LineUndoEntry | SpecUndoEntry;
 /** A step taken out of the active stack, and why: its line changed elsewhere,
  *  or a later step on the same line was refused for that reason. */
 export interface RefusedUndo { label: string; reason: "changed" | "earlier-on-changed-line" }

@@ -1,6 +1,6 @@
 # B12 route inventory
 
-This is the route inventory for plan item **B12: Remove the old surfaces**, whose acceptance criterion is a "route inventory diff". There is one row for each `<Route>` in `src/App.tsx`, 74 rows in all. Six of them exist only in workbench-preview builds (below).
+This is the route inventory for plan item **B12: Remove the old surfaces**, whose acceptance criterion is a "route inventory diff". There is one row for each `<Route>` in `src/App.tsx`, 75 rows in all. Seven of them exist only in workbench-preview builds (below).
 
 `src/lib/routeInventory.test.ts` parses `App.tsx` and fails if the route, tree and element columns below no longer match the code. A route that is added, removed or re-pointed therefore has to show up as a diff to this file.
 
@@ -83,6 +83,7 @@ Rows marked `[gated: …]` are rendered only when that condition holds. `WORKBEN
 | app | `/app/projects/:id/check` | ProjectExport | Remove (one of the five tabs) → redirect to B1 workspace |
 | app | `/app/projects/:id/export` | ProjectExport | Remove (one of the five tabs) → redirect to B1 workspace |
 | app | `/app/projects/:id/workbench` | WorkbenchLayout [gated: WORKBENCH_PREVIEW_ENABLED && WorkbenchLayout && WorkbenchReview] | Preview only: workbench skeleton (off by default; refused against production); not a production route |
+| app | `/app/projects/:id/workbench/overview` | ProjectOverview [gated: WORKBENCH_PREVIEW_ENABLED && WorkbenchLayout && WorkbenchReview] | Preview only: workbench skeleton (off by default; refused against production); not a production route |
 | app | `/app/projects/:id/workbench/boq` | ProjectBoq [gated: WORKBENCH_PREVIEW_ENABLED && WorkbenchLayout && WorkbenchReview] | Preview only: workbench skeleton (off by default; refused against production); not a production route |
 | app | `/app/projects/:id/workbench/drawings` | ProjectDrawings [gated: WORKBENCH_PREVIEW_ENABLED && WorkbenchLayout && WorkbenchReview] | Preview only: workbench skeleton (off by default; refused against production); not a production route |
 | app | `/app/projects/:id/workbench/review` | WorkbenchReview [gated: WORKBENCH_PREVIEW_ENABLED && WorkbenchLayout && WorkbenchReview] | Preview only: workbench skeleton (off by default; refused against production); not a production route |

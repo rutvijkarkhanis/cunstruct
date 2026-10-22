@@ -217,6 +217,7 @@ function AppRoutes() {
           <Route path="export" element={<ProjectExport />} />
           {WORKBENCH_PREVIEW_ENABLED && WorkbenchLayout && WorkbenchReview && (
             <Route path="workbench" element={<WorkbenchLayout />}>
+              <Route path="overview" element={<ProjectOverview />} />
               <Route path="boq" element={<ProjectBoq historyScope="session" />} />
               <Route path="drawings" element={<ProjectDrawings />} />
               <Route path="review" element={<WorkbenchReview />} />

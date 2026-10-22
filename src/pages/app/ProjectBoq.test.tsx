@@ -6,6 +6,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import ProjectBoq from "./ProjectBoq";
+import { clearSessionUndoHistories } from "@/components/app/undoHistory";
 import { BOQ_DRAFT_UI_DISCLAIMER } from "@/lib/boqDraftDisclaimer";
 import { saveReceipt } from "@/lib/review/applyReceipt";
 import type { EvidenceItem } from "@/lib/lineEvidence";
@@ -77,10 +78,10 @@ vi.mock("@/context/AuthContext", () => ({ useAuth: () => ({ user: { id: "user-1"
 
 const base = { section: "Brickwork", dsr_code: "6.1", unit: "cum", dsr_rate: 100, custom_rate: null, basis: null, quantity_status: null, measurement_method: null, included: true, source_page: null };
 
-function renderPage(path = "/x") {
+function renderPage(path = "/x", historyScope?: "session") {
   return render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <MemoryRouter initialEntries={[path]}><ProjectBoq /></MemoryRouter>
+      <MemoryRouter initialEntries={[path]}><ProjectBoq historyScope={historyScope} /></MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -92,6 +93,7 @@ async function editQty(name: string, value: string) {
 }
 
 beforeEach(() => {
+  clearSessionUndoHistories();
   boqs = [{ id: "b1", name: "Civil BOQ", created_at: "", discipline: "civil" }];
   rows = [
     { ...base, id: "l1", sort: 1, description: "Brick wall", qty: 10, source_document_id: "d1", source_page: "2" },
@@ -228,15 +230,24 @@ describe("ProjectBoq — guarded, recorded quantity edits", () => {
     expect(updates).toHaveLength(1);
     expect(rows.find((r) => r.id === "l1")!.qty).toBe(15);
     expect(toastError).toHaveBeenCalledWith("Undo not saved: this line was changed elsewhere since it was loaded. The current values are now shown.");
-    // The refused step leaves the stack (it can never succeed without
-    // overwriting the other change) and stays listed as not undone.
+    expect(screen.getByRole("button", { name: /^Undo:/ })).toBeEnabled(); // kept, not assumed reverted
+  });
+
+  // The workbench ("session" history, its accepted stale-undo contract): the
+  // journey above keeps its released behaviour.
+  it("workbench: a refused step leaves the stack and is listed as not undone", async () => {
+    renderPage("/x", "session");
+    await editQty("Brick wall", "12");
+    rows = rows.map((r) => (r.id === "l1" ? { ...r, qty: 15 } : r)); // someone else, after our edit
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /^Undo:/ })); });
+    expect(rows.find((r) => r.id === "l1")!.qty).toBe(15);
     expect(screen.getByRole("button", { name: "Undo (nothing to undo)" })).toBeDisabled();
     const notUndone = screen.getByRole("region", { name: "Changes that could not be undone" });
     expect(notUndone).toHaveTextContent("Quantity of “Brick wall”: 10 → 12");
   });
 
-  it("a stale newest step does not block an earlier step on another line", async () => {
-    renderPage();
+  it("workbench: a stale newest step does not block an earlier step on another line", async () => {
+    renderPage("/x", "session");
     await editQty("Brick wall", "12");
     await editQty("Plaster", "45");
     rows = rows.map((r) => (r.id === "l2" ? { ...r, qty: 50 } : r)); // someone else changes Plaster

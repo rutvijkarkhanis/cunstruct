@@ -136,6 +136,28 @@ export function parseEdit(line: BoqTableLine, field: EditableField, raw: string)
   return { ok: true, patch: quantityEditPatch(line, n) };
 }
 
+export type RateEditResult = { ok: true; rate: number | null; unchanged: boolean } | { ok: false; error: string };
+/**
+ * A typed rate, by the BOQ builder's rules: an own rate is a number of zero or
+ * more (commas allowed); an empty field clears the own rate, so the line falls
+ * back to its DSR rate — or to no rate at all, which is said, never assumed.
+ * The write itself is the audited path (lib/manualRateEdit).
+ */
+export function parseRateEdit(line: BoqTableLine, raw: string): RateEditResult {
+  const text = raw.trim().replace(/,/g, "");
+  if (text === "") return { ok: true, rate: null, unchanged: line.custom_rate == null };
+  const n = Number(text);
+  if (!Number.isFinite(n)) return { ok: false, error: "Enter a rate in rupees, or leave it empty to use the DSR rate." };
+  if (n < 0) return { ok: false, error: "Rate cannot be negative." };
+  return { ok: true, rate: n, unchanged: line.custom_rate != null && Number(line.custom_rate) === n };
+}
+
+/** Where a line's rate comes from, as the table states it. */
+export function rateSource(l: BoqTableLine): "own" | "dsr" | "none" {
+  if (l.custom_rate != null) return "own";
+  return l.dsr_rate != null ? "dsr" : "none";
+}
+
 /** The fields to restore to undo `patch` on `line`. */
 export function inversePatch(line: BoqTableLine, patch: Partial<BoqTableLine>): Partial<BoqTableLine> {
   const prev: Record<string, unknown> = {};

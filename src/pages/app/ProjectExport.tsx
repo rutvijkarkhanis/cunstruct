@@ -7,14 +7,14 @@
 // lists the BOQ's frozen commercial revisions, each exported from its own
 // saved rows (useBoqRevisions). Read-only: freezing a revision stays in the
 // builder, where its limitations must be acknowledged first.
-import { useMemo } from "react";
+import { lazy, Suspense, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AlertTriangle, FileDown, FileText, Sheet } from "lucide-react";
 import { db } from "@/lib/untypedDb";
 import { downloadCsv, openQuoteWindow } from "@/lib/boqDsrDocument";
-import { useStepLink } from "@/components/app/useStepLink";
+import { useInWorkbench, useStepLink } from "@/components/app/useStepLink";
 import {
   commercialsFor, exportDate, groupSubheads, includedDsrTotal, includedTotal, liveCsv, liveFileStem, liveQuotePayload,
   quoteContextFor, workingSubheadsFrom,
@@ -35,6 +35,12 @@ import BoqPicker from "@/components/app/BoqPicker";
 import DsrCheckSection from "@/components/app/DsrCheckSection";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WORKBENCH_PREVIEW_ENABLED } from "@/lib/workbenchPreview";
+
+// Workbench preview only: status and frozen revisions in place of the hand-off
+// to the builder. Not in builds without the preview (the constant folds away).
+const WorkbenchRevisions = WORKBENCH_PREVIEW_ENABLED ? lazy(() => import("@/components/app/WorkbenchRevisions")) : null;
+const WorkbenchRemovedEvidence = WORKBENCH_PREVIEW_ENABLED ? lazy(() => import("@/components/app/WorkbenchRemovedEvidence")) : null;
 
 const inr = (n: number) => "₹" + Math.round(n).toLocaleString("en-IN");
 const day = (iso: string) => new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
@@ -44,6 +50,7 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
   const { pathname, search } = useLocation();
   const here = `${pathname}${search}`;
   const step = useStepLink();
+  const inWorkbench = useInWorkbench();
   const sel = useSelectedBoq(projectId);
   const qc = useQueryClient();
   const boqId = sel.selected?.id ?? null;
@@ -143,6 +150,10 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
   }
   const boqId0 = sel.selected.id;
   const builderHref = builderPath(projectId, boqId0, here);
+  // In the workbench, rates are entered in its BOQ section; elsewhere in the builder.
+  const rateFix = inWorkbench
+    ? { to: step(boqFilterPath(projectId, boqId0, { status: "unpriced" })), label: "Add rates in the BOQ" }
+    : { to: builderHref, label: "Add rates in the BOQ builder" };
   // Open for the Quantity phase: pending quantities or review items left out.
   // A missing rate alone is Pricing — stated, linked, but not "open" here.
   const quantityOpen = totals.pending > 0 || unresolved > 0;
@@ -191,6 +202,11 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
                 <div><dt className="inline text-muted-foreground">Assumptions: </dt><dd className="inline">{totals.assumed}</dd></div>
                 <div><dt className="inline text-muted-foreground">No rate yet (Pricing): </dt><dd className="inline">{totals.unpriced}</dd></div>
               </dl>
+              {inWorkbench && WorkbenchRemovedEvidence && linesQ.isSuccess && (
+                <Suspense fallback={null}>
+                  <WorkbenchRemovedEvidence boqId={boqId0} lines={lines} reviewHref={step(journeyPath(projectId, "review", boqId0))} boqHref={step(journeyPath(projectId, "boq", boqId0))} />
+                </Suspense>
+              )}
               {quantityOpen ? (
                 <div className="flex gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
                   <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
@@ -201,7 +217,7 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
                     <p className="flex flex-wrap gap-x-4">
                       {totals.pending > 0 && <Link className="underline" to={step(boqFilterPath(projectId, boqId0, { status: "pending" }))}>Show pending lines</Link>}
                       {unresolved > 0 && <Link className="underline" to={step(journeyPath(projectId, "review", boqId0))}>Review quantities</Link>}
-                      {totals.unpriced > 0 && <Link className="underline" to={builderHref}>Add rates in the BOQ builder</Link>}
+                      {totals.unpriced > 0 && <Link className="underline" to={rateFix.to}>{rateFix.label}</Link>}
                     </p>
                   </div>
                 </div>
@@ -210,7 +226,7 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
                   <p className="text-sm">No pending quantities and no review items left out of the BOQ.</p>
                   {totals.unpriced > 0 && (
                     <p className="text-sm text-muted-foreground">
-                      {warning} <Link className="underline" to={builderHref}>Add rates in the BOQ builder</Link>
+                      {warning} <Link className="underline" to={rateFix.to}>{rateFix.label}</Link>
                     </p>
                   )}
                 </>
@@ -272,42 +288,51 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
         )}
       </section>
 
-      <section aria-labelledby="exp-history" className="rounded-md border bg-card p-4 space-y-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h3 id="exp-history" className="font-semibold">History — frozen revisions</h3>
-          <Link to={builderHref} className="text-sm underline">Freeze a revision in the BOQ builder</Link>
-        </div>
-        {revs.loading ? (
-          <div role="status" aria-label="Loading revisions"><Skeleton className="h-16 w-full" /></div>
-        ) : !revs.available ? (
-          <p className="text-sm text-muted-foreground">{REVISIONS_UNAVAILABLE_MESSAGE}</p>
-        ) : revs.revisions.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No revisions frozen yet. A frozen revision keeps an exact, re-exportable copy of the BOQ as issued.</p>
-        ) : (
-          <ul className="divide-y" aria-label="Frozen revisions">
-            {revs.revisions.map((r) => {
-              const name = revisionLabel(r.label) ?? `Revision ${r.revision_no}`;
-              return (
-                <li key={r.id} className="py-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="font-medium">{name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      Issued {day(r.issued_at)} · {boqStatusLabel(r.boq_status_at_issue)} · {inr(r.grand_total)} · {r.priced_line_count} of {r.line_count} lines priced
-                      {r.limitations.length > 0 && ` · ${r.limitations.length} limitation${r.limitations.length === 1 ? "" : "s"} acknowledged`}
+      {inWorkbench && WorkbenchRevisions ? (
+        boqQ.data && linesQ.isSuccess ? (
+          <Suspense fallback={<div role="status" aria-label="Loading revisions"><Skeleton className="h-16 w-full" /></div>}>
+            <WorkbenchRevisions boqId={boqId0} boqName={boqQ.data.name} status={boqQ.data.status} spec={(boqQ.data.spec ?? {}) as Spec}
+              lines={lines} project={project} onBoqPersisted={() => boqQ.refetch()} />
+          </Suspense>
+        ) : null
+      ) : (
+        <section aria-labelledby="exp-history" className="rounded-md border bg-card p-4 space-y-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 id="exp-history" className="font-semibold">History — frozen revisions</h3>
+            <Link to={builderHref} className="text-sm underline">Freeze a revision in the BOQ builder</Link>
+          </div>
+          {revs.loading ? (
+            <div role="status" aria-label="Loading revisions"><Skeleton className="h-16 w-full" /></div>
+          ) : !revs.available ? (
+            <p className="text-sm text-muted-foreground">{REVISIONS_UNAVAILABLE_MESSAGE}</p>
+          ) : revs.revisions.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No revisions frozen yet. A frozen revision keeps an exact, re-exportable copy of the BOQ as issued.</p>
+          ) : (
+            <ul className="divide-y" aria-label="Frozen revisions">
+              {revs.revisions.map((r) => {
+                const name = revisionLabel(r.label) ?? `Revision ${r.revision_no}`;
+                return (
+                  <li key={r.id} className="py-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium">{name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        Issued {day(r.issued_at)} · {boqStatusLabel(r.boq_status_at_issue)} · {inr(r.grand_total)} · {r.priced_line_count} of {r.line_count} lines priced
+                        {r.limitations.length > 0 && ` · ${r.limitations.length} limitation${r.limitations.length === 1 ? "" : "s"} acknowledged`}
+                      </div>
+                      {r.issue_note && <p className="text-xs text-muted-foreground mt-0.5 break-words">{r.issue_note}</p>}
                     </div>
-                    {r.issue_note && <p className="text-xs text-muted-foreground mt-0.5 break-words">{r.issue_note}</p>}
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    <Button size="sm" variant="outline" aria-label={`PDF of ${name}`} onClick={() => revs.exportRevision(r, "pdf")}>PDF</Button>
-                    <Button size="sm" variant="outline" aria-label={`PDF with blank rates of ${name}`} onClick={() => revs.exportRevision(r, "pdf_blank")}>PDF, blank rates</Button>
-                    <Button size="sm" variant="outline" aria-label={`CSV of ${name}`} onClick={() => revs.exportRevision(r, "csv")}>CSV</Button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Button size="sm" variant="outline" aria-label={`PDF of ${name}`} onClick={() => revs.exportRevision(r, "pdf")}>PDF</Button>
+                      <Button size="sm" variant="outline" aria-label={`PDF with blank rates of ${name}`} onClick={() => revs.exportRevision(r, "pdf_blank")}>PDF, blank rates</Button>
+                      <Button size="sm" variant="outline" aria-label={`CSV of ${name}`} onClick={() => revs.exportRevision(r, "csv")}>CSV</Button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      )}
     </div>
   );
 }

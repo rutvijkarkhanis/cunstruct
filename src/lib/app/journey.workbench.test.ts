@@ -9,7 +9,7 @@ import { inWorkbench, isWorkbenchPath, journeyBoqFrom, journeyPath, boqFilterPat
 
 describe("workbench paths", () => {
   it("maps each journey step the workbench has onto its section, keeping the query", () => {
-    for (const step of ["drawings", "review", "boq", "check", "export"]) {
+    for (const step of ["overview", "drawings", "review", "boq", "check", "export"]) {
       expect(inWorkbench(journeyPath("p 1", step, "b/1"))).toBe(`/app/projects/p 1/workbench/${step}?boq=b%2F1`);
     }
     expect(inWorkbench(boqFilterPath("p1", "b1", { status: "pending", q: "door" }))).toBe("/app/projects/p1/workbench/boq?boq=b1&status=pending&q=door");
@@ -17,7 +17,7 @@ describe("workbench paths", () => {
 
   it("leaves everything else unchanged", () => {
     for (const p of [
-      journeyPath("p1", "overview", "b1"), "/app/projects/p1/workbench/boq?boq=b1", "/app/projects/p1/boqsy",
+      "/app/projects/p1/workbench/boq?boq=b1", "/app/projects/p1/boqsy", "/app/projects/p1/overviewx",
       "/ops/projects/p1/boqs/b1", "/app/projects", "/app/projects/p1/boq-extra",
     ]) expect(inWorkbench(p)).toBe(p);
   });

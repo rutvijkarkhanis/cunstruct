@@ -92,6 +92,8 @@ export interface MockBackendHandle {
   tables: Record<string, Record<string, unknown>[]>;
   /** applyWrites mode only (otherwise empty): every write received, in order. */
   writes: MockWrite[];
+  /** applyWrites mode only: database functions called (each refused as not simulated). */
+  rpcCalls: string[];
   /** applyWrites mode only: read filters the store could not interpret and ignored. */
   ignoredReadFilters: string[];
   /** applyWrites mode only: change rows directly, as another user's save
@@ -138,8 +140,10 @@ function applyFilters(rows: unknown[], params: URLSearchParams): unknown[] {
 // follow an edit through to what is read back (and exported). Deterministic:
 // rows keep fixture order unless `order=` is given; ids are assigned from a
 // counter. It interprets only the PostgREST features the app's guarded writes
-// use (eq., neq., in.(…), is.null/true/false, order, limit, on_conflict
-// upserts, return=representation). A write filtered with any other operator
+// use (eq., neq., in.(…), is.null/true/false, like./ilike., order, limit,
+// on_conflict upserts, return=representation). Database functions (rpc/) are
+// NOT simulated: each answers PostgREST's "function not found" (PGRST202), so
+// nothing that runs server-side is ever shown as having succeeded. A write filtered with any other operator
 // is refused with 400 instead of being guessed at; a read ignores that one
 // filter (as the default mode does) and records it in `ignoredReadFilters`. It models no RLS, no
 // constraints, no triggers and no transactions: passing here says nothing
@@ -162,6 +166,11 @@ function parseConds(params: URLSearchParams): { conds: Cond[]; unsupported: stri
     else if (e.startsWith("in.(") && e.endsWith(")")) {
       const xs = e.slice(4, -1).split(",").map((v) => v.replace(/^"|"$/g, ""));
       test = (v) => v != null && xs.includes(String(v));
+    } else if (e.startsWith("like.") || e.startsWith("ilike.")) {
+      const ci = e.startsWith("ilike.");
+      const pat = e.slice(ci ? 6 : 5).replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/[%*]/g, ".*");
+      const re = new RegExp(`^${pat}$`, ci ? "i" : "");
+      test = (v) => v != null && re.test(String(v));
     } else if (e === "is.null") test = (v) => v == null;
     else if (e === "is.true") test = (v) => v === true;
     else if (e === "is.false") test = (v) => v === false;
@@ -189,6 +198,14 @@ function ordered(rows: Row[], order: string | null): Row[] {
     return 0;
   });
 }
+
+/** Column defaults the real tables have that inserts rely on (deterministic here). */
+let defaultClock = 0;
+const INSERT_DEFAULTS: Record<string, () => Row> = {
+  boq_line_change_log: () => ({ changed_at: new Date(Date.UTC(2026, 9, 22, 0, 0, defaultClock++)).toISOString() }),
+  // The column defaults of public.boq (20260803120000_boq_module.sql).
+  boq: () => ({ name: "BOQ", status: "draft", rate_year: "2023", spec: {}, updated_at: new Date(Date.UTC(2026, 9, 22, 0, 0, defaultClock++)).toISOString() }),
+};
 
 function toTables(fixtures: Record<string, unknown>): Record<string, Row[]> {
   const t: Record<string, Row[]> = {};
@@ -234,11 +251,15 @@ export async function installMockBackend(
   const tables: Record<string, Row[]> = options.applyWrites ? toTables(fixtures) : {};
   const writes: MockWrite[] = [];
   const ignoredReadFilters: string[] = [];
+  const rpcCalls: string[] = [];
   let nextId = 1;
   await page.route("**/rest/v1/**", async (route: Route, request: Request) => {
     if (request.method() === "OPTIONS") return route.fulfill({ status: 204, headers: CORS_HEADERS });
-    if (options.applyWrites && !new URL(request.url()).pathname.includes("/rest/v1/rpc/")) {
-      return answerFromStore(route, request);
+    if (options.applyWrites) {
+      const rpcName = new URL(request.url()).pathname.match(/\/rest\/v1\/rpc\/([^/?]+)/)?.[1];
+      if (!rpcName) return answerFromStore(route, request);
+      rpcCalls.push(rpcName);
+      return fulfillJson(route, { code: "PGRST202", message: `Could not find the function public.${rpcName} in the schema cache (mock: database functions are not simulated)` }, 404);
     }
     const url = new URL(request.url());
     const match = url.pathname.match(/\/rest\/v1\/([^/]+)/);
@@ -290,7 +311,7 @@ export async function installMockBackend(
         const existing = conflictCols && rows.find((r) => conflictCols.every((c) => String(r[c]) === String(b[c])));
         if (existing && merge) { Object.assign(existing, b); out.push({ ...existing }); continue; }
         if (existing) { log(409, body); return fulfillJson(route, { code: "23505", message: "mock: duplicate key" }, 409); }
-        const row: Row = { id: `${table}-mock-${nextId++}`, created_at: "2026-10-22T00:00:00Z", ...b };
+        const row: Row = { id: `${table}-mock-${nextId++}`, created_at: "2026-10-22T00:00:00Z", ...INSERT_DEFAULTS[table]?.(), ...b };
         rows.push(row);
         out.push({ ...row });
       }
@@ -347,6 +368,7 @@ export async function installMockBackend(
     tables,
     writes,
     ignoredReadFilters,
+    rpcCalls,
     mutate: (table, match, patch) => {
       if (!options.applyWrites) throw new Error("mutate() needs installMockBackend(page, { applyWrites: true })");
       const hit = (tables[table] ?? []).filter((r) => Object.entries(match).every(([k, v]) => r[k] === v));

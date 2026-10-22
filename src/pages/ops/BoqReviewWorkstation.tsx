@@ -1331,7 +1331,7 @@ export function TypeNavigator({
         {showBreakdown && (
           <div className="grid grid-cols-3 gap-1.5 text-center pt-1">
             <Stat label="Verified" value={summary.verified} cls="text-green-700" />
-            <Stat label="Corrected" value={summary.edited} cls="text-blue-700" />
+            <Stat label="Edited" value={summary.edited} cls="text-blue-700" />
             <Stat label="Flagged" value={summary.flagged} cls="text-amber-700" />
             <Stat label="Pending" value={summary.markedPending} cls="text-purple-700" />
             <Stat label="Remaining" value={summary.remaining} />
