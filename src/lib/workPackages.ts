@@ -124,8 +124,7 @@ export function buildWorkPackageCsv(
 ): string {
   const lines: string[] = [
     csvCell(`Work packages by trade and location — ${meta.boqName}`),
-    csvCell(`${meta.project ?? "Standalone"}  ·  ${meta.generatedOn}  ·  Quantities only; rates and amounts are not part of a work package`),
-    csvCell(BOQ_DRAFT_DISCLAIMER),
+    csvCell(`${meta.project ?? "Standalone"}  ·  ${meta.generatedOn}  ·  Quantities only; rates and amounts are not part of a work package · ${BOQ_DRAFT_DISCLAIMER}`),
   ];
   const notice = incompleteScopeNotice(meta.unresolvedReviewCount);
   if (notice) lines.push(csvCell(notice));
