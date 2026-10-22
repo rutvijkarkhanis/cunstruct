@@ -6,7 +6,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import ProjectBoq from "./ProjectBoq";
-import { BOQ_DRAFT_DISCLAIMER } from "@/lib/boqDraftDisclaimer";
+import { BOQ_DRAFT_UI_DISCLAIMER } from "@/lib/boqDraftDisclaimer";
 import { saveReceipt } from "@/lib/review/applyReceipt";
 import type { EvidenceItem } from "@/lib/lineEvidence";
 
@@ -320,6 +320,6 @@ describe("ProjectBoq — when the history row cannot be written (table exists)",
 describe("ProjectBoq — limited launch disclosure", () => {
   it("shows the unvalidated-draft disclaimer beside the priced works subtotal", async () => {
     renderPage();
-    expect(await screen.findByText(BOQ_DRAFT_DISCLAIMER)).toBeInTheDocument();
+    expect(await screen.findByText(BOQ_DRAFT_UI_DISCLAIMER)).toBeInTheDocument();
   });
 });
