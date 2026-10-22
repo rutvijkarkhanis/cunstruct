@@ -45,7 +45,7 @@ Statuses below reflect evidence available when this version was written. Re-chec
 | ID | Requirement | Current status and evidence |
 |---|---|---|
 | R1 | Exclude-instead/share-panel core fix | **DONE** — PR #161 merged; prior evidence in v1.0 |
-| R2 | Ready Production deployment of the current `main` commit, with no newer failed deployment | **DONE (§8 evidence, 18 Oct 2026)** — Production deployment `7153607502` of `main` @ `e64cf6c`, status success; newest Production deployment. Re-check against the release commit |
+| R2 | Ready Production deployment of the current `main` commit, with no newer failed deployment | **PARTIALLY VERIFIED (21 Oct 2026)** — GitHub Vercel status for current `main` @ `10c12ff7e49d854a3088e0d512ccb961b84a6f86` reports `Deployment has completed` (success, 08:24:54Z; target `CyAVtovnxpkZjuk1Y32ov8oStvpn`). The Vercel deployment-history query returned 403 for team scope `whistleblower`, so the required newest-deployment/no-newer-failure check is unverified. Do not mark R2 DONE until the owner checks the Production deployment list for this project and confirms this is the latest Production deployment with no newer failure, or grants the existing Vercel connection read access to the team |
 | R3 | Deployed `workspace-share` version/date plus live pending-line share check | **PARKED (owner decision, 20 Oct 2026)**: sharing is not needed now and is set aside completely; it may be picked up later. Not done, and not to be worked on until the owner reopens it |
 | R4 | Separate staging Supabase project and guarded connection | **REPLACED (owner decision, 20 Oct 2026)**: the local Postgres rehearsal (PR #177) stands in for staging; no staging project will be created |
 | R5 | Apply `20260921000000_boq_review_apply.sql` on staging | **REPLACED (owner decision, 20 Oct 2026)**: the migration was applied and re-run in the local rehearsal, PR #177, 17/17 |
@@ -105,7 +105,7 @@ The following work may proceed behind an off-by-default feature flag, using only
 | I1 | Interactive prototype shell | Implement the five named surfaces from D2 — workspace, verify queue, coverage map, sign-off sheet and revision delta — using deterministic mock records or existing test fixtures. Any rupee figures are explicitly illustrative/provisional; no accuracy metrics are presented as real | **DONE (§8 evidence, 18 Oct 2026)** — five surfaces on deterministic mock records, labelled illustrative; certification unavailable; tests 4/4 after PR #175 |
 | I2 | Workspace shell (derived from B1) | One workspace frame containing drawing canvas, BOQ grid and a one-line sign-off ledger. Keyboard interactions cover Enter, Tab, F2, arrows and paste-range behaviour. Existing routes remain available | **DONE (§8 evidence, 19 Oct 2026)**: mock-only workspace frame from PR #179; not a commercial B1 acceptance |
 | I3 | Drawing-context presentation (derived from B2) | Test fixtures demonstrate linked drawing regions and BOQ lines. Missing or uncertain regions are labelled unavailable/unverified, never silently represented as verified quantities. No new drawing acquisition | **DONE (§8 evidence, 19 Oct 2026)**: fixture regions only; not a commercial B2 acceptance |
-| I4 | Preview quality and isolation gate | New flows operate with deterministic fixtures; test coverage demonstrates they do not write to production. Feature flag defaults off. Relevant tests, build, typecheck and changed-file lint pass against recorded baselines | **DONE (§8 evidence, 19 Oct 2026)**: for the preview as of `a4afb42`; re-run for any later preview change |
+| I4 | Preview quality and isolation gate | New flows operate with deterministic fixtures; test coverage demonstrates they do not write to production. Feature flag defaults off. Relevant tests, build, typecheck and changed-file lint pass against recorded baselines | **DONE (§8 evidence, 19 Oct 2026; re-run 21 Oct 2026 on `main` @ `10c12ff`)**: re-run for any later preview change |
 
 I1 is the first engineering milestone. I2 and I3 may proceed once their interfaces are clear; I4 must pass before any preview is offered. Work may use mock adapters where a real database write path is blocked. Do not build a new testing framework or database to support this lane.
 
@@ -168,6 +168,8 @@ No synthetic score, repository-only check, successful build, or owner walkthroug
 | 21 Oct 2026 | E3 (DSR correction) | **PRODUCTION.** `docs/benchmarks/e3/proposed-dsr-correction.sql` (SHA-256 `ce4f1bbc…dc338e`) run unchanged at 2026-10-21T06:02:02Z, after R7. `dsr_item` 2,758 → 3,121; 0 rows removed; exactly the 19 reviewed rows changed and only in their reviewed fields; the 363 inserted rows equal the file value for value; `6.44` 59.45, `13.114` 1192.30, `26.74.1` 20928.70, `26.82` sqm 2293.30. `projects`, `boq`, `boq_line`, `dsr_coefficient` count and md5 unchanged. Before/after: `docs/benchmarks/e3/snapshots/` (`dsr_item-before` SHA-256 `9dd8f87d…`, `dsr_item-after` SHA-256 `c6c07dac…`, checksum files). Rollback `docs/deployments/r7-dsr-20261021/dsr-correction-rollback.sql` rehearsed locally (restores the exact md5); not run on production | Claude Code session, owner-approved |
 | 21 Oct 2026 | R7 (closure) | Closure of the R7 + DSR deployment on evidence commit `040d036`; documentation only, no further production writes. **R7: APPLIED AND POST-CHECKED — PRODUCTION SMOKE TESTS PARTIAL.** Passed in production and reversed with the app's Undo: External Door rate/Undo, line remove/Undo, exclude/restore, two-tab stale-edit refusal. **Not exercised in production:** Apply reviewed item; DSR Accept/Reject/Defer/Use schedule rate. Those paths passed LOCAL automated/rehearsal coverage only (PGlite rehearsal 17/17; no production evidence). Full unit suite 3,207/3,207. Follow-ups V1, V2, B1, M1 and R8 in §3 | Claude Code session |
 | 21 Oct 2026 | R7 (owner acceptance) | **Owner decision, 21 Oct 2026** (verbatim): "I formally accept the local-only test coverage for V1 and V2 for this deployment, with the explicit understanding that these paths were not exercised in production." R7 marked **DONE — PRODUCTION APPLIED AND POST-CHECKED; V1/V2 ACCEPTED WITH LOCAL-ONLY COVERAGE**. This does not change the evidence above: the production smoke-test suite was partial; Apply reviewed item and DSR Accept/Reject/Defer/Use schedule rate were not exercised in production and have local coverage only (PGlite rehearsal 17/17). V1 and V2 remain open follow-ups; B1, M1 and R8 unchanged. Documentation only; no production write | Claude Code session, owner decision |
+| 21 Oct 2026 | R2 | Reclassified DONE → **PARTIALLY VERIFIED / not done** in PR #203: the 18 Oct evidence was for `main` @ `e64cf6c`; `main` is now `10c12ff`. GitHub's commit status API for `10c12ff` returns context `Vercel`, state `success`, description `Deployment has completed` at 2026-10-21T08:24:54Z (target `CyAVtovnxpkZjuk1Y32ov8oStvpn`). This confirms a Vercel deployment completed for the current main SHA; the status does not expose its environment or deployment ordering. The Vercel deployment-history request returned 403 for team scope `whistleblower`, so the required latest-Production/no-newer-failure check remains unverified | GitHub commit status API; Vercel deployment-history query; PR #203 |
+| 21 Oct 2026 | I4 | Re-run on `main` @ `10c12ff` (preview changed after `a4afb42` via PRs #186–#188). Preview-lane Vitest (`src/preview`, `src/lib/{preview,measurement,priceFirst,tenderExport}`, `EngineeringPreview*`) 18 files, 188/188. `EngineeringPreview.isolation.test.tsx` 5/5: no Supabase/network from any tab or import; flag unset → route redirects outside development; no committed `.env*` sets `VITE_CUNSTRUCT_ENGINEERING_PREVIEW`. tsc: 0 errors in preview-lane files (406 repository-wide, all pre-existing). ESLint clean on preview files. `vite build` passes. Playwright preview specs **not** re-run (the Ops layout contacts production Supabase). LOCAL evidence | Claude Code |
 
 ## 9. Change history
 
@@ -176,3 +178,40 @@ No synthetic score, repository-only check, successful build, or owner walkthroug
 | v1.0 | 17 Oct 2026 | Historical frozen plan | Original closure-sprint release plan |
 | v1.1 | 17 Oct 2026 | Historical plan | Added first-set milestone, a defined D3 study, and a deferrable migration chain |
 | v1.2 | 18 Oct 2026 | Separates an owner-only engineering preview from commercial release; adds I1–I4; keeps real evidence and production-migration gates intact; records current constraints and defers the optional migration chain | The current operating constraints exclude new Supabase projects, external drawing acquisition, outreach and external-source research. This permits material, testable engineering progress without falsely claiming validation or bypassing production safety gates |
+
+
+## 10. v1.2 closure snapshot (21 Oct 2026)
+
+### Closure definition
+
+This closure snapshot closes the **owner-only plan accounting** for v1.2 by classifying every scoped item against its stated evidence and recording unresolved work truthfully. It does not mean the commercial-release gate passed, does not authorize production changes, and does not convert partial, synthetic, local, owner-accepted or dropped work into completed evidence. v1.0 and v1.1 remain frozen historical records. No v1.2 commercial gate may be relabelled DONE without the evidence required in its acceptance criterion.
+
+### Counted scope: 21 items (I1–I4, R1–R11, E1a, E1–E5)
+
+| Closure class | Items | Count | Basis |
+|---|---|---:|---|
+| **DONE** | I1–I4, R1, R7, R10 | **7** | Existing v1.2 evidence. I4 was re-run on `main` @ `10c12ff` after the later preview changes (PRs #186–#188); LOCAL evidence, §8. R7 is applied and post-checked under the owner-approved targeted recovery point (not a full backup), with partial production smoke tests and owner acceptance of local-only V1/V2 coverage. |
+| **ACCEPTED / REPLACED** | R4–R6 | **3** | Owner accepted the local Postgres rehearsal as replacement for staging evidence. This is not staging or production evidence. |
+| **DEFERRED / PARKED** | R3, R8, R9, R11 | **4** | R3 sharing is parked by owner decision. R8–R9–R11 deferred migration chain is out of this preview scope and remains unapproved. |
+| **BLOCKED / INCOMPLETE** | R2, E1a, E1, E2, E3 | **5** | R2: a successful Vercel status was reported for current `main` @ `10c12ff` (not independently re-read; §8), but the newest Production deployment and the absence of a newer failure are unverified. E1a/E1 lack a qualifying independent drawing set; E2 cannot start without E1; E3 remains partial: location cost index and tender blank-versus-zero rules are unverified, and IS 1200 deduction encoding is deferred by owner decision. |
+| **DROPPED BY OWNER DECISION** | E4, E5 | **2** | Removed from this closure path on 20 Oct 2026; neither item is done. |
+| **Total** |  | **21** | **7/21 done** in the strict current evidence count. The earlier 8/21 tally counted R2 against its old `e64cf6c` evidence; it is no longer a valid DONE count after `main` advanced. |
+
+### Remaining plan areas outside the 21-item count
+
+| Area | Closure status |
+|---|---|
+| D1 | DONE; design system implementation merged in PR #164. |
+| D2-commercial | NOT DONE; blocked by E1a and its adjudicated reference. |
+| D3-commercial | DROPPED from the current closure path by owner decision; no study occurred and it is not done. |
+| Bug follow-ups B1 / B2 (§3) | The stale BOQ-builder input bugs, **not** the B-series items B1 Workspace shell / B2 Drawing everywhere (the IDs coincide). FIXED IN CODE and merged via PRs #201 / #202; jsdom tests only, no real-browser check, and production rollout is not claimed here. They are not B-series progress or commercial acceptance. |
+| Remaining B-series acceptance | NOT CLOSED by this snapshot. No complete B1–B12 commercial acceptance evidence exists. B10 phone surfaces and B12 old-surface removal were dropped from this closure path by owner decision; that is not completion. |
+| P1 external pilot | DROPPED from this closure path by owner decision; no pilot occurred. |
+| Commercial release | **NOT ACHIEVED; gate remains CLOSED.** No signed release decision or live pilot is claimed. |
+| Owner-only preview | I1–I4 complete against the recorded preview criteria/evidence; preview means engineering interaction only. |
+
+### The single owner decision needed to close the plan direction
+
+Choose one path: **(A)** permit use of an existing qualifying drawing set or provide a qualifying set, so E1a can be assessed and the real-drawing evidence lane can resume; or **(B)** accept the owner-only preview as the finished engineering scope and formally freeze commercial release as **not achieved** under this plan. Choosing B closes the plan direction only; it does not close E1a/E1/E2/E3, assert commercial readiness, or open the release gate. Until that choice is recorded, retain the statuses above.
+
+The separate R2 verification action is operational, not a second scope decision: the owner must inspect Vercel Production deployments and confirm no newer failed deployment, or grant the already-connected Vercel integration read access to the existing team. No new credential is needed or requested by this record.
