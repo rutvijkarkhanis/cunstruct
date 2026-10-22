@@ -12,6 +12,7 @@
 
 import { qtyPending } from "@/lib/boqRevision";
 import { csvCell, incompleteScopeNotice } from "@/lib/boqDsrDocument";
+import { BOQ_DRAFT_DISCLAIMER } from "@/lib/boqDraftDisclaimer";
 import { DRAWING_REVIEW_SECTION } from "@/lib/applyFinding";
 
 export const NO_TRADE = "Unassigned trade";
@@ -124,6 +125,7 @@ export function buildWorkPackageCsv(
   const lines: string[] = [
     csvCell(`Work packages by trade and location — ${meta.boqName}`),
     csvCell(`${meta.project ?? "Standalone"}  ·  ${meta.generatedOn}  ·  Quantities only; rates and amounts are not part of a work package`),
+    csvCell(BOQ_DRAFT_DISCLAIMER),
   ];
   const notice = incompleteScopeNotice(meta.unresolvedReviewCount);
   if (notice) lines.push(csvCell(notice));
