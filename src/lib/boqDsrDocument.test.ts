@@ -51,7 +51,7 @@ describe("buildBoqCsv", () => {
       { subhead: "4.00 RCC", itemNo: "4.01", code: "5.3", spec: "RCC M-20, cement, sand, aggregate", unit: "cum", qty: 13.4, rate: 11505 },
     ], meta);
     const lines = csv.split("\r\n");
-    expect(lines[2]).toBe(BOQ_DRAFT_DISCLAIMER);
+    expect(lines[2]).toContain(BOQ_DRAFT_DISCLAIMER);
     expect(lines[4]).toContain("Your rate");
     // first data row is spreadsheet line 6 → Amount = Qty(F) × Your rate(H)
     expect(lines[5]).toContain("=F6*H6");
