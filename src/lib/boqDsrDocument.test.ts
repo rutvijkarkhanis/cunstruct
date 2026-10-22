@@ -83,7 +83,7 @@ describe("buildBoqCsv", () => {
     expect(cols[10]).toBe("3");
     // the Amount formula (column I) is byte-identical to before Scope H — the new
     // columns are strictly additive, never shifting F/H
-    expect(lines[4]).toContain("=F5*H5");
+    expect(lines[5]).toContain("=F6*H6");
   });
 
   it("Scope H: a source_document_id that could not be resolved to a name never shows a bare page number", () => {
