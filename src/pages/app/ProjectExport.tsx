@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { AlertTriangle, FileDown, FileText, Sheet } from "lucide-react";
 import { db } from "@/lib/untypedDb";
 import { downloadCsv, openQuoteWindow } from "@/lib/boqDsrDocument";
+import { useStepLink } from "@/components/app/useStepLink";
 import {
   commercialsFor, exportDate, groupSubheads, includedDsrTotal, includedTotal, liveCsv, liveFileStem, liveQuotePayload,
   quoteContextFor, workingSubheadsFrom,
@@ -42,6 +43,7 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
   const { projectId, project } = useProjectShell();
   const { pathname, search } = useLocation();
   const here = `${pathname}${search}`;
+  const step = useStepLink();
   const sel = useSelectedBoq(projectId);
   const qc = useQueryClient();
   const boqId = sel.selected?.id ?? null;
@@ -197,8 +199,8 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
                     {unresolved > 0 && <p>{unresolved} drawing review item{unresolved === 1 ? " is" : "s are"} not verified or corrected, so {unresolved === 1 ? "it is" : "they are"} not in this BOQ.</p>}
                     <p>You can still export: the documents state these, and nothing is hidden.</p>
                     <p className="flex flex-wrap gap-x-4">
-                      {totals.pending > 0 && <Link className="underline" to={boqFilterPath(projectId, boqId0, { status: "pending" })}>Show pending lines</Link>}
-                      {unresolved > 0 && <Link className="underline" to={journeyPath(projectId, "review", boqId0)}>Review quantities</Link>}
+                      {totals.pending > 0 && <Link className="underline" to={step(boqFilterPath(projectId, boqId0, { status: "pending" }))}>Show pending lines</Link>}
+                      {unresolved > 0 && <Link className="underline" to={step(journeyPath(projectId, "review", boqId0))}>Review quantities</Link>}
                       {totals.unpriced > 0 && <Link className="underline" to={builderHref}>Add rates in the BOQ builder</Link>}
                     </p>
                   </div>
@@ -216,9 +218,9 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
               {basis && (
                 <p className="text-sm text-muted-foreground">
                   {basis} Each exported line states its quantity basis.{" "}
-                  {totals.basisUnknown > 0 && <Link className="underline" to={boqFilterPath(projectId, boqId0, { q: UNKNOWN_BASIS_SEARCH })}>Show lines with no recorded basis</Link>}
+                  {totals.basisUnknown > 0 && <Link className="underline" to={step(boqFilterPath(projectId, boqId0, { q: UNKNOWN_BASIS_SEARCH }))}>Show lines with no recorded basis</Link>}
                   {totals.basisUnknown > 0 && totals.assumed > 0 && " · "}
-                  {totals.assumed > 0 && <Link className="underline" to={boqFilterPath(projectId, boqId0, { q: ASSUMPTION_SEARCH })}>Show assumptions</Link>}
+                  {totals.assumed > 0 && <Link className="underline" to={step(boqFilterPath(projectId, boqId0, { q: ASSUMPTION_SEARCH }))}>Show assumptions</Link>}
                 </p>
               )}
             </>
@@ -254,7 +256,7 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
             {quantityOpen && (
               <p role="note" className="flex gap-2 text-sm text-amber-900 dark:text-amber-100">
                 <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
-                <span>Some items are still open; the documents state them. <Link className="underline" to={journeyPath(projectId, "check", boqId0)}>See Check &amp; finalise</Link></span>
+                <span>Some items are still open; the documents state them. <Link className="underline" to={step(journeyPath(projectId, "check", boqId0))}>See Check &amp; finalise</Link></span>
               </p>
             )}
             {lines.length === 0 ? (

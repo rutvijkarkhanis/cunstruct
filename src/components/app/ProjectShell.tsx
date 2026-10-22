@@ -2,6 +2,8 @@
 // five numbered steps, with the active step in an <Outlet/>. Each step opens
 // with where it stands (StepStatus) and ends with Back/Next. The selected BOQ
 // travels in ?boq= so every step acts on the same one.
+// Under workbench/ (preview builds only, lib/workbenchPreview) the steps,
+// StepStatus and StepNav are hidden: the workbench has its own section nav.
 import { Link, NavLink, Outlet, useLocation, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
@@ -11,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { PROJECT_STEPS, type ShellProject, type ProjectShellContext } from "./projectShellContext";
 import { BoqPhases, StepNav, StepStatus } from "./Journey";
+import { WORKBENCH_PREVIEW_ENABLED } from "@/lib/workbenchPreview";
 
 export default function ProjectShell() {
   const { id } = useParams<{ id: string }>();
@@ -18,7 +21,8 @@ export default function ProjectShell() {
   const boq = params.get("boq");
   const { pathname } = useLocation();
   const search = boq ? `?boq=${encodeURIComponent(boq)}` : "";
-  const at = PROJECT_STEPS.findIndex((s) => pathname.endsWith(`/${s.to}`));
+  const inWorkbench = WORKBENCH_PREVIEW_ENABLED && /\/workbench(\/|$)/.test(pathname);
+  const at = inWorkbench ? -1 : PROJECT_STEPS.findIndex((s) => pathname.endsWith(`/${s.to}`));
   const stepLink = (i: number) => (i >= 0 && i < PROJECT_STEPS.length ? { label: PROJECT_STEPS[i].label, to: `${PROJECT_STEPS[i].to}${search}` } : null);
   const { data: project, isLoading, isError, refetch } = useQuery({
     queryKey: ["app-project", id],
@@ -34,7 +38,7 @@ export default function ProjectShell() {
   return (
     <div className="min-w-0">
       <div className="border-b bg-card">
-        <div className="max-w-6xl mx-auto px-4 pt-3">
+        <div className={cn(inWorkbench ? "max-w-screen-2xl" : "max-w-6xl", "mx-auto px-4 pt-3")}>
           <Link to="/app/projects" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
             <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" /> Projects
           </Link>
@@ -50,6 +54,7 @@ export default function ProjectShell() {
               )}
             </div>
           )}
+          {!inWorkbench && <>
           <BoqPhases />
           {/* `relative` keeps any visually-hidden (absolutely positioned) text
               inside this scroll container instead of widening the page. */}
@@ -73,9 +78,10 @@ export default function ProjectShell() {
               ))}
             </ol>
           </nav>
+          </>}
         </div>
       </div>
-      <div className="max-w-6xl mx-auto px-4 py-5 min-w-0">
+      <div className={cn(inWorkbench ? "max-w-screen-2xl" : "max-w-6xl", "mx-auto px-4 py-5 min-w-0")}>
         {isLoading ? (
           <div role="status" className="text-sm text-muted-foreground">Loading project…</div>
         ) : isError ? (

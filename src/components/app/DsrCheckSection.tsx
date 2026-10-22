@@ -18,6 +18,7 @@ import {
 } from "@/lib/dsr/scopeStore";
 import { appBoqLinesKey, type AppBoqLine } from "@/lib/app/boqLines";
 import { boqFilterPath } from "@/lib/app/journey";
+import { useStepLink } from "./useStepLink";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -184,6 +185,7 @@ function Suggestion({ s, rec, busy, projectId, boqId, onDecide, onAccept }: {
   s: ScopeSuggestion; rec: ScopeDecisionRecord | null; busy: string | null; projectId: string; boqId: string;
   onDecide: (d: ScopeDecision | null, note?: string) => void; onAccept: (codes: string[], note?: string) => void;
 }) {
+  const step = useStepLink();
   const [picking, setPicking] = useState(false);
   const [codes, setCodes] = useState<string[]>([]);
   const [note, setNote] = useState("");
@@ -199,13 +201,13 @@ function Suggestion({ s, rec, busy, projectId, boqId, onDecide, onAccept }: {
         <div>
           <span className="text-muted-foreground">May already be covered by: </span>
           {s.possibleDuplicates.map((d, i) => (
-            <span key={d.lineId}>{i > 0 && ", "}<Link className="underline" to={boqFilterPath(projectId, boqId, { q: d.description })}>{d.description}</Link></span>
+            <span key={d.lineId}>{i > 0 && ", "}<Link className="underline" to={step(boqFilterPath(projectId, boqId, { q: d.description }))}>{d.description}</Link></span>
           ))}
         </div>
       )}
       <p><span className="text-muted-foreground">Next: </span>{accepted && rec?.decision !== "accepted" ? linesRemainNext(rec?.decision ?? null) : s.nextDecision}</p>
       {accepted && (
-        <p>{s.acceptedLineIds.length} pending line{s.acceptedLineIds.length === 1 ? "" : "s"} added. <Link className="underline" to={boqFilterPath(projectId, boqId, { status: "pending" })}>Show pending lines</Link></p>
+        <p>{s.acceptedLineIds.length} pending line{s.acceptedLineIds.length === 1 ? "" : "s"} added. <Link className="underline" to={step(boqFilterPath(projectId, boqId, { status: "pending" }))}>Show pending lines</Link></p>
       )}
       {accepted && rec?.decision !== "accepted" && (
         <p role="note" className="text-xs">{rec ? `${DECISION[rec.decision]} after accepting` : "Decision undone"}: the line{s.acceptedLineIds.length === 1 ? "" : "s"} already added {s.acceptedLineIds.length === 1 ? "is" : "are"} still in the BOQ. Nothing is deleted here — remove {s.acceptedLineIds.length === 1 ? "it" : "them"} in the BOQ if not needed.</p>

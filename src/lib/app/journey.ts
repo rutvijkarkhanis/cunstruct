@@ -11,6 +11,7 @@
 import type { BoqTotals } from "@/lib/app/boqTable";
 import type { ReviewSummary } from "@/lib/review/reviewQueue";
 import { UNKNOWN_ORIGIN_LABEL } from "@/lib/quantity";
+import { WORKBENCH_PREVIEW_ENABLED } from "@/lib/workbenchPreview";
 
 // ── The BOQ lifecycle ────────────────────────────────────────────────────────
 
@@ -110,11 +111,27 @@ export function safeJourneyReturn(raw: string | null | undefined): string | null
   if (!raw || !raw.startsWith("/app/projects/") || raw.includes("//") || raw.includes("\\")) return null;
   return raw;
 }
-/** The journey BOQ step for the project a returnTo belongs to. */
+/** The journey BOQ step for the project a returnTo belongs to — the
+ *  workbench's BOQ section when the returnTo is in the workbench preview and
+ *  this build has it (otherwise unchanged; folds away without the preview). */
 export function journeyBoqFrom(returnTo: string, boqId: string): string | null {
   const m = returnTo.match(/^\/app\/projects\/([^/?#]+)/);
-  return m ? journeyPath(decodeURIComponent(m[1]), "boq", boqId) : null;
+  if (!m) return null;
+  const path = journeyPath(decodeURIComponent(m[1]), "boq", boqId);
+  return WORKBENCH_PREVIEW_ENABLED && isWorkbenchPath(returnTo) ? inWorkbench(path) : path;
 }
+
+/** Journey steps the workbench preview also has, as workbench sections. */
+export const WORKBENCH_SECTIONS = ["drawings", "review", "boq", "check", "export"] as const;
+
+/** Whether a path is inside a project's workbench preview. */
+export const isWorkbenchPath = (path: string) => /^\/app\/projects\/[^/?#]+\/workbench(?=[/?#]|$)/.test(path);
+
+/** A journey step path as the same section of the workbench preview (query
+ *  kept); any other path is returned unchanged. Pure: whether to use it is
+ *  the caller's (WORKBENCH_PREVIEW_ENABLED-gated) decision. */
+export const inWorkbench = (path: string) =>
+  path.replace(new RegExp(`^(/app/projects/[^/?#]+/)(${WORKBENCH_SECTIONS.join("|")})(?=[/?#]|$)`), "$1workbench/$2");
 
 export function journeyStages(i: JourneyInput): JourneyStage[] {
   const p = (step: string) => journeyPath(i.projectId, step, i.boqId);

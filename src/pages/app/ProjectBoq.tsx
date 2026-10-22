@@ -15,6 +15,8 @@ import { loadProjectDrawings, resolveDrawingSource } from "@/lib/review/drawingS
 import { basisNotice, boqTotals, incompleteWarning, inversePatch, pageParam, statusParam, type BoqTableLine } from "@/lib/app/boqTable";
 import { appBoqLinesKey, loadAppBoqLines } from "@/lib/app/boqLines";
 import { useProjectShell } from "@/components/app/projectShellContext";
+import { EMPTY_UNDO, dismissRefused, popUndo, pushUndo, refuseNewest, useSessionUndoHistory, type UndoState } from "@/components/app/undoHistory";
+import { useStepLink } from "@/components/app/useStepLink";
 import { useSelectedBoq } from "@/components/app/useSelectedBoq";
 import BoqPicker from "@/components/app/BoqPicker";
 import BoqTable, { type LineSource } from "@/components/app/BoqTable";
@@ -26,9 +28,6 @@ import { ASSUMPTION_SEARCH, UNKNOWN_BASIS_SEARCH, boqFilterPath, builderPath, jo
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
-/** `after` is the line as this edit left it — what undo expects to find. */
-interface UndoEntry { lineId: string; label: string; undo: Partial<BoqTableLine>; after: BoqTableLine }
-
 const FIELD_LABEL: Record<string, string> = { description: "Description", qty: "Quantity", unit: "Unit" };
 function describeEdit(line: BoqTableLine, patch: Partial<BoqTableLine>): string {
   const field = (["qty", "description", "unit"] as const).find((k) => k in patch) ?? "qty";
@@ -36,7 +35,10 @@ function describeEdit(line: BoqTableLine, patch: Partial<BoqTableLine>): string 
   return `${FIELD_LABEL[field]} of “${name}”: ${line[field] ?? "—"} → ${patch[field] ?? "—"}`;
 }
 
-export default function ProjectBoq() {
+/** "page" (default): undo history lives and dies with this page. "session":
+ *  kept per BOQ until the tab reloads, so it survives leaving for the BOQ
+ *  builder and coming back (workbench preview only). */
+export default function ProjectBoq({ historyScope = "page" }: { historyScope?: "page" | "session" } = {}) {
   const { projectId } = useProjectShell();
   const sel = useSelectedBoq(projectId);
   const boqId = sel.selected?.id ?? null;
@@ -47,14 +49,19 @@ export default function ProjectBoq() {
   const here = `${pathname}${search}`;
   const qc = useQueryClient();
   const { user } = useAuth();
-  const [history, setHistory] = useState<UndoEntry[]>([]);
+  const step = useStepLink();
+  const [pageHistory, setPageHistory] = useState<UndoState>(EMPTY_UNDO);
+  const [sessionHistory, setSessionHistory] = useSessionUndoHistory(historyScope === "session" ? boqId : null);
+  const { entries: history, refused } = historyScope === "session" ? sessionHistory : pageHistory;
+  const setHistory = historyScope === "session" ? setSessionHistory : setPageHistory;
   const [undoing, setUndoing] = useState(false);
   // Set synchronously: a second Ctrl+Z before the re-render must not replay the same step.
   const undoingRef = useRef(false);
   const [announcement, setAnnouncement] = useState("");
 
-  // Undo is per BOQ: switching BOQs starts a fresh history.
-  useEffect(() => { setHistory([]); }, [boqId]);
+  // Undo is per BOQ: switching BOQs starts a fresh history (the session
+  // history is already kept per BOQ).
+  useEffect(() => { setPageHistory(EMPTY_UNDO); }, [boqId]);
 
   const linesQ = useQuery({ queryKey: appBoqLinesKey(boqId), enabled: !!boqId, queryFn: () => loadAppBoqLines(boqId!) });
   // Same key + loader as the BOQ builder's source badge, so the two share one fetch.
@@ -89,34 +96,36 @@ export default function ProjectBoq() {
   // (only if the line still has the values it was edited from) and recorded
   // in the line's history (lib/lineEdit). Any failure re-reads the lines, so the screen shows what the
   // database holds rather than what was typed.
-  // Returns whether the line now holds the change — also when its history
+  // Returns "done" when the line now holds the change — also when its history
   // failed and could not be put back (reported as an error), so the undo
-  // list always matches the database.
-  const write = useCallback(async (line: BoqTableLine, patch: Partial<BoqTableLine>, what: string): Promise<boolean> => {
+  // list always matches the database; "conflict" when the line no longer held
+  // the expected values (nothing written); "failed" otherwise (nothing taken
+  // effect: an error, or a history failure that was put back).
+  const write = useCallback(async (line: BoqTableLine, patch: Partial<BoqTableLine>, what: string): Promise<"done" | "conflict" | "failed"> => {
     let r;
     try {
       r = await saveLineEdit({ boqId: boqId!, line, patch, changedBy: user?.id ?? null });
     } catch (e) {
-      toast.error(`${what === "Undo" ? "Undo failed" : "Not saved"} — ${saveErrorMessage(e as { message?: string })}`); refresh(); return false;
+      toast.error(`${what === "Undo" ? "Undo failed" : "Not saved"} — ${saveErrorMessage(e as { message?: string })}`); refresh(); return "failed";
     }
     const msg = lineEditMessage(r, what);
-    if (!editTookEffect(r)) { toast.error(msg!); refresh(); return false; }
+    if (!editTookEffect(r)) { toast.error(msg!); refresh(); return r.status === "conflict" ? "conflict" : "failed"; }
     // The line as saved, right away: a further edit of it before the re-read
     // lands is guarded on these values, not refused as "changed elsewhere".
     qc.setQueryData(appBoqLinesKey(boqId), (old: BoqTableLine[] | undefined) => old?.map((l) => (l.id === line.id ? { ...l, ...patch } : l)));
     if (r.status !== "saved") toast.error(msg!);
     else if (msg) toast.warning(msg, { id: "line-history-unavailable" });
-    return true;
+    return "done";
   }, [boqId, user?.id, refresh, qc]);
 
   const save = useCallback(async (line: BoqTableLine, patch: Partial<BoqTableLine>) => {
-    if (!(await write(line, patch, "Change"))) return false;
+    if ((await write(line, patch, "Change")) !== "done") return false;
     const label = describeEdit(line, patch);
-    setHistory((h) => [...h, { lineId: line.id, label, undo: inversePatch(line, patch), after: { ...line, ...patch } }]);
+    setHistory(pushUndo({ lineId: line.id, label, undo: inversePatch(line, patch), after: { ...line, ...patch } }));
     setAnnouncement(`Saved. ${label}`);
     refresh();
     return true;
-  }, [write, refresh]);
+  }, [write, refresh, setHistory]);
 
   const undo = useCallback(async () => {
     const last = history[history.length - 1];
@@ -124,15 +133,23 @@ export default function ProjectBoq() {
     undoingRef.current = true;
     setUndoing(true);
     // Guarded on the values this edit left: someone else's later change is
-    // never reverted. A failed undo keeps the entry; nothing is assumed reverted.
-    const ok = await write(last.after, last.undo, "Undo");
+    // never reverted. Refused because the line changed elsewhere: the step
+    // (and earlier steps on that line) leave the stack, listed as not undone
+    // (components/app/undoHistory). Any other failure keeps the step;
+    // nothing is assumed reverted.
+    const r = await write(last.after, last.undo, "Undo");
     undoingRef.current = false;
     setUndoing(false);
-    if (!ok) return;
-    setHistory((h) => h.slice(0, -1));
+    if (r === "conflict") {
+      setHistory(refuseNewest);
+      setAnnouncement(`Not undone: ${last.label}. The line was changed elsewhere.`);
+      return;
+    }
+    if (r !== "done") return;
+    setHistory(popUndo);
     setAnnouncement(`Undone. ${last.label}`);
     refresh();
-  }, [history, write, refresh]);
+  }, [history, write, refresh, setHistory]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -163,7 +180,7 @@ export default function ProjectBoq() {
   const warning = incompleteWarning(totals);
   const basis = basisNotice(totals);
   const builderHref = builderPath(projectId, sel.selected.id, here);
-  const filterHref = (f: { status?: string; q?: string }) => boqFilterPath(projectId, sel.selected!.id, f);
+  const filterHref = (f: { status?: string; q?: string }) => step(boqFilterPath(projectId, sel.selected!.id, f));
   const lastEdit = history[history.length - 1];
 
   return (
@@ -182,6 +199,20 @@ export default function ProjectBoq() {
         </Link>
       </div>
       <p className="sr-only" aria-live="polite">{announcement}</p>
+      {historyScope === "session" && (
+        <p className="text-xs text-muted-foreground">Undo history is kept for this BOQ in this browser tab until the page is reloaded.</p>
+      )}
+      {refused.length > 0 && (
+        <section aria-label="Changes that could not be undone" className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+          <p className="font-medium">Not undone — these lines were changed elsewhere since your edit, so their current values were kept:</p>
+          <ul className="list-disc pl-5">
+            {refused.map((x, i) => (
+              <li key={i}>{x.label}{x.reason === "earlier-on-changed-line" ? " (an earlier edit of the same line)" : ""}</li>
+            ))}
+          </ul>
+          <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setHistory(dismissRefused)}>Dismiss</Button>
+        </section>
+      )}
 
       <ApplyReceiptNote projectId={projectId} boqId={sel.selected.id} here="boq" />
 
@@ -213,7 +244,7 @@ export default function ProjectBoq() {
                 <p>{warning}</p>
                 <p className="flex flex-wrap gap-x-4">
                   {totals.pending > 0 && initialStatus !== "pending" && <Link className="underline" to={filterHref({ status: "pending" })}>Show pending lines</Link>}
-                  {totals.pending > 0 && <span>Enter a quantity on a pending line to confirm it, or resolve it in <Link className="underline" to={journeyPath(projectId, "review", sel.selected.id)}>Review quantities</Link>.</span>}
+                  {totals.pending > 0 && <span>Enter a quantity on a pending line to confirm it, or resolve it in <Link className="underline" to={step(journeyPath(projectId, "review", sel.selected.id))}>Review quantities</Link>.</span>}
                   {totals.unpriced > 0 && <Link className="underline" to={builderHref}>Add rates in the BOQ builder</Link>}
                 </p>
               </div>

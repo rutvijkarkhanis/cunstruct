@@ -7,6 +7,7 @@
 import { Link } from "react-router-dom";
 import { loadReceipt } from "@/lib/review/applyReceipt";
 import { journeyPath } from "@/lib/app/journey";
+import { useStepLink } from "./useStepLink";
 
 const time = (iso: string) => new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
@@ -17,6 +18,7 @@ export default function ApplyReceiptNote({ projectId, boqId, currentRunId, here 
   /** The step this note is shown on — its own link is left out. */
   here: "review" | "boq";
 }) {
+  const step = useStepLink();
   const r = loadReceipt(boqId);
   if (!r) return null;
   const earlier = currentRunId != null && r.runId !== currentRunId;
@@ -33,9 +35,9 @@ export default function ApplyReceiptNote({ projectId, boqId, currentRunId, here 
         Last applied from review in this browser tab, {time(r.appliedAt)}{earlier ? " (from an earlier analysis of this BOQ)" : ""}: {parts.join(" · ")}.
       </p>
       <p className="flex flex-wrap gap-x-4">
-        {here !== "boq" && <Link className="underline" to={journeyPath(projectId, "boq", boqId)}>See the updated BOQ</Link>}
-        {followUp > 0 && here !== "review" && <Link className="underline" to={journeyPath(projectId, "review", boqId)}>Resolve the {followUp} not applied in Review quantities</Link>}
-        {followUp === 0 && <Link className="underline" to={journeyPath(projectId, "check", boqId)}>Continue to Check &amp; finalise</Link>}
+        {here !== "boq" && <Link className="underline" to={step(journeyPath(projectId, "boq", boqId))}>See the updated BOQ</Link>}
+        {followUp > 0 && here !== "review" && <Link className="underline" to={step(journeyPath(projectId, "review", boqId))}>Resolve the {followUp} not applied in Review quantities</Link>}
+        {followUp === 0 && <Link className="underline" to={step(journeyPath(projectId, "check", boqId))}>Continue to Check &amp; finalise</Link>}
       </p>
     </div>
   );

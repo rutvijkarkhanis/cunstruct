@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useParams, useNavigate, useSearchParams } from "react-router-dom";
-import { journeyPath, safeJourneyReturn } from "@/lib/app/journey";
+import { inWorkbench, isWorkbenchPath, journeyPath, safeJourneyReturn } from "@/lib/app/journey";
+import { WORKBENCH_PREVIEW_ENABLED } from "@/lib/workbenchPreview";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
@@ -37,12 +38,15 @@ export default function ProjectBoqs() {
   const qc = useQueryClient();
   const { user } = useAuth();
   // Opened from the project journey (?returnTo=…): offer the way back, and
-  // land a newly created BOQ back in the journey, selected. Otherwise the
-  // existing destinations (the BOQ builder) are unchanged.
+  // land a newly created BOQ back in the journey, selected (in the workbench
+  // preview's BOQ section when it came from there; the workbench has no
+  // overview). Otherwise the existing destinations (the BOQ builder) are unchanged.
   const [searchParams] = useSearchParams();
   const returnTo = safeJourneyReturn(searchParams.get("returnTo"));
   const openCreated = (boqId: string) =>
-    navigate(returnTo ? journeyPath(projectId!, "overview", boqId) : `/ops/projects/${projectId}/boqs/${boqId}`);
+    navigate(!returnTo ? `/ops/projects/${projectId}/boqs/${boqId}`
+      : WORKBENCH_PREVIEW_ENABLED && isWorkbenchPath(returnTo) ? inWorkbench(journeyPath(projectId!, "boq", boqId))
+      : journeyPath(projectId!, "overview", boqId));
 
   const { scopes, boqs, counts, scopeName, createBoq: createBoqShared, resolveScopeId: resolveScopeIdShared } = useBoqManagement(projectId);
 

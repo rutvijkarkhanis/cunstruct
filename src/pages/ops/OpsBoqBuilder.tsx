@@ -1582,7 +1582,7 @@ export default function OpsBoqBuilder() {
                             onClick={(e) => { e.stopPropagation(); setExpanded(isExp ? null : l.id); }} className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                             <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition-transform", isExp && "rotate-180")} aria-hidden="true" />
                           </button>
-                          <span className="text-muted-foreground">{itemNo}</span>{l.dsr_code ?? "Priced separately"}
+                          <span className="text-muted-foreground">{itemNo}</span>{l.dsr_code ?? "No DSR code"}
                           {l.basis === PENDING_BASIS && (
                             <span className="text-amber-600 dark:text-amber-500 font-sans" title="Quantity pending — enter a quantity to price this line">quantity pending</span>
                           )}

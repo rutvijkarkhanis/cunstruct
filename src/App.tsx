@@ -10,6 +10,7 @@ import { AuthProvider } from "@/context/AuthContext";
 import ErrorBoundary from "./components/ErrorBoundary.tsx";
 import { Loader2 } from "lucide-react";
 import { isAppSubdomain, getAppUrl, getMainUrl } from "@/lib/subdomain";
+import { WORKBENCH_PREVIEW_ENABLED } from "@/lib/workbenchPreview";
 
 // ── Storefront pages ─────────────────────────────────────────────────────────
 const Index = lazy(() => import("./pages/Index.tsx"));
@@ -58,6 +59,10 @@ const ProjectDrawings = lazy(() => import("./pages/app/ProjectDrawings.tsx"));
 const ProjectReview = lazy(() => import("./pages/app/ProjectReview.tsx"));
 const ProjectBoq = lazy(() => import("./pages/app/ProjectBoq.tsx"));
 const ProjectExport = lazy(() => import("./pages/app/ProjectExport.tsx"));
+// Workbench preview (lib/workbenchPreview): imported only when the gate is
+// on, so a build without the flag carries none of its code.
+const WorkbenchLayout = WORKBENCH_PREVIEW_ENABLED ? lazy(() => import("./components/app/WorkbenchLayout.tsx")) : null;
+const WorkbenchReview = WORKBENCH_PREVIEW_ENABLED ? lazy(() => import("./components/app/WorkbenchReview.tsx")) : null;
 
 // ── Public, unauthenticated share link (reachable on EITHER subdomain) ──────
 const PublicWorkspaceShare = lazy(() => import("./pages/PublicWorkspaceShare.tsx"));
@@ -210,6 +215,15 @@ function AppRoutes() {
           <Route path="boq" element={<ProjectBoq />} />
           <Route path="check" element={<ProjectExport mode="check" />} />
           <Route path="export" element={<ProjectExport />} />
+          {WORKBENCH_PREVIEW_ENABLED && WorkbenchLayout && WorkbenchReview && (
+            <Route path="workbench" element={<WorkbenchLayout />}>
+              <Route path="boq" element={<ProjectBoq historyScope="session" />} />
+              <Route path="drawings" element={<ProjectDrawings />} />
+              <Route path="review" element={<WorkbenchReview />} />
+              <Route path="check" element={<ProjectExport mode="check" />} />
+              <Route path="export" element={<ProjectExport />} />
+            </Route>
+          )}
           <Route path="*" element={<p className="text-sm text-muted-foreground">This step is not available.</p>} />
         </Route>
       </Route>

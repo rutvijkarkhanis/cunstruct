@@ -228,7 +228,34 @@ describe("ProjectBoq — guarded, recorded quantity edits", () => {
     expect(updates).toHaveLength(1);
     expect(rows.find((r) => r.id === "l1")!.qty).toBe(15);
     expect(toastError).toHaveBeenCalledWith("Undo not saved: this line was changed elsewhere since it was loaded. The current values are now shown.");
-    expect(screen.getByRole("button", { name: /^Undo:/ })).toBeEnabled(); // kept, not assumed reverted
+    // The refused step leaves the stack (it can never succeed without
+    // overwriting the other change) and stays listed as not undone.
+    expect(screen.getByRole("button", { name: "Undo (nothing to undo)" })).toBeDisabled();
+    const notUndone = screen.getByRole("region", { name: "Changes that could not be undone" });
+    expect(notUndone).toHaveTextContent("Quantity of “Brick wall”: 10 → 12");
+  });
+
+  it("a stale newest step does not block an earlier step on another line", async () => {
+    renderPage();
+    await editQty("Brick wall", "12");
+    await editQty("Plaster", "45");
+    rows = rows.map((r) => (r.id === "l2" ? { ...r, qty: 50 } : r)); // someone else changes Plaster
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /^Undo: Quantity of “Plaster”/ })); });
+    expect(rows.find((r) => r.id === "l2")!.qty).toBe(50);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /^Undo: Quantity of “Brick wall”/ })); });
+    expect(rows.find((r) => r.id === "l1")!.qty).toBe(10);
+    expect(screen.getByRole("button", { name: "Undo (nothing to undo)" })).toBeDisabled();
+    expect(screen.getByRole("region", { name: "Changes that could not be undone" })).toHaveTextContent("Plaster");
+  });
+
+  it("an undo that fails for any other reason keeps its step (not refused, not assumed reverted)", async () => {
+    renderPage();
+    await editQty("Brick wall", "12");
+    failNextUpdate = "network down";
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /^Undo:/ })); });
+    expect(rows.find((r) => r.id === "l1")!.qty).toBe(12);
+    expect(screen.getByRole("button", { name: /^Undo: Quantity of “Brick wall”/ })).toBeEnabled();
+    expect(screen.queryByRole("region", { name: "Changes that could not be undone" })).toBeNull();
   });
 });
 
