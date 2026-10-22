@@ -7,7 +7,8 @@ import {
   buildRevisionLines, csvRowsFrom, pendingItemsFrom, pendingReason, qtyPending, quoteSubheadsFrom, revisionQuotePayload,
   type RevisionLine, type StoredRevision, type WorkingLine, type WorkingSubhead,
 } from "./boqRevision";
-import { buildBoqCsv, buildDsrQuoteHtml, computeCommercials } from "./boqDsrDocument";
+import { buildBoqCsv, buildDsrQuoteHtml, buildProjectQuoteHtml, computeCommercials } from "./boqDsrDocument";
+import { BOQ_DRAFT_DISCLAIMER } from "./boqDraftDisclaimer";
 
 const wl = (o: Partial<WorkingLine> & { id: string }): WorkingLine => ({
   section: "Drawing review — added", dsr_code: null, description: o.id, unit: "sqm", qty: 10, dsr_rate: null, custom_rate: null,
@@ -19,7 +20,7 @@ const sh = (lines: WorkingLine[], src: Record<string, typeof PLAN> = {}): Workin
   rows: lines.map((line, i) => ({ line, no: `1.${String(i + 1).padStart(2, "0")}`, source: src[line.id] ?? { sourceDocument: null, sourcePage: null } })),
 }];
 const META = { boqName: "Example", generatedOn: "13 Oct 2026" };
-const csvBody = (csv: string) => csv.split("\r\n").slice(4);
+const csvBody = (csv: string) => csv.split("\r\n").slice(5);
 
 const MIXED = buildRevisionLines(sh([
   wl({ id: "lift", description: "Floor area — LIFT", qty: 4.23, dsr_rate: 1000 }),
@@ -63,12 +64,19 @@ describe("CSV", () => {
   it("measured rows are unchanged; the pending line is in the pending section with a blank Qty and its source", () => {
     const body = csvBody(buildBoqCsv(csvRowsFrom(MIXED), META, pendingItemsFrom(MIXED)));
     expect(body).toEqual([
-      "1.00 Drawing review — added,1.01,,Floor area — LIFT,sqm,4.23,1000,1000,=F5*H5,Ground Floor Plan,3,,DSR 2023 rate (incl. GST @18%)",
+      "1.00 Drawing review — added,1.01,,Floor area — LIFT,sqm,4.23,1000,1000,=F6*H6,Ground Floor Plan,3,,DSR 2023 rate (incl. GST @18%)",
       "",
       "IDENTIFIED — PENDING QUANTIFICATION (not priced; confirm a quantity to price)",
       "Pending,P.01,,Floor area — CORRIDOR — Quantity pending: not yet measured,sqm,,,,,Ground Floor Plan,3,",
       "Pending,P.02,,Porch — Quantity pending: no quantity recorded,sqm,,,,,,,",
     ]);
+  });
+
+  it("puts the unvalidated-draft disclaimer before the CSV table and adjusts formula row references", () => {
+    const rows = buildBoqCsv(csvRowsFrom(MIXED), META, pendingItemsFrom(MIXED)).split("\\r\\n");
+    expect(rows[2]).toContain(BOQ_DRAFT_DISCLAIMER);
+    expect(rows[4]).toContain("Sub-head,");
+    expect(rows[5]).toContain("=F6*H6");
   });
 
   it("no pending line is ever written as a measured Qty of 0", () => {
@@ -95,6 +103,22 @@ describe("PDF", () => {
     works_total: 4230, grand_total: 4230, line_count: 5, priced_line_count: 1, limitations: [], limitations_acknowledged: true,
     issue_note: null, issued_by: "u1", issued_at: "2026-10-12T09:00:00Z",
   };
+
+  it("single-BOQ PDF explicitly labels quantities and rates as unvalidated drafts", () => {
+    const html = buildDsrQuoteHtml(revisionQuotePayload(rev, MIXED, false), { autoPrint: false });
+    expect(html).toContain(BOQ_DRAFT_DISCLAIMER);
+    expect(html).toContain("UNVALIDATED DRAFT — CHECK BEFORE USE");
+  });
+
+  it("combined project PDF explicitly labels quantities and rates as unvalidated drafts", () => {
+    const html = buildProjectQuoteHtml(
+      { projectName: "Tower B", generatedOn: "22 Oct 2026", branding: "client" },
+      [],
+      { autoPrint: false },
+    );
+    expect(html).toContain(BOQ_DRAFT_DISCLAIMER);
+    expect(html).toContain("UNVALIDATED DRAFT — CHECK BEFORE USE");
+  });
 
   it("a frozen revision's payload lists its pending lines from its own saved rows", () => {
     const p = revisionQuotePayload(rev, MIXED, false);
