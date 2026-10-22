@@ -148,7 +148,7 @@ describe("Apply-to-export integration: AI evidence -> boq_line write -> resolver
       sourceDocument: resolved.sourceDocument, sourcePage: resolved.sourcePage,
     };
     const csv = buildBoqCsv([csvRow], { boqName: "Test BOQ", generatedOn: "1 Jan 2026" });
-    const cols = csv.split("\r\n")[5].split(",");
+    const cols = csv.split("\r\n")[4].split(",");
     expect(cols[9]).toBe("Ground Floor Plan");
     expect(cols[10]).toBe("4");
 
