@@ -73,7 +73,7 @@ describe("CSV", () => {
   });
 
   it("puts the unvalidated-draft disclaimer before the CSV table and adjusts formula row references", () => {
-    const rows = buildBoqCsv(csvRowsFrom(MIXED), META, pendingItemsFrom(MIXED)).split("\\r\\n");
+    const rows = buildBoqCsv(csvRowsFrom(MIXED), META, pendingItemsFrom(MIXED)).split("\r\n");
     expect(rows[2]).toContain(BOQ_DRAFT_DISCLAIMER);
     expect(rows[4]).toContain("Sub-head,");
     expect(rows[5]).toContain("=F6*H6");
