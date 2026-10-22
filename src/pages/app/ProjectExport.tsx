@@ -235,7 +235,7 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
                 <div><dt className="inline text-muted-foreground">Review items not in the BOQ: </dt><dd className="inline">{unresolved}</dd></div>
                 <div><dt className="inline text-muted-foreground">No recorded basis: </dt><dd className="inline">{totals.basisUnknown}</dd></div>
                 <div><dt className="inline text-muted-foreground">Assumptions: </dt><dd className="inline">{totals.assumed}</dd></div>
-                <div><dt className="inline text-muted-foreground">No rate yet (Pricing): </dt><dd className="inline">{totals.unpriced}</dd></div>
+                <div><dt className="inline text-muted-foreground">{pricing ? "No rate yet: " : "No rate yet (Pricing): "}</dt><dd className="inline">{totals.unpriced}</dd></div>
               </dl>
               {inWorkbench && WorkbenchRemovedEvidence && linesQ.isSuccess && (
                 <Suspense fallback={null}>

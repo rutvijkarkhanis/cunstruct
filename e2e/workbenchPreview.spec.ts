@@ -993,7 +993,7 @@ test.describe("workbench preview build (flag on, fake project, :8081)", () => {
     await expect(row).toContainText("No rate");
 
     await section(page, "check");
-    await expect(page.getByText(/No rate yet \(Pricing\):/).locator("xpath=following-sibling::dd[1]")).toHaveText("1");
+    await expect(page.getByText("No rate yet:", { exact: true }).locator("xpath=following-sibling::dd[1]")).toHaveText("1");
     const fix = page.getByRole("link", { name: "Add rates in the BOQ" }).first();
     await expect(fix).toHaveAttribute("href", `/app/projects/${PROJECT_ID}/workbench/boq?boq=${BOQ_ID}&status=unpriced`);
     await fix.click();
@@ -1045,6 +1045,49 @@ test.describe("workbench preview build (flag on, fake project, :8081)", () => {
     expect(row?.qty).toBe(String(added[0].qty));
     // Apply never started an analysis, and only the expected tables were written.
     expect(new Set(env.mock.writes.map((w) => `${w.method} ${w.table}`))).toEqual(new Set(["PATCH analysis_review_item", "POST boq_line", "POST boq_line_change_log"]));
+    afterEachCheck(env);
+  });
+
+  test("a quantity corrected in review reaches the BOQ, its history, Check and the export as the corrected value, with its basis", async ({ page }) => {
+    const env = await setUp(page);
+    await page.goto(`/app/projects/${PROJECT_ID}/workbench/review?boq=${BOQ_ID}`);
+    await page.getByRole("button", { name: "Edit", exact: true }).click({ timeout: 20_000 });
+    const qty = page.getByRole("spinbutton", { name: /^Quantity \(AI: / });
+    await qty.fill("12.5");
+    await page.getByRole("button", { name: "Save correction" }).click();
+    await expect.poll(() => (env.mock.tables.analysis_review_item.find((r) => r.id === ITEM_COLUMN_ID) as Row).review_status).toBe("EDITED");
+    expect(((env.mock.tables.analysis_review_item.find((r) => r.id === ITEM_COLUMN_ID) as Row).reviewer_json as Row).quantity).toBe(12.5);
+    // A correction alone changes nothing in the BOQ until Apply.
+    const linesBefore = env.mock.tables.boq_line.length;
+    expect(env.mock.writes.filter((w) => w.table === "boq_line")).toEqual([]);
+
+    await page.getByRole("button", { name: /Review complete.*Apply to BOQ/ }).click();
+    const dialog = page.getByRole("dialog", { name: "Apply reviewed quantities" });
+    const apply = dialog.getByRole("button", { name: /Apply \d+ to BOQ/ });
+    await expect(apply).toBeEnabled({ timeout: 15_000 });
+    await apply.click();
+    await expect(page.getByRole("region", { name: /Applied \d+ changes? to the BOQ/ })).toBeVisible();
+
+    const added = env.mock.tables.boq_line.slice(linesBefore);
+    expect(added).toHaveLength(1);
+    expect(added[0]).toMatchObject({ boq_id: BOQ_ID, qty: 12.5, basis: "REVIEW_CORRECTED" });
+    expect((env.mock.tables.boq_line_change_log ?? []).filter((r: Row) => r.boq_line_id === added[0].id && r.review_item_id === ITEM_COLUMN_ID).length).toBeGreaterThan(0);
+
+    // BOQ: the corrected quantity, labelled as corrected in review.
+    await section(page, "boq");
+    const desc = String(added[0].description);
+    await findLine(page, desc);
+    await expect(qtyButton(page, desc)).toHaveText("12.5");
+    await expect(page.getByRole("row").filter({ has: qtyButton(page, desc) })).toContainText("Counted on drawing, corrected in review");
+
+    // Export: the same quantity and basis.
+    await section(page, "export");
+    const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: /Excel \(CSV\)/ }).click()]);
+    const rows = fs.readFileSync(await download.path(), "utf8").split(/\r?\n/).map(csvCells);
+    const head = rows.find((c) => c.includes("Qty") && c.includes("Quantity basis"))!;
+    const row = rows.find((c) => (c[head.indexOf("Specification")] ?? "").startsWith(desc.slice(0, 60)))!;
+    expect(row[head.indexOf("Qty")]).toBe("12.5");
+    expect(row[head.indexOf("Quantity basis")]).toBe("Counted on drawing, corrected in review");
     afterEachCheck(env);
   });
 
@@ -1438,7 +1481,7 @@ test.describe("workbench preview build (flag on, fake project, :8081)", () => {
     await removeVia(other.description);
     await expect.poll(() => env.mock.tables.boq_line.some((l) => l.id === other.id)).toBe(false);
     await section(page, "check");
-    await expect(page.getByText("No rate yet (Pricing):")).toBeVisible();
+    await expect(page.getByText("No rate yet:", { exact: true })).toBeVisible();
     // A line without review evidence is not a reviewed quantity: nothing flagged.
     await expect(page.getByRole("region", { name: "Reviewed quantities removed from the BOQ" })).toHaveCount(0);
 
@@ -1458,7 +1501,7 @@ test.describe("workbench preview build (flag on, fake project, :8081)", () => {
     await undoLast(page).click();
     await expect.poll(() => env.mock.tables.boq_line.some((l) => l.id === a.id)).toBe(true);
     await section(page, "check");
-    await expect(page.getByText("No rate yet (Pricing):")).toBeVisible();
+    await expect(page.getByText("No rate yet:", { exact: true })).toBeVisible();
     await expect(page.getByRole("region", { name: "Reviewed quantities removed from the BOQ" })).toHaveCount(0);
     afterEachCheck(env);
   });

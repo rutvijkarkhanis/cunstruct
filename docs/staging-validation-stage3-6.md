@@ -25,6 +25,52 @@ separate staging Supabase project.
    pinned to it, so nothing falls back to the production `.env`. (The normal
    `npm run dev` / `npm run build` are unchanged and still use `.env`.)
 
+### Vercel Preview builds are staging builds
+
+A Vercel Preview build (`VERCEL_ENV=preview`) applies the same guard as
+`--mode staging` (`buildUsesStaging` in `scripts/staging-guard.mjs`, used by
+`vite.config.ts`). It is built against the verified staging project, with all
+three client values pinned, or it does not build. It never falls back,
+silently or partially, to the production `.env`. Production builds
+(`VERCEL_ENV=production`) and local builds are unchanged.
+
+In Vercel → Settings → Environment Variables, **Preview only**:
+
+| Variable | Value |
+|---|---|
+| `STAGING_SUPABASE_PROJECT_REF` | the staging ref |
+| `STAGING_SUPABASE_URL` | `https://<ref>.supabase.co`, lower case, no trailing slash |
+| `STAGING_SUPABASE_PUBLISHABLE_KEY` | the staging publishable key |
+| `VITE_CUNSTRUCT_WORKBENCH_PREVIEW` | `true` |
+| `VITE_IS_APP_SUBDOMAIN` | `true`, so `/app` and `/ops` are served on the preview host (see `docs/m9-live-verification-checklist.md` 0.1) |
+
+`STAGING_DB_URL` is not needed for a preview and must not be set in Vercel.
+
+`CUNSTRUCT_PREVIEW_USES_PRODUCTION=true` is the only way to build previews
+against production again. Use it only deliberately.
+
+**Before relying on the guard**, prove it on Vercel. The guard needs
+`VERCEL_ENV` at build time, which Vercel provides when "Automatically expose
+System Environment Variables" is on. Push once with the `STAGING_*` Preview
+variables unset: the preview build must fail with "Vercel Preview build
+refused". If it builds, the guard did not run, and that preview targets
+production.
+
+**After the preview deploys**, verify the deployed app itself, not its
+configuration:
+
+```
+node scripts/check-deployed-target.mjs https://<preview-host>/
+```
+
+It reads the served JavaScript and reports the Supabase project every client
+is built with. It exits 1 for production or anything unreadable.
+
+Sign-in is email and password, so it needs no redirect. Sign-up confirmation
+and password-reset emails link to the page's own origin: add the preview
+domain pattern to the staging project's Auth → URL Configuration → Redirect
+URLs. Create test users in the dashboard with auto-confirm.
+
 ## 1. Prerequisites
 
 - A staging Supabase project whose schema already has every migration up to

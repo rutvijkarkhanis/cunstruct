@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  assertStaging, checkStagingTarget, parseEnv, readProduction, readStagingTarget, refFromSupabaseUrl, refsFromDbUrl,
+  assertStaging, buildUsesStaging, checkStagingTarget, parseEnv, PREVIEW_PRODUCTION_OPT_OUT, readProduction, readStagingTarget, refFromSupabaseUrl, refsFromDbUrl,
 } from "../../scripts/staging-guard.mjs";
 import { listBaseMigrations, pgEnvFromUrl, psqlEnv, STAGING_MIGRATIONS } from "../../scripts/staging-migrate.mjs";
 
@@ -192,5 +192,39 @@ describe("staging-migrate", () => {
     expect(pgEnvFromUrl(`postgresql://postgres.${STAGE}:p%40ss@aws-0-eu.pooler.supabase.com:6543/postgres`)).toEqual({
       PGHOST: "aws-0-eu.pooler.supabase.com", PGPORT: "6543", PGUSER: `postgres.${STAGE}`, PGPASSWORD: "p@ss", PGDATABASE: "postgres", PGSSLMODE: "require",
     });
+  });
+});
+
+describe("buildUsesStaging — Vercel Preview builds are staging builds", () => {
+  it("staging mode, and every Vercel Preview build, must use the verified staging target", () => {
+    expect(buildUsesStaging("staging", {})).toBe(true);
+    expect(buildUsesStaging("production", { VERCEL_ENV: "preview" })).toBe(true);
+  });
+  it("production and local builds are unaffected", () => {
+    expect(buildUsesStaging("production", { VERCEL_ENV: "production" })).toBe(false);
+    expect(buildUsesStaging("production", {})).toBe(false);
+    expect(buildUsesStaging("development", { VERCEL_ENV: "development" })).toBe(false);
+  });
+  it("only the explicit opt-out builds a preview against production", () => {
+    expect(buildUsesStaging("production", { VERCEL_ENV: "preview", [PREVIEW_PRODUCTION_OPT_OUT]: "true" })).toBe(false);
+    expect(buildUsesStaging("production", { VERCEL_ENV: "preview", [PREVIEW_PRODUCTION_OPT_OUT]: "1" })).toBe(true);
+  });
+});
+
+describe("check-deployed-target — reads the target from the app's own JavaScript", async () => {
+  const { analyse, verdict } = await import("../../scripts/check-deployed-target.mjs");
+  const site = (url: string) => `const a="${url}",b="sb_publishable_x",c=d(a,b,{auth:{storage:localStorage}});`;
+  it("finds the client URL in a minified createClient call and classifies it", () => {
+    expect(analyse([site(`https://${STAGE}.supabase.co`), "other chunk"])).toEqual({ urls: [`https://${STAGE}.supabase.co`], preview: false });
+    expect(verdict([`https://${STAGE}.supabase.co`], [PROD])).toBe("non-production");
+    expect(verdict([`https://${PROD}.supabase.co/`], [PROD])).toBe("production");
+    expect(verdict([`https://${STAGE}.supabase.co`, `https://${PROD}.supabase.co`], [PROD])).toBe("production");
+  });
+  it("no client found, or an unreadable URL, is unverifiable — never assumed safe", () => {
+    expect(verdict([], [PROD])).toBe("unverifiable");
+    expect(verdict(["not-a-url"], [PROD])).toBe("unverifiable");
+  });
+  it("notices workbench preview code", () => {
+    expect(analyse([site(`https://${STAGE}.supabase.co`), 'x="Workbench preview — off by default"']).preview).toBe(true);
   });
 });
