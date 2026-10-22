@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { disciplineByKey } from "@/lib/disciplines";
-import { BOQ_DRAFT_DISCLAIMER } from "@/lib/boqDraftDisclaimer";
+import { BOQ_DRAFT_UI_DISCLAIMER } from "@/lib/boqDraftDisclaimer";
 import { explodeMaterials, type Coefficient } from "@/lib/boqExplode";
 import { openQuoteWindow, downloadCsv, roundRupee, incompleteScopeNotice } from "@/lib/boqDsrDocument";
 import { buildWorkPackages, buildWorkPackageCsv } from "@/lib/workPackages";
@@ -922,7 +922,7 @@ export default function OpsBoqBuilder() {
         {disciplineByKey(boq.discipline).name.replace(/\s+works$/i, "")} works
       </div>
       <div className="text-2xl md:text-3xl font-semibold tabular-nums leading-tight">{inr(displayGrand)}</div>
-      <p className="mt-1 max-w-xl text-[11px] leading-snug text-amber-700 dark:text-amber-400">{BOQ_DRAFT_DISCLAIMER}</p>
+      <p className="mt-1 max-w-xl text-[11px] leading-snug text-amber-700 dark:text-amber-400">{BOQ_DRAFT_UI_DISCLAIMER}</p>
       {(() => {
         const fl = floorsLabel(project?.floors ?? (Number((boq.spec as Spec)?._floors) || null));
         const tier = TIER_LABEL[String((boq.spec as Spec)?.quality_tier ?? "standard")] ?? null;
@@ -1081,7 +1081,7 @@ export default function OpsBoqBuilder() {
             <div>
               <div className="text-3xl md:text-4xl font-bold tabular-nums tracking-tight">{inr(displayGrand)}</div>
               <div className="text-xs text-muted-foreground mt-0.5">Estimated {disciplineByKey(boq.discipline).name} BOQ total</div>
-              <p className="mt-1 max-w-md text-[11px] leading-snug text-amber-700 dark:text-amber-400">{BOQ_DRAFT_DISCLAIMER}</p>
+              <p className="mt-1 max-w-md text-[11px] leading-snug text-amber-700 dark:text-amber-400">{BOQ_DRAFT_UI_DISCLAIMER}</p>
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
