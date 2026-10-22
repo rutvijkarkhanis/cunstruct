@@ -69,7 +69,7 @@ describe("frozen revision exports", () => {
     await exportRevision("csv");
     const body = io.csv[0].split("\r\n").slice(4);
     expect(body).toEqual([
-      "1.00 Finishes,1.01,,Tiles,sqm,10,100,100,=F6*H6,Plan,2,,DSR 2023 rate (incl. GST @18%)",
+      "1.00 Finishes,1.01,,Tiles,sqm,10,100,100,=F5*H5,Plan,2,,DSR 2023 rate (incl. GST @18%)",
       "",
       "IDENTIFIED — PENDING QUANTIFICATION (not priced; confirm a quantity to price)",
       "Pending,P.01,,Door — Quantity pending: not yet measured,sqm,,,,,Plan,2,",
