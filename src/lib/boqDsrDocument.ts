@@ -624,7 +624,7 @@ export function buildBoqCsv(
   meta: { boqName: string; project?: string | null; generatedOn: string; unresolvedReviewCount?: number | null },
   pending?: { spec: string; unit: string; code?: string | null; note?: string; sourceDocument?: string | null; sourcePage?: string | null; basis?: string | null }[],
 ): string {
-  const HEADER_LINE = 5;
+  const HEADER_LINE = 4;
   // Scope H — "Source Document"/"Source Page" are appended AFTER the existing 9
   // columns (A–I). The Amount formula below references columns F and H by letter
   // ("=F{n}*H{n}"); these new columns must never be inserted before Amount, or
@@ -632,10 +632,7 @@ export function buildBoqCsv(
   const head = ["Sub-head", "Item", "Code", "Specification", "Unit", "Qty", "Rate (ref)", "Your rate", "Amount", "Source Document", "Source Page", "Quantity basis", "Rate basis"];
   const lines: string[] = [
     csvCell(`Bill of Quantities — ${meta.boqName}`),
-    csvCell(`${meta.project ?? "Standalone"}  ·  ${meta.generatedOn}  ·  Quantities from drawings; enter "Your rate". DSR 2023 rates include GST @18% (DSR 2023 preface §6.2); own/custom rates exclude GST`),
-    csvCell(BOQ_DRAFT_DISCLAIMER),
-    // Keep the incomplete-scope notice on its own row after the draft disclaimer.
-    // HEADER_LINE is 5 so Excel formulas target the correct rows after this addition.
+    csvCell(`${meta.project ?? "Standalone"}  ·  ${meta.generatedOn}  ·  Quantities from drawings; enter "Your rate". DSR 2023 rates include GST @18% (DSR 2023 preface §6.2); own/custom rates exclude GST · ${BOQ_DRAFT_DISCLAIMER}`),
     csvCell(incompleteScopeNotice(meta.unresolvedReviewCount) ?? ""),
     head.map(csvCell).join(","),
   ];
