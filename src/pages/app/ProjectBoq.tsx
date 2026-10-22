@@ -9,7 +9,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AlertTriangle, ExternalLink, Undo2 } from "lucide-react";
 import { db } from "@/lib/untypedDb";
-import { BOQ_DRAFT_DISCLAIMER } from "@/lib/boqDraftDisclaimer";
+import { BOQ_DRAFT_UI_DISCLAIMER } from "@/lib/boqDraftDisclaimer";
 import { saveErrorMessage } from "@/lib/saveError";
 import { loadProjectDrawings, resolveDrawingSource } from "@/lib/review/drawingStorage";
 import { basisNotice, boqTotals, incompleteWarning, inversePatch, pageParam, statusParam, type BoqTableLine } from "@/lib/app/boqTable";
@@ -230,7 +230,7 @@ export default function ProjectBoq() {
             <div><dt className="inline text-muted-foreground">No rate: </dt><dd className="inline">{totals.unpriced}</dd></div>
             <div><dt className="inline text-muted-foreground">Excluded: </dt><dd className="inline">{totals.excluded}</dd></div>
           </dl>
-          <p className="mt-2 text-xs leading-relaxed text-amber-700 dark:text-amber-400">{BOQ_DRAFT_DISCLAIMER}</p>
+          <p className="mt-2 text-xs leading-relaxed text-amber-700 dark:text-amber-400">{BOQ_DRAFT_UI_DISCLAIMER}</p>
           <p className="text-xs text-muted-foreground">Before overheads, contingency and taxes — see the BOQ builder or Export for the full commercial total.</p>
         </>
       )}
