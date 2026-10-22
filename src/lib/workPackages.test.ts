@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildWorkPackages, buildWorkPackageCsv, NO_LOCATION, NO_TRADE, type WorkPackageLineInput } from "./workPackages";
 import { buildBoqCsv, incompleteScopeNotice } from "./boqDsrDocument";
+import { BOQ_DRAFT_DISCLAIMER } from "./boqDraftDisclaimer";
 
 const line = (o: Partial<WorkPackageLineInput> & { id: string }): WorkPackageLineInput => ({
   section: "Masonry", dsr_code: null, description: "Brickwork", unit: "cum", qty: 10,
@@ -69,9 +70,10 @@ describe("buildWorkPackageCsv — quantities only, scope disclosed", () => {
   ], SCOPES, (id) => (id === "a" ? { sourceDocument: "plans.pdf", sourcePage: "3" } : { sourceDocument: null, sourcePage: "9" }));
   const rows = buildWorkPackageCsv(set, { boqName: "Tower A", project: "Sample", generatedOn: "1 Oct 2026", unresolvedReviewCount: 4 }).split("\r\n");
 
-  it("states incomplete scope and excluded lines before the table", () => {
-    expect(rows[2]).toBe(incompleteScopeNotice(4));
-    expect(rows[3]).toBe("1 excluded line not shown.");
+  it("states draft status, incomplete scope and excluded lines before the table", () => {
+    expect(rows[2]).toBe(BOQ_DRAFT_DISCLAIMER);
+    expect(rows[3]).toBe(incompleteScopeNotice(4));
+    expect(rows[4]).toBe("1 excluded line not shown.");
   });
 
   it("has no rate or amount column", () => {
@@ -91,16 +93,19 @@ describe("buildWorkPackageCsv — quantities only, scope disclosed", () => {
   });
 });
 
-describe("BOQ CSV carries the same incomplete-scope notice without moving any row", () => {
+describe("BOQ CSV carries the draft disclaimer and incomplete-scope notice", () => {
   const row = { subhead: "1 Masonry", itemNo: "1.01", code: null, spec: "Brickwork", unit: "cum", qty: 10, rate: 100, sourceDocument: null, sourcePage: null };
-  it("puts the notice in the spacer row; the header stays on row 4 and the Amount formula on row 5", () => {
+  it("puts the disclaimer and scope notice before the header and shifts the Amount formula safely", () => {
     const rows = buildBoqCsv([row], { boqName: "B", generatedOn: "d", unresolvedReviewCount: 2 }).split("\r\n");
-    expect(rows[2]).toBe(incompleteScopeNotice(2));
-    expect(rows[3].startsWith("Sub-head,")).toBe(true);
-    expect(rows[4]).toContain("=F5*H5");
+    expect(rows[2]).toBe(BOQ_DRAFT_DISCLAIMER);
+    expect(rows[3]).toBe(incompleteScopeNotice(2));
+    expect(rows[4].startsWith("Sub-head,")).toBe(true);
+    expect(rows[5]).toContain("=F6*H6");
   });
-  it("leaves the spacer row blank when nothing is unresolved", () => {
-    expect(buildBoqCsv([row], { boqName: "B", generatedOn: "d" }).split("\r\n")[2]).toBe("");
+  it("keeps the draft disclaimer when nothing is unresolved", () => {
+    const rows = buildBoqCsv([row], { boqName: "B", generatedOn: "d" }).split("\r\n");
+    expect(rows[2]).toBe(BOQ_DRAFT_DISCLAIMER);
+    expect(rows[3]).toBe("");
   });
   it("uses singular wording for one item", () => {
     expect(incompleteScopeNotice(1)).toBe("Incomplete scope. 1 drawing-review item is still pending or flagged and is not included in this BOQ.");
