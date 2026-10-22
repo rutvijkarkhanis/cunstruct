@@ -51,19 +51,19 @@ describe("buildBoqCsv", () => {
       { subhead: "4.00 RCC", itemNo: "4.01", code: "5.3", spec: "RCC M-20, cement, sand, aggregate", unit: "cum", qty: 13.4, rate: 11505 },
     ], meta);
     const lines = csv.split("\r\n");
-    expect(lines[2]).toContain(BOQ_DRAFT_DISCLAIMER);
-    expect(lines[4]).toContain("Your rate");
-    // first data row is spreadsheet line 6 → Amount = Qty(F) × Your rate(H)
-    expect(lines[5]).toContain("=F6*H6");
+    expect(lines[1]).toContain(BOQ_DRAFT_DISCLAIMER);
+    expect(lines[3]).toContain("Your rate");
+    // first data row is spreadsheet line 5 → Amount = Qty(F) × Your rate(H)
+    expect(lines[4]).toContain("=F5*H5");
     // a spec with commas is quoted
-    expect(lines[5]).toContain('"RCC M-20, cement, sand, aggregate"');
+    expect(lines[4]).toContain('"RCC M-20, cement, sand, aggregate"');
   });
 
   it("leaves amount blank for Non-Schedule (unpriced) items", () => {
     const csv = buildBoqCsv([
       { subhead: "Electrical", itemNo: "1.01", code: null, spec: "Wiring points", unit: "point", qty: 30, rate: null },
     ], meta);
-    const cols = csv.split("\r\n")[5].split(",");
+    const cols = csv.split("\r\n")[4].split(",");
     expect(cols[8]).toBe("");   // Amount column (9th) empty — no formula
   });
 
@@ -76,21 +76,21 @@ describe("buildBoqCsv", () => {
       { subhead: "4.00 RCC", itemNo: "4.01", code: "5.3", spec: "RCC M20 concrete", unit: "cum", qty: 13.4, rate: 11505, sourceDocument: "Floor 1 Plan", sourcePage: "3" },
     ], meta);
     const lines = csv.split("\r\n");
-    expect(lines[4]).toContain("Source Document");
-    expect(lines[4]).toContain("Source Page");
-    const cols = lines[5].split(",");
+    expect(lines[3]).toContain("Source Document");
+    expect(lines[3]).toContain("Source Page");
+    const cols = lines[4].split(",");
     expect(cols[9]).toBe("Floor 1 Plan");
     expect(cols[10]).toBe("3");
     // the Amount formula (column I) is byte-identical to before Scope H — the new
     // columns are strictly additive, never shifting F/H
-    expect(lines[5]).toContain("=F6*H6");
+    expect(lines[4]).toContain("=F5*H5");
   });
 
   it("Scope H: a source_document_id that could not be resolved to a name never shows a bare page number", () => {
     const csv = buildBoqCsv([
       { subhead: "4.00 RCC", itemNo: "4.01", code: null, spec: "Item", unit: "cum", qty: 1, rate: 100, sourceDocument: "Source document unavailable", sourcePage: null },
     ], meta);
-    const cols = csv.split("\r\n")[5].split(",");
+    const cols = csv.split("\r\n")[4].split(",");
     expect(cols[9]).toBe("Source document unavailable");
     expect(cols[10]).toBe("");
   });
@@ -99,7 +99,7 @@ describe("buildBoqCsv", () => {
     const csv = buildBoqCsv([
       { subhead: "4.00 RCC", itemNo: "4.01", code: null, spec: "Item", unit: "cum", qty: 1, rate: 100 },
     ], meta);
-    const cols = csv.split("\r\n")[5].split(",");
+    const cols = csv.split("\r\n")[4].split(",");
     expect(cols[9]).toBe("");
     expect(cols[10]).toBe("");
   });
