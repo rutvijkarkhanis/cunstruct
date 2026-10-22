@@ -11,6 +11,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import { MemoryRouter, Routes, Route, useLocation } from "react-router-dom";
 import OpsBoqBuilder from "./OpsBoqBuilder";
+import { BOQ_DRAFT_DISCLAIMER } from "@/lib/boqDraftDisclaimer";
 
 const BOQ_ROW = {
   id: "boq-1", name: "Elevation & Facade", status: "draft",
@@ -59,6 +60,15 @@ function renderBoqBuilder() {
     </QueryClientProvider>,
   );
 }
+
+describe("OpsBoqBuilder — limited launch disclosure", () => {
+  it("shows the unvalidated-draft disclaimer with the on-screen BOQ total", async () => {
+    renderBoqBuilder();
+    await screen.findByText(/Estimated .* BOQ total/);
+    const disclosures = await screen.findAllByText(BOQ_DRAFT_DISCLAIMER);
+    expect(disclosures.length).toBeGreaterThan(0);
+  });
+});
 
 describe("OpsBoqBuilder — mobile nav back to the drawing", () => {
   it("renders the pipeline breadcrumb with 'Drawing' as a real button, not plain text", async () => {
