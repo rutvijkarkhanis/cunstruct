@@ -20,6 +20,7 @@
  */
 
 import { roundRupee } from "./quantity";
+import { BOQ_DRAFT_DISCLAIMER } from "./boqDraftDisclaimer";
 
 export interface QuoteItem {
   no: string;            // sub-head item serial, e.g. "2.01"
@@ -502,6 +503,7 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
   .doc-title { text-align:right; font-size:12px; color:#667; }
   h1 { font-size:18px; margin:4px 0 2px; }
   .meta { font-size:11.5px; color:#556; margin-bottom:8px; }
+  .draft-notice { border:1px solid #d97706; background:#fffbeb; color:#78350f; padding:10px 12px; margin:0 0 16px; border-radius:4px; font-size:11px; line-height:1.5; }
   h2 { font-size:13px; text-transform:uppercase; letter-spacing:0.6px; color:#334; border-bottom:1px solid #e5e7eb; padding-bottom:6px; margin:26px 0 8px; }
   table { width:100%; border-collapse:collapse; }
   th { text-align:left; color:#889; font-weight:600; font-size:10px; text-transform:uppercase; letter-spacing:0.4px; padding:7px 8px; border-bottom:1.5px solid #cdd3dd; background:#f7f8fa; }
@@ -538,6 +540,7 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
     <button type="button" onclick="window.print()">&#8681;&nbsp; Save as PDF</button>
     <span class="hint">Opens your browser's print dialog — choose <b>Save as PDF</b> (or your printer) to download this quote.</span>
   </div>
+  <div class="draft-notice">${esc(BOQ_DRAFT_DISCLAIMER)}</div>
   <div class="head">
     <div>
       <div class="brand">${brandHtml}</div>
@@ -629,9 +632,7 @@ export function buildBoqCsv(
   const head = ["Sub-head", "Item", "Code", "Specification", "Unit", "Qty", "Rate (ref)", "Your rate", "Amount", "Source Document", "Source Page", "Quantity basis", "Rate basis"];
   const lines: string[] = [
     csvCell(`Bill of Quantities — ${meta.boqName}`),
-    csvCell(`${meta.project ?? "Standalone"}  ·  ${meta.generatedOn}  ·  Quantities from drawings; enter "Your rate". DSR 2023 rates include GST @18% (DSR 2023 preface §6.2); own/custom rates exclude GST`),
-    // The incomplete-scope notice takes the spacer row, so HEADER_LINE and every
-    // row's Amount formula stay where they were.
+    csvCell(`${meta.project ?? "Standalone"}  ·  ${meta.generatedOn}  ·  Quantities from drawings; enter "Your rate". DSR 2023 rates include GST @18% (DSR 2023 preface §6.2); own/custom rates exclude GST · ${BOQ_DRAFT_DISCLAIMER}`),
     csvCell(incompleteScopeNotice(meta.unresolvedReviewCount) ?? ""),
     head.map(csvCell).join(","),
   ];
@@ -814,6 +815,7 @@ export function buildProjectQuoteHtml(p: ProjectQuotePayload, boqs: ProjectQuote
   .doc-title { text-align:right; font-size:12px; color:#667; }
   h1 { font-size:18px; margin:4px 0 2px; }
   .meta { font-size:11.5px; color:#556; margin-bottom:4px; }
+  .draft-notice { border:1px solid #d97706; background:#fffbeb; color:#78350f; padding:10px 12px; margin:0 0 16px; border-radius:4px; font-size:11px; line-height:1.5; }
   h2 { font-size:13px; text-transform:uppercase; letter-spacing:0.6px; color:#334; border-bottom:1px solid #e5e7eb; padding-bottom:6px; margin:26px 0 8px; }
   table { width:100%; border-collapse:collapse; }
   th { text-align:left; color:#889; font-weight:600; font-size:10px; text-transform:uppercase; letter-spacing:0.4px; padding:7px 8px; border-bottom:1.5px solid #cdd3dd; background:#f7f8fa; }
@@ -849,6 +851,7 @@ export function buildProjectQuoteHtml(p: ProjectQuotePayload, boqs: ProjectQuote
     <button type="button" onclick="window.print()">&#8681;&nbsp; Save as PDF</button>
     <span class="hint">Opens your browser's print dialog — choose <b>Save as PDF</b> to download this quote.</span>
   </div>
+  <div class="draft-notice">${esc(BOQ_DRAFT_DISCLAIMER)}</div>
   <div class="head">
     <div>
       ${brand}

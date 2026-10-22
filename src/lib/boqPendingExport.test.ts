@@ -7,7 +7,8 @@ import {
   buildRevisionLines, csvRowsFrom, pendingItemsFrom, pendingReason, qtyPending, quoteSubheadsFrom, revisionQuotePayload,
   type RevisionLine, type StoredRevision, type WorkingLine, type WorkingSubhead,
 } from "./boqRevision";
-import { buildBoqCsv, buildDsrQuoteHtml, computeCommercials } from "./boqDsrDocument";
+import { buildBoqCsv, buildDsrQuoteHtml, buildProjectQuoteHtml, computeCommercials } from "./boqDsrDocument";
+import { BOQ_DRAFT_DISCLAIMER } from "./boqDraftDisclaimer";
 
 const wl = (o: Partial<WorkingLine> & { id: string }): WorkingLine => ({
   section: "Drawing review — added", dsr_code: null, description: o.id, unit: "sqm", qty: 10, dsr_rate: null, custom_rate: null,
@@ -71,6 +72,13 @@ describe("CSV", () => {
     ]);
   });
 
+  it("puts the unvalidated-draft disclaimer before the CSV table and adjusts formula row references", () => {
+    const rows = buildBoqCsv(csvRowsFrom(MIXED), META, pendingItemsFrom(MIXED)).split("\r\n");
+    expect(rows[1]).toContain(BOQ_DRAFT_DISCLAIMER);
+    expect(rows[3]).toContain("Sub-head,");
+    expect(rows[4]).toContain("=F5*H5");
+  });
+
   it("no pending line is ever written as a measured Qty of 0", () => {
     const rows = buildBoqCsv(csvRowsFrom(MIXED), META, pendingItemsFrom(MIXED)).split("\r\n");
     expect(rows.filter((r) => r.split(",")[5] === "0")).toEqual([]);
@@ -95,6 +103,22 @@ describe("PDF", () => {
     works_total: 4230, grand_total: 4230, line_count: 5, priced_line_count: 1, limitations: [], limitations_acknowledged: true,
     issue_note: null, issued_by: "u1", issued_at: "2026-10-12T09:00:00Z",
   };
+
+  it("single-BOQ PDF explicitly labels quantities and rates as unvalidated drafts", () => {
+    const html = buildDsrQuoteHtml(revisionQuotePayload(rev, MIXED, false), { autoPrint: false });
+    expect(html).toContain(BOQ_DRAFT_DISCLAIMER);
+    expect(html).toContain("UNVALIDATED DRAFT — CHECK BEFORE USE");
+  });
+
+  it("combined project PDF explicitly labels quantities and rates as unvalidated drafts", () => {
+    const html = buildProjectQuoteHtml(
+      { projectName: "Tower B", generatedOn: "22 Oct 2026", branding: "client" },
+      [],
+      { autoPrint: false },
+    );
+    expect(html).toContain(BOQ_DRAFT_DISCLAIMER);
+    expect(html).toContain("UNVALIDATED DRAFT — CHECK BEFORE USE");
+  });
 
   it("a frozen revision's payload lists its pending lines from its own saved rows", () => {
     const p = revisionQuotePayload(rev, MIXED, false);

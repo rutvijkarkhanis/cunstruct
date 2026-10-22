@@ -3,6 +3,7 @@ import {
   computeCommercials, amountInWords, buildBoqCsv, buildProjectQuoteHtml, buildDsrQuoteHtml, openQuoteWindow, QUOTE_WINDOW_LOADING_TEXT,
   type ProjectQuoteBoq, type DsrQuotePayload, type QuoteSubHead, type QuoteItem, type CsvRow,
 } from "./boqDsrDocument";
+import { BOQ_DRAFT_DISCLAIMER } from "./boqDraftDisclaimer";
 
 describe("computeCommercials (CPWD abstract)", () => {
   it("applies cost index, contingency, overhead, cess, then GST in order", () => {
@@ -50,6 +51,7 @@ describe("buildBoqCsv", () => {
       { subhead: "4.00 RCC", itemNo: "4.01", code: "5.3", spec: "RCC M-20, cement, sand, aggregate", unit: "cum", qty: 13.4, rate: 11505 },
     ], meta);
     const lines = csv.split("\r\n");
+    expect(lines[1]).toContain(BOQ_DRAFT_DISCLAIMER);
     expect(lines[3]).toContain("Your rate");
     // first data row is spreadsheet line 5 → Amount = Qty(F) × Your rate(H)
     expect(lines[4]).toContain("=F5*H5");
