@@ -7,7 +7,7 @@
 // `navigate("review")` call lands on the real nested route, preserving the
 // project id.
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import { MemoryRouter, Routes, Route, useLocation } from "react-router-dom";
 import OpsBoqBuilder from "./OpsBoqBuilder";
@@ -64,9 +64,15 @@ function renderBoqBuilder() {
 describe("OpsBoqBuilder — limited launch disclosure", () => {
   it("shows the unvalidated-draft disclaimer with the on-screen BOQ total", async () => {
     renderBoqBuilder();
-    await screen.findByText(/Estimated .* BOQ total/);
-    const disclosures = await screen.findAllByText(BOQ_DRAFT_UI_DISCLAIMER);
-    expect(disclosures.length).toBeGreaterThan(0);
+    // The normal (not just-applied) state: the header total is labelled
+    // "Civil works" for this fixture, and each total block carries the warning.
+    // Re-queried inside waitFor: the total block remounts on re-render.
+    await waitFor(() => {
+      const labels = screen.getAllByText("Civil works");
+      for (const label of labels) {
+        expect(within(label.parentElement!).getByText(BOQ_DRAFT_UI_DISCLAIMER)).toBeInTheDocument();
+      }
+    });
   });
 });
 
