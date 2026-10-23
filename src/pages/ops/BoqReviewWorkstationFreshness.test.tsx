@@ -98,6 +98,14 @@ describe("Apply dialog — blocked by revision freshness", () => {
     expect(onReanalyse).toHaveBeenCalledTimes(1);
   });
 
+  it("an imported analysis with no drawing record says how to make it applicable; a stale revision does not get that hint", () => {
+    const { unmount } = render(<AnalysisFreshnessNotice freshness={freshnessFor([])} onReanalyse={() => {}} />);
+    expect(screen.getByRole("alert").textContent).toContain("add \"source_drawing\": { \"sha256\": \"…\" } (the drawing file's SHA-256) to the JSON and load it again");
+    unmount();
+    render(<AnalysisFreshnessNotice freshness={freshnessFor([{ document_id: "doc-a", document_revision_id: "rev-a", status: "SUCCEEDED" }])} onReanalyse={() => {}} />);
+    expect(screen.getByRole("alert").textContent).not.toContain("source_drawing");
+  });
+
   it("without a blocked notice, Apply is enabled exactly as before", () => {
     render(<ApplyToBoqDialog candidates={candidates} selectedIds={new Set(["1"])} onToggle={() => {}} onSelectAll={() => {}} onApply={() => {}} applying={false} />);
     expect(screen.getByRole("button", { name: /Apply 1 to BOQ/ })).toBeEnabled();

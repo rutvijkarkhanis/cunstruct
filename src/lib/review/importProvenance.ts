@@ -37,7 +37,7 @@ export async function findDrawingRevisionByHash(projectId: string, sha256: strin
   const hits = ((revs ?? []) as { id: string; document_id: string; content_hash: string | null; original_filename: string | null }[])
     .filter((r) => r.content_hash === sha256 && byRevision.get(r.id)?.id === r.document_id);
   if (hits.length === 0) {
-    return { ok: false, reason: "The analysed drawing is not the current revision of any drawing in this project (or its content hash has not been computed yet). Upload it, or run Preflight, then import again." };
+    return { ok: false, reason: "The analysed drawing is not the current revision of any drawing in this project, or its fingerprint has not been computed yet. Upload it if it is missing, then open Ops console → this project → Workspace → Analyze Project (that computes drawing fingerprints on the server and runs no AI), and import again." };
   }
   if (hits.length > 1) {
     return { ok: false, reason: `The analysed drawing matches ${hits.length} drawings in this project — it cannot be attributed to one.` };

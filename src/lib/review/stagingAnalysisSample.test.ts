@@ -11,6 +11,6 @@ describe("docs/samples/staging-analysis-sample.json", () => {
     const r = parseAnalysisV1(text);
     expect(r.ok, r.ok ? "" : r.error).toBe(true);
     const items = r.analysis!.items;
-    expect(items.map((i) => [i.key, i.quantity, i.aiStatus])).toEqual([["C1", 120, "MEASURED"], ["F1", 95, "MEASURED"], ["S1", null, "PENDING"]]);
+    expect(items.map((i) => [i.key, i.quantity, i.aiStatus])).toEqual([["FC-1", 120, "MEASURED"], ["FL-1", 95, "MEASURED"], ["SK-1", null, "PENDING"]]);
   });
 });

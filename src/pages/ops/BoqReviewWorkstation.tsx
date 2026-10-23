@@ -1603,6 +1603,12 @@ export function AnalysisFreshnessNotice({ freshness, onReanalyse }: { freshness:
       <ul className="list-disc pl-4 text-xs space-y-0.5">
         {blocked.map((s) => <li key={s.documentId}>{describeSourceFreshness(s)}</li>)}
       </ul>
+      {blocked.some((s) => s.state === "unknown") && (
+        <p className="text-xs">
+          An analysis imported as JSON can be applied once it names the drawing it was read from: add{" "}
+          <code>"source_drawing": {"{"} "sha256": "…" {"}"}</code> (the drawing file's SHA-256) to the JSON and load it again below.
+        </p>
+      )}
       <Button size="sm" variant="outline" onClick={onReanalyse}>Re-analyse current drawings</Button>
     </div>
   );

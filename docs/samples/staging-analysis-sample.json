@@ -3,7 +3,7 @@
   "project": { "projectType": "Commercial", "name": "ZZ-STAGING fit-out" },
   "items": [
     {
-      "key": "C1",
+      "key": "FC-1",
       "item": "Gypsum false ceiling",
       "description": "12.5 mm gypsum board ceiling on GI framing",
       "quantity": 120,
@@ -14,7 +14,7 @@
       "source": { "document": "ZZ-STAGING-plan.pdf", "page": 1, "evidence": [] }
     },
     {
-      "key": "F1",
+      "key": "FL-1",
       "item": "Vitrified tile flooring",
       "quantity": 95,
       "unit": "sqm",
@@ -24,7 +24,7 @@
       "source": { "document": "ZZ-STAGING-plan.pdf", "page": 1, "evidence": [] }
     },
     {
-      "key": "S1",
+      "key": "SK-1",
       "item": "Skirting",
       "quantity": null,
       "unit": "m",
