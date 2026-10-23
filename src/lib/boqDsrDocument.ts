@@ -363,8 +363,12 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
   const dsr = !!p.rateYear;
   const money = (n: number | null) => (blank ? "" : inr(n));
 
+  // A sub-head with lines still without a rate: its amount covers the priced
+  // lines only, and says so — never read as the whole sub-head.
+  const unratedIn = (no: number) => p.subheads.find((x) => x.no === no)?.lines.filter((l) => l.amount == null).length ?? 0;
+  const toBePriced = (no: number) => { const n = unratedIn(no); return n ? ` + ${n} item${n === 1 ? "" : "s"} to be priced` : ""; };
   const rows = p.subheads.map((sh) => `
-    <tr class="sub"><td colspan="6">${sh.no}.00 &nbsp; ${esc(sh.name).toUpperCase()}${blank ? "" : `<span class="ssub">${inr(sh.subtotal)}</span>`}</td></tr>
+    <tr class="sub"><td colspan="6">${sh.no}.00 &nbsp; ${esc(sh.name).toUpperCase()}${blank ? "" : `<span class="ssub">${inr(sh.subtotal)}${toBePriced(sh.no)}</span>`}</td></tr>
     ${sh.lines.map((l) => `
       <tr>
         <td class="no">${esc(l.no)}</td>
@@ -384,7 +388,7 @@ export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boole
     return !!sh && sh.lines.length > 0 && sh.lines.every((l) => l.amount != null);
   };
   const abstractRows = p.abstract.map((a) => `
-    <tr><td class="no">${a.no}.00</td><td>${esc(a.name)}</td><td class="num">${blank ? "" : (a.amount > 0 || fullyPriced(a.no) ? inr(a.amount) : "To be priced")}</td></tr>`).join("");
+    <tr><td class="no">${a.no}.00</td><td>${esc(a.name)}</td><td class="num">${blank ? "" : (a.amount > 0 || fullyPriced(a.no) ? `${inr(a.amount)}${toBePriced(a.no)}` : "To be priced")}</td></tr>`).join("");
 
   // Scope buckets used by both the cost status and the sections below.
   const pending = p.pendingItems ?? [];

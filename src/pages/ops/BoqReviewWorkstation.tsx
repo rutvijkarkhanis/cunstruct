@@ -403,6 +403,23 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId, returnTo: i
     setMobileNavOpen(false);
   }, [ordered]);
 
+  // ?item=<review item id> (e.g. from Check & finalise): open on that item,
+  // once, after the items load — shown in the navigator even when it already
+  // has a decision. A link to an item not in this BOQ's latest analysis is
+  // said so, never silently replaced by another item.
+  const requestedItem = searchParams.get("item");
+  const requestedApplied = useRef(false);
+  const [requestedMissing, setRequestedMissing] = useState(false);
+  useEffect(() => {
+    if (!requestedItem || requestedApplied.current || loading || !ordered.length) return;
+    requestedApplied.current = true;
+    // ordered holds the loaded StoredReviewItems (ids included).
+    const hit = ordered.find((it) => (it as { id?: string }).id === requestedItem);
+    if (!hit) { setRequestedMissing(true); return; }
+    if (hit.reviewStatus !== "PENDING_REVIEW") setNeedsReviewOnly(false);
+    selectType(requestedItem);
+  }, [requestedItem, loading, ordered, selectType]);
+
   // Selecting a category (Section 6): the drawing scopes to every type in it
   // (markersForCategory), and the inspector settles on that category's first
   // type so there's always a coherent single "current" item, matching the
@@ -1018,6 +1035,9 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId, returnTo: i
           instead of an absolutely-positioned overlay.
           Height: the full-screen /ops value unless an embedding page sets
           --rw-pane-h (the workbench preview fits it below its own header). */}
+      {requestedMissing && (
+        <p role="note" className="mb-2 text-sm text-muted-foreground">The review item in this link is not in this BOQ's latest drawing analysis; showing the review queue.</p>
+      )}
       <div data-rw-panes className="lg:flex lg:gap-3 lg:h-[var(--rw-pane-h,calc(100vh-100px))] lg:min-h-[460px]">
         <TypeNavigator
           groups={categoryGroups}

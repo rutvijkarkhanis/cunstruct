@@ -1,0 +1,37 @@
+{
+  "schema": "cunstruct.analysis.v1",
+  "project": { "projectType": "Commercial", "name": "ZZ-STAGING fit-out" },
+  "items": [
+    {
+      "key": "C1",
+      "item": "Gypsum false ceiling",
+      "description": "12.5 mm gypsum board ceiling on GI framing",
+      "quantity": 120,
+      "unit": "sqm",
+      "confidence": 0.8,
+      "status": "MEASURED",
+      "location": "Shop floor",
+      "source": { "document": "ZZ-STAGING-plan.pdf", "page": 1, "evidence": [] }
+    },
+    {
+      "key": "F1",
+      "item": "Vitrified tile flooring",
+      "quantity": 95,
+      "unit": "sqm",
+      "confidence": 0.7,
+      "status": "MEASURED",
+      "location": "Shop floor",
+      "source": { "document": "ZZ-STAGING-plan.pdf", "page": 1, "evidence": [] }
+    },
+    {
+      "key": "S1",
+      "item": "Skirting",
+      "quantity": null,
+      "unit": "m",
+      "confidence": null,
+      "status": "PENDING",
+      "notes": "Perimeter not dimensioned on the plan",
+      "source": { "document": "ZZ-STAGING-plan.pdf", "page": 1, "evidence": [] }
+    }
+  ]
+}

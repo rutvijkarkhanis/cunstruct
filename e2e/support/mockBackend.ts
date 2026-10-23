@@ -205,6 +205,8 @@ const INSERT_DEFAULTS: Record<string, () => Row> = {
   boq_line_change_log: () => ({ changed_at: new Date(Date.UTC(2026, 9, 22, 0, 0, defaultClock++)).toISOString() }),
   // The column defaults of public.boq (20260803120000_boq_module.sql).
   boq: () => ({ name: "BOQ", status: "draft", rate_year: "2023", spec: {}, updated_at: new Date(Date.UTC(2026, 9, 22, 0, 0, defaultClock++)).toISOString() }),
+  // public.projects defaults (…113312_….sql; status from …121445_….sql).
+  projects: () => ({ status: "active", progress_pct: 0, onboarded_at: "2026-10-22T00:00:00Z", updated_at: "2026-10-22T00:00:00Z" }),
 };
 
 function toTables(fixtures: Record<string, unknown>): Record<string, Row[]> {

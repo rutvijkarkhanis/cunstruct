@@ -27,49 +27,23 @@ separate staging Supabase project.
 
 ### Vercel Preview builds are staging builds
 
-A Vercel Preview build (`VERCEL_ENV=preview`) applies the same guard as
-`--mode staging` (`buildUsesStaging` in `scripts/staging-guard.mjs`, used by
-`vite.config.ts`). It is built against the verified staging project, with all
-three client values pinned, or it does not build. It never falls back,
-silently or partially, to the production `.env`. Production builds
-(`VERCEL_ENV=production`) and local builds are unchanged.
+Every Vercel build that is not a production deployment applies the same guard
+as `--mode staging` (`buildUsesStaging` in `scripts/staging-guard.mjs`, used by
+`vite.config.ts`):
 
-In Vercel → Settings → Environment Variables, **Preview only**:
-
-| Variable | Value |
+| Build | Result |
 |---|---|
-| `STAGING_SUPABASE_PROJECT_REF` | the staging ref |
-| `STAGING_SUPABASE_URL` | `https://<ref>.supabase.co`, lower case, no trailing slash |
-| `STAGING_SUPABASE_PUBLISHABLE_KEY` | the staging publishable key |
-| `VITE_CUNSTRUCT_WORKBENCH_PREVIEW` | `true` |
-| `VITE_IS_APP_SUBDOMAIN` | `true`, so `/app` and `/ops` are served on the preview host (see `docs/m9-live-verification-checklist.md` 0.1) |
+| `VERCEL_ENV=production` | the production `.env`, unchanged |
+| `VERCEL_ENV=preview` or `development` | the verified staging project with all three client values pinned, or no build |
+| `VERCEL=1` with no `VERCEL_ENV` | treated as a preview: staging or no build |
+| a local build | unchanged |
 
-`STAGING_DB_URL` is not needed for a preview and must not be set in Vercel.
+There is no opt-out. A preview without a verified staging target fails with
+"Vercel Preview build refused", naming each missing or wrong value. It never
+falls back, silently or partially, to the production `.env`.
 
-`CUNSTRUCT_PREVIEW_USES_PRODUCTION=true` is the only way to build previews
-against production again. Use it only deliberately.
-
-**Before relying on the guard**, prove it on Vercel. The guard needs
-`VERCEL_ENV` at build time, which Vercel provides when "Automatically expose
-System Environment Variables" is on. Push once with the `STAGING_*` Preview
-variables unset: the preview build must fail with "Vercel Preview build
-refused". If it builds, the guard did not run, and that preview targets
-production.
-
-**After the preview deploys**, verify the deployed app itself, not its
-configuration:
-
-```
-node scripts/check-deployed-target.mjs https://<preview-host>/
-```
-
-It reads the served JavaScript and reports the Supabase project every client
-is built with. It exits 1 for production or anything unreadable.
-
-Sign-in is email and password, so it needs no redirect. Sign-up confirmation
-and password-reset emails link to the page's own origin: add the preview
-domain pattern to the staging project's Auth → URL Configuration → Redirect
-URLs. Create test users in the dashboard with auto-confirm.
+The Preview variables, the proof that the guard runs on Vercel, and the check
+of the deployed target are in **docs/pilot-staging-handoff.md**.
 
 ## 1. Prerequisites
 
@@ -153,15 +127,20 @@ order by 1, 2;
 `boq_line` or any of the new tables; the app reaches them through the untyped
 helper in `src/lib/untypedDb.ts`). After applying to staging:
 
+**Not needed for the staff-estimator pilot**, which runs on the untyped
+helper. Regeneration needs a Supabase access token that is not limited to
+one project, so it is an owner's job outside this pilot. Never put that
+token in a cloud environment. When it is done:
+
 ```
 npm run staging:check   # confirm the ref is staging first
-npx supabase gen types typescript --project-id <staging-ref> > /tmp/staging-types.ts   # needs SUPABASE_ACCESS_TOKEN
+npx supabase gen types typescript --project-id <staging-ref> > /tmp/staging-types.ts
 diff src/integrations/supabase/types.ts /tmp/staging-types.ts   # review before copying over
 ```
 
-Review the diff before committing it; regeneration will change the
-pre-existing type-error baseline (currently 463 errors, mostly from the stale
-types).
+Review the diff before committing it. Regeneration will change the
+pre-existing type-error baseline: 406 errors on `ac87402`, mostly from the
+stale types.
 
 ## 5. Manual workflow (staff user, staging)
 

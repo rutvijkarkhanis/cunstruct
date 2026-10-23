@@ -43,6 +43,8 @@ const WorkbenchRevisions = WORKBENCH_PREVIEW_ENABLED ? lazy(() => import("@/comp
 const WorkbenchRemovedEvidence = WORKBENCH_PREVIEW_ENABLED ? lazy(() => import("@/components/app/WorkbenchRemovedEvidence")) : null;
 
 const inr = (n: number) => "₹" + Math.round(n).toLocaleString("en-IN");
+/** Why a review item is not in the BOQ, in the review screen's own terms. */
+const REVIEW_STATUS_WORD: Record<string, string> = { PENDING_REVIEW: "needs a decision", FLAGGED: "flagged", MARKED_PENDING: "marked pending" };
 /** How many open lines of one kind Check lists by name before linking to the filtered BOQ. */
 const BLOCKER_LIST_MAX = 10;
 
@@ -107,6 +109,18 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
       if (!run) return 0;
       const items = await loadReviewItems(run.id);
       return items.filter((it) => it.reviewStatus !== "VERIFIED" && it.reviewStatus !== "EDITED").length;
+    },
+  });
+  // Check names the unfinished review items (same rule as the count above), each linked to that item.
+  const openReviewQ = useQuery({
+    queryKey: ["app-check-open-review-items", boqId],
+    enabled: !!boqId && mode === "check",
+    queryFn: async () => {
+      const run = await latestRunForBoq(boqId!);
+      if (!run) return [];
+      const items = await loadReviewItems(run.id);
+      return items.filter((it) => it.reviewStatus !== "VERIFIED" && it.reviewStatus !== "EDITED")
+        .map((it) => ({ id: it.id, name: it.ai.key !== it.ai.item ? `${it.ai.key} — ${it.ai.item}` : it.ai.item, status: it.reviewStatus }));
     },
   });
   const revs = useBoqRevisions(boqId);
@@ -267,6 +281,21 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
                     </p>
                   )}
                 </>
+              )}
+              {(openReviewQ.data?.length ?? 0) > 0 && (
+                <div>
+                  <h4 className="text-sm font-medium">Review items not in the BOQ ({openReviewQ.data!.length})</h4>
+                  <ul aria-label="Review items not in the BOQ" className="text-sm divide-y">
+                    {openReviewQ.data!.slice(0, BLOCKER_LIST_MAX).map((it) => (
+                      <li key={it.id} className="py-1 flex flex-wrap items-baseline justify-between gap-x-3">
+                        <span className="min-w-0 break-words">{it.name}<span className="text-muted-foreground"> · {REVIEW_STATUS_WORD[it.status] ?? "not decided"}</span></span>
+                        <Link className="underline shrink-0" aria-label={`Open ${it.name} in review`}
+                          to={step(`${journeyPath(projectId, "review", boqId0)}&item=${encodeURIComponent(it.id)}`)}>Open in review</Link>
+                      </li>
+                    ))}
+                  </ul>
+                  {openReviewQ.data!.length > BLOCKER_LIST_MAX && <Link className="text-sm underline" to={step(journeyPath(projectId, "review", boqId0))}>Open the review queue</Link>}
+                </div>
               )}
               {(pendingLines.length > 0 || (pricing && unpricedLines.length > 0)) && (
                 <div className="space-y-3">

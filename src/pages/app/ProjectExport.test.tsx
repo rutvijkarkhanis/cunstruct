@@ -25,7 +25,7 @@ vi.mock("@/lib/review/drawingStorage", async (orig) => ({
 let reviewStatuses: string[] = [];
 vi.mock("@/lib/review/reviewStore", () => ({
   latestRunForBoq: async () => (reviewStatuses.length ? { id: "run1" } : null),
-  loadReviewItems: async () => reviewStatuses.map((reviewStatus) => ({ reviewStatus })),
+  loadReviewItems: async () => reviewStatuses.map((reviewStatus, i) => ({ id: `ri${i}`, ai: { key: `K${i}`, item: `Item ${i}` }, reviewStatus })),
 }));
 // The PDF tab (openQuoteWindow) opens from the click; `openDsrQuote` records
 // what is finally shown in it, `quoteFailed` what it says instead.
@@ -181,6 +181,16 @@ describe("ProjectExport — blockers by line, and the pre-issue summary", () => 
     expect(within(list).queryByText(/Old item/)).toBeNull(); // excluded: not a blocker
     // Outside the workbench rates stay with the builder: no per-line rate list here.
     expect(screen.queryByRole("list", { name: "Lines without a rate" })).toBeNull();
+  });
+
+  it("Check names each review item not in the BOQ, each linked to that item in review", async () => {
+    reviewStatuses = ["VERIFIED", "FLAGGED", "PENDING_REVIEW"];
+    renderPage("check");
+    const list = await screen.findByRole("list", { name: "Review items not in the BOQ" });
+    expect(within(list).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      expect.stringContaining("K1 — Item 1 · flagged"), expect.stringContaining("K2 — Item 2 · needs a decision"),
+    ]);
+    expect(within(list).getByRole("link", { name: "Open K1 — Item 1 in review" })).toHaveAttribute("href", "/app/projects/p1/review?boq=b1&item=ri1");
   });
 
   it("Export states what the documents will contain: open items, exclusions and the PDF's grand total", async () => {

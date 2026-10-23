@@ -1091,6 +1091,85 @@ test.describe("workbench preview build (flag on, fake project, :8081)", () => {
     afterEachCheck(env);
   });
 
+  test("a project onboarded in Ops opens in the workbench and carries a private-project BOQ (own items and rates, no DSR) to export", async ({ page }) => {
+    const env = await setUp(page);
+    const before = env.mock.tables.projects.length;
+    await page.goto("/ops/projects");
+    await page.getByRole("button", { name: "Onboard project" }).click();
+    const dialog = page.getByRole("dialog", { name: "Project onboarding" });
+
+    // "Create & build BOQ" bypasses the form's own validation: still no nameless project.
+    await dialog.getByRole("button", { name: "Create & build BOQ" }).click();
+    await expect(page.getByText("Enter a project name")).toBeVisible();
+    expect(env.mock.writes.filter((w) => w.table === "projects")).toEqual([]);
+
+    await dialog.getByLabel("Project name").fill("  ZZ Retail fit-out, Baner  ");
+    await dialog.getByLabel("Client").fill("Sample Retail LLP");
+    await dialog.getByLabel("Location").fill("Pune");
+    await dialog.getByLabel("Built-up area (sqft)").fill("1800");
+    await dialog.getByRole("button", { name: "Create project" }).click();
+    await expect.poll(() => env.mock.tables.projects.length).toBe(before + 1);
+    const created = env.mock.tables.projects[before];
+    expect(created).toMatchObject({ name: "ZZ Retail fit-out, Baner", client_name: "Sample Retail LLP", location: "Pune", area_sqft: 1800, floors: null });
+
+    // The estimator finds it in the project list and opens it in the workbench.
+    await page.goto("/app/projects");
+    await page.getByRole("link", { name: /ZZ Retail fit-out, Baner/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/app/projects/${escapeRe(String(created.id))}/`));
+    await page.goto(`/app/projects/${created.id}/workbench`);
+    await expect(page.getByText("No BOQs yet.")).toBeVisible();
+
+    await page.getByRole("button", { name: "New BOQ" }).click();
+    const create = page.getByRole("dialog", { name: "Create BOQ" });
+    await create.getByPlaceholder("e.g. Terrace").fill("Shop floor");
+    await create.getByPlaceholder("e.g. Ground Floor BOQ").fill("Fit-out BOQ");
+    await create.getByRole("button", { name: "Create" }).click();
+    await expect(page.getByText("This BOQ has no lines yet.")).toBeVisible();
+    const boq = env.mock.tables.boq.find((b) => b.name === "Fit-out BOQ")!;
+    expect(boq).toMatchObject({ project_id: created.id, status: "draft" });
+
+    // Own items, own units, own rates — no schedule code anywhere.
+    for (const [desc, unit, q] of [["Gypsum false ceiling, 12.5 mm board", "sqm", "120"], ["Vitrified tile flooring 600x600", "sqm", "95"]]) {
+      await page.getByRole("button", { name: "Add line" }).click();
+      await fill(page, "Description", desc);
+      await fill(page, "Unit", unit);
+      await fill(page, "Quantity", q);
+      await page.getByRole("button", { name: "Add to BOQ" }).click();
+      await expect.poll(() => env.mock.tables.boq_line.some((l) => l.description === desc)).toBe(true);
+    }
+    await editRate(page, "Gypsum false ceiling, 12.5 mm board", "95");
+    await expect.poll(() => env.mock.tables.boq_line.find((l) => l.description === "Gypsum false ceiling, 12.5 mm board")!.custom_rate).toBe(95);
+
+    // Export states the unpriced line as such; nothing is costed at zero.
+    await section(page, "export");
+    await expect(page.getByText("Grand total of currently priced scope only:")).toBeVisible();
+    const csv = await exportedCsv(page);
+    expect(csv.rowBy("Gypsum false ceiling")).toEqual({ qty: "120", rate: "95", amount: "=F5*H5" });
+    expect(csv.rowBy("Vitrified tile flooring")).toEqual({ qty: "95", rate: "", amount: "" });
+    afterEachCheck(env);
+  });
+
+  test("Check names each review item not in the BOQ and opens that exact item in review — a flagged one included", async ({ page }) => {
+    const env = await setUp(page, buildPhase2Fixtures, (f) => {
+      (f.analysis_review_item as Row[]).forEach((r) => { if (r.id === ITEM_COLUMN_ID) Object.assign(r, { review_status: "FLAGGED", flag_reason: "unclear", reviewed_at: "2026-10-05T00:00:00Z" }); });
+    });
+    await page.goto(`/app/projects/${PROJECT_ID}/workbench/check?boq=${BOQ_ID}`);
+    const list = page.getByRole("list", { name: "Review items not in the BOQ" });
+    await expect(list.getByRole("listitem")).toHaveCount(1);
+    await expect(list).toContainText("flagged");
+    await list.getByRole("link", { name: /^Open .*Column C1 in review$/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/workbench/review\\?boq=${BOQ_ID}&item=${ITEM_COLUMN_ID}$`));
+    // The inspector is on that item, though "Needs review only" would hide a flagged item.
+    await expect(page.getByText("C1 · Column C1")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("checkbox", { name: /Needs review only/ })).not.toBeChecked();
+    expect(env.mock.writes).toEqual([]);
+
+    // A link to an item that is not in this BOQ's analysis says so.
+    await page.goto(`/app/projects/${PROJECT_ID}/workbench/review?boq=${BOQ_ID}&item=not-an-item`);
+    await expect(page.getByText("The review item in this link is not in this BOQ's latest drawing analysis; showing the review queue.")).toBeVisible({ timeout: 20_000 });
+    afterEachCheck(env);
+  });
+
   test("a project with no BOQ says so in every section and offers to create one, returning to the workbench", async ({ page }) => {
     const env = await setUp(page, buildPhase2Fixtures, (f) => { f.boq = []; f.boq_line = []; });
     await page.goto(`/app/projects/${PROJECT_ID}/workbench`);

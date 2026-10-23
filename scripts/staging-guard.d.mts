@@ -9,6 +9,5 @@ export function refsFromDbUrl(dbUrl: string): string[];
 export function readProduction(root: string): ProductionInfo;
 export function checkStagingTarget(target: Partial<StagingTarget>, production: Partial<ProductionInfo>, need?: StagingNeed): string[];
 export function readStagingTarget(root: string, env?: Record<string, string | undefined>): StagingTarget;
-export const PREVIEW_PRODUCTION_OPT_OUT: string;
 export function buildUsesStaging(mode: string, env?: Record<string, string | undefined>): boolean;
 export function assertStaging(root: string, need: StagingNeed, env?: Record<string, string | undefined>): { ref: string; target: StagingTarget };

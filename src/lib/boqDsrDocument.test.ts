@@ -302,6 +302,24 @@ describe("abstract: a confirmed ₹0 sub-head is priced, not 'To be priced'", ()
     }, { autoPrint: false });
     expect(abstractRow(html, "Tiles")).toContain("To be priced");
   });
+  it("some lines priced, some not: the amount is the priced part, and says how many are still to be priced", () => {
+    const html = buildDsrQuoteHtml({
+      boqName: "B", generatedOn: "x", commercials: c0, abstract: [{ no: 1, name: "Flooring", amount: 1000 }],
+      subheads: [{ no: 1, name: "Flooring", subtotal: 1000, lines: [
+        { no: "1.01", code: null, spec: "Tiles", qty: 10, unit: "sqm", rate: 100, amount: 1000 },
+        { no: "1.02", code: null, spec: "Skirting", qty: 4, unit: "m", rate: null, amount: null },
+      ] }],
+    }, { autoPrint: false });
+    expect(abstractRow(html, "Flooring")).toContain("₹1,000 + 1 item to be priced");
+    expect(html).toContain('<span class="ssub">₹1,000 + 1 item to be priced</span>'); // the sub-head's own header
+  });
+  it("a fully priced sub-head carries no suffix", () => {
+    const html = buildDsrQuoteHtml({
+      boqName: "B", generatedOn: "x", commercials: c0, abstract: [{ no: 1, name: "Doors", amount: 500 }],
+      subheads: [{ no: 1, name: "Doors", subtotal: 500, lines: [{ no: "1.01", code: null, spec: "Door", qty: 1, unit: "nos", rate: 500, amount: 500 }] }],
+    }, { autoPrint: false });
+    expect(abstractRow(html, "Doors")).not.toContain("to be priced");
+  });
 });
 
 describe("openQuoteWindow — opened from the click, filled after the re-read", () => {

@@ -155,21 +155,22 @@ export function assertStaging(root, need, env = process.env) {
   return { ref: target.projectRef, target };
 }
 
-/** The escape hatch for the rule below: set in the Vercel Preview environment
- *  to build previews against the production `.env`, as before this guard. */
-export const PREVIEW_PRODUCTION_OPT_OUT = "CUNSTRUCT_PREVIEW_USES_PRODUCTION";
-
 /**
  * Whether a Vite build must use the verified staging target (assertStaging,
- * app values pinned): `--mode staging`, and every Vercel Preview build
- * (VERCEL_ENV=preview). A preview without a verified staging target then
- * refuses to build — it never falls back, silently and partially, to the
- * production values in the committed `.env`. Production builds
- * (VERCEL_ENV=production) and local builds are unaffected.
+ * app values pinned): `--mode staging`, and every Vercel build that is not a
+ * production deployment. Such a build without a verified staging target
+ * refuses to build — it never falls back, silently or partially, to the
+ * production values in the committed `.env`. There is no opt-out.
+ *
+ *   VERCEL_ENV=production          → production (unchanged)
+ *   VERCEL_ENV=preview|development → staging, or no build
+ *   VERCEL=1 without VERCEL_ENV    → staging, or no build (cannot tell it is production)
+ *   neither (a local build)        → unchanged
  */
 export function buildUsesStaging(mode, env = process.env) {
   if (mode === "staging") return true;
-  return env.VERCEL_ENV === "preview" && env[PREVIEW_PRODUCTION_OPT_OUT] !== "true";
+  if (env.VERCEL_ENV) return env.VERCEL_ENV !== "production";
+  return env.VERCEL === "1";
 }
 
 // ── CLI: node scripts/staging-guard.mjs [--app] [--db] ───────────────────
