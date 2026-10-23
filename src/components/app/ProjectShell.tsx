@@ -7,11 +7,10 @@
 import { Link, NavLink, Outlet, useLocation, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { PROJECT_STEPS, type ShellProject, type ProjectShellContext } from "./projectShellContext";
+import { PROJECT_STEPS, loadShellProject, shellProjectKey, type ProjectShellContext } from "./projectShellContext";
 import { BoqPhases, StepNav, StepStatus } from "./Journey";
 import { WORKBENCH_PREVIEW_ENABLED } from "@/lib/workbenchPreview";
 
@@ -25,14 +24,9 @@ export default function ProjectShell() {
   const at = inWorkbench ? -1 : PROJECT_STEPS.findIndex((s) => pathname.endsWith(`/${s.to}`));
   const stepLink = (i: number) => (i >= 0 && i < PROJECT_STEPS.length ? { label: PROJECT_STEPS[i].label, to: `${PROJECT_STEPS[i].to}${search}` } : null);
   const { data: project, isLoading, isError, refetch } = useQuery({
-    queryKey: ["app-project", id],
+    queryKey: shellProjectKey(id),
     enabled: !!id,
-    queryFn: async (): Promise<ShellProject | null> => {
-      const { data, error } = await supabase.from("projects")
-        .select("id, name, client_name, location, project_type, status, area_sqft, floors").eq("id", id!).maybeSingle();
-      if (error) throw error;
-      return (data ?? null) as ShellProject | null;
-    },
+    queryFn: () => loadShellProject(id!),
   });
 
   return (

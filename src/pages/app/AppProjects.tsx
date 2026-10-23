@@ -4,24 +4,19 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Building2, ChevronRight, Search } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { projectMatches, projectStatusLabel, type AppProjectRow } from "@/lib/app/projects";
+import { projectMatches, projectStatusLabel } from "@/lib/app/projects";
+import { appProjectsKey, loadAppProjects } from "@/lib/app/projectsQuery";
+import StartGuideButton from "@/components/guide/StartGuideButton";
 
 
 export default function AppProjects() {
   const [q, setQ] = useState("");
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ["app-projects"],
-    queryFn: async (): Promise<AppProjectRow[]> => {
-      const { data, error } = await supabase.from("projects")
-        .select("id, name, client_name, location, project_type, status, created_at")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as AppProjectRow[];
-    },
+    queryKey: appProjectsKey,
+    queryFn: loadAppProjects,
   });
   const rows = useMemo(() => (data ?? []).filter((p) => projectMatches(p, q)), [data, q]);
 
@@ -32,10 +27,13 @@ export default function AppProjects() {
           <h1 className="text-xl font-bold">Projects</h1>
           <p className="text-sm text-muted-foreground">Open a project to work through its drawings, BOQ and exports.</p>
         </div>
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
-          <Input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search projects"
-            aria-label="Search projects" className="pl-8" />
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          <StartGuideButton />
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+            <Input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search projects"
+              aria-label="Search projects" className="pl-8" />
+          </div>
         </div>
       </div>
 

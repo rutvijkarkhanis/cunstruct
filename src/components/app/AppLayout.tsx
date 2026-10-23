@@ -7,6 +7,7 @@ import { Loader2, LogOut } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import GuidePanel from "@/components/guide/GuidePanel";
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
   cn("px-2.5 py-1.5 rounded-md text-sm whitespace-nowrap",
@@ -49,6 +50,7 @@ export default function AppLayout() {
       <main id="app-main" tabIndex={-1} className="flex-1 min-w-0 focus:outline-none">
         <Outlet />
       </main>
+      <GuidePanel />
     </div>
   );
 }

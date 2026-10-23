@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Plus, Building2, Clock, CheckCircle2, LogOut, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import StartGuideButton from "@/components/guide/StartGuideButton";
 
 const TYPES = ["Residential", "Commercial", "Retail", "Office", "Hospital"];
 
@@ -112,6 +113,13 @@ export default function MyProjects() {
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-10 space-y-6">
+        {/* Staff only (the button renders nothing for anyone else): the guide walks the staff project screens. */}
+        {isStaff && (
+          <div className="rounded-md border bg-card px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">Walk through an existing project's drawings, quantities, review, BOQ and export.</p>
+            <StartGuideButton />
+          </div>
+        )}
         {hasProjects && (
           <div className="flex items-center justify-between">
             <div>
