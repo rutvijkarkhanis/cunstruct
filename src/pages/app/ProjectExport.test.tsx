@@ -53,16 +53,23 @@ let lines: Record<string, unknown>[] = [];
 let failLineReadsAfter = Infinity; // fail every boq_line read after the first N
 let lineReads = 0;
 let boqReadFailures = 0; // the next N reads of the boq row fail
+let savedSpec: Record<string, unknown> = { _gst_pct: 12 }; // what the export's re-read of the settings returns
+let specReadFails = false;
 vi.mock("@/lib/untypedDb", () => ({
   db: {
     from: (table: string) => {
       const q: Record<string, unknown> = {};
-      q.select = () => q;
+      let cols = "";
+      q.select = (c: string) => { cols = c; return q; };
       q.eq = () => q;
       q.order = () => (++lineReads > failLineReadsAfter
         ? Promise.resolve({ data: null, error: { message: "network down" } })
         : Promise.resolve({ data: lines.map((l) => ({ ...l })), error: null }));
-      q.maybeSingle = () => Promise.resolve(table === "boq" && boqReadFailures > 0 && boqReadFailures--
+      // The export's own re-read of the BOQ's settings (lib/boqSpecWrite readBoqSpec).
+      const specRead = () => Promise.resolve(specReadFails
+        ? { data: null, error: { message: "network down" } }
+        : { data: { spec: savedSpec, updated_at: "2026-10-24T00:00:00Z" }, error: null });
+      q.maybeSingle = () => table === "boq" && cols === "spec, updated_at" ? specRead() : Promise.resolve(table === "boq" && boqReadFailures > 0 && boqReadFailures--
         ? { data: null, error: { message: "network down" } }
         : table === "boq"
         ? { data: { id: "b1", name: "Civil BOQ", status: "draft", spec: { _gst_pct: 12 } }, error: null }
@@ -92,6 +99,8 @@ beforeEach(() => {
   failLineReadsAfter = Infinity;
   lineReads = 0;
   boqReadFailures = 0;
+  savedSpec = { _gst_pct: 12 };
+  specReadFails = false;
   boqListFails = false;
   downloadCsv.mockReset();
   toastError.mockReset();
@@ -207,6 +216,16 @@ describe("ProjectExport — blockers by line, and the pre-issue summary", () => 
     expect(screen.getByTestId("export-issue-state")).toHaveTextContent("not an issued revision: nothing is frozen");
   });
 
+  it("every line priced but a review item left out: the grand total is labelled a working estimate, not a plain grand total", async () => {
+    lines = lines.filter((l) => l.id !== "l2"); // no pending quantity, no missing rate
+    reviewStatuses = ["VERIFIED", "FLAGGED"];
+    renderPage("export");
+    expect(await screen.findByText("Grand total of the BOQ as it stands (working estimate; 1 drawing-review item is not yet in it):")).toBeInTheDocument();
+    expect(screen.queryByText("Grand total:")).toBeNull();
+    const c = commercialsFor(1000, { _gst_pct: 12 }, 1000);
+    expect(screen.getByTestId("export-grand-total")).toHaveTextContent("₹" + Math.round(c.grandTotal).toLocaleString("en-IN"));
+  });
+
   it("the CSV is dated as a working estimate and states the same grand total", async () => {
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: "Excel (CSV)" }));
@@ -292,6 +311,42 @@ describe("ProjectExport — exports never silently miss a change saved elsewhere
     fireEvent.click(button);
     await waitFor(() => expect(toastError).toHaveBeenCalledWith(expect.stringMatching(/nothing was exported/)));
     expect(downloadCsv).not.toHaveBeenCalled();
+  });
+
+  it("the CSV's totals use the commercial settings as saved at export, not as loaded with the screen", async () => {
+    renderPage();
+    const button = await screen.findByRole("button", { name: "Excel (CSV)" });
+    savedSpec = { _gst_pct: 12, _contingency_pct: 10 }; // changed elsewhere after this screen loaded
+    fireEvent.click(button);
+    await waitFor(() => expect(downloadCsv).toHaveBeenCalled());
+    const csv = (downloadCsv.mock.calls[0] as [string, string])[1];
+    const now = commercialsFor(1000, { _gst_pct: 12, _contingency_pct: 10 }, 1000);
+    const then = commercialsFor(1000, { _gst_pct: 12 }, 1000);
+    expect(now.grandTotal).not.toBe(then.grandTotal);
+    expect(csv).toContain(`PDF abstract: ₹${Math.round(now.grandTotal).toLocaleString("en-IN")}`);
+  });
+
+  it("the PDF's commercials are the ones saved at export too", async () => {
+    renderPage();
+    const button = await screen.findByRole("button", { name: /PDF \(priced\)/ });
+    savedSpec = { _gst_pct: 12, _contingency_pct: 10 };
+    fireEvent.click(button);
+    await waitFor(() => expect(openDsrQuote).toHaveBeenCalled());
+    const [payload] = openDsrQuote.mock.calls[0] as [{ commercials: { grandTotal: number } }];
+    expect(payload.commercials.grandTotal).toBe(commercialsFor(1000, { _gst_pct: 12, _contingency_pct: 10 }, 1000).grandTotal);
+  });
+
+  it("if the settings cannot be re-read, nothing is exported and the message names the settings", async () => {
+    renderPage();
+    const csvButton = await screen.findByRole("button", { name: "Excel (CSV)" });
+    specReadFails = true;
+    fireEvent.click(csvButton);
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith(
+      "Could not re-read the BOQ's commercial settings (contingency, overheads, cess, GST), so nothing was exported. Try again."));
+    expect(downloadCsv).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /PDF \(priced\)/ }));
+    await waitFor(() => expect(quoteFailed).toHaveBeenCalledWith(expect.stringMatching(/^Could not re-read the BOQ's commercial settings .*no PDF was produced/)));
+    expect(openDsrQuote).not.toHaveBeenCalled();
   });
 
   it("no warning when nothing changed", async () => {

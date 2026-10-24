@@ -24,6 +24,17 @@ export type DrawingMatchResult =
   | { ok: true; match: DrawingRevisionMatch }
   | { ok: false; reason: string };
 
+/** Why an import could not be matched to a drawing, and the safe way to get
+ *  the fingerprint computed. Two Workspace controls share the "Analyze Project"
+ *  label: the side-panel button only OPENS the panel (which runs the server
+ *  preflight that stores drawing fingerprints, no AI), while the button inside
+ *  the panel starts a full analysis. The instruction names only the first. */
+export const NO_DRAWING_MATCH_REASON =
+  "The analysed drawing is not the current revision of any drawing in this project, or its fingerprint has not been computed yet. " +
+  "Upload it if it is missing. Then open Ops console → this project → Workspace and click Analyze Project in the side panel only to open that panel: " +
+  "opening it computes drawing fingerprints on the server and runs no AI. Do not press the Analyze Project button inside the panel, which starts a full analysis. " +
+  "Then import again.";
+
 /** The project's drawing whose CURRENT revision has exactly this content hash. */
 export async function findDrawingRevisionByHash(projectId: string, sha256: string): Promise<DrawingMatchResult> {
   const { data: docs, error: docErr } = await db.from("project_document").select("id, name, current_revision_id").eq("project_id", projectId);
@@ -37,7 +48,7 @@ export async function findDrawingRevisionByHash(projectId: string, sha256: strin
   const hits = ((revs ?? []) as { id: string; document_id: string; content_hash: string | null; original_filename: string | null }[])
     .filter((r) => r.content_hash === sha256 && byRevision.get(r.id)?.id === r.document_id);
   if (hits.length === 0) {
-    return { ok: false, reason: "The analysed drawing is not the current revision of any drawing in this project, or its fingerprint has not been computed yet. Upload it if it is missing, then open Ops console → this project → Workspace → Analyze Project (that computes drawing fingerprints on the server and runs no AI), and import again." };
+    return { ok: false, reason: NO_DRAWING_MATCH_REASON };
   }
   if (hits.length > 1) {
     return { ok: false, reason: `The analysed drawing matches ${hits.length} drawings in this project — it cannot be attributed to one.` };

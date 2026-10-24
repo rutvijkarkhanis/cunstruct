@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
-  computeCommercials, amountInWords, buildBoqCsv, buildProjectQuoteHtml, buildDsrQuoteHtml, openQuoteWindow, QUOTE_WINDOW_LOADING_TEXT,
+  computeCommercials, amountInWords, buildBoqCsv, buildProjectQuoteHtml, buildDsrQuoteHtml, grandTotalLabel, openQuoteWindow, QUOTE_WINDOW_LOADING_TEXT,
   type ProjectQuoteBoq, type DsrQuotePayload, type QuoteSubHead, type QuoteItem, type CsvRow,
 } from "./boqDsrDocument";
 import { BOQ_DRAFT_DISCLAIMER } from "./boqDraftDisclaimer";
@@ -57,6 +57,36 @@ describe("buildBoqCsv", () => {
     expect(lines[4]).toContain("=F5*H5");
     // a spec with commas is quoted
     expect(lines[4]).toContain('"RCC M-20, cement, sand, aggregate"');
+  });
+
+  describe("grand total label: never plain while scope is incomplete", () => {
+    const row: CsvRow = { subhead: "1.00 Doors", itemNo: "1.01", code: null, spec: "Door", unit: "nos", qty: 1, rate: 500 };
+    const totals = { works: 500, grandTotal: 590 };
+    const grandRow = (csv: string) => csv.split("\r\n").find((l) => l.includes("with contingency"))!;
+
+    it("every line priced but review items left out: labelled a working estimate, with the count; the figure is unchanged", () => {
+      const csv = buildBoqCsv([row], { ...meta, commercials: totals, unresolvedReviewCount: 2 });
+      expect(grandRow(csv)).toContain("Grand total of the BOQ as it stands (working estimate; 2 drawing-review items are not yet in it)");
+      expect(grandRow(csv)).toContain("₹590");
+      expect(grandRow(csv)).not.toMatch(/^"?Grand total,/);
+    });
+    it("complete scope: a plain grand total", () => {
+      const csv = buildBoqCsv([row], { ...meta, commercials: totals, unresolvedReviewCount: 0 });
+      expect(grandRow(csv)).toMatch(/^"?Grand total, with contingency/);
+    });
+    it("a live export's totals are at the rates when exported; a frozen revision's are the revision's own", () => {
+      const live = buildBoqCsv([row], { ...meta, commercials: totals });
+      expect(live).toContain("These totals are at the rates when exported.");
+      const frozen = buildBoqCsv([row], { ...meta, commercials: totals, frozenAs: "Rev B, frozen 2026-10-05" });
+      expect(frozen).toContain("These totals are those of Rev B, frozen 2026-10-05, fixed when it was frozen.");
+      expect(frozen).not.toContain("when exported");
+    });
+    it("unpriced or pending lines still say priced scope only, whatever the review count", () => {
+      expect(grandTotalLabel({ unpriced: 1, pending: 0, unresolvedReviewCount: 3 })).toBe("Grand total of currently priced scope only");
+      expect(grandTotalLabel({ unpriced: 0, pending: 1, unresolvedReviewCount: 0 })).toBe("Grand total of currently priced scope only");
+      expect(grandTotalLabel({ unpriced: 0, pending: 0, unresolvedReviewCount: 1 })).toBe("Grand total of the BOQ as it stands (working estimate; 1 drawing-review item is not yet in it)");
+      expect(grandTotalLabel({ unpriced: 0, pending: 0, unresolvedReviewCount: null })).toBe("Grand total");
+    });
   });
 
   it("leaves amount blank for Non-Schedule (unpriced) items", () => {

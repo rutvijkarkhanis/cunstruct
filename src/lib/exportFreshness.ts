@@ -19,3 +19,27 @@ export const STALE_PDF_MESSAGE = "This BOQ was changed by someone else while you
 
 /** Shown (in the tab and as a toast) when the re-read before building a PDF fails. */
 export const PDF_REREAD_FAILED_MESSAGE = "Could not re-read the BOQ lines, so no PDF was produced (it could have missed a saved change). Close this tab and try again.";
+
+// An export's totals come from the BOQ's commercial settings (boq.spec:
+// contingency, overheads, cess, GST) as well as its lines, so both are re-read
+// before an export is built. When a read fails, the message names that read.
+export type RereadFailure = "lines" | "settings" | "both";
+
+/** Re-reads lines and settings together; on failure, says which read failed. Reads only. */
+export async function rereadForExport<L, S>(readLines: () => Promise<L>, readSettings: () => Promise<S>):
+  Promise<{ ok: true; lines: L; settings: S } | { ok: false; failed: RereadFailure }> {
+  const [l, s] = await Promise.allSettled([readLines(), readSettings()]);
+  if (l.status === "fulfilled" && s.status === "fulfilled") return { ok: true, lines: l.value, settings: s.value };
+  return { ok: false, failed: l.status === "rejected" && s.status === "rejected" ? "both" : l.status === "rejected" ? "lines" : "settings" };
+}
+
+const SETTINGS = "the BOQ's commercial settings (contingency, overheads, cess, GST)";
+
+/** The message for a failed re-read: the lines-only wording is unchanged. */
+export function rereadFailedMessage(failed: RereadFailure, kind: "pdf" | "csv"): string {
+  if (kind === "pdf" && failed === "lines") return PDF_REREAD_FAILED_MESSAGE;
+  const what = failed === "lines" ? "the BOQ lines" : failed === "settings" ? SETTINGS : `the BOQ lines or ${SETTINGS}`;
+  return kind === "pdf"
+    ? `Could not re-read ${what}, so no PDF was produced (it could have missed a saved change). Close this tab and try again.`
+    : `Could not re-read ${what}, so nothing was exported. Try again.`;
+}

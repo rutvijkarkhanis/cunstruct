@@ -13,7 +13,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AlertTriangle, FileDown, FileText, Sheet } from "lucide-react";
 import { db } from "@/lib/untypedDb";
-import { downloadCsv, openQuoteWindow } from "@/lib/boqDsrDocument";
+import { downloadCsv, grandTotalLabel, openQuoteWindow } from "@/lib/boqDsrDocument";
 import { useInWorkbench, useStepLink } from "@/components/app/useStepLink";
 import {
   commercialsFor, exportDate, groupSubheads, includedDsrTotal, includedTotal, liveCsv, liveFileStem, liveQuotePayload,
@@ -25,7 +25,8 @@ import { boqStatusLabel } from "@/lib/boqStatus";
 import type { Spec } from "@/lib/boqSpec";
 import { useBoqRevisions, REVISIONS_UNAVAILABLE_MESSAGE } from "@/hooks/useBoqRevisions";
 import { appBoqLinesKey, loadAppBoqLines } from "@/lib/app/boqLines";
-import { PDF_REREAD_FAILED_MESSAGE, linesChanged } from "@/lib/exportFreshness";
+import { linesChanged, rereadFailedMessage, rereadForExport } from "@/lib/exportFreshness";
+import { readBoqSpec } from "@/lib/boqSpecWrite";
 import { basisNotice, boqTotals, incompleteWarning, lineStatus, type BoqTableLine } from "@/lib/app/boqTable";
 import { revisionLabel } from "@/lib/app/labels";
 import { ASSUMPTION_SEARCH, UNKNOWN_BASIS_SEARCH, boqFilterPath, builderPath, journeyPath, manageBoqsPath, reviewWorkstationPath } from "@/lib/app/journey";
@@ -135,8 +136,9 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
   // names (else sources would be missing) and the unfinished-review count.
   const ready = !!boqQ.data && linesQ.isSuccess && !drawingsQ.isLoading && reviewQ.isSuccess;
 
-  const build = (from = lines) => {
-    const spec = (boqQ.data!.spec ?? {}) as Spec;
+  // The spec (commercials) is the one re-read for the export, never the copy
+  // loaded with this screen: another editor may have changed it since.
+  const build = (from: typeof lines, spec: Spec) => {
     const subheads = workingSubheadsFrom(groupSubheads(from), (l) =>
       resolveDrawingSource(l.source_document_id, l.source_page, drawingsById, drawingsQ.isLoading));
     return { spec, subheads, generatedOn: exportDate() };
@@ -148,12 +150,11 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
   const exportPdf = async (blankRates: boolean) => {
     const win = openQuoteWindow();
     if (!win) { toast.error("Allow pop-ups to export"); return; }
-    let fresh: typeof lines;
-    try { fresh = await loadAppBoqLines(boqId!); } catch {
-      win.fail(PDF_REREAD_FAILED_MESSAGE); toast.error(PDF_REREAD_FAILED_MESSAGE); return;
-    }
+    const r = await rereadForExport(() => loadAppBoqLines(boqId!), async () => (await readBoqSpec(boqId!)).spec as Spec);
+    if ("failed" in r) { const m = rereadFailedMessage(r.failed, "pdf"); win.fail(m); toast.error(m); return; }
+    const fresh = r.lines;
     if (linesChanged(lines, fresh)) linesQ.refetch();
-    const { spec, subheads, generatedOn } = build(fresh);
+    const { spec, subheads, generatedOn } = build(fresh, r.settings);
     const payload = liveQuotePayload({
       boqName: boqQ.data!.name, context: quoteContextFor(project, spec), generatedOn, blankRates,
       subheads, commercials: commercialsFor(includedTotal(fresh), spec, includedDsrTotal(fresh)), unresolvedReviewCount: unresolved,
@@ -162,10 +163,11 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
     win.show(payload, { autoPrint: !blankRates });
   };
   const exportCsv = async () => {
-    let fresh: typeof lines;
-    try { fresh = await loadAppBoqLines(boqId!); } catch { toast.error("Could not re-read the BOQ lines, so nothing was exported. Try again."); return; }
+    const r = await rereadForExport(() => loadAppBoqLines(boqId!), async () => (await readBoqSpec(boqId!)).spec as Spec);
+    if ("failed" in r) { toast.error(rereadFailedMessage(r.failed, "csv")); return; }
+    const fresh = r.lines;
     if (linesChanged(lines, fresh)) linesQ.refetch();
-    const { spec, subheads, generatedOn } = build(fresh);
+    const { spec, subheads, generatedOn } = build(fresh, r.settings);
     const csv = liveCsv({ boqName: boqQ.data!.name, projectName: project.name, generatedOn, subheads, unresolvedReviewCount: unresolved,
       commercials: commercialsFor(includedTotal(fresh), spec, includedDsrTotal(fresh)) });
     if (!csv) return toast.error("Nothing to export yet");
@@ -355,7 +357,7 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
               <dl aria-label="Totals the documents will show" className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
                 <div><dt className="inline text-muted-foreground">Cost of works (priced lines): </dt><dd className="inline tabular-nums">{inr(commercials.works)}</dd></div>
                 <div>
-                  <dt className="inline text-muted-foreground">{totals.unpriced > 0 || totals.pending > 0 ? "Grand total of currently priced scope only: " : "Grand total: "}</dt>
+                  <dt className="inline text-muted-foreground">{`${grandTotalLabel({ unpriced: totals.unpriced, pending: totals.pending, unresolvedReviewCount: unresolved })}: `}</dt>
                   <dd className="inline font-medium tabular-nums" data-testid="export-grand-total">{inr(commercials.grandTotal)}</dd>
                 </div>
               </dl>

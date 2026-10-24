@@ -16,7 +16,7 @@ import { parseBoqEvalJson, evalLinesToRows, pendingCount, PENDING_BASIS } from "
 import { quantityEditPatch, unitEditPatch } from "@/lib/quantityEdit";
 import { safeJourneyReturn } from "@/lib/app/journey";
 import { addLineRecorded, addLinesRecorded, editTookEffect, lineAddMessage, lineEditMessage, linesAddMessage, saveLineEdit, type LineAddResult } from "@/lib/lineEdit";
-import { PDF_REREAD_FAILED_MESSAGE, linesChanged } from "@/lib/exportFreshness";
+import { linesChanged, rereadFailedMessage, rereadForExport } from "@/lib/exportFreshness";
 import { LineRemovalError, removalGuard, removeLineWithSnapshot, restoreRemovedLine, type RemovedLine } from "@/lib/lineRemoval";
 import { saveErrorMessage } from "@/lib/saveError";
 import { commercialsFor, effRate, groupSubheads as groupSubheadsOf, includedDsrTotal, includedTotal, lineAmount, liveCsv, liveFileStem, liveQuotePayload, quoteContextFor, workingSubheadsFrom } from "@/lib/boqLiveExport";
@@ -810,10 +810,9 @@ export default function OpsBoqBuilder() {
     // fresh read of the lines and spec — never from what is on screen.
     const win = openQuoteWindow();
     if (!win) { toast.error("Allow pop-ups to export"); return; }
-    let fresh: BoqLine[]; let freshSpec: Spec;
-    try { [fresh, freshSpec] = await Promise.all([fetchLinesNow(), fetchSpecStrict()]); } catch {
-      win.fail(PDF_REREAD_FAILED_MESSAGE); toast.error(PDF_REREAD_FAILED_MESSAGE); return;
-    }
+    const r = await rereadForExport(fetchLinesNow, fetchSpecStrict);
+    if ("failed" in r) { const m = rereadFailedMessage(r.failed, "pdf"); win.fail(m); toast.error(m); return; }
+    const fresh = r.lines; const freshSpec = r.settings;
     if (linesChanged(lines, fresh)) refetchLines();
     const payload = liveQuotePayload({
       boqName: boq!.name, context: quoteContext(freshSpec), generatedOn: gen(), blankRates,
@@ -837,8 +836,9 @@ export default function OpsBoqBuilder() {
 
   const exportExcel = async () => {
     // A download needs no pop-up, so it is built from a fresh read.
-    let fresh: BoqLine[]; let freshSpec: Spec;
-    try { [fresh, freshSpec] = await Promise.all([fetchLinesNow(), fetchSpecStrict()]); } catch { toast.error("Could not re-read the BOQ lines, so nothing was exported. Try again."); return; }
+    const r = await rereadForExport(fetchLinesNow, fetchSpecStrict);
+    if ("failed" in r) { toast.error(rereadFailedMessage(r.failed, "csv")); return; }
+    const fresh = r.lines; const freshSpec = r.settings;
     if (linesChanged(lines, fresh)) refetchLines();
     const csv = liveCsv({ boqName: boq!.name, projectName: project?.name, generatedOn: gen(), subheads: workingSubheads(groupSubheads(fresh)), unresolvedReviewCount,
       commercials: commercialsOf(fresh, freshSpec) });

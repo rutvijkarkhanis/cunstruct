@@ -89,7 +89,7 @@ export function useBoqRevisions(boqId: string | undefined | null) {
         if (!rows.length && !pending.length) { toast.error("Nothing to export in this revision"); return; }
         downloadCsv(`${revisionFileStem(rev)}_BOQ.csv`, buildBoqCsv(rows, {
           boqName: `${rev.boq_name} — ${rev.label}`, project: rev.project_name, generatedOn: `${rev.issued_at.slice(0, 10)} (${rev.label}, frozen)`,
-          commercials: rev.commercials,
+          commercials: rev.commercials, frozenAs: `${rev.label}, frozen ${rev.issued_at.slice(0, 10)}`,
         }, pending));
         return;
       }

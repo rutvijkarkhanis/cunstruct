@@ -12,7 +12,7 @@ import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { toast } from "sonner";
 import OpsBoqBuilder from "./OpsBoqBuilder";
 import { downloadCsv, type QuoteItem, type QuotePendingItem } from "@/lib/boqDsrDocument";
-import { PDF_REREAD_FAILED_MESSAGE } from "@/lib/exportFreshness";
+import { PDF_REREAD_FAILED_MESSAGE, rereadFailedMessage } from "@/lib/exportFreshness";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() } }));
 
@@ -234,8 +234,23 @@ describe("OpsBoqBuilder — blank PDF export guard", () => {
 
     await clickExportItem("PDF");
 
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(PDF_REREAD_FAILED_MESSAGE));
+    // The settings read failed, not the lines: the message says which.
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(rereadFailedMessage("settings", "pdf")));
+    expect(toast.error).not.toHaveBeenCalledWith(PDF_REREAD_FAILED_MESSAGE);
     expect(exportSpies.openDsrQuote).not.toHaveBeenCalled();
+  });
+
+  it("a failed re-read of the BOQ's settings downloads no CSV, and names the settings, not the lines", async () => {
+    fixtures.state.lines = [line({ id: "l1", description: "RCC footing", qty: 10 })];
+    renderBoqBuilder();
+    await screen.findByText("RCC footing");
+    fixtures.state.failSpecRead = true;
+
+    await clickExportItem("Excel");
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      "Could not re-read the BOQ's commercial settings (contingency, overheads, cess, GST), so nothing was exported. Try again."));
+    expect(downloadCsv).not.toHaveBeenCalled();
   });
 
   it("pop-up blocked: a valid export still reports 'Allow pop-ups to export'", async () => {

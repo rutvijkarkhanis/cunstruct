@@ -343,6 +343,17 @@ export function incompleteScopeNotice(unresolvedReviewCount: number | null | und
   return `${INCOMPLETE_SCOPE} ${n} drawing-review item${n === 1 ? " is" : "s are"} still pending or flagged and ${n === 1 ? "is" : "are"} not included in this BOQ.`;
 }
 
+/** The label for a stated grand total. Unpriced or pending lines: it covers the
+ *  priced scope only. Otherwise, drawing-review items not yet in the BOQ: it is
+ *  the BOQ as it stands, a working estimate, and says how many items are missing.
+ *  Only a complete BOQ gets a plain "Grand total". The figure itself is unchanged. */
+export function grandTotalLabel(o: { unpriced: number; pending: number; unresolvedReviewCount?: number | null }): string {
+  if (o.unpriced > 0 || o.pending > 0) return "Grand total of currently priced scope only";
+  const n = o.unresolvedReviewCount ?? 0;
+  if (n > 0) return `Grand total of the BOQ as it stands (working estimate; ${n} drawing-review item${n === 1 ? " is" : "s are"} not yet in it)`;
+  return "Grand total";
+}
+
 export function buildDsrQuoteHtml(p: DsrQuotePayload, opts?: { autoPrint?: boolean }): string {
   const flats = p.flatsPerFloor && p.flatsPerFloor > 1 ? `${p.flatsPerFloor} flats/floor` : "";
   const units = p.floors && p.flatsPerFloor && p.flatsPerFloor > 1 ? ` (${p.floors * p.flatsPerFloor} units)` : "";
@@ -629,6 +640,9 @@ export function buildBoqCsv(
     boqName: string; project?: string | null; generatedOn: string; unresolvedReviewCount?: number | null;
     /** The commercial abstract the priced PDF shows (same computation); its grand total is stated under the lines. */
     commercials?: Pick<QuoteCommercials, "works" | "grandTotal"> | null;
+    /** A frozen revision's CSV: the totals are the revision's own, fixed when it
+     *  was frozen (e.g. "Rev B, frozen 2026-10-05"), not computed at export. */
+    frozenAs?: string | null;
   },
   pending?: { spec: string; unit: string; code?: string | null; note?: string; sourceDocument?: string | null; sourcePage?: string | null; basis?: string | null }[],
 ): string {
@@ -653,7 +667,8 @@ export function buildBoqCsv(
     ].map(csvCell).join(","));
   });
   // Totals under the lines, as the priced PDF's abstract computes them (same
-  // commercials), stated at the rates when exported. Single-cell rows like the
+  // commercials): a live export's at the rates when exported, a frozen revision's
+  // as fixed at freeze. Single-cell rows like the
   // section titles, so a reader of the table rows (lib/e2e/pipeline) skips them.
   if (rows.length && meta.commercials) {
     const unpriced = rows.filter((r) => r.rate == null).length;
@@ -663,8 +678,10 @@ export function buildBoqCsv(
     const notIn = [unpriced ? `${unpriced} item${unpriced === 1 ? "" : "s"} without a rate` : "", pendingCount ? `${pendingCount} with a pending quantity` : ""].filter(Boolean).join(" and ");
     lines.push("",
       csvCell(`Cost of works (priced items): ${rs(meta.commercials.works)}${partial ? ` — currently priced scope only; ${notIn} not included` : ""}`),
-      csvCell(`${partial ? "Grand total of currently priced scope only" : "Grand total"}, with contingency, overheads, cess and GST as in the priced PDF abstract: ${rs(meta.commercials.grandTotal)}`),
-      csvCell(`These totals are at the rates when exported. The Amount column recalculates if you change "Your rate"; these totals do not.`));
+      csvCell(`${grandTotalLabel({ unpriced, pending: pendingCount, unresolvedReviewCount: meta.unresolvedReviewCount })}, with contingency, overheads, cess and GST as in the priced PDF abstract: ${rs(meta.commercials.grandTotal)}`),
+      csvCell(meta.frozenAs
+        ? `These totals are those of ${meta.frozenAs}, fixed when it was frozen. The Amount column recalculates if you change "Your rate"; these totals do not.`
+        : `These totals are at the rates when exported. The Amount column recalculates if you change "Your rate"; these totals do not.`));
   }
   // Identified-but-unquantified drawing requirements — listed with a blank Qty
   // (never a fabricated 0) so nothing the drawing identified is dropped, and none

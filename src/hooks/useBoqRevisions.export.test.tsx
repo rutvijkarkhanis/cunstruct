@@ -74,7 +74,8 @@ describe("frozen revision exports", () => {
       // The revision's own frozen commercials, stated as the PDF abstract states them.
       '"Cost of works (priced items): ₹1,000 — currently priced scope only; 1 with a pending quantity not included"',
       '"Grand total of currently priced scope only, with contingency, overheads, cess and GST as in the priced PDF abstract: ₹1,000"',
-      '"These totals are at the rates when exported. The Amount column recalculates if you change ""Your rate""; these totals do not."',
+      // Fixed at freeze, never "at the rates when exported".
+      '"These totals are those of Rev A, frozen 2026-10-12, fixed when it was frozen. The Amount column recalculates if you change ""Your rate""; these totals do not."',
       "",
       "IDENTIFIED — PENDING QUANTIFICATION (not priced; confirm a quantity to price)",
       "Pending,P.01,,Door — Quantity pending: not yet measured,sqm,,,,,Plan,2,",
