@@ -86,6 +86,12 @@ const FLAG_REASONS: { key: FlagReason; label: string }[] = [
  * navigation (`navigate("../boqs/${boqId}")`) below is unaffected: the
  * workspace route is a sibling of `boqs/:boqId/review` under the same
  * ProjectLayout, so "up one route level" resolves identically either way.
+ *
+ * `returnTo` is optional and additive in the same way: the workbench preview
+ * (components/app/WorkbenchReview) embeds this component at
+ * /app/projects/:id/workbench/review, where "up one route level" is not a BOQ
+ * route, so it says where Back and "View updated BOQ" lead. Without it, the
+ * ?returnTo= query (or the BOQ builder) applies exactly as before.
  */
 /** Review decisions changed since this screen loaded them; nothing was applied. */
 class ReviewChangedError extends Error {
@@ -94,7 +100,7 @@ class ReviewChangedError extends Error {
   }
 }
 
-export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?: string } = {}) {
+export default function BoqReviewWorkstation({ boqId: injectedBoqId, returnTo: injectedReturnTo }: { boqId?: string; returnTo?: string } = {}) {
   const { id: routeId, boqId: routeBoqId } = useParams<{ id?: string; boqId?: string }>();
   const boqId = injectedBoqId ?? routeBoqId ?? routeId!;
   const navigate = useNavigate();
@@ -103,7 +109,7 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
   // "View updated BOQ" lead there instead of the BOQ builder. Only a journey
   // path is honoured (safeJourneyReturn); without one, nothing changes.
   const [searchParams] = useSearchParams();
-  const returnTo = safeJourneyReturn(searchParams.get("returnTo"));
+  const returnTo = safeJourneyReturn(injectedReturnTo ?? searchParams.get("returnTo"));
   const goBack = useCallback(() => navigate(returnTo ?? `../boqs/${boqId}`), [navigate, returnTo, boqId]);
 
   const { data: boq } = useQuery({
@@ -396,6 +402,23 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
     setSelectedClaim(null);
     setMobileNavOpen(false);
   }, [ordered]);
+
+  // ?item=<review item id> (e.g. from Check & finalise): open on that item,
+  // once, after the items load — shown in the navigator even when it already
+  // has a decision. A link to an item not in this BOQ's latest analysis is
+  // said so, never silently replaced by another item.
+  const requestedItem = searchParams.get("item");
+  const requestedApplied = useRef(false);
+  const [requestedMissing, setRequestedMissing] = useState(false);
+  useEffect(() => {
+    if (!requestedItem || requestedApplied.current || loading || !ordered.length) return;
+    requestedApplied.current = true;
+    // ordered holds the loaded StoredReviewItems (ids included).
+    const hit = ordered.find((it) => (it as { id?: string }).id === requestedItem);
+    if (!hit) { setRequestedMissing(true); return; }
+    if (hit.reviewStatus !== "PENDING_REVIEW") setNeedsReviewOnly(false);
+    selectType(requestedItem);
+  }, [requestedItem, loading, ordered, selectType]);
 
   // Selecting a category (Section 6): the drawing scopes to every type in it
   // (markersForCategory), and the inspector settles on that category's first
@@ -1009,8 +1032,13 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId }: { boqId?:
           read as "a PDF with a panel attached," not the reference's actual
           persistent right column — this is a structural fix, not a
           restyling: same ItemPanel, same props, just given its own column
-          instead of an absolutely-positioned overlay. */}
-      <div className="lg:flex lg:gap-3 lg:h-[calc(100vh-100px)] lg:min-h-[460px]">
+          instead of an absolutely-positioned overlay.
+          Height: the full-screen /ops value unless an embedding page sets
+          --rw-pane-h (the workbench preview fits it below its own header). */}
+      {requestedMissing && (
+        <p role="note" className="mb-2 text-sm text-muted-foreground">The review item in this link is not in this BOQ's latest drawing analysis; showing the review queue.</p>
+      )}
+      <div data-rw-panes className="lg:flex lg:gap-3 lg:h-[var(--rw-pane-h,calc(100vh-100px))] lg:min-h-[460px]">
         <TypeNavigator
           groups={categoryGroups}
           currentId={current?.id}
@@ -1575,6 +1603,12 @@ export function AnalysisFreshnessNotice({ freshness, onReanalyse }: { freshness:
       <ul className="list-disc pl-4 text-xs space-y-0.5">
         {blocked.map((s) => <li key={s.documentId}>{describeSourceFreshness(s)}</li>)}
       </ul>
+      {blocked.some((s) => s.state === "unknown") && (
+        <p className="text-xs">
+          An analysis imported as JSON can be applied once it names the drawing it was read from: add{" "}
+          <code>"source_drawing": {"{"} "sha256": "…" {"}"}</code> (the drawing file's SHA-256) to the JSON and load it again below.
+        </p>
+      )}
       <Button size="sm" variant="outline" onClick={onReanalyse}>Re-analyse current drawings</Button>
     </div>
   );

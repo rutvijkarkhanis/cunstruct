@@ -111,6 +111,18 @@ describe("Review screen — return to the project journey", () => {
     expect(screen.getByTestId("where").textContent).not.toMatch(/^\/app\//);
   });
 
+  // The link Check & finalise builds outside the workbench (ProjectExport):
+  // the review screen opens on that item, already decided or not, and back
+  // still returns to Check.
+  it("opened from Check on one item, it shows that item and leads back to Check", async () => {
+    const check = "/app/projects/proj-1/check?boq=boq-1";
+    renderAt(`${REVIEW}?returnTo=${encodeURIComponent(check)}&item=i1`);
+    expect(await screen.findByText("W1 · Window W1")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /Needs review only/ })).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Back to project" }));
+    expect(screen.getByTestId("where")).toHaveTextContent(check);
+  });
+
   it("ignores a returnTo outside the journey", async () => {
     renderAt(`${REVIEW}?returnTo=${encodeURIComponent("https://evil.example/app/projects/x")}`);
     fireEvent.click(await screen.findByRole("button", { name: "Back to BOQ" }));

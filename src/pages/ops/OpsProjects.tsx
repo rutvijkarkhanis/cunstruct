@@ -303,13 +303,16 @@ function OnboardWizard({ onDone }: { onDone: () => void }) {
 
   const submit = async (e: React.FormEvent, thenBoq = false) => {
     e.preventDefault();
+    // "Create & build BOQ" is not a form submit, so the field's `required`
+    // never runs for it: a project is never created without a name.
+    if (!name.trim()) { toast.error("Enter a project name"); return; }
     setBusy(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const { data: project, error } = await supabase
         .from("projects")
         .insert({
-          name,
+          name: name.trim(),
           client_name: clientName,
           customer_name: customerName || null,
           customer_phone: customerPhone || null,
@@ -366,17 +369,17 @@ function OnboardWizard({ onDone }: { onDone: () => void }) {
   return (
     <form onSubmit={submit} className="space-y-4">
       <div>
-        <Label>Project name</Label>
-        <Input value={name} onChange={(e) => setName(e.target.value)} required />
+        <Label htmlFor="onb-name">Project name</Label>
+        <Input id="onb-name" value={name} onChange={(e) => setName(e.target.value)} required />
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <Label>Client</Label>
-          <Input value={clientName} onChange={(e) => setClientName(e.target.value)} />
+          <Label htmlFor="onb-client">Client</Label>
+          <Input id="onb-client" value={clientName} onChange={(e) => setClientName(e.target.value)} />
         </div>
         <div>
-          <Label>Location</Label>
-          <Input value={location} onChange={(e) => setLocation(e.target.value)} />
+          <Label htmlFor="onb-location">Location</Label>
+          <Input id="onb-location" value={location} onChange={(e) => setLocation(e.target.value)} />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
@@ -407,12 +410,12 @@ function OnboardWizard({ onDone }: { onDone: () => void }) {
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <Label>Floors</Label>
-          <Input type="number" value={floors ?? ""} onChange={(e) => setFloors(e.target.value === "" ? null : +e.target.value)} />
+          <Label htmlFor="onb-floors">Floors</Label>
+          <Input id="onb-floors" type="number" value={floors ?? ""} onChange={(e) => setFloors(e.target.value === "" ? null : +e.target.value)} />
         </div>
         <div>
-          <Label>Built-up area (sqft)</Label>
-          <Input type="number" value={areaSqft ?? ""} onChange={(e) => setAreaSqft(e.target.value === "" ? null : +e.target.value)} />
+          <Label htmlFor="onb-area">Built-up area (sqft)</Label>
+          <Input id="onb-area" type="number" value={areaSqft ?? ""} onChange={(e) => setAreaSqft(e.target.value === "" ? null : +e.target.value)} />
         </div>
       </div>
       <div>

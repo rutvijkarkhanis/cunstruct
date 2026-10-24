@@ -155,6 +155,24 @@ export function assertStaging(root, need, env = process.env) {
   return { ref: target.projectRef, target };
 }
 
+/**
+ * Whether a Vite build must use the verified staging target (assertStaging,
+ * app values pinned): `--mode staging`, and every Vercel build that is not a
+ * production deployment. Such a build without a verified staging target
+ * refuses to build — it never falls back, silently or partially, to the
+ * production values in the committed `.env`. There is no opt-out.
+ *
+ *   VERCEL_ENV=production          → production (unchanged)
+ *   VERCEL_ENV=preview|development → staging, or no build
+ *   VERCEL=1 without VERCEL_ENV    → staging, or no build (cannot tell it is production)
+ *   neither (a local build)        → unchanged
+ */
+export function buildUsesStaging(mode, env = process.env) {
+  if (mode === "staging") return true;
+  if (env.VERCEL_ENV) return env.VERCEL_ENV !== "production";
+  return env.VERCEL === "1";
+}
+
 // ── CLI: node scripts/staging-guard.mjs [--app] [--db] ───────────────────
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {

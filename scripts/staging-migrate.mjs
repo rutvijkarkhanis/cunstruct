@@ -126,5 +126,5 @@ if (isMain) {
   }
   console.log(base
     ? `\nAll ${files.length} base migrations applied to staging. Next: the Stage 3–6 set (run without --base), if needed.`
-    : "\nAll four migrations applied to staging. Next: the post-apply checks in docs/staging-validation-stage3-6.md.");
+    : `\nAll ${files.length} Stage 3–6 migrations applied to staging. Next: the post-apply checks in docs/staging-validation-stage3-6.md.`);
 }

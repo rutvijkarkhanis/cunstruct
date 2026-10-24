@@ -26,6 +26,21 @@
 //   a "line_restored" row and re-attaches the "line_removed" row to the line.
 import { db as defaultDb, isMissingTable, type DbError, type Query } from "@/lib/untypedDb";
 
+/** The values a removal is guarded on: what an editor shows of the line
+ *  (shared by the BOQ builder and the workbench). Absent columns are skipped. */
+export const REMOVAL_GUARD_COLS = ["description", "section", "qty", "unit", "custom_rate", "dsr_rate", "cost", "included"] as const;
+export function removalGuard(line: object): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of REMOVAL_GUARD_COLS) if (k in line) out[k] = (line as Record<string, unknown>)[k];
+  return out;
+}
+
+/** A removal refused because the line is no longer as it was seen (changed
+ *  or removed elsewhere) — as opposed to one refused for safety reasons
+ *  (linked records, no history table) or a failure. */
+export const isStaleRemoval = (e: unknown) =>
+  e instanceof LineRemovalError && /changed elsewhere since it was loaded|no longer exists|the database removed nothing/.test(e.message);
+
 /** Removal is destructive; without a history table the only record of what
  *  was removed would be this browser tab. Refuse it (exclude the line from the
  *  total instead, which is a recorded, reversible edit). */

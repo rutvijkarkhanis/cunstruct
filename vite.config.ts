@@ -1,17 +1,27 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
-import { assertStaging } from "./scripts/staging-guard.mjs";
+import { assertStaging, buildUsesStaging } from "./scripts/staging-guard.mjs";
 
 // `--mode staging` (npm run dev:staging / build:staging) must never reach
 // production. Vite would otherwise fall back to the committed `.env`
 // (production) for any value the staging file lacks, so instead staging mode
 // refuses to start unless scripts/staging-guard.mjs verifies a separate staging
 // project, and then pins the app's Supabase values to it explicitly.
-function stagingSupabaseDefines() {
-  const { target } = assertStaging(__dirname, { app: true }); // throws → Vite refuses to start/build
+// Every Vercel build that is not a production deployment is held to the same
+// rule (buildUsesStaging): built against the verified staging project, or not at all.
+function stagingSupabaseDefines(mode: string) {
+  let target;
+  try {
+    ({ target } = assertStaging(__dirname, { app: true })); // throws → Vite refuses to start/build
+  } catch (e) {
+    if (mode === "staging") throw e;
+    throw new Error(`Vercel Preview build refused: previews are built against a verified staging project, never the production .env.\n${(e as Error).message}\nSet STAGING_SUPABASE_PROJECT_REF, STAGING_SUPABASE_URL and STAGING_SUPABASE_PUBLISHABLE_KEY for the Preview environment (see docs/staging-validation-stage3-6.md).`);
+  }
   return {
-    "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(target.supabaseUrl),
+    // Canonical form (verified non-production above): a trailing slash would
+    // otherwise make the workbench gate refuse a correctly configured staging build.
+    "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(target.supabaseUrl.replace(/\/+$/, "")),
     "import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(target.publishableKey),
     "import.meta.env.VITE_SUPABASE_PROJECT_ID": JSON.stringify(target.projectRef),
   };
@@ -19,7 +29,7 @@ function stagingSupabaseDefines() {
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
-  define: mode === "staging" ? stagingSupabaseDefines() : {},
+  define: buildUsesStaging(mode) ? stagingSupabaseDefines(mode) : {},
   server: {
     host: "::",
     port: 8080,

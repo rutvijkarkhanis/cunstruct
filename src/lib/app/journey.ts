@@ -11,6 +11,7 @@
 import type { BoqTotals } from "@/lib/app/boqTable";
 import type { ReviewSummary } from "@/lib/review/reviewQueue";
 import { UNKNOWN_ORIGIN_LABEL } from "@/lib/quantity";
+import { WORKBENCH_PREVIEW_ENABLED } from "@/lib/workbenchPreview";
 
 // ── The BOQ lifecycle ────────────────────────────────────────────────────────
 
@@ -46,7 +47,7 @@ export const reviewNotInBoq = (r: ReviewState) =>
 
 // ── Stages A–E ───────────────────────────────────────────────────────────────
 
-export type StageKey = "drawings" | "review" | "boq" | "checks" | "export";
+export type StageKey = "drawings" | "review" | "boq" | "rates" | "checks" | "export";
 export type StageStatus = "done" | "todo" | "attention" | "not_started";
 export interface StageAction { label: string; to: string; external?: boolean }
 /** A fact about a stage; `to` is where it is resolved, when it can be. */
@@ -60,7 +61,7 @@ export interface JourneyStage {
 }
 
 /** The journey step (route) each stage is worked on. */
-export const STAGE_STEP: Record<StageKey, string> = { drawings: "drawings", review: "review", boq: "boq", checks: "check", export: "export" };
+export const STAGE_STEP: Record<StageKey, string> = { drawings: "drawings", review: "review", boq: "boq", rates: "boq", checks: "check", export: "export" };
 
 export interface JourneyInput {
   projectId: string;
@@ -70,6 +71,10 @@ export interface JourneyInput {
   review: ReviewState | null;     // null when there is no BOQ
   totals: BoqTotals | null;       // null when there is no BOQ
   lineCount: number;              // every line, included or not
+  /** Rates are entered on this page's BOQ (the workbench): the journey then
+   *  includes a Rates stage, and a missing rate is an open item, not a note.
+   *  Absent (the Quantity BOQ journey): rates stay the Pricing phase's. */
+  pricing?: boolean;
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -83,11 +88,14 @@ export const ASSUMPTION_SEARCH = "Assumption";
 export const journeyPath = (projectId: string, step: string, boqId: string | null) =>
   `/app/projects/${projectId}/${step}${boqId ? `?boq=${encodeURIComponent(boqId)}` : ""}`;
 
-/** The journey BOQ step opened on a filter (status and/or search). */
-export const boqFilterPath = (projectId: string, boqId: string, f: { status?: string; q?: string }) => {
+/** The journey BOQ step opened on a filter (status and/or search), or on
+ *  one line with its quantity or rate editor open. */
+export const boqFilterPath = (projectId: string, boqId: string, f: { status?: string; q?: string; line?: string; field?: "qty" | "rate" }) => {
   const q = new URLSearchParams({ boq: boqId });
   if (f.status) q.set("status", f.status);
   if (f.q) q.set("q", f.q);
+  if (f.line) q.set("line", f.line);
+  if (f.line && f.field) q.set("field", f.field);
   return `/app/projects/${projectId}/boq?${q}`;
 };
 
@@ -110,11 +118,27 @@ export function safeJourneyReturn(raw: string | null | undefined): string | null
   if (!raw || !raw.startsWith("/app/projects/") || raw.includes("//") || raw.includes("\\")) return null;
   return raw;
 }
-/** The journey BOQ step for the project a returnTo belongs to. */
+/** The journey BOQ step for the project a returnTo belongs to — the
+ *  workbench's BOQ section when the returnTo is in the workbench preview and
+ *  this build has it (otherwise unchanged; folds away without the preview). */
 export function journeyBoqFrom(returnTo: string, boqId: string): string | null {
   const m = returnTo.match(/^\/app\/projects\/([^/?#]+)/);
-  return m ? journeyPath(decodeURIComponent(m[1]), "boq", boqId) : null;
+  if (!m) return null;
+  const path = journeyPath(decodeURIComponent(m[1]), "boq", boqId);
+  return WORKBENCH_PREVIEW_ENABLED && isWorkbenchPath(returnTo) ? inWorkbench(path) : path;
 }
+
+/** Journey steps the workbench preview also has, as workbench sections. */
+export const WORKBENCH_SECTIONS = ["overview", "drawings", "review", "boq", "check", "export"] as const;
+
+/** Whether a path is inside a project's workbench preview. */
+export const isWorkbenchPath = (path: string) => /^\/app\/projects\/[^/?#]+\/workbench(?=[/?#]|$)/.test(path);
+
+/** A journey step path as the same section of the workbench preview (query
+ *  kept); any other path is returned unchanged. Pure: whether to use it is
+ *  the caller's (WORKBENCH_PREVIEW_ENABLED-gated) decision. */
+export const inWorkbench = (path: string) =>
+  path.replace(new RegExp(`^(/app/projects/[^/?#]+/)(${WORKBENCH_SECTIONS.join("|")})(?=[/?#]|$)`), "$1workbench/$2");
 
 export function journeyStages(i: JourneyInput): JourneyStage[] {
   const p = (step: string) => journeyPath(i.projectId, step, i.boqId);
@@ -170,13 +194,31 @@ export function journeyStages(i: JourneyInput): JourneyStage[] {
     : {
         key: "boq", title: "Build BOQ", goal: "Confirm every line has a quantity, unit and basis.",
         status: i.lineCount === 0 ? "todo" : t.pending > 0 ? "attention" : "done",
-        summary: i.lineCount === 0 ? "No lines yet — apply reviewed items or add lines in the BOQ builder."
+        summary: i.lineCount === 0 ? `No lines yet — apply reviewed items or add lines ${i.pricing ? "in the BOQ" : "in the BOQ builder"}.`
           : t.pending > 0 ? `${plural(t.pending, "line")} still ${t.pending === 1 ? "has" : "have"} a pending quantity.`
           : `All ${t.complete + t.unpriced} included lines have a quantity.`,
         detail: [],
         open: t.pending > 0 ? [{ text: `${plural(t.pending, "line")} with a pending quantity`, to: boqFilterPath(i.projectId, i.boqId, { status: "pending" }) }] : [],
         // With pending quantities, open the BOQ filtered to them.
         action: { label: t.pending > 0 && i.lineCount > 0 ? "Show pending lines" : "Open BOQ", to: t.pending > 0 && i.lineCount > 0 ? boqFilterPath(i.projectId, i.boqId, { status: "pending" }) : p("boq") },
+      };
+
+  // Rates (only where rates are entered on the BOQ itself, see `pricing`).
+  const rates: JourneyStage | null = !i.pricing ? null : !i.boqId || !t
+    ? { key: "rates", title: "Rates & costing", goal: "Give every included line a rate, then set the commercial terms.",
+        status: "not_started", summary: "No BOQ yet.", detail: [], open: [], action: null }
+    : {
+        key: "rates", title: "Rates & costing", goal: "Give every included line a rate, then set the commercial terms.",
+        status: i.lineCount === 0 ? "not_started" : t.unpriced > 0 ? "attention" : t.pending > 0 ? "todo" : "done",
+        summary: i.lineCount === 0 ? "Nothing to price yet."
+          : t.unpriced > 0 ? `${plural(t.unpriced, "line")} with a quantity still ${t.unpriced === 1 ? "has" : "have"} no rate.`
+          : t.pending > 0 ? `Every line with a quantity has a rate; ${plural(t.pending, "line")} still ${t.pending === 1 ? "waits" : "wait"} for a quantity before it can be priced.`
+          : `All ${t.complete} included lines are priced.`,
+        detail: [],
+        open: t.unpriced > 0 ? [{ text: `${plural(t.unpriced, "line")} without a rate`, to: boqFilterPath(i.projectId, i.boqId, { status: "unpriced" }) }] : [],
+        action: i.lineCount === 0 ? null
+          : t.unpriced > 0 ? { label: "Show lines without a rate", to: boqFilterPath(i.projectId, i.boqId, { status: "unpriced" }) }
+          : { label: "Commercials and totals", to: p("export") },
       };
 
   // D — Check and finalise: what an export would have to state.
@@ -189,15 +231,17 @@ export function journeyStages(i: JourneyInput): JourneyStage[] {
         const open: StageDetail[] = [];
         if (t.pending) open.push({ text: `${plural(t.pending, "line")} with a pending quantity`, to: boqFilterPath(i.projectId, boqId, { status: "pending" }) });
         if (notInBoq) open.push({ text: `${plural(notInBoq, "review item")} not in the BOQ (not verified or corrected)`, to: p("review") });
+        if (i.pricing && t.unpriced) open.push({ text: `${plural(t.unpriced, "line")} without a rate`, to: boqFilterPath(i.projectId, boqId, { status: "unpriced" }) });
         const notes: StageDetail[] = [];
         if (t.basisUnknown) notes.push({ text: `${plural(t.basisUnknown, "quantity", "quantities")} with no recorded basis`, to: boqFilterPath(i.projectId, boqId, { q: UNKNOWN_BASIS_SEARCH }) });
         if (t.assumed) notes.push({ text: `${plural(t.assumed, "quantity", "quantities")} based on an assumption`, to: boqFilterPath(i.projectId, boqId, { q: ASSUMPTION_SEARCH }) });
-        if (t.unpriced) notes.push({ text: `${plural(t.unpriced, "line")} without a rate (rates belong to the Pricing phase)`, to: builderPath(i.projectId, boqId, p("check")) });
+        if (t.unpriced && !i.pricing) notes.push({ text: `${plural(t.unpriced, "line")} without a rate (rates belong to the Pricing phase)`, to: builderPath(i.projectId, boqId, p("check")) });
         return {
           key: "checks" as const, title: "Check & finalise", goal: "See what is still open before you issue the BOQ.",
           status: i.lineCount === 0 ? "not_started" as const : open.length ? "attention" as const : "done" as const,
           summary: i.lineCount === 0 ? "Nothing to check yet."
-            : open.length ? `Still open: ${open.map((o) => o.text).join("; ")}.` : "No pending quantities and no review items left out.",
+            : open.length ? `Still open: ${open.map((o) => o.text).join("; ")}.`
+            : i.pricing ? "No pending quantities, no lines without a rate and no review items left out." : "No pending quantities and no review items left out.",
           detail: notes,
           open,
           action: i.lineCount === 0 ? null : { label: "Review checks", to: p("check") },
@@ -206,7 +250,7 @@ export function journeyStages(i: JourneyInput): JourneyStage[] {
 
   // E — Export
   const exp: JourneyStage = {
-    key: "export", title: "Export", goal: "Download the Quantity BOQ as PDF or Excel.",
+    key: "export", title: "Export", goal: i.pricing ? "Download the working estimate as PDF or Excel." : "Download the Quantity BOQ as PDF or Excel.",
     status: !i.boqId || i.lineCount === 0 ? "not_started" : checks.status === "done" ? "todo" : "attention",
     summary: !i.boqId || i.lineCount === 0 ? "Nothing to export yet."
       : checks.status === "done" ? "Ready to export." : "You can export now; the document states everything still open.",
@@ -215,7 +259,7 @@ export function journeyStages(i: JourneyInput): JourneyStage[] {
     action: !i.boqId || i.lineCount === 0 ? null : { label: "Export", to: p("export") },
   };
 
-  return [drawings, review, boq, checks, exp];
+  return rates ? [drawings, review, boq, rates, checks, exp] : [drawings, review, boq, checks, exp];
 }
 
 /** The single next action: the first stage, in journey order, that is not

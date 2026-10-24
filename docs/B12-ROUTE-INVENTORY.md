@@ -1,6 +1,6 @@
 # B12 route inventory
 
-This is the route inventory for plan item **B12: Remove the old surfaces**, whose acceptance criterion is a "route inventory diff". There is one row for each `<Route>` in `src/App.tsx`, 68 rows in all.
+This is the route inventory for plan item **B12: Remove the old surfaces**, whose acceptance criterion is a "route inventory diff". There is one row for each `<Route>` in `src/App.tsx`, 75 rows in all. Seven of them exist only in workbench-preview builds (below).
 
 `src/lib/routeInventory.test.ts` parses `App.tsx` and fails if the route, tree and element columns below no longer match the code. A route that is added, removed or re-pointed therefore has to show up as a diff to this file.
 
@@ -11,6 +11,8 @@ This is the route inventory for plan item **B12: Remove the old surfaces**, whos
 - Each disposition is a plan. A disposition marked "owner decision" is the owner's call.
 
 Trees: **storefront** is the main domain. **app** is the app subdomain (`VITE_IS_APP_SUBDOMAIN`).
+
+Rows marked `[gated: …]` are rendered only when that condition holds. `WORKBENCH_PREVIEW_ENABLED` (`src/lib/workbenchPreview.ts`) is off by default and refuses the production Supabase project. When it is off, those paths fall through to `/app/projects/:id/*`. It is a presentation switch, not an access control.
 
 | Tree | Path | Element | Proposed B12 disposition |
 |---|---|---|---|
@@ -80,6 +82,13 @@ Trees: **storefront** is the main domain. **app** is the app subdomain (`VITE_IS
 | app | `/app/projects/:id/boq` | ProjectBoq | Remove (one of the five tabs) → redirect to B1 workspace |
 | app | `/app/projects/:id/check` | ProjectExport | Remove (one of the five tabs) → redirect to B1 workspace |
 | app | `/app/projects/:id/export` | ProjectExport | Remove (one of the five tabs) → redirect to B1 workspace |
+| app | `/app/projects/:id/workbench` | WorkbenchLayout [gated: WORKBENCH_PREVIEW_ENABLED && WorkbenchLayout && WorkbenchReview] | Preview only: workbench skeleton (off by default; refused against production); not a production route |
+| app | `/app/projects/:id/workbench/overview` | ProjectOverview [gated: WORKBENCH_PREVIEW_ENABLED && WorkbenchLayout && WorkbenchReview] | Preview only: workbench skeleton (off by default; refused against production); not a production route |
+| app | `/app/projects/:id/workbench/boq` | ProjectBoq [gated: WORKBENCH_PREVIEW_ENABLED && WorkbenchLayout && WorkbenchReview] | Preview only: workbench skeleton (off by default; refused against production); not a production route |
+| app | `/app/projects/:id/workbench/drawings` | ProjectDrawings [gated: WORKBENCH_PREVIEW_ENABLED && WorkbenchLayout && WorkbenchReview] | Preview only: workbench skeleton (off by default; refused against production); not a production route |
+| app | `/app/projects/:id/workbench/review` | WorkbenchReview [gated: WORKBENCH_PREVIEW_ENABLED && WorkbenchLayout && WorkbenchReview] | Preview only: workbench skeleton (off by default; refused against production); not a production route |
+| app | `/app/projects/:id/workbench/check` | ProjectExport [gated: WORKBENCH_PREVIEW_ENABLED && WorkbenchLayout && WorkbenchReview] | Preview only: workbench skeleton (off by default; refused against production); not a production route |
+| app | `/app/projects/:id/workbench/export` | ProjectExport [gated: WORKBENCH_PREVIEW_ENABLED && WorkbenchLayout && WorkbenchReview] | Preview only: workbench skeleton (off by default; refused against production); not a production route |
 | app | `/app/projects/:id/*` | inline <p> | Redirect into the B1 workspace |
 | app | `/*` | CrossDomainRedirect | Keep |
 

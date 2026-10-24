@@ -10,7 +10,9 @@ export interface RouteEntry {
   tree: number;
   /** Full path; nested paths are joined to their parent, index routes end in "(index)". */
   path: string;
-  /** Rendered component, or "Navigate → <to>" for a redirect. */
+  /** Rendered component, or "Navigate → <to>" for a redirect. A route
+   *  rendered only when a condition holds (`{cond && <Route …/>}`) is marked
+   *  " [gated: <cond>]", and so are the routes nested in it. */
   element: string;
 }
 
@@ -56,8 +58,19 @@ export function routeInventory(source: string): RouteEntry[] {
   const out: RouteEntry[] = [];
   let tree = -1;
 
-  const walkRoutes = (children: ts.NodeArray<ts.JsxChild>, parent: string) => {
-    for (const c of children) {
+  const walkRoutes = (children: readonly ts.Node[], parent: string, gate: string | null) => {
+    for (let c of children) {
+      let ownGate = gate;
+      // `{cond && <Route …/>}` (or `{cond && (<Route …/>)}`): a gated route.
+      if (ts.isJsxExpression(c) && c.expression) {
+        let e: ts.Expression = c.expression;
+        while (ts.isParenthesizedExpression(e)) e = e.expression;
+        if (!ts.isBinaryExpression(e) || e.operatorToken.kind !== ts.SyntaxKind.AmpersandAmpersandToken) continue;
+        let r: ts.Expression = e.right;
+        while (ts.isParenthesizedExpression(r)) r = r.expression;
+        ownGate = e.left.getText();
+        c = r;
+      }
       if (tagOf(c) !== "Route") continue;
       const node = c as ts.JsxElement | ts.JsxSelfClosingElement;
       const el = openingOf(node);
@@ -65,15 +78,15 @@ export function routeInventory(source: string): RouteEntry[] {
       const p = attr(el, "path")?.initializer;
       const own = p && ts.isStringLiteral(p) ? p.text : "";
       const path = isIndex ? `${parent === "" ? "/" : parent} (index)` : join(parent, own);
-      out.push({ tree, path, element: describeElement(el) });
-      if (ts.isJsxElement(node)) walkRoutes(node.children, isIndex ? parent : path);
+      out.push({ tree, path, element: describeElement(el) + (ownGate ? ` [gated: ${ownGate}]` : "") });
+      if (ts.isJsxElement(node)) walkRoutes(node.children, isIndex ? parent : path, ownGate);
     }
   };
 
   const visit = (n: ts.Node) => {
     if (ts.isJsxElement(n) && tagOf(n) === "Routes") {
       tree += 1;
-      walkRoutes(n.children, "");
+      walkRoutes(n.children, "", null);
       return;
     }
     ts.forEachChild(n, visit);
