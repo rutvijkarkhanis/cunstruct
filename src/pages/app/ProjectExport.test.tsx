@@ -190,7 +190,10 @@ describe("ProjectExport — blockers by line, and the pre-issue summary", () => 
     expect(within(list).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
       expect.stringContaining("K1 — Item 1 · flagged"), expect.stringContaining("K2 — Item 2 · needs a decision"),
     ]);
-    expect(within(list).getByRole("link", { name: "Open K1 — Item 1 in review" })).toHaveAttribute("href", "/app/projects/p1/review?boq=b1&item=ri1");
+    // Outside the workbench the journey's review step ignores ?item=, so the link
+    // opens the review screen itself on that item, with a way back to Check.
+    expect(within(list).getByRole("link", { name: "Open K1 — Item 1 in review" })).toHaveAttribute(
+      "href", `/ops/projects/p1/boqs/b1/review?returnTo=${encodeURIComponent("/app/projects/p1/check?boq=b1")}&item=ri1`);
   });
 
   it("Export states what the documents will contain: open items, exclusions and the PDF's grand total", async () => {

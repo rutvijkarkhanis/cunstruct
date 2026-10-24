@@ -28,7 +28,7 @@ import { appBoqLinesKey, loadAppBoqLines } from "@/lib/app/boqLines";
 import { PDF_REREAD_FAILED_MESSAGE, linesChanged } from "@/lib/exportFreshness";
 import { basisNotice, boqTotals, incompleteWarning, lineStatus, type BoqTableLine } from "@/lib/app/boqTable";
 import { revisionLabel } from "@/lib/app/labels";
-import { ASSUMPTION_SEARCH, UNKNOWN_BASIS_SEARCH, boqFilterPath, builderPath, journeyPath, manageBoqsPath } from "@/lib/app/journey";
+import { ASSUMPTION_SEARCH, UNKNOWN_BASIS_SEARCH, boqFilterPath, builderPath, journeyPath, manageBoqsPath, reviewWorkstationPath } from "@/lib/app/journey";
 import { useProjectShell } from "@/components/app/projectShellContext";
 import { useSelectedBoq } from "@/components/app/useSelectedBoq";
 import BoqPicker from "@/components/app/BoqPicker";
@@ -199,6 +199,12 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
   const rateFix = inWorkbench
     ? { to: step(boqFilterPath(projectId, boqId0, { status: "unpriced" })), label: "Add rates in the BOQ" }
     : { to: builderHref, label: "Add rates in the BOQ builder" };
+  // One review item. The workbench's review section embeds the review screen,
+  // which reads ?item=; elsewhere the journey's review step does not, so the
+  // link goes straight to the review screen (with its way back here).
+  const reviewItemHref = (itemId: string) => inWorkbench
+    ? step(`${journeyPath(projectId, "review", boqId0)}&item=${encodeURIComponent(itemId)}`)
+    : `${reviewWorkstationPath(projectId, boqId0, here)}&item=${encodeURIComponent(itemId)}`;
   // Open for the Quantity phase: pending quantities or review items left out.
   // A missing rate alone is Pricing — stated, linked, but not "open" here.
   const quantityOpen = totals.pending > 0 || unresolved > 0 || (pricing && totals.unpriced > 0);
@@ -290,7 +296,7 @@ export default function ProjectExport({ mode = "export" }: { mode?: "check" | "e
                       <li key={it.id} className="py-1 flex flex-wrap items-baseline justify-between gap-x-3">
                         <span className="min-w-0 break-words">{it.name}<span className="text-muted-foreground"> · {REVIEW_STATUS_WORD[it.status] ?? "not decided"}</span></span>
                         <Link className="underline shrink-0" aria-label={`Open ${it.name} in review`}
-                          to={step(`${journeyPath(projectId, "review", boqId0)}&item=${encodeURIComponent(it.id)}`)}>Open in review</Link>
+                          to={reviewItemHref(it.id)}>Open in review</Link>
                       </li>
                     ))}
                   </ul>
