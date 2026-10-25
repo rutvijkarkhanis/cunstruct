@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { PROJECT_STEPS, loadShellProject, shellProjectKey, type ProjectShellContext } from "./projectShellContext";
 import { BoqPhases, StepNav, StepStatus } from "./Journey";
 import { WORKBENCH_PREVIEW_ENABLED } from "@/lib/workbenchPreview";
+import ProjectNameEditor from "./ProjectNameEditor";
 
 export default function ProjectShell() {
   const { id } = useParams<{ id: string }>();
@@ -40,10 +41,13 @@ export default function ProjectShell() {
             <Skeleton className="h-7 w-56 mt-1" />
           ) : (
             <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 min-w-0">
-              <h1 className="text-xl font-bold break-words min-w-0">{project?.name ?? "Project"}</h1>
+              {project
+                ? <ProjectNameEditor projectId={project.id} name={project.name} />
+                : <h1 className="text-xl font-bold break-words min-w-0">Project</h1>}
               {project && (
                 <span className="text-xs text-muted-foreground">
-                  {[project.client_name, project.location, project.project_type].filter(Boolean).join(" · ")}
+                  {[project.client_name, project.location, project.project_type].filter(Boolean).join(" · ") || "No project details yet"}
+                  {" · "}<Link to="/ops/projects" className="underline">Edit details in the Ops console</Link>
                 </span>
               )}
             </div>

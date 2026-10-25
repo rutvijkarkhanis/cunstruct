@@ -15,6 +15,7 @@ import { useDocumentManagement } from "@/hooks/useDocumentManagement";
 import { useProjectShell } from "@/components/app/projectShellContext";
 import { revisionLabel } from "@/lib/app/labels";
 import { Button } from "@/components/ui/button";
+import DrawingProcessingPanel from "@/components/app/DrawingProcessingPanel";
 
 export default function ProjectDrawings() {
   const { projectId } = useProjectShell();
@@ -67,6 +68,8 @@ export default function ProjectDrawings() {
           <Upload className="h-4 w-4" aria-hidden="true" /> Upload or manage
         </Button>
       </div>
+      {/* Fingerprints and the explicit "Analyze drawings" step, for the uploaded drawings. */}
+      <DrawingProcessingPanel projectId={projectId} drawingCount={(dm.docs ?? []).filter((d) => d.current_revision_id).length} />
       <div className="grid gap-3 lg:grid-cols-[16rem_minmax(0,1fr)] min-w-0">
         <section aria-label="Project drawings" className="rounded-md border overflow-hidden h-72 lg:h-[72vh]">
           <WorkspaceSources projectId={projectId} activeDocumentId={documentId}

@@ -147,8 +147,10 @@ function AppRoutes() {
   const main = getMainUrl();
   return (
     <Routes>
-      {/* Root goes straight to the project list */}
-      <Route path="/" element={<Navigate to="/my-projects" replace />} />
+      {/* Root goes to the estimation workflow's project list. AppLayout sends
+          anyone signed out to /auth (and back here) and non-staff to their
+          own projects (/my-projects). */}
+      <Route path="/" element={<Navigate to="/app/projects" replace />} />
       <Route path="/privacy" element={<Privacy />} />
       <Route path="/auth" element={<Auth />} />
       {/* Public, unauthenticated share link — a top-level route OUTSIDE

@@ -31,6 +31,56 @@ export type { ProjectDocument, DocumentRevision, DocumentFolder, FolderNode };
 // resulting File carries `webkitRelativePath` (e.g. "Floor 2/Plan.pdf").
 type FileWithRelativePath = File & { webkitRelativePath?: string };
 
+/** Upload one PDF drawing into a project (private storage): a NEW document
+ *  with revision "Rev A", its page count, and the stored file. On any failure
+ *  the rows it created are removed, so nothing half-made is left behind.
+ *  Shared by single-file, folder and the drawing-first upload, so all go
+ *  through the exact same path. */
+export async function uploadProjectDrawing(projectId: string, file: File, folderId: string | null): Promise<void> {
+  const check = validateDrawingFile(file);
+  if (!check.ok) throw new Error(check.error ?? "Invalid file");
+  let docId: string | null = null;
+  let revId: string | null = null;
+  try {
+    let pageCount: number | null = null;
+    try {
+      const pdfjs = await import("pdfjs-dist");
+      pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+      const buf = await file.arrayBuffer();
+      const doc = await pdfjs.getDocument({ data: buf }).promise;
+      pageCount = doc.numPages;
+    } catch { /* page count is optional */ }
+
+    const docName = file.name.replace(/\.pdf$/i, "");
+    // Always a NEW document — never merged into an existing one of the same
+    // name, in this folder or elsewhere.
+    const { data: docRow, error: docErr } = await supabase.from("project_document")
+      .insert({ project_id: projectId, name: docName, doc_type: "Architectural", discipline: "Architectural", status: "uploaded", folder_id: folderId })
+      .select("id").single();
+    if (docErr) throw docErr;
+    docId = (docRow as { id: string }).id;
+
+    const { data: revRow, error: revErr } = await supabase.from("document_revision")
+      .insert({ document_id: docId, label: "Rev A", source: "upload", status: "uploaded", page_count: pageCount })
+      .select("id").single();
+    if (revErr) throw revErr;
+    revId = (revRow as { id: string }).id;
+
+    const path = buildDrawingPath(projectId, docId, revId);
+    await uploadDrawing(path, file);
+
+    const { error: updErr } = await supabase.from("document_revision")
+      .update({ file_path: path, mime_type: file.type || "application/pdf", file_size: file.size, original_filename: file.name })
+      .eq("id", revId);
+    if (updErr) throw updErr;
+    await supabase.from("project_document").update({ current_revision_id: revId }).eq("id", docId);
+  } catch (e) {
+    if (revId) await supabase.from("document_revision").delete().eq("id", revId);
+    if (docId) await supabase.from("project_document").delete().eq("id", docId);
+    throw e;
+  }
+}
+
 export function useDocumentManagement(projectId: string | undefined | null) {
   const qc = useQueryClient();
 
@@ -193,52 +243,9 @@ export function useDocumentManagement(projectId: string | undefined | null) {
     }
   };
 
-  // ---- Upload a PDF drawing (private storage) — shared by single-file and
-  // folder upload, so both go through the exact same path. ----
-  const uploadOnePdf = async (file: File, folderId: string | null): Promise<void> => {
-    const check = validateDrawingFile(file);
-    if (!check.ok) throw new Error(check.error ?? "Invalid file");
-    let docId: string | null = null;
-    let revId: string | null = null;
-    try {
-      let pageCount: number | null = null;
-      try {
-        const pdfjs = await import("pdfjs-dist");
-        pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
-        const buf = await file.arrayBuffer();
-        const doc = await pdfjs.getDocument({ data: buf }).promise;
-        pageCount = doc.numPages;
-      } catch { /* page count is optional */ }
-
-      const docName = file.name.replace(/\.pdf$/i, "");
-      // Always a NEW document — never merged into an existing one of the same
-      // name, in this folder or elsewhere.
-      const { data: docRow, error: docErr } = await supabase.from("project_document")
-        .insert({ project_id: projectId, name: docName, doc_type: "Architectural", discipline: "Architectural", status: "uploaded", folder_id: folderId })
-        .select("id").single();
-      if (docErr) throw docErr;
-      docId = (docRow as { id: string }).id;
-
-      const { data: revRow, error: revErr } = await supabase.from("document_revision")
-        .insert({ document_id: docId, label: "Rev A", source: "upload", status: "uploaded", page_count: pageCount })
-        .select("id").single();
-      if (revErr) throw revErr;
-      revId = (revRow as { id: string }).id;
-
-      const path = buildDrawingPath(projectId!, docId, revId);
-      await uploadDrawing(path, file);
-
-      const { error: updErr } = await supabase.from("document_revision")
-        .update({ file_path: path, mime_type: file.type || "application/pdf", file_size: file.size, original_filename: file.name })
-        .eq("id", revId);
-      if (updErr) throw updErr;
-      await supabase.from("project_document").update({ current_revision_id: revId }).eq("id", docId);
-    } catch (e) {
-      if (revId) await supabase.from("document_revision").delete().eq("id", revId);
-      if (docId) await supabase.from("project_document").delete().eq("id", docId);
-      throw e;
-    }
-  };
+  // ---- Upload a PDF drawing (private storage) — uploadProjectDrawing, shared
+  // by single-file and folder upload (and the drawing-first upload). ----
+  const uploadOnePdf = (file: File, folderId: string | null): Promise<void> => uploadProjectDrawing(projectId!, file, folderId);
 
   const [uploading, setUploading] = useState(false);
   const uploadPdf = async (file: File): Promise<void> => {

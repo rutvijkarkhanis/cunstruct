@@ -35,7 +35,7 @@ export default function Auth() {
       // Roles load after the session: until they have, isStaff is unknown,
       // and redirecting would send staff to the contractor home.
       if (!rolesReady) return;
-      navigate(isStaff ? "/ops" : "/my-projects");
+      navigate(isStaff ? "/app/projects" : "/my-projects");
     }
   }, [user, loading, isStaff, rolesReady, returnUrl, navigate, mode]);
 
@@ -48,7 +48,7 @@ export default function Auth() {
           email,
           password,
           options: {
-            emailRedirectTo: window.location.origin + (returnUrl || "/ops"),
+            emailRedirectTo: window.location.origin + (returnUrl || "/app/projects"),
             data: { full_name: fullName },
           },
         });
@@ -65,7 +65,7 @@ export default function Auth() {
         const { error } = await supabase.auth.updateUser({ password });
         if (error) throw error;
         toast.success("Password updated. You're now signed in.");
-        navigate(isStaff ? "/ops" : "/my-projects");
+        navigate(isStaff ? "/app/projects" : "/my-projects");
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;

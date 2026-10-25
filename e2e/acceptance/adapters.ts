@@ -82,7 +82,7 @@ export async function backendFor(page: Page): Promise<Backend> {
         await p.getByLabel("Email").fill(need("ACCEPTANCE_STAFF_EMAIL"));
         await setSecret(p.getByLabel("Password"), need("ACCEPTANCE_STAFF_PASSWORD"));
         await p.getByRole("button", { name: "Sign in" }).click();
-        await expect(p).toHaveURL(/\/ops/, { timeout: 30_000 });
+        await expect(p).toHaveURL(/\/app\/projects/, { timeout: 30_000 }); // staff land on the estimation project list
       },
       async addDrawing(p, projectId) {
         // The real upload, through the Drawings section's own manager.

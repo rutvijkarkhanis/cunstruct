@@ -120,7 +120,8 @@ describe("AuthContext rolesReady on fresh sign-in", () => {
 });
 
 // The real Auth page, driven by the real provider: a staff user whose roles
-// arrive late must land on /ops, never be sent to /my-projects first.
+// arrive late must land on the staff project list (/app/projects), never be
+// sent to /my-projects first.
 describe("Auth page redirect waits for roles", () => {
   const renderAuth = async () => {
     const Auth = (await import("@/pages/Auth")).default;
@@ -131,7 +132,7 @@ describe("Auth page redirect waits for roles", () => {
         <MemoryRouter initialEntries={["/auth"]}>
           <Routes>
             <Route path="/auth" element={<Auth />} />
-            <Route path="/ops" element={<Track name="ops-home" />} />
+            <Route path="/app/projects" element={<Track name="staff-projects" />} />
             <Route path="/my-projects" element={<Track name="contractor-home" />} />
           </Routes>
         </MemoryRouter>
@@ -140,7 +141,7 @@ describe("Auth page redirect waits for roles", () => {
     return seen;
   };
 
-  it("sends a staff user to /ops even when roles load slowly", async () => {
+  it("sends a staff user to /app/projects even when roles load slowly", async () => {
     currentSession = { user: { id: "staff-1" } };
     const seen = await renderAuth();
     await waitFor(() => expect(resolveRoles).not.toBeNull());
@@ -148,17 +149,17 @@ describe("Auth page redirect waits for roles", () => {
     await act(async () => { await new Promise((r) => setTimeout(r, 400)); });
     expect(seen).toEqual([]);
     await act(async () => resolveRoles!(["ops"]));
-    await waitFor(() => expect(seen).toEqual(["ops-home"]));
+    await waitFor(() => expect(seen).toEqual(["staff-projects"]));
   });
 
-  it("signing in from logged out as ops lands on /ops, never /my-projects", async () => {
+  it("signing in from logged out as ops lands on /app/projects, never /my-projects", async () => {
     const seen = await renderAuth(); // nobody signed in: the sign-in form shows
     await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
     await act(async () => { authListener!("SIGNED_IN", { user: { id: "staff-1" } }); });
     await act(async () => { await new Promise((r) => setTimeout(r, 400)); });
     expect(seen).toEqual([]); // still waiting for roles
     await act(async () => resolveRoles!(["ops"]));
-    await waitFor(() => expect(seen).toEqual(["ops-home"]));
+    await waitFor(() => expect(seen).toEqual(["staff-projects"]));
   });
 
   it("signing in from logged out as a contractor lands on /my-projects", async () => {
