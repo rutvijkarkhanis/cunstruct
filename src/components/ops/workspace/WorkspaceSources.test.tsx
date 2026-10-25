@@ -91,3 +91,23 @@ describe("WorkspaceSources", () => {
     expect(onManageSources).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("WorkspaceSources — Remove", () => {
+  it("shows no Remove button unless its caller handles removal (the Ops workspace is unchanged)", async () => {
+    renderRail(null);
+    await screen.findByText("Ground Floor Plan");
+    expect(screen.queryByRole("button", { name: /^Remove / })).toBeNull();
+  });
+
+  it("with a removal handler, each drawing has a visible Remove that names it", async () => {
+    const onRemove = vi.fn();
+    render(
+      <QueryClientProvider client={new QueryClient()}><MemoryRouter>
+        <WorkspaceSources projectId="proj-1" activeDocumentId={null} onSelectDocument={vi.fn()} onManageSources={vi.fn()} onRemoveDocument={onRemove} />
+      </MemoryRouter></QueryClientProvider>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Structural Plan" }));
+    expect(onRemove).toHaveBeenCalledWith("doc-2");
+    expect(screen.getByRole("button", { name: "Remove Ground Floor Plan" })).toBeVisible();
+  });
+});

@@ -3,14 +3,15 @@
 // useDocumentManagement hook the Documents page and the source-management
 // drawer both consume — never a second, independent read path for the same
 // data. The drawer (opened via "+ Add source") carries the actual
-// upload/folder/delete/revision CRUD; this rail only reads and selects.
+// upload/folder/delete/revision CRUD; this rail reads and selects, and shows
+// a visible Remove per drawing only when its caller handles removal.
 //
 // Compact, Phase-9/10-styled list (border-l accent on the active row, same
 // convention as BoqReviewWorkstation's type/category rows) — not a card grid,
 // not a dashboard table.
 
 import { cn } from "@/lib/utils";
-import { FileText, Plus, Upload } from "lucide-react";
+import { FileText, Plus, Trash2, Upload } from "lucide-react";
 import { groupSourcesByDiscipline, type SourceDocument } from "@/lib/review/workspaceSources";
 import { useDocumentManagement } from "@/hooks/useDocumentManagement";
 
@@ -19,9 +20,11 @@ export interface WorkspaceSourcesProps {
   activeDocumentId: string | null;
   onSelectDocument: (documentId: string) => void;
   onManageSources: () => void;
+  /** When given, each drawing shows a visible Remove button (the caller confirms). */
+  onRemoveDocument?: (documentId: string) => void;
 }
 
-export default function WorkspaceSources({ projectId, activeDocumentId, onSelectDocument, onManageSources }: WorkspaceSourcesProps) {
+export default function WorkspaceSources({ projectId, activeDocumentId, onSelectDocument, onManageSources, onRemoveDocument }: WorkspaceSourcesProps) {
   const dm = useDocumentManagement(projectId);
   const isLoading = dm.docs === undefined;
 
@@ -71,7 +74,7 @@ export default function WorkspaceSources({ projectId, activeDocumentId, onSelect
             <div className="space-y-0.5">
               {g.documents.map((d) => {
                 const active = d.id === activeDocumentId;
-                return (
+                const select = (
                   <button
                     key={d.id}
                     type="button"
@@ -87,6 +90,22 @@ export default function WorkspaceSources({ projectId, activeDocumentId, onSelect
                     {/* Muted grey on the active row's tint is only 4.0:1 — below WCAG AA. */}
                     {d.pageCount != null && <span className={cn("shrink-0 tabular-nums", active ? "text-foreground" : "text-muted-foreground")}>{d.pageCount}p</span>}
                   </button>
+                );
+                if (!onRemoveDocument) return select;
+                // A separate button beside the row (never nested in it), always
+                // visible, with a touch-sized target.
+                return (
+                  <div key={d.id} className="flex items-center gap-1">
+                    <div className="flex-1 min-w-0">{select}</div>
+                    <button
+                      type="button"
+                      onClick={() => onRemoveDocument(d.id)}
+                      aria-label={`Remove ${d.name}`}
+                      className="shrink-0 inline-flex items-center gap-1 h-8 px-2 rounded-sm text-xs text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" aria-hidden="true" /> Remove
+                    </button>
+                  </div>
                 );
               })}
             </div>

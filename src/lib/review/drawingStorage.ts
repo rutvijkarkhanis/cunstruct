@@ -74,6 +74,17 @@ export async function deleteDrawing(path: string): Promise<void> {
   if (error) throw error;
 }
 
+/** Removes stored drawing files and reports, per path, whether storage
+ *  actually removed it: storage answers success without removing anything
+ *  when its policy refuses an object, so the returned list is what counts. */
+export async function removeDrawingFiles(paths: readonly string[]): Promise<{ removed: string[]; notRemoved: string[] }> {
+  if (!paths.length) return { removed: [], notRemoved: [] };
+  const { data, error } = await supabase.storage.from(DRAWINGS_BUCKET).remove([...paths]);
+  if (error) return { removed: [], notRemoved: [...paths] };
+  const gone = new Set((data ?? []).map((o: { name: string }) => o.name));
+  return { removed: paths.filter((p) => gone.has(p)), notRemoved: paths.filter((p) => !gone.has(p)) };
+}
+
 /**
  * Load a project's stored drawings for evidence resolution — one entry per
  * project_document, carrying its CURRENT revision's file metadata.
