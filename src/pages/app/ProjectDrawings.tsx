@@ -16,6 +16,8 @@ import { useProjectShell } from "@/components/app/projectShellContext";
 import { revisionLabel } from "@/lib/app/labels";
 import { Button } from "@/components/ui/button";
 import DrawingProcessingPanel from "@/components/app/DrawingProcessingPanel";
+import RemoveDrawingDialog, { type DrawingToRemove } from "@/components/app/RemoveDrawingDialog";
+import { toast } from "sonner";
 
 export default function ProjectDrawings() {
   const { projectId } = useProjectShell();
@@ -35,6 +37,7 @@ export default function ProjectDrawings() {
   const evItem = evidenceQ.data && evidenceQ.data.ai.source?.documentId === documentId ? evidenceQ.data : null;
   const boqParam = params.get("boq");
   const [managerOpen, setManagerOpen] = useState(false);
+  const [toRemove, setToRemove] = useState<DrawingToRemove | null>(null);
   const viewerRef = useRef<HTMLElement>(null);
 
   // Same hook (same query keys) the source list and drawer use, so this reads
@@ -55,6 +58,26 @@ export default function ProjectDrawings() {
     next.delete("run");
     setParams(next, { replace: true });
   };
+  // Remove: the exact file name comes from the current revision's upload.
+  const askRemove = (id: string) => {
+    const d = dm.docs?.find((x) => x.id === id);
+    if (!d) return;
+    const revs = dm.revsFor(d.id);
+    const cur = revs.find((r) => r.id === d.current_revision_id);
+    setToRemove({ id: d.id, name: d.name, fileName: cur?.original_filename || d.name, revisionCount: revs.length });
+  };
+  const removed = (r: { filesNotRemoved: string[] }, d: DrawingToRemove) => {
+    setToRemove(null);
+    toast.success(`Removed ${d.fileName}`);
+    if (r.filesNotRemoved.length) toast.warning("Its stored file could not be deleted. It is no longer linked to anything in the project.");
+    // The viewer no longer points at the removed drawing.
+    if (documentId === d.id) {
+      const next = new URLSearchParams(params);
+      ["document", "page", "item", "run"].forEach((k) => next.delete(k));
+      setParams(next, { replace: true });
+    }
+  };
+
   // On narrow screens the viewer sits below the list: bring it into view.
   useEffect(() => {
     if (documentId && window.matchMedia?.("(max-width: 1023px)").matches) viewerRef.current?.scrollIntoView?.({ block: "start" });
@@ -73,7 +96,7 @@ export default function ProjectDrawings() {
       <div className="grid gap-3 lg:grid-cols-[16rem_minmax(0,1fr)] min-w-0">
         <section aria-label="Project drawings" className="rounded-md border overflow-hidden h-72 lg:h-[72vh]">
           <WorkspaceSources projectId={projectId} activeDocumentId={documentId}
-            onSelectDocument={select} onManageSources={() => setManagerOpen(true)} />
+            onSelectDocument={select} onManageSources={() => setManagerOpen(true)} onRemoveDocument={askRemove} />
         </section>
         <section ref={viewerRef} aria-label="Drawing viewer" className="rounded-md border bg-card min-w-0 flex flex-col lg:h-[72vh]">
           {doc && (
@@ -106,6 +129,11 @@ export default function ProjectDrawings() {
           </div>
         </section>
       </div>
+      <RemoveDrawingDialog drawing={toRemove} onCancel={() => setToRemove(null)} onRemoved={removed}
+        onRemove={(id) => {
+          const d = dm.docs?.find((x) => x.id === id);
+          return d ? dm.removeDocument(d) : Promise.resolve({ ok: false as const, error: "This drawing is no longer in the list." });
+        }} />
       <WorkspaceSourceManager projectId={projectId} open={managerOpen} onOpenChange={setManagerOpen}
         activeDocumentId={documentId} onSelectDocument={(id) => { select(id); setManagerOpen(false); }} />
     </div>

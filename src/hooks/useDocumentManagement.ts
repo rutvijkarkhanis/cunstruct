@@ -18,9 +18,10 @@
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/untypedDb";
 import { toast } from "sonner";
 import { DOC_TYPES, DISCIPLINES, type ProjectDocument, type DocumentRevision, type DocumentFolder } from "@/lib/projectDocs";
-import { validateDrawingFile, buildDrawingPath, uploadDrawing, deleteDrawing, signedDrawingUrl } from "@/lib/review/drawingStorage";
+import { validateDrawingFile, buildDrawingPath, uploadDrawing, removeDrawingFiles, signedDrawingUrl } from "@/lib/review/drawingStorage";
 import { buildFolderTree, folderBreadcrumb, parseRelativePath, looksLikePdf, type FolderNode } from "@/lib/documentFolders";
 
 export { DOC_TYPES, DISCIPLINES };
@@ -79,6 +80,54 @@ export async function uploadProjectDrawing(projectId: string, file: File, folder
     if (docId) await supabase.from("project_document").delete().eq("id", docId);
     throw e;
   }
+}
+
+/** How many BOQ lines cite this drawing as their source (their source link is
+ *  cleared when it is removed; the lines themselves stay). Throws on a failed read. */
+export async function countLinesCitingDocument(documentId: string): Promise<number> {
+  const { count, error } = await supabase.from("boq_line")
+    .select("id", { count: "exact", head: true }).eq("source_document_id", documentId);
+  if (error || count == null) throw new Error("Could not check which BOQ lines cite this drawing.");
+  return count;
+}
+
+export type RemoveDocumentResult =
+  | { ok: true; filesNotRemoved: string[] }
+  | { ok: false; error: string };
+
+/** Removes one drawing from its project, in the order that never leaves a
+ *  listed drawing without its file:
+ *    1. read its revisions' stored file paths (fresh, not from the cache);
+ *    2. delete the project_document row — the database then removes its
+ *       revisions (with their fingerprints and page titles) and BOQ links, and
+ *       clears the references BOQ lines and analysis records hold to it
+ *       (ON DELETE CASCADE / SET NULL); exactly one row must go, scoped to
+ *       this project, or nothing else happens;
+ *    3. delete its stored files, except any path still referenced by another
+ *       revision (none are expected: paths are per revision), so a shared
+ *       object is never removed. A file storage keeps is reported, never
+ *       hidden: the drawing is gone, its file is unreferenced.
+ *  Row-level security decides who may do each step; nothing here widens it. */
+export async function removeProjectDocument(projectId: string, documentId: string): Promise<RemoveDocumentResult> {
+  const { data: revs, error: revErr } = await db.from("document_revision")
+    .select("id, file_path").eq("document_id", documentId);
+  if (revErr) return { ok: false, error: "Could not read this drawing's files, so nothing was removed." };
+  const paths = [...new Set(((revs ?? []) as { file_path: string | null }[]).map((r) => r.file_path).filter((p): p is string => !!p))];
+
+  const { data: gone, error: delErr } = await db.from("project_document")
+    .delete().eq("id", documentId).eq("project_id", projectId).select("id");
+  if (delErr) return { ok: false, error: `The drawing was not removed: ${delErr.message}` };
+  if (!(gone as unknown[] | null)?.length) return { ok: false, error: "The drawing was not removed: it was not found in this project, or you do not have permission to remove it." };
+
+  let removable = paths;
+  if (paths.length) {
+    const { data: still, error: refErr } = await db.from("document_revision").select("file_path").in("file_path", paths);
+    // If the check fails, keep every file rather than risk removing a shared one.
+    const shared = new Set(refErr ? paths : ((still ?? []) as { file_path: string }[]).map((r) => r.file_path));
+    removable = paths.filter((p) => !shared.has(p));
+  }
+  const { notRemoved } = await removeDrawingFiles(removable);
+  return { ok: true, filesNotRemoved: [...notRemoved, ...paths.filter((p) => !removable.includes(p))] };
 }
 
 export function useDocumentManagement(projectId: string | undefined | null) {
@@ -336,12 +385,26 @@ export function useDocumentManagement(projectId: string | undefined | null) {
   // that would silently let a referenced document through under the
   // unqualified, lower-stakes zero-reference message. Deletion aborts safely
   // instead; the user can retry once the count can actually be established.
+  /** Refreshes everything that shows this project's drawings or cites them. */
+  const invalidateAfterRemoval = () => {
+    invalidateAll();
+    for (const key of ["document-links", "document-analysed-ids", "document-quantity-counts", "boq-drawings", "drawing-fingerprints"]) {
+      qc.invalidateQueries({ queryKey: [key, projectId] });
+    }
+    // BOQ lines that cited the drawing now have no source link.
+    qc.invalidateQueries({ queryKey: ["app-boq-lines"] });
+  };
+
+  /** Removal without prompts (the caller confirms): see removeProjectDocument. */
+  const removeDocument = async (doc: ProjectDocument): Promise<RemoveDocumentResult> => {
+    const r = await removeProjectDocument(projectId!, doc.id);
+    if (r.ok) invalidateAfterRemoval();
+    return r;
+  };
+
   const deleteDocument = async (doc: ProjectDocument): Promise<void> => {
-    const { count: affectedLineCount, error: countError } = await supabase
-      .from("boq_line")
-      .select("id", { count: "exact", head: true })
-      .eq("source_document_id", doc.id);
-    if (countError || affectedLineCount == null) {
+    let affectedLineCount: number;
+    try { affectedLineCount = await countLinesCitingDocument(doc.id); } catch {
       toast.error("Could not check whether BOQ lines reference this document. Delete cancelled — please try again.");
       return;
     }
@@ -349,16 +412,10 @@ export function useDocumentManagement(projectId: string | undefined | null) {
       ? `Delete "${doc.name}" and its uploaded file? This will remove the drawing-source reference from ${affectedLineCount} BOQ line${affectedLineCount === 1 ? "" : "s"}. Existing analysis review history is kept.`
       : `Delete "${doc.name}" and its uploaded file? Existing analysis review history is kept.`;
     if (!confirm(confirmMessage)) return;
-    try {
-      const paths = revsFor(doc.id).map((r) => r.file_path).filter(Boolean) as string[];
-      for (const p of paths) { try { await deleteDrawing(p); } catch { /* keep going */ } }
-      const { error } = await supabase.from("project_document").delete().eq("id", doc.id);
-      if (error) throw error;
-      toast.success(`Deleted ${doc.name}`);
-      invalidateAll();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Delete failed");
-    }
+    const r = await removeDocument(doc);
+    if ("error" in r) { toast.error(r.error); return; }
+    toast.success(`Deleted ${doc.name}`);
+    if (r.filesNotRemoved.length) toast.warning("The drawing was removed, but its stored file could not be deleted. It is no longer linked to anything.");
   };
 
   // ---- Add revision -------------------------------------------------------
@@ -422,7 +479,7 @@ export function useDocumentManagement(projectId: string | undefined | null) {
     creatingFolder, addingBusy, uploading, uploadingFolder, openingRevId, previewLoadingFor,
 
     // actions
-    createFolder, addDocument, uploadPdf, uploadFolder, deleteDocument,
+    createFolder, addDocument, uploadPdf, uploadFolder, deleteDocument, removeDocument,
     addRevision, setCurrentRevision, openDrawing, resolvePreviewUrl,
   };
 }
