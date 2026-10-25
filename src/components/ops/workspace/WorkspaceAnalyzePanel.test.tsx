@@ -2,7 +2,7 @@
 // flow end-to-end against mocked dependencies: explicit multi-discipline
 // document assignment -> orchestrated AI calls -> readiness rollup +
 // exception review, all without touching Supabase or OpenAI.
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
@@ -18,8 +18,10 @@ vi.mock("@/lib/review/drawingStorage", () => ({
   ]),
 }));
 
+// Existing project BOQs (reuse candidates). Empty unless a test sets them.
+const projectBoqs = vi.hoisted(() => ({ data: [] as { id: string; name: string; discipline: string }[] }));
 vi.mock("@/hooks/useProjectBoqs", () => ({
-  useProjectBoqs: () => ({ data: [] }),
+  useProjectBoqs: () => projectBoqs,
 }));
 
 const createBoq = vi.fn(async ({ discipline }: { discipline?: string }) => `new-${discipline}-boq`);
@@ -330,5 +332,63 @@ describe("WorkspaceAnalyzePanel — Coverage generation + persistence wiring", (
 
     await runAnalysis(); // must still resolve to the results screen, not "Analysis failed"
     expect(screen.queryByText(/Analysis failed/i)).not.toBeInTheDocument();
+  });
+});
+
+// Regression (production crash): with an existing BOQ for a discipline, the
+// panel shows a Reuse / Create-new picker. Its "create new" option had
+// value="", which Radix Select refuses by throwing while rendering, so the
+// whole screen crashed as soon as such a discipline was assigned.
+describe("WorkspaceAnalyzePanel — reusing an existing BOQ or creating a new one", () => {
+  beforeEach(() => {
+    projectBoqs.data = [{ id: "boq-civil-existing", name: "Civil BOQ", discipline: "civil" }];
+    createBoq.mockClear(); generateAnalysis.mockClear();
+    // Radix Select needs these in jsdom to open with the pointer.
+    window.HTMLElement.prototype.hasPointerCapture = () => false;
+    window.HTMLElement.prototype.releasePointerCapture = () => {};
+  });
+  afterEach(() => { projectBoqs.data = []; });
+
+  const assignCivil = async () => {
+    await screen.findByText("Ground Floor Plan.pdf");
+    const row = screen.getByText("Ground Floor Plan.pdf").closest("tr")!;
+    fireEvent.click(within(row).getByLabelText(/Assign Ground Floor Plan.pdf to Civil Works/i));
+  };
+  // Opened from the keyboard: jsdom has no PointerEvent for Radix's mouse path.
+  const openPicker = () => fireEvent.keyDown(screen.getByRole("combobox"), { key: "ArrowDown" });
+
+  it("renders the picker without crashing; the single existing BOQ is the default and is reused", async () => {
+    renderPanel();
+    await assignCivil();
+    expect(await screen.findByRole("combobox")).toHaveTextContent('Reuse "Civil BOQ"');
+    fireEvent.click(screen.getByRole("button", { name: /Analyze Project/i }));
+    await waitFor(() => expect(generateAnalysis).toHaveBeenCalledWith(expect.objectContaining({ mode: "BOQ", boqId: "boq-civil-existing" })));
+    expect(createBoq).not.toHaveBeenCalled();
+  });
+
+  it("every option has a non-empty value, and choosing 'Create a new' creates one instead of reusing", async () => {
+    renderPanel();
+    await assignCivil();
+    openPicker();
+    const options = await screen.findAllByRole("option");
+    expect(options.map((o) => o.textContent)).toEqual(['Reuse "Civil BOQ"', "Create a new Civil Works BOQ"]);
+    fireEvent.click(screen.getByRole("option", { name: "Create a new Civil Works BOQ" }));
+    expect(screen.getByRole("combobox")).toHaveTextContent("Create a new Civil Works BOQ");
+    fireEvent.click(screen.getByRole("button", { name: /Analyze Project/i }));
+    await waitFor(() => expect(createBoq).toHaveBeenCalledWith(expect.objectContaining({ discipline: "civil" })));
+    await waitFor(() => expect(generateAnalysis).toHaveBeenCalledWith(expect.objectContaining({ mode: "BOQ", boqId: "new-civil-boq" })));
+    expect(generateAnalysis).not.toHaveBeenCalledWith(expect.objectContaining({ boqId: "boq-civil-existing" }));
+  });
+
+  it("switching back to Reuse uses the existing BOQ again", async () => {
+    renderPanel();
+    await assignCivil();
+    openPicker();
+    fireEvent.click(await screen.findByRole("option", { name: "Create a new Civil Works BOQ" }));
+    openPicker();
+    fireEvent.click(await screen.findByRole("option", { name: 'Reuse "Civil BOQ"' }));
+    fireEvent.click(screen.getByRole("button", { name: /Analyze Project/i }));
+    await waitFor(() => expect(generateAnalysis).toHaveBeenCalledWith(expect.objectContaining({ mode: "BOQ", boqId: "boq-civil-existing" })));
+    expect(createBoq).not.toHaveBeenCalled();
   });
 });

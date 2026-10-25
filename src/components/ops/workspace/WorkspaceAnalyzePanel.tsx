@@ -55,6 +55,12 @@ import type { ReconciliationStatus } from "@/lib/review/instanceReconciliation";
 import type { WorkspaceMode } from "@/lib/review/workspaceState";
 import { Link } from "react-router-dom";
 
+// The "create a new BOQ" option in the per-discipline BOQ picker. Radix
+// Select refuses an item whose value is "" (it reserves "" for "no
+// selection") and throws while rendering, so the option carries this
+// non-empty value; the panel's own state keeps "" for "create a new one".
+export const CREATE_NEW_BOQ = "__create_new_boq__";
+
 const STATUS_LABEL: Record<ReconciliationStatus, string> = { GREEN: "Ready", AMBER: "Needs Review", RED: "Unresolved" };
 const STATUS_VARIANT: Record<ReconciliationStatus, "default" | "secondary" | "destructive"> = { GREEN: "default", AMBER: "secondary", RED: "destructive" };
 
@@ -318,11 +324,11 @@ export default function WorkspaceAnalyzePanel({ projectId, onEnterMode }: Worksp
                   ))}
                 </ul>
                 {candidates.length > 0 ? (
-                  <Select value={chosen} onValueChange={(v) => setBoqChoice((prev) => ({ ...prev, [plan.discipline]: v }))}>
+                  <Select value={chosen || CREATE_NEW_BOQ} onValueChange={(v) => setBoqChoice((prev) => ({ ...prev, [plan.discipline]: v === CREATE_NEW_BOQ ? "" : v }))}>
                     <SelectTrigger className="h-7 text-[11px]"><SelectValue placeholder="Create a new BOQ" /></SelectTrigger>
                     <SelectContent>
                       {candidates.map((c) => <SelectItem key={c.id} value={c.id}>Reuse "{c.name}"</SelectItem>)}
-                      <SelectItem value="">Create a new {d.name} BOQ</SelectItem>
+                      <SelectItem value={CREATE_NEW_BOQ}>Create a new {d.name} BOQ</SelectItem>
                     </SelectContent>
                   </Select>
                 ) : (
