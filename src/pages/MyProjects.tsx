@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, Navigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import { Card } from "@/components/ui/card";
@@ -26,7 +26,7 @@ import StartGuideButton from "@/components/guide/StartGuideButton";
 const TYPES = ["Residential", "Commercial", "Retail", "Office", "Hospital"];
 
 export default function MyProjects() {
-  const { user, loading, isStaff, signOut } = useAuth();
+  const { user, loading, rolesReady, isStaff, signOut } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -46,7 +46,8 @@ export default function MyProjects() {
 
   const { data: projects, isError: isProjectsError, error: projectsError } = useQuery({
     queryKey: ["my-projects", user?.id],
-    enabled: !!user,
+    // Staff are sent to the staff project list (below); this owner-only list is not theirs.
+    enabled: !!user && rolesReady && !isStaff,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("projects")
@@ -58,7 +59,11 @@ export default function MyProjects() {
     },
   });
 
-  if (loading || !user) return <div className="p-8 text-muted-foreground">Loading…</div>;
+  if (loading || !user || !rolesReady) return <div className="p-8 text-muted-foreground">Loading…</div>;
+  // This page lists only projects the user OWNS (owner_id), which is right for
+  // a contractor but hides every project staff work on without owning (e.g.
+  // those onboarded in the Ops console). Staff use the one staff project list.
+  if (isStaff) return <Navigate to="/app/projects" replace />;
 
   if (isProjectsError) {
     return (

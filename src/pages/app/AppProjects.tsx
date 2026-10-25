@@ -1,5 +1,9 @@
-// Projects list for the project journey. Reads the same `projects` rows the
-// Ops console's Projects page does; creating/deleting projects stays there.
+// Projects — the estimation workflow's home (the signed-in landing page for
+// staff). Its first action is uploading drawings, which creates a draft
+// project (UploadDrawingsCard); below it, every project the signed-in user
+// may open: the same `projects` read the Ops console uses, filtered only by
+// row-level security (staff see all projects; nothing here narrows that).
+// A failed read is shown as an error with Retry, never as an empty list.
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -10,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { projectMatches, projectStatusLabel } from "@/lib/app/projects";
 import { appProjectsKey, loadAppProjects } from "@/lib/app/projectsQuery";
 import StartGuideButton from "@/components/guide/StartGuideButton";
+import UploadDrawingsCard from "@/components/app/UploadDrawingsCard";
 
 
 export default function AppProjects() {
@@ -25,7 +30,7 @@ export default function AppProjects() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold">Projects</h1>
-          <p className="text-sm text-muted-foreground">Open a project to work through its drawings, BOQ and exports.</p>
+          <p className="text-sm text-muted-foreground">Start from drawings, or open a project to continue its drawings, BOQ and exports.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           <StartGuideButton />
@@ -37,6 +42,9 @@ export default function AppProjects() {
         </div>
       </div>
 
+      <UploadDrawingsCard />
+
+      <h2 className="sr-only">Your projects</h2>
       {isLoading ? (
         <div className="space-y-2" role="status" aria-label="Loading projects">
           {[0, 1, 2].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
@@ -51,7 +59,7 @@ export default function AppProjects() {
           <Building2 className="h-8 w-8 mx-auto text-muted-foreground" aria-hidden="true" />
           <p className="text-sm font-medium">No projects yet</p>
           <p className="text-sm text-muted-foreground">
-            Create projects in the <Link to="/ops/projects" className="underline">Ops console</Link>.
+            Upload drawings above to start one, or onboard a project in the <Link to="/ops/projects" className="underline">Ops console</Link>.
           </p>
         </div>
       ) : !rows.length ? (

@@ -36,7 +36,7 @@ Rows marked `[gated: …]` are rendered only when that condition holds. `WORKBEN
 | storefront | `/app` | CrossDomainRedirect | Keep |
 | storefront | `/app/*` | CrossDomainRedirect | Keep |
 | storefront | `/*` | NotFound | Keep |
-| app | `/` | Navigate → /my-projects | Keep |
+| app | `/` | Navigate → /app/projects | Keep: the estimation project list is the landing page (non-staff are sent on to /my-projects by AppLayout) |
 | app | `/privacy` | Privacy | Keep |
 | app | `/auth` | Auth | Keep |
 | app | `/share/:token` | PublicWorkspaceShare | Keep: B10 share-link target |
