@@ -8,6 +8,7 @@ import { runAnomalyDetection, formatINR } from "@/lib/forecastEngine";
 import { estimateFollowUp } from "@/lib/followup";
 import { toast } from "sonner";
 import { useState } from "react";
+import StartGuideButton from "@/components/guide/StartGuideButton";
 
 export default function OpsDashboard() {
   const qc = useQueryClient();
@@ -114,15 +115,18 @@ export default function OpsDashboard() {
 
   return (
     <div className="p-8 space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Operations Overview</h1>
           <p className="text-sm text-muted-foreground">Predictive procurement engine</p>
         </div>
-        <Button variant="outline" onClick={runScan} disabled={scanning}>
-          <RefreshCw className={`w-4 h-4 mr-1 ${scanning ? "animate-spin" : ""}`} />
-          Run anomaly scan
-        </Button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <StartGuideButton />
+          <Button variant="outline" onClick={runScan} disabled={scanning}>
+            <RefreshCw className={`w-4 h-4 mr-1 ${scanning ? "animate-spin" : ""}`} />
+            Run anomaly scan
+          </Button>
+        </div>
       </div>
 
       <Card className="p-5 bg-primary/5 border-primary/20">

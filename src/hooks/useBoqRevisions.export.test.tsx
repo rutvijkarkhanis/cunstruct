@@ -71,6 +71,12 @@ describe("frozen revision exports", () => {
     expect(body).toEqual([
       "1.00 Finishes,1.01,,Tiles,sqm,10,100,100,=F5*H5,Plan,2,,DSR 2023 rate (incl. GST @18%)",
       "",
+      // The revision's own frozen commercials, stated as the PDF abstract states them.
+      '"Cost of works (priced items): ₹1,000 — currently priced scope only; 1 with a pending quantity not included"',
+      '"Grand total of currently priced scope only, with contingency, overheads, cess and GST as in the priced PDF abstract: ₹1,000"',
+      // Fixed at freeze, never "at the rates when exported".
+      '"These totals are those of Rev A, frozen 2026-10-12, fixed when it was frozen. The Amount column recalculates if you change ""Your rate""; these totals do not."',
+      "",
       "IDENTIFIED — PENDING QUANTIFICATION (not priced; confirm a quantity to price)",
       "Pending,P.01,,Door — Quantity pending: not yet measured,sqm,,,,,Plan,2,",
     ]);

@@ -1,10 +1,20 @@
 // Shared by ProjectShell and its step pages (kept out of the component file
 // so react-refresh only sees components there).
 import { useOutletContext } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
 
 export interface ShellProject {
   id: string; name: string; client_name: string | null; location: string | null;
   project_type: string | null; status: string; area_sqft: number | null; floors: number | null;
+}
+/** The project row the shell (and the guide) show; null when it is not found
+ *  or not visible to this user (RLS). A failed read throws. */
+export const shellProjectKey = (id: string | undefined) => ["app-project", id] as const;
+export async function loadShellProject(id: string): Promise<ShellProject | null> {
+  const { data, error } = await supabase.from("projects")
+    .select("id, name, client_name, location, project_type, status, area_sqft, floors").eq("id", id).maybeSingle();
+  if (error) throw error;
+  return (data ?? null) as ShellProject | null;
 }
 export interface ProjectShellContext { projectId: string; project: ShellProject }
 

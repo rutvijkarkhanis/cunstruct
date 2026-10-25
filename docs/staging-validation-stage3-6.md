@@ -25,6 +25,26 @@ separate staging Supabase project.
    pinned to it, so nothing falls back to the production `.env`. (The normal
    `npm run dev` / `npm run build` are unchanged and still use `.env`.)
 
+### Vercel Preview builds are staging builds
+
+Every Vercel build that is not a production deployment applies the same guard
+as `--mode staging` (`buildUsesStaging` in `scripts/staging-guard.mjs`, used by
+`vite.config.ts`):
+
+| Build | Result |
+|---|---|
+| `VERCEL_ENV=production` | the production `.env`, unchanged |
+| `VERCEL_ENV=preview` or `development` | the verified staging project with all three client values pinned, or no build |
+| `VERCEL=1` with no `VERCEL_ENV` | treated as a preview: staging or no build |
+| a local build | unchanged |
+
+There is no opt-out. A preview without a verified staging target fails with
+"Vercel Preview build refused", naming each missing or wrong value. It never
+falls back, silently or partially, to the production `.env`.
+
+The Preview variables, the proof that the guard runs on Vercel, and the check
+of the deployed target are in **docs/pilot-staging-handoff.md**.
+
 ## 1. Prerequisites
 
 - A staging Supabase project whose schema already has every migration up to
@@ -107,15 +127,20 @@ order by 1, 2;
 `boq_line` or any of the new tables; the app reaches them through the untyped
 helper in `src/lib/untypedDb.ts`). After applying to staging:
 
+**Not needed for the staff-estimator pilot**, which runs on the untyped
+helper. Regeneration needs a Supabase access token that is not limited to
+one project, so it is an owner's job outside this pilot. Never put that
+token in a cloud environment. When it is done:
+
 ```
 npm run staging:check   # confirm the ref is staging first
-npx supabase gen types typescript --project-id <staging-ref> > /tmp/staging-types.ts   # needs SUPABASE_ACCESS_TOKEN
+npx supabase gen types typescript --project-id <staging-ref> > /tmp/staging-types.ts
 diff src/integrations/supabase/types.ts /tmp/staging-types.ts   # review before copying over
 ```
 
-Review the diff before committing it; regeneration will change the
-pre-existing type-error baseline (currently 463 errors, mostly from the stale
-types).
+Review the diff before committing it. Regeneration will change the
+pre-existing type-error baseline: 406 errors on `ac87402`, mostly from the
+stale types.
 
 ## 5. Manual workflow (staff user, staging)
 

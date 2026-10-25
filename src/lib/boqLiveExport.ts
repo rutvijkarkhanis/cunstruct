@@ -116,6 +116,10 @@ export function workingSubheadsFrom<L extends WorkingLine & { source_document_id
 
 /** The live PDF payload, or null when there is nothing to export (every line
  *  excluded). A pending-only BOQ still exports. */
+/** How a working-BOQ export dates itself: never mistaken for an issued
+ *  revision (those say "(Rev A, frozen)", lib/boqRevision). */
+export const workingEstimateDate = (generatedOn: string) => `${generatedOn} (working estimate, not frozen)`;
+
 export function liveQuotePayload(a: {
   boqName: string; context: RevisionQuoteContext; generatedOn: string; blankRates: boolean;
   subheads: WorkingSubhead[]; commercials: QuoteCommercials; unresolvedReviewCount: number | null | undefined;
@@ -127,7 +131,7 @@ export function liveQuotePayload(a: {
   return {
     boqName: a.boqName,
     ...a.context,
-    generatedOn: a.generatedOn, blankRates: a.blankRates,
+    generatedOn: workingEstimateDate(a.generatedOn), blankRates: a.blankRates,
     subheads,
     abstract: subheads.map((sh) => ({ no: sh.no, name: sh.name, amount: sh.subtotal })),
     commercials: a.commercials,
@@ -142,12 +146,14 @@ export function liveQuotePayload(a: {
 export function liveCsv(a: {
   boqName: string; projectName: string | null | undefined; generatedOn: string;
   subheads: WorkingSubhead[]; unresolvedReviewCount: number | null | undefined;
+  /** The priced PDF's commercials (commercialsFor), so the CSV states the same grand total. */
+  commercials?: QuoteCommercials | null;
 }): string | null {
   const revisionLines = buildRevisionLines(a.subheads);
   const rows = csvRowsFrom(revisionLines);
   const pending = pendingItemsFrom(revisionLines);
   if (!rows.length && !pending.length) return null;
-  return buildBoqCsv(rows, { boqName: a.boqName, project: a.projectName, generatedOn: a.generatedOn, unresolvedReviewCount: a.unresolvedReviewCount }, pending);
+  return buildBoqCsv(rows, { boqName: a.boqName, project: a.projectName, generatedOn: workingEstimateDate(a.generatedOn), unresolvedReviewCount: a.unresolvedReviewCount, commercials: a.commercials }, pending);
 }
 
 export const liveFileStem = (boqName: string) => boqName.replace(/[^\w]+/g, "_");

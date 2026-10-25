@@ -7,6 +7,7 @@ import { ArrowLeft, ArrowRight, CheckCircle2, Circle, AlertTriangle, ExternalLin
 import { BOQ_PHASES, STAGE_STEP, type JourneyStage, type StageDetail, type StageKey, type StageStatus } from "@/lib/app/journey";
 import { useSelectedBoq } from "./useSelectedBoq";
 import { useBoqJourney } from "./useBoqJourney";
+import { useStepLink } from "./useStepLink";
 import { cn } from "@/lib/utils";
 
 /** The BOQ lifecycle: Quantity is the current phase; later phases are named
@@ -45,12 +46,13 @@ function StatusIcon({ status }: { status: StageStatus }) {
 }
 
 export function StageAction({ stage, primary }: { stage: JourneyStage; primary?: boolean }) {
+  const step = useStepLink();
   if (!stage.action) return null;
   const cls = primary
     ? "inline-flex items-center gap-1 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
     : "inline-flex items-center gap-1 text-sm underline";
   return (
-    <Link to={stage.action.to} className={cls}>
+    <Link to={step(stage.action.to)} className={cls}>
       {stage.action.label}
       {stage.action.external ? <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" /> : primary ? <ArrowRight className="h-4 w-4" aria-hidden="true" /> : null}
     </Link>
@@ -58,9 +60,9 @@ export function StageAction({ stage, primary }: { stage: JourneyStage; primary?:
 }
 
 /** Stages A–E for one BOQ, each with what it is for, where it stands and one action. */
-export function QuantityStages({ stages, nextKey }: { stages: JourneyStage[]; nextKey: string | null }) {
+export function QuantityStages({ stages, nextKey, label = "Quantity BOQ stages" }: { stages: JourneyStage[]; nextKey: string | null; label?: string }) {
   return (
-    <ol aria-label="Quantity BOQ stages" className="divide-y">
+    <ol aria-label={label} className="divide-y">
       {stages.map((s, i) => (
         <li key={s.key} className="py-3 flex flex-wrap items-start gap-3" aria-current={s.key === nextKey ? "step" : undefined}>
           <span className="mt-0.5"><StatusIcon status={s.status} /></span>
@@ -81,7 +83,8 @@ export function QuantityStages({ stages, nextKey }: { stages: JourneyStage[]; ne
 }
 
 function DetailText({ d }: { d: StageDetail }) {
-  return d.to ? <Link to={d.to} className="underline">{d.text}</Link> : <>{d.text}</>;
+  const step = useStepLink();
+  return d.to ? <Link to={step(d.to)} className="underline">{d.text}</Link> : <>{d.text}</>;
 }
 
 /** Where the current step stands, from the same stage model as the Overview:

@@ -1,5 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
-import { E2E_FAKE_SUPABASE_URL } from "./e2e/support/mockBackend";
+import { E2E_FAKE_SUPABASE_URL, WORKBENCH_PREVIEW_URL, GATE_REFUSAL_URL, PRODUCTION_URL_WITH_SLASH } from "./e2e/support/mockBackend";
 
 // Vanilla Playwright config (no external framework wrapper). E2E specs live in
 // ./e2e; the dev server (port 8080, see vite.config) is started automatically.
@@ -38,7 +38,7 @@ export default defineConfig({
       },
     },
   ],
-  webServer: {
+  webServer: [{
     // --host 127.0.0.1 overrides vite.config.ts's server.host: "::" for
     // this suite only — this sandbox's network stack has no IPv6 support
     // (binding "::" fails with EAFNOSUPPORT), unrelated to the app itself.
@@ -55,5 +55,40 @@ export default defineConfig({
       VITE_SUPABASE_URL: E2E_FAKE_SUPABASE_URL,
       VITE_SUPABASE_PUBLISHABLE_KEY: "e2e-fixture-anon-key",
     },
-  },
+  }, {
+    // Workbench preview server (e2e/workbenchPreview.spec.ts): the same app
+    // with VITE_CUNSTRUCT_WORKBENCH_PREVIEW=true on :8081. The project id is
+    // set too, because the gate refuses the production id the committed .env
+    // would otherwise supply. The :8080 server above keeps the flag off, so
+    // every other spec runs the default build.
+    command: "npm run dev -- --host 127.0.0.1 --port 8081 --strictPort",
+    url: WORKBENCH_PREVIEW_URL,
+    reuseExistingServer: false,
+    timeout: 120_000,
+    env: {
+      VITE_IS_APP_SUBDOMAIN: "true",
+      VITE_SUPABASE_URL: E2E_FAKE_SUPABASE_URL,
+      VITE_SUPABASE_PUBLISHABLE_KEY: "e2e-fixture-anon-key",
+      VITE_SUPABASE_PROJECT_ID: "e2e-fixture",
+      VITE_CUNSTRUCT_WORKBENCH_PREVIEW: "true",
+    },
+  }, {
+    // Gate refusal server (e2e/workbenchGate.spec.ts): flag on, but the
+    // Supabase URL is the production project's, spelled with a trailing slash
+    // (a spelling the build-time check cannot match literally), with another
+    // project id. The workbench must stay unmounted. That spec mocks every
+    // Supabase request and aborts all other non-local traffic (WebSockets
+    // included), so nothing from these pages reaches the network.
+    command: "npm run dev -- --host 127.0.0.1 --port 8082 --strictPort",
+    url: GATE_REFUSAL_URL,
+    reuseExistingServer: false,
+    timeout: 120_000,
+    env: {
+      VITE_IS_APP_SUBDOMAIN: "true",
+      VITE_SUPABASE_URL: PRODUCTION_URL_WITH_SLASH,
+      VITE_SUPABASE_PUBLISHABLE_KEY: "e2e-fixture-anon-key",
+      VITE_SUPABASE_PROJECT_ID: "e2e-other",
+      VITE_CUNSTRUCT_WORKBENCH_PREVIEW: "true",
+    },
+  }],
 });

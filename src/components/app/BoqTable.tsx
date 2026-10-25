@@ -1,20 +1,26 @@
 // The project journey's BOQ table: labelled columns, search, filters, sort,
 // inline editing of description/quantity/unit, and a source link per line.
-// It owns no persistence — `onSave` does the write (see ProjectBoq.tsx) — and
-// rates are read-only here: rate edits go through the BOQ builder's audited
-// path, never a second one.
-import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
+// It owns no persistence — `onSave` does the write (see ProjectBoq.tsx). Rates
+// are read-only unless the page passes `onRateSave` (the workbench preview),
+// whose write is the same audited path the BOQ builder uses
+// (lib/manualRateEdit) — never a second one. With `showHistory`, each line
+// can open its recorded change history (LineHistoryPanel, read-only).
+import { Fragment, lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowDown, ArrowUp, ArrowUpDown, FileText, Pencil, Search } from "lucide-react";
 import {
   BOQ_COLUMNS, DEFAULT_SORT, NO_FILTERS, STATUS_LABEL, effectiveRate, filterLines, lineAmount, lineProvenance, lineStatus,
-  parseEdit, qtyState, sectionOptions, sortLines, type BoqFilters, type BoqSort, type BoqTableLine, type EditableField,
+  parseEdit, parseRateEdit, qtyState, rateSource, sectionOptions, sortLines, type BoqFilters, type BoqSort, type BoqTableLine, type EditableField,
   type LineStatus, type SortKey,
 } from "@/lib/app/boqTable";
 import { sectionLabel } from "@/lib/app/labels";
 import { PROVENANCE_CAVEAT } from "@/lib/quantity";
 import type { LineEvidence, LineEvidenceResult } from "@/lib/lineEvidence";
 import LineEvidencePanel from "./LineEvidencePanel";
+import { WORKBENCH_PREVIEW_ENABLED } from "@/lib/workbenchPreview";
+
+// Workbench-only: imported only in builds with the preview.
+const LineHistoryPanel = WORKBENCH_PREVIEW_ENABLED ? lazy(() => import("./LineHistoryPanel")) : null;
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -45,13 +51,17 @@ const STATUS_CLASS: Record<LineStatus, string> = {
 const SORTABLE: Partial<Record<(typeof BOQ_COLUMNS)[number]["key"], SortKey>> = {
   section: "section", description: "description", qty: "qty", rate: "rate", amount: "amount", status: "status",
 };
-const FIELD_NAME: Record<EditableField, string> = { description: "Description", qty: "Quantity", unit: "Unit" };
+type CellField = EditableField | "rate";
+const FIELD_NAME: Record<CellField, string> = { description: "Description", qty: "Quantity", unit: "Unit", rate: "Rate" };
+type RateSave = (line: BoqTableLine, rate: number | null) => Promise<boolean>;
 
 /** One editable cell. Enter or leaving the field saves; Escape cancels and
  *  never saves — including the blur that follows the editor closing. */
-function EditableCell({ line, field, display, align, onSave, disabled }: {
-  line: BoqTableLine; field: EditableField; display: string; align?: "right";
+function EditableCell({ line, field, display, align, onSave, onRateSave, disabled, placeholder, autoStart }: {
+  line: BoqTableLine; field: CellField; display: string; align?: "right";
   onSave: (line: BoqTableLine, patch: Partial<BoqTableLine>) => Promise<boolean>; disabled?: boolean;
+  /** Required for field "rate". */ onRateSave?: RateSave; placeholder?: string;
+  /** Open the editor once on mount (a link to this line's field, e.g. from Check). */ autoStart?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -82,19 +92,35 @@ function EditableCell({ line, field, display, align, onSave, disabled }: {
   const start = () => {
     closed.current = false;
     setError(null);
-    setDraft(field === "qty" ? String(line.qty) : (line[field] ?? ""));
+    // A rate field shows the line's own rate; empty means "use the DSR rate".
+    setDraft(field === "qty" ? String(line.qty) : field === "rate" ? (line.custom_rate == null ? "" : String(line.custom_rate)) : (line[field] ?? ""));
     setEditing(true);
   };
   const close = () => { closed.current = true; restoreFocus.current = true; setEditing(false); };
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (autoStart && !disabled && !autoStarted.current) { autoStarted.current = true; start(); }
+    // start() reads the line as rendered now; it runs once, on the first render that allows it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart, disabled]);
   const cancel = () => close();
   const commit = async () => {
     if (closed.current || inFlight.current) return;
-    const r = parseEdit(line, field, draft);
-    if ("error" in r) { setError(r.error); return; }
-    if (!Object.keys(r.patch).length) { close(); return; }
+    let save: () => Promise<boolean>;
+    if (field === "rate") {
+      const r = parseRateEdit(line, draft);
+      if ("error" in r) { setError(r.error); return; }
+      if (r.unchanged) { close(); return; }
+      save = () => onRateSave!(line, r.rate);
+    } else {
+      const r = parseEdit(line, field, draft);
+      if ("error" in r) { setError(r.error); return; }
+      if (!Object.keys(r.patch).length) { close(); return; }
+      save = () => onSave(line, r.patch);
+    }
     inFlight.current = true;
     setSaving(true);
-    const ok = await onSave(line, r.patch);
+    const ok = await save();
     inFlight.current = false;
     if (ok) { setSaving(false); close(); return; }
     refocusAfterFailure.current = true;
@@ -112,7 +138,8 @@ function EditableCell({ line, field, display, align, onSave, disabled }: {
           aria-invalid={!!error}
           aria-describedby={error ? errorId : undefined}
           value={draft}
-          inputMode={field === "qty" ? "decimal" : undefined}
+          inputMode={field === "qty" || field === "rate" ? "decimal" : undefined}
+          placeholder={placeholder}
           disabled={saving}
           onChange={(e) => { setDraft(e.target.value); setError(null); }}
           onFocus={(e) => e.currentTarget.select()}
@@ -145,8 +172,19 @@ function EditableCell({ line, field, display, align, onSave, disabled }: {
   );
 }
 
-export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHref, initialStatus = "", initialQuery = "", evidenceOf, regionHref }: {
+const RATE_SOURCE_LABEL = { own: "own rate", dsr: "DSR rate", none: "no rate" } as const;
+
+export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHref, initialStatus = "", initialQuery = "", evidenceOf, regionHref, onRateSave: rateSaveProp, showHistory: showHistoryProp, onRemove: removeProp, focus }: {
   lines: BoqTableLine[];
+  /** A line to bring into view, marked, with its quantity or rate editor open
+   *  (when that field is editable here) — e.g. a link from Check. */
+  focus?: { lineId: string; field: "qty" | "rate" | null } | null;
+  /** Row actions (workbench): exclude/include through `onSave`, and remove (the caller confirms and writes). */
+  onRemove?: (l: BoqTableLine) => void;
+  /** Rates editable in the table (audited write, see the header). Absent: read-only, edited in the builder. */
+  onRateSave?: RateSave;
+  /** Each line can open its recorded change history. */
+  showHistory?: boolean;
   sourceOf: (l: BoqTableLine) => LineSource | null;
   onSave: (line: BoqTableLine, patch: Partial<BoqTableLine>) => Promise<boolean>;
   disabled?: boolean;
@@ -159,7 +197,21 @@ export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHr
   evidenceOf?: (l: BoqTableLine) => LineEvidenceResult | null;
   regionHref?: (e: LineEvidence) => string | null;
 }) {
+  // The workbench's extras exist only in builds with the preview (the constant folds away elsewhere).
+  const onRateSave = WORKBENCH_PREVIEW_ENABLED ? rateSaveProp : undefined;
+  const showHistory = WORKBENCH_PREVIEW_ENABLED && !!showHistoryProp;
+  const onRemove = WORKBENCH_PREVIEW_ENABLED ? removeProp : undefined;
   const [openEvidence, setOpenEvidence] = useState<string | null>(null);
+  const [openHistory, setOpenHistory] = useState<string | null>(null);
+  // Lines whose include/exclude is being saved: a second click before the
+  // save lands would be guarded on the old value and refused as "changed elsewhere".
+  const [toggling, setToggling] = useState<ReadonlySet<string>>(new Set());
+  const toggleIncluded = async (l: BoqTableLine) => {
+    if (toggling.has(l.id)) return;
+    setToggling((s) => new Set(s).add(l.id));
+    try { await onSave(l, { included: !l.included }); }
+    finally { setToggling((s) => { const n = new Set(s); n.delete(l.id); return n; }); }
+  };
   const [filters, setFilters] = useState<BoqFilters>({ ...NO_FILTERS, status: initialStatus, q: initialQuery });
   const [sort, setSort] = useState<BoqSort>(DEFAULT_SORT);
   const searchId = useId(), sectionId = useId(), statusId = useId();
@@ -169,6 +221,9 @@ export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHr
     [lines, filters, sort, sourceOf],
   );
   const filtered = filters.q.trim() !== "" || filters.section !== "" || filters.status !== "";
+  const focusMissing = !!focus && !lines.some((l) => l.id === focus.lineId);
+  const focusRow = useRef<HTMLTableRowElement>(null);
+  useEffect(() => { focusRow.current?.scrollIntoView?.({ block: "center" }); }, [focus?.lineId]);
 
   const toggleSort = (key: SortKey) =>
     setSort((s) => (s.key !== key ? { key, dir: "asc" } : s.dir === "asc" ? { key, dir: "desc" } : DEFAULT_SORT));
@@ -204,6 +259,9 @@ export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHr
         </p>
       </div>
 
+      {focusMissing && (
+        <p role="note" className="text-sm text-muted-foreground">The line in this link is no longer in this BOQ (it may have been removed). The current lines are shown.</p>
+      )}
       {/* Focusable, named scroll region so the table can be scrolled
           sideways by keyboard at phone width; `relative` keeps the
           visually-hidden caption inside it. */}
@@ -211,7 +269,7 @@ export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHr
         className="relative overflow-x-auto rounded-md border bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <table className="w-full text-sm">
           <caption className="sr-only">
-            BOQ lines. Description, quantity and unit can be edited; rates are edited in the BOQ builder.
+            {onRateSave ? "BOQ lines. Description, quantity, unit and rate can be edited." : "BOQ lines. Description, quantity and unit can be edited; rates are edited in the BOQ builder."}
           </caption>
           <thead className="bg-muted/50 text-left">
             <tr>
@@ -237,11 +295,12 @@ export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHr
                   </th>
                 );
               })}
+              {onRemove && <th scope="col" className="px-3 py-2 font-medium text-foreground whitespace-nowrap"><span className="sr-only">Line actions</span></th>}
             </tr>
           </thead>
           <tbody className="divide-y">
             {rows.length === 0 ? (
-              <tr><td colSpan={BOQ_COLUMNS.length} className="px-3 py-8 text-center text-muted-foreground">
+              <tr><td colSpan={BOQ_COLUMNS.length + (onRemove ? 1 : 0)} className="px-3 py-8 text-center text-muted-foreground">
                 {lines.length === 0 ? "This BOQ has no lines yet." : "No lines match these filters."}
               </td></tr>
             ) : rows.map((l) => {
@@ -253,7 +312,8 @@ export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHr
               const ev = evidenceOf?.(l) ?? null;
               return (
                 <Fragment key={l.id}>
-                <tr className={cn(st === "excluded" && "text-muted-foreground")}>
+                <tr ref={focus?.lineId === l.id ? focusRow : undefined} data-focused={focus?.lineId === l.id ? "" : undefined}
+                  className={cn(st === "excluded" && "text-muted-foreground", focus?.lineId === l.id && "bg-amber-50 dark:bg-amber-950/40")}>
                   <td className="px-3 py-2 whitespace-nowrap">{sectionLabel(l.section)}</td>
                   <td className="px-3 py-2 whitespace-nowrap font-mono text-xs">{l.dsr_code ?? "—"}</td>
                   <td className="px-3 py-2 min-w-[14rem]">
@@ -261,16 +321,33 @@ export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHr
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
                     <EditableCell line={l} field="qty" align="right" onSave={onSave} disabled={disabled}
-                      display={qtyDisplay(l)} />
+                      display={qtyDisplay(l)} autoStart={focus?.lineId === l.id && focus.field === "qty"} />
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     <EditableCell line={l} field="unit" display={l.unit || "—"} onSave={onSave} disabled={disabled} />
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
-                    {rate != null ? inr(rate) : "—"}
-                    {l.custom_rate != null && <span className="block text-xs text-muted-foreground">custom</span>}
+                    {onRateSave ? (
+                      <>
+                        <EditableCell line={l} field="rate" align="right" onSave={onSave} onRateSave={onRateSave} disabled={disabled}
+                          display={rate != null ? inr(rate) : "—"}
+                          placeholder={l.dsr_rate != null ? `DSR ${inr(l.dsr_rate)}` : "No DSR rate"}
+                          autoStart={focus?.lineId === l.id && focus.field === "rate"} />
+                        <span className={cn("block text-xs", rateSource(l) === "none" ? "text-orange-800 dark:text-orange-300" : "text-muted-foreground")}>{RATE_SOURCE_LABEL[rateSource(l)]}</span>
+                      </>
+                    ) : (
+                      <>
+                        {rate != null ? inr(rate) : "—"}
+                        {l.custom_rate != null && <span className="block text-xs text-muted-foreground">custom</span>}
+                      </>
+                    )}
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">{amount != null ? inr(amount) : "—"}</td>
+                  <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
+                    {amount != null ? inr(amount) : "—"}
+                    {onRateSave && amount == null && st !== "excluded" && (
+                      <span className="block text-xs text-muted-foreground">{st === "pending" ? "quantity pending" : "needs a rate"}</span>
+                    )}
+                  </td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     <span className={cn("inline-block rounded px-1.5 py-0.5 text-xs font-medium", STATUS_CLASS[st])}>{STATUS_LABEL[st]}</span>
                   </td>
@@ -285,6 +362,13 @@ export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHr
                       </button>
                     )}
                     {ev?.kind === "ambiguous" && <span className="block text-xs text-muted-foreground">Several review items share this mark — evidence not linked.</span>}
+                    {showHistory && (
+                      <button type="button" className="block text-xs underline" aria-expanded={openHistory === l.id}
+                        aria-label={`${openHistory === l.id ? "Hide" : "Show"} change history for ${l.description || "line"}`}
+                        onClick={() => setOpenHistory((o) => (o === l.id ? null : l.id))}>
+                        {openHistory === l.id ? "Hide history" : "History"}
+                      </button>
+                    )}
                   </td>
                   <td className="px-3 py-2 min-w-[9rem]">
                     {!src ? (
@@ -299,10 +383,30 @@ export default function BoqTable({ lines, sourceOf, onSave, disabled, rateEditHr
                       <span className="text-muted-foreground">{src.name}</span>
                     )}
                   </td>
+                  {onRemove && (
+                    <td className="px-3 py-2 whitespace-nowrap text-right">
+                      <Button type="button" variant="ghost" size="sm" className="h-7 px-2" disabled={disabled || toggling.has(l.id)}
+                        aria-label={`${l.included ? "Exclude" : "Include"} ${l.description || "line"} ${l.included ? "from" : "in"} the total`}
+                        onClick={() => void toggleIncluded(l)}>
+                        {l.included ? "Exclude" : "Include"}
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-red-700 dark:text-red-300" disabled={disabled}
+                        aria-label={`Remove line ${l.description || "line"}`} onClick={() => onRemove(l)}>
+                        Remove
+                      </Button>
+                    </td>
+                  )}
                 </tr>
+                {showHistory && openHistory === l.id && (
+                  <tr className="bg-muted/30">
+                    <td colSpan={BOQ_COLUMNS.length + (onRemove ? 1 : 0)} className="px-3 py-3">
+                      {LineHistoryPanel && <Suspense fallback={null}><LineHistoryPanel lineId={l.id} label={l.description || l.dsr_code || "line"} /></Suspense>}
+                    </td>
+                  </tr>
+                )}
                 {ev?.kind === "linked" && openEvidence === l.id && (
                   <tr className="bg-muted/30">
-                    <td colSpan={BOQ_COLUMNS.length} className="px-3 py-3">
+                    <td colSpan={BOQ_COLUMNS.length + (onRemove ? 1 : 0)} className="px-3 py-3">
                       <LineEvidencePanel e={ev} regionHref={regionHref?.(ev) ?? null} />
                     </td>
                   </tr>

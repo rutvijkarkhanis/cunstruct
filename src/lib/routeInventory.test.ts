@@ -44,4 +44,14 @@ describe("B12 route inventory", () => {
       { tree: 0, path: "/a/b", element: "B" },
     ]);
   });
+
+  it("marks routes rendered only behind a condition, with everything nested in them", () => {
+    const src = `<Routes><Route path="/a" element={<A />}>{FLAG && W && (<Route path="w" element={<W />}><Route path="x" element={<X />} /></Route>)}<Route path="b" element={<B />} /></Route></Routes>`;
+    expect(routeInventory(src)).toEqual([
+      { tree: 0, path: "/a", element: "A" },
+      { tree: 0, path: "/a/w", element: "W [gated: FLAG && W]" },
+      { tree: 0, path: "/a/w/x", element: "X [gated: FLAG && W]" },
+      { tree: 0, path: "/a/b", element: "B" },
+    ]);
+  });
 });

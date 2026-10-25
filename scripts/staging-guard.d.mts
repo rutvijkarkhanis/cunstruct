@@ -9,4 +9,5 @@ export function refsFromDbUrl(dbUrl: string): string[];
 export function readProduction(root: string): ProductionInfo;
 export function checkStagingTarget(target: Partial<StagingTarget>, production: Partial<ProductionInfo>, need?: StagingNeed): string[];
 export function readStagingTarget(root: string, env?: Record<string, string | undefined>): StagingTarget;
+export function buildUsesStaging(mode: string, env?: Record<string, string | undefined>): boolean;
 export function assertStaging(root: string, need: StagingNeed, env?: Record<string, string | undefined>): { ref: string; target: StagingTarget };

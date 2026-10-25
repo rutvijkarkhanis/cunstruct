@@ -65,7 +65,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 
 import { buildApplyPlan, applyReviewPlan } from "./applyReview";
 import { AnalysisRevisionBlockedError } from "./revisionFreshness";
-import { attributeItemsToDrawing, findDrawingRevisionByHash, recordImportedRunSource } from "./importProvenance";
+import { NO_DRAWING_MATCH_REASON, attributeItemsToDrawing, findDrawingRevisionByHash, recordImportedRunSource } from "./importProvenance";
 import { parseAnalysisV1 } from "./analysisSchemaV1";
 import { buildReviewItems } from "./reviewQueue";
 import type { StoredReviewItem } from "./reviewStore";
@@ -141,6 +141,12 @@ describe("importing an analysis tied to a stored drawing by content hash", () =>
     const { found } = await importAndApply(SHA);
     expect(found.ok).toBe(false);
     expect(db.analysis_run_source).toHaveLength(0);
+    // The way to get a fingerprint computed must not lead to a full analysis:
+    // two Workspace buttons are labelled "Analyze Project", and only opening
+    // the panel (the side-panel one) is safe.
+    expect("reason" in found && found.reason).toBe(NO_DRAWING_MATCH_REASON);
+    expect(NO_DRAWING_MATCH_REASON).toContain("click Analyze Project in the side panel only to open that panel");
+    expect(NO_DRAWING_MATCH_REASON).toContain("Do not press the Analyze Project button inside the panel, which starts a full analysis");
   });
 
   it("hash matches two drawings: refused as ambiguous", async () => {

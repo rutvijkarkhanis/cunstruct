@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  assertStaging, checkStagingTarget, parseEnv, readProduction, readStagingTarget, refFromSupabaseUrl, refsFromDbUrl,
+  assertStaging, buildUsesStaging, checkStagingTarget, parseEnv, readProduction, readStagingTarget, refFromSupabaseUrl, refsFromDbUrl,
 } from "../../scripts/staging-guard.mjs";
 import { listBaseMigrations, pgEnvFromUrl, psqlEnv, STAGING_MIGRATIONS } from "../../scripts/staging-migrate.mjs";
 
@@ -192,5 +192,109 @@ describe("staging-migrate", () => {
     expect(pgEnvFromUrl(`postgresql://postgres.${STAGE}:p%40ss@aws-0-eu.pooler.supabase.com:6543/postgres`)).toEqual({
       PGHOST: "aws-0-eu.pooler.supabase.com", PGPORT: "6543", PGUSER: `postgres.${STAGE}`, PGPASSWORD: "p@ss", PGDATABASE: "postgres", PGSSLMODE: "require",
     });
+  });
+});
+
+describe("buildUsesStaging — every non-production Vercel build is a staging build", () => {
+  it("staging mode, Vercel Preview and Vercel development builds must use the verified staging target", () => {
+    expect(buildUsesStaging("staging", {})).toBe(true);
+    expect(buildUsesStaging("production", { VERCEL_ENV: "preview" })).toBe(true);
+    expect(buildUsesStaging("production", { VERCEL: "1", VERCEL_ENV: "development" })).toBe(true);
+  });
+  it("on Vercel without VERCEL_ENV it cannot tell the build is production, so it fails closed", () => {
+    expect(buildUsesStaging("production", { VERCEL: "1" })).toBe(true);
+  });
+  it("Vercel production deployments and local builds are unaffected", () => {
+    expect(buildUsesStaging("production", { VERCEL: "1", VERCEL_ENV: "production" })).toBe(false);
+    expect(buildUsesStaging("production", {})).toBe(false);
+    expect(buildUsesStaging("development", {})).toBe(false);
+  });
+  it("there is no production opt-out", () => {
+    expect(buildUsesStaging("production", { VERCEL_ENV: "preview", CUNSTRUCT_PREVIEW_USES_PRODUCTION: "true" })).toBe(true);
+  });
+});
+
+describe("check-deployed-target — reads the target from the app's own JavaScript", async () => {
+  const { analyse, verdict, report } = await import("../../scripts/check-deployed-target.mjs");
+  const site = (url: string) => `const a="${url}",b="sb_publishable_x",c=d(a,b,{auth:{storage:localStorage}});`;
+  it("finds the client URL in a minified createClient call and classifies it", () => {
+    expect(analyse([site(`https://${STAGE}.supabase.co`), "other chunk"])).toEqual({ urls: [`https://${STAGE}.supabase.co`], refs: [STAGE], preview: false });
+    expect(verdict([`https://${STAGE}.supabase.co`], [PROD], [STAGE])).toBe("non-production");
+    expect(verdict([`https://${PROD}.supabase.co/`], [PROD])).toBe("production");
+    expect(verdict([`https://${PROD.toUpperCase()}.supabase.co`], [PROD])).toBe("production");
+    expect(verdict([`https://${STAGE}.supabase.co`, `https://${PROD}.supabase.co`], [PROD])).toBe("production");
+  });
+  it("any production Supabase host anywhere in the JavaScript (storage, functions…) makes it production", () => {
+    const a = analyse([site(`https://${STAGE}.supabase.co`), `fetch("https://${PROD}.supabase.co/functions/v1/x")`]);
+    expect(verdict(a.urls, [PROD], a.refs)).toBe("production");
+  });
+  it("no client found, or an unreadable URL, is unverifiable — never assumed safe", () => {
+    expect(verdict([], [PROD])).toBe("unverifiable");
+    expect(verdict(["not-a-url"], [PROD])).toBe("unverifiable");
+    expect(verdict(["https://example.com"], [PROD])).toBe("unverifiable");
+  });
+  it("notices workbench preview code", () => {
+    expect(analyse([site(`https://${STAGE}.supabase.co`), 'x="Workbench preview — off by default"']).preview).toBe(true);
+  });
+  it("the report names hosts only — never the key in the bundle", () => {
+    const a = analyse([site(`https://${STAGE}.supabase.co`)]);
+    expect(report({ scripts: 1, ...a }, "non-production").join("\n")).not.toContain("sb_publishable_x");
+  });
+});
+
+describe("check-deployed-target — the command line", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const http = await import("node:http");
+  const script = path.resolve(__dirname, "../../scripts/check-deployed-target.mjs");
+  // The CLI identifies production from this repository's own config.
+  const prodRef = readProduction(path.resolve(__dirname, "../..")).refs[0];
+  const site = (url: string) => `const a="${url}",b="sb_publishable_secretkey",c=d(a,b,{auth:{storage:localStorage}});`;
+  const run = (arg: string, env: Record<string, string> = {}) => {
+    try { return { code: 0, out: execFileSync("node", [script, arg], { encoding: "utf8", env: { ...process.env, ...env } }) }; }
+    catch (e) { const x = e as { status: number; stdout: string; stderr: string }; return { code: x.status, out: `${x.stdout}${x.stderr}` }; }
+  };
+  const build = (js: string) => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "deployed-"));
+    fs.mkdirSync(path.join(d, "assets"));
+    fs.writeFileSync(path.join(d, "assets", "index-x.js"), js);
+    fs.writeFileSync(path.join(d, "index.html"), '<script type="module" src="/assets/index-x.js"></script>');
+    return d;
+  };
+
+  it("exit 0 only for a non-production target; production and unreadable targets exit 1", () => {
+    expect(run(build(site(`https://${STAGE}.supabase.co`))).code).toBe(0);
+    const prod = run(build(site(`https://${prodRef}.supabase.co`)));
+    expect(prod.code).toBe(1);
+    expect(prod.out).toContain("THE PRODUCTION PROJECT");
+    expect(run(build(site("not-a-url"))).code).toBe(1);
+    expect(run(build("no client here")).code).toBe(1);
+    expect(run(path.join(os.tmpdir(), "no-such-build-dir")).code).toBe(1);
+  });
+
+  it("over HTTP: a protected or redirected deployment is not readable (exit 1); the bypass secret is sent but never printed", async () => {
+    const dir = build(site(`https://${STAGE}.supabase.co`));
+    const seen: string[] = [];
+    const server = http.createServer((req, res) => {
+      seen.push(String(req.headers["x-vercel-protection-bypass"] ?? ""));
+      if (req.headers["x-vercel-protection-bypass"] !== "s3cret-bypass") { res.writeHead(401); res.end(); return; }
+      const f = req.url === "/" ? "index.html" : req.url!.slice(1);
+      res.writeHead(200); res.end(fs.readFileSync(path.join(dir, f)));
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const url = `http://127.0.0.1:${(server.address() as { port: number }).port}/`;
+    const runAsync = (env: Record<string, string>) => new Promise<{ code: number; out: string }>((resolve) => {
+      import("node:child_process").then(({ execFile }) => execFile("node", [script, url], { env: { ...process.env, ...env } }, (err, stdout, stderr) =>
+        resolve({ code: err ? (err as { code: number }).code : 0, out: stdout + stderr })));
+    });
+    const locked = await runAsync({ VERCEL_AUTOMATION_BYPASS_SECRET: "" });
+    expect(locked.code).toBe(1);
+    expect(locked.out).toContain("HTTP 401");
+    const open = await runAsync({ VERCEL_AUTOMATION_BYPASS_SECRET: "s3cret-bypass" });
+    server.close();
+    expect(open.code).toBe(0);
+    expect(open.out).toContain(`https://${STAGE}.supabase.co`);
+    expect(open.out + locked.out).not.toContain("s3cret-bypass");
+    expect(open.out).not.toContain("sb_publishable_secretkey");
+    expect(seen).toContain("s3cret-bypass");
   });
 });

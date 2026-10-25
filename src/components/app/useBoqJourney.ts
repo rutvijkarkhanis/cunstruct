@@ -24,7 +24,8 @@ export async function loadReviewState(boqId: string): Promise<ReviewState> {
 }
 export const reviewStateKey = (boqId: string | null) => ["app-journey-review", boqId] as const;
 
-export function useBoqJourney(projectId: string, boqId: string | null, hasBoqs: boolean) {
+/** `pricing`: rates are entered on this BOQ (see lib/app/journey JourneyInput). */
+export function useBoqJourney(projectId: string, boqId: string | null, hasBoqs: boolean, pricing = false) {
   const drawingsQ = useQuery({ queryKey: ["boq-drawings", projectId], queryFn: () => loadProjectDrawings(projectId) });
   const reviewQ = useQuery({ queryKey: reviewStateKey(boqId), enabled: !!boqId, queryFn: () => loadReviewState(boqId!) });
   const linesQ = useQuery({ queryKey: appBoqLinesKey(boqId), enabled: !!boqId, queryFn: () => loadAppBoqLines(boqId!) });
@@ -37,7 +38,7 @@ export function useBoqJourney(projectId: string, boqId: string | null, hasBoqs: 
   const stages = loading || error ? [] : journeyStages({
     projectId, boqId: hasBoqs ? boqId : null,
     drawingCount: drawings.length, drawingsWithoutFile: drawings.filter((d) => !d.filePath).length,
-    review: boqId ? reviewQ.data ?? null : null, totals, lineCount: lines.length,
+    review: boqId ? reviewQ.data ?? null : null, totals, lineCount: lines.length, pricing,
   });
   return { stages, loading, error, review: reviewQ.data ?? null, totals, retry: () => { drawingsQ.refetch(); reviewQ.refetch(); linesQ.refetch(); } };
 }
