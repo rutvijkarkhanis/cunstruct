@@ -4,6 +4,13 @@
 // model (supabase/functions/ai-analysis, action "preflight"); this module only
 // ever asks for preflight, so it cannot start a paid analysis.
 //
+// The request is project-wide: mode "LOCATION", no BOQ. Fingerprints belong
+// to drawings, not to a BOQ, and a new project has no BOQ. An omitted mode
+// means "BOQ" to the server, which (rightly) refuses a BOQ-mode request
+// without a boqId — so the mode is always sent. This is the same request the
+// Analyze panel already makes; the server hashes the drawings the same way
+// for every mode (loadEligibleFiles), before anything mode-specific.
+//
 // The server refuses preflight for a project whose server processing
 // (projects.ai_processing_enabled) is off; that is reported as such, not as
 // a failure of the drawings.
@@ -18,10 +25,13 @@ export interface FingerprintStatus {
 
 export const PROCESSING_OFF_MESSAGE = "Server processing is off for this project, so drawing fingerprints cannot be computed.";
 
+/** The preflight request fingerprinting sends: project-wide, never BOQ-scoped. */
+export const FINGERPRINT_REQUEST = (projectId: string) => ({ projectId, boqId: null, mode: "LOCATION" as const });
+
 export async function computeDrawingFingerprints(projectId: string): Promise<FingerprintStatus> {
   let res: Awaited<ReturnType<typeof fetchPreflight>>;
   try {
-    res = await fetchPreflight({ projectId });
+    res = await fetchPreflight(FINGERPRINT_REQUEST(projectId));
   } catch (e) {
     // supabase-js reports any non-2xx as a generic error; the server's own
     // reason is in the response body when it can be read.

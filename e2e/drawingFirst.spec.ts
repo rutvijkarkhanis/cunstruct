@@ -31,8 +31,14 @@ test("drawing-first: upload creates an owned draft project, fingerprints without
   const aiActions: string[] = [];
   await page.route("**/functions/v1/ai-analysis", async (route) => {
     if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204, headers: { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "*" } });
-    const body = route.request().postDataJSON() as { action: string };
+    const body = route.request().postDataJSON() as { action: string; mode?: string; boqId?: string | null };
     aiActions.push(body.action);
+    // The real function's request rules (index.ts): an omitted mode is BOQ,
+    // and BOQ modes need a BOQ. This draft project has none.
+    const mode = body.mode ?? "BOQ";
+    if ((mode === "BOQ" || mode === "BOQ_AND_LOCATION") && !body.boqId) {
+      return route.fulfill({ status: 400, headers: { "access-control-allow-origin": "*" }, contentType: "application/json", body: JSON.stringify({ ok: false, error: "boqId is required for BOQ-mode analysis." }) });
+    }
     if (body.action !== "preflight") return route.fulfill({ status: 500, headers: { "access-control-allow-origin": "*" }, contentType: "application/json", body: JSON.stringify({ ok: false, error: "test: no AI call expected" }) });
     return route.fulfill({ status: 200, headers: { "access-control-allow-origin": "*" }, contentType: "application/json", body: JSON.stringify({ ok: true, preflight: {
       mode: "BOQ", totalProjectFiles: 1, totalEligibleDrawingFiles: 1, filesPendingHash: 0, alreadyAnalysedCount: 0, newFilesCount: 1,
