@@ -222,7 +222,7 @@ The verified-versus-assumed table, kept current by the pilot, is in `PLAN.md` §
 
 - **Every session starts the same way:**
   1. Read `PLAN.md` and this protocol.
-  2. Run the dashboard queries in `DASHBOARD.md` §2.
+  2. Run the dashboard queries in `DASHBOARD.md` §2 (agents: the repo-scoped REST form).
   3. Read your own open tickets **from their latest checkpoint**.
 - **Interrupted session:** the next session of the same agent resumes from the last checkpoint. It then posts `RESUMED <ID> from checkpoint <link> — no prior context used. — <Name>`. If the branch has commits after the last checkpoint, it reconciles them first and says so.
 - **Failed task:**

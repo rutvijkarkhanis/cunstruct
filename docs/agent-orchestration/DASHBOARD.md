@@ -35,6 +35,18 @@ Base URL: `https://github.com/rutvijkarkhanis/cunstruct/issues?q=`
 
 #221 links each of these views directly.
 
+**Agents: use the repo-scoped REST equivalents.** GitHub's search API (`search/issues`) is blocked from Claude agent sessions (verified: HTTP 403, "sessions are bound to their configured repositories"). The `issues` list endpoint works:
+
+```
+R=repos/rutvijkarkhanis/cunstruct
+gh api "$R/issues?state=open&labels=needs-rutvij" --jq '[.[]|select(.pull_request==null)|.number]'
+gh api "$R/issues?state=open&labels=status:ready,agent:<name>" --jq '[.[]|select(.pull_request==null)|.number]'   # comma = AND
+gh api "$R/issues?state=open&labels=agent:<name>" --jq '[.[]|select(.pull_request==null)|{number,title,labels:[.labels[].name]}]'
+# Audit (must print []):
+gh api "$R/issues?state=closed&labels=type:pilot&per_page=100" --jq '[.[]|select(.state_reason=="completed")|select([.labels[].name]|index("verified")|not)|.number]'
+```
+An agent without `gh` uses its GitHub tool's issue-list call with the same label filters.
+
 ## 3. GitHub Project, created by hand (CC-001a, about 10 minutes)
 
 The Projects (v2) API is GraphQL-only, and GraphQL is not reachable from the agents' Claude sessions, so an agent cannot create or edit the board. Rutvij creates it once:
