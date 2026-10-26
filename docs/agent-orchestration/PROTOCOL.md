@@ -61,11 +61,11 @@ Consequences of the shared account:
 | Status | Meaning | Enters when | Who sets it |
 |---|---|---|---|
 | `status:backlog` | Agreed, not claimable | Created | Anyone |
-| `status:ready` | Claimable: deps met, criteria complete | Deps done and criteria written | Rutvij, or the integrator after deps merge |
+| `status:ready` | Claimable: deps met, criteria complete | Deps done and criteria written | Rutvij, or the ticket's owner once every "blocked by" issue is closed as completed and `verified` |
 | `status:in-progress` | Owner is working | Claim (§5) | Owner |
 | `status:blocked` | Waiting on a named dependency or decision | Blocker found | Owner |
 | `status:in-review` | PR open with evidence | PR opened (§8) | Owner |
-| **Done** | Issue **closed as completed** *and* labelled `verified` | PR merged after verification (§9) | Reviewer adds `verified`; the merge closes the issue |
+| **Done** | Issue **closed as completed** *and* labelled `verified` | PR merged after verification (§9) | Reviewer adds `verified`; **Rutvij's merge** closes the issue (`Closes #`) |
 
 **Allowed transitions:**
 - `backlog → ready → in-progress`
@@ -74,7 +74,9 @@ Consequences of the shared account:
 - `in-review → in-progress` (changes requested)
 - `in-review → Done`
 
-Any status can go to *closed as not planned*, with a reason, by Rutvij only.
+Any status can go to *closed as not planned*, with a reason, by Rutvij only. Before closing a ticket as not planned, it is **removed from its milestone and from its parent's sub-issues**: GitHub counts every closed issue toward milestone and sub-issue progress, whatever the close reason.
+
+**Agents never close a task issue and never merge.** A task issue is closed only by the merge of its verified PR. The one exception is a decision issue (§10) that the asking agent opened outside every milestone: the asker closes it once the decision is quoted on the blocked ticket.
 
 `on-hold` means **do not start**. No status applies, and only Rutvij removes it.
 
@@ -141,6 +143,7 @@ Risks/blockers: <none | named>
 ## 9. Independent review, verification and integration
 
 - **Who reviews:** the reviewer named on the ticket, never the author.
+- **Review needs no ticket of the reviewer's own.** The reviewee's ticket naming you as reviewer, plus its `REVIEW REQUEST` comment, authorizes the review. The reviewer reads only the PR and the ticket, writes nothing to the branch, and posts on both. This keeps a review from depending on the reviewer's own work being ready, which would otherwise deadlock.
 - **What the reviewer does:**
   - checks out the branch;
   - re-runs the claimed checks;
@@ -156,12 +159,20 @@ Findings: <numbered; blocking marked BLOCKING>
 ```
 
 - **VERIFIED:** the reviewer adds `verified` to the issue. **Only the reviewer may add `verified`.** An author who adds it voids the verification.
+- **What the shared account cannot enforce:** GitHub records every label change as `rutvijkarkhanis`, so it cannot prove *which agent* added `verified`. The label is therefore valid **only if** the PR carries a signed `REVIEW … VERIFIED` comment from the ticket's named reviewer, posted *before* the label (compare timestamps on the issue timeline). The enforcing control is the human merge: Rutvij checks this before merging (merge checklist below).
 - **CHANGES REQUESTED:** the owner sets `status:in-progress`, fixes, and re-requests review.
-- **Merge:** during the pilot, **Rutvij merges** (PLAN.md decision D2). A PR is mergeable only when:
-  - it is `verified`;
-  - hosted checks are green;
-  - it has no conflicts.
-- **Integration verification:** after a merge, the integrator named in the plan confirms that `main` still passes its checks and comments `INTEGRATED <ID> @ <sha>`.
+- **Merge:** during the pilot, **Rutvij merges** (PLAN.md decision D2). His merge checklist:
+  1. The issue is labelled `verified`.
+  2. The PR has a `REVIEW … VERIFIED` comment signed by the ticket's named reviewer. That reviewer is not the owner, and the comment predates the label.
+  3. Only owned files changed.
+  4. Hosted checks pass, except the **known pre-existing failure**:
+     - **Vercel** (Preview) fails on every PR, by design. The staging guard (`scripts/staging-guard.mjs`, commit `907dc38`) refuses preview builds without staging variables.
+     - It failed identically on #214, #215 and #216.
+     - Any *other* failing check blocks the merge.
+  5. There are no conflicts.
+
+  Every merge to `main` triggers the Vercel production deploy and the Supabase GitHub integration.
+- **Integration verification:** after a merge, the ticket's reviewer confirms that `main` still passes the checks the PR claimed, and comments `INTEGRATED <ID> @ <sha>` on the issue.
 
 ## 10. Escalation: `needs-rutvij`
 
@@ -187,7 +198,8 @@ Blocks: #<issues>
 
 - Set the blocked ticket to `status:blocked`, with a link to the decision.
 - Keep working on anything unblocked.
-- When Rutvij answers, the asker removes `needs-rutvij`, quotes the decision in the ticket, and resumes.
+- When Rutvij answers, the asker removes `needs-rutvij`, quotes the decision in the ticket, and resumes. A decision raised as its own issue is then closed by the asker (§4 exception). Decisions are the record: never act on an answer given only in a private conversation. If Rutvij answers in chat, the agent copies the decision verbatim to the issue, marked `(relayed from chat)`.
+- An agent cannot wait. After escalating, it posts a checkpoint and ends its session. Rutvij restarts it after answering (`PLAN.md` §7).
 
 ## 11. Agent capabilities and the wake model
 

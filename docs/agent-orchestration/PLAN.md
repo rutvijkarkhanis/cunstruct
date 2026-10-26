@@ -32,8 +32,8 @@ Live status is GitHub's (labels and open/closed state), not this file's.
 
 | ID | Owner | Item | Depends on | Done when | Evidence |
 |---|---|---|---|---|---|
-| CC-001 | Learnator (setup) | Command-centre setup: labels, milestone, tracking issue, protocol, plan, pilot, templates, agent entry points | — | Setup PR merged by Rutvij. Labels, milestone 1 and issues #217–#221 exist as described in `DASHBOARD.md`. | PR link; `DASHBOARD.md` §5 verification output |
-| CC-001a | **Rutvij** | Create the GitHub Project *Cunstruct Agent Command Centre* | CC-001 | The Project exists with the fields and views in `DASHBOARD.md` §3, and the auto-add workflow is on | Project URL in a comment on #221 |
+| CC-001 | Learnator (setup) | Command-centre setup: labels, milestone, tracking issue, protocol, plan, pilot, templates, agent entry points | — | Setup PR merged by Rutvij. Labels, milestone 1 and issues #217–#221 exist as described in `DASHBOARD.md`. | PR link; `DASHBOARD.md` §6 verification output |
+| CC-006 | **Rutvij** | Create the GitHub Project *Cunstruct Agent Command Centre* (optional; the label views work without it) | CC-001 | The Project exists with the items, views and link to #221 in `DASHBOARD.md` §3 | Project URL in a comment on #221 |
 | CC-002 | Learnator | Pilot: capability check-in and interruption drill | CC-001 | #218 closed as completed and `verified` | #218 |
 | CC-003 | Ruthvich | Pilot: capability check-in and capability matrix (integrator) | CC-002, CC-004 | #219 closed as completed and `verified` | #219 |
 | CC-004 | Codex | Pilot: capability check-in and simulated escalation | CC-001 | #220 closed as completed and `verified` | #220 |
@@ -45,7 +45,12 @@ Live status is GitHub's (labels and open/closed state), not this file's.
 - **Milestone "Orchestration pilot"** ([milestone 1](https://github.com/rutvijkarkhanis/cunstruct/milestone/1)): GitHub's own percentage of closed issues.
 - **Sub-issue progress on #221:** GitHub's own "n of m".
 
-Both count an issue only when it is closed. PROTOCOL §4 and §9 allow closing only after independent verification. The audit query "closed, completed, pilot, **not** `verified`" (`DASHBOARD.md` §2) must return nothing; any result makes the bar wrong and is a P0 defect.
+Both count **every closed issue, whatever the close reason**. They therefore measure verified work only because of three rules:
+- **Closing is gated:** a task issue closes only through Rutvij's merge of a verified PR (PROTOCOL §4, §9).
+- **Not planned leaves the counts:** a ticket closed as not planned is first removed from the milestone and from #221's sub-issues (PROTOCOL §4).
+- **Two audit queries must stay empty** (`DASHBOARD.md` §2): "closed, completed, pilot, **not** `verified`" and "closed as not planned, still in the milestone".
+
+Any result from either query makes the bar wrong and is a P0 defect. The `verified` label alone proves nothing on a shared account. It counts only with the signed review that precedes it (PROTOCOL §9).
 
 ## 4. On hold: do not start
 
@@ -60,9 +65,9 @@ The unpushed LOCATION-assurance work on `claude/gifted-lamport-geu7ff` also wait
 | # | Decision | Default in force | Alternatives |
 |---|---|---|---|
 | D1 | Shared GitHub account: identity by label, signature, branch prefix and commit trailer (PROTOCOL §2) | In force | Separate GitHub accounts or apps per agent. This would allow real approvals and notifications, but needs account and billing changes by Rutvij. |
-| D2 | Who merges pilot PRs | **Rutvij merges** after `verified` and green checks | The reviewing agent merges docs-only pilot PRs. Fewer escalations, but every merge to `main` triggers a Vercel production deploy. |
+| D2 | Who merges pilot PRs | **Rutvij merges** after the PROTOCOL §9 merge checklist. That list accepts the known, by-design Vercel Preview failure. | The reviewing agent merges docs-only pilot PRs. Fewer escalations, but every merge to `main` triggers a Vercel production deploy. |
 | D3 | How Rutvij learns of `needs-rutvij` | **He checks the Needs Rutvij view** (bookmark) at least daily during the pilot | A daily Claude scheduled task that checks the view and sends a phone push. It needs his approval because it creates a scheduled task and spends usage. |
-| D4 | Project board | **Created manually by Rutvij** (CC-001a). The agent sessions cannot reach the Projects API. | Labels and saved searches only. These already work without the board. |
+| D4 | Project board | **Created manually by Rutvij** (CC-006). The agent sessions cannot reach the Projects API. | Labels and saved searches only. These already work without the board. |
 
 ## 6. Capabilities: verified versus assumed
 
@@ -87,7 +92,7 @@ The pilot replaces every "Assumed" or "Unknown" with "Verified" or "Not availabl
 
 ## 7. Start prompt (Rutvij uses this to start any agent)
 
-> You are **<Name>** on the Cunstruct team. Before anything else, read `docs/agent-orchestration/PLAN.md` and `PROTOCOL.md` on `main`, or on branch `claude/agent-command-centre` until it merges. Run the dashboard queries in `DASHBOARD.md` §2. Resume your own `status:in-progress` or `status:blocked` tickets from their latest checkpoint. Otherwise claim one `status:ready` ticket labelled `agent:<name>`. Follow PROTOCOL exactly. Sign every comment `— <Name>`. Stop after posting a checkpoint when your ticket is in review, blocked, or your session must end.
+> You are **<Name>** on the Cunstruct team. Before anything else, read `docs/agent-orchestration/PLAN.md` and `PROTOCOL.md` on `main`, or on branch `claude/agent-command-centre` until it merges. Run the dashboard queries in `DASHBOARD.md` §2. Resume your own `status:in-progress` or `status:blocked` tickets from their latest checkpoint. Then do any review requested of you (a `REVIEW REQUEST` naming you on an open ticket; PROTOCOL §9). Otherwise claim one `status:ready` ticket labelled `agent:<name>`. Never start anything labelled `on-hold`. Follow PROTOCOL exactly. Sign every comment `— <Name>`. Stop after posting a checkpoint when your ticket is in review, blocked, or your session must end.
 
 ## 8. Change log
 

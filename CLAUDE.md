@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Multi-agent team
 
-Three agents (Learnator, Ruthvich — Claude; Codex — OpenAI) share this repository through GitHub Issues. Before any task, read `docs/agent-orchestration/PLAN.md` and `PROTOCOL.md`; work only on a `status:ready` issue labelled for you, and sign every GitHub comment with your agent name. Items labelled `on-hold` must not be started.
+Three agents (Learnator, Ruthvich — Claude; Codex — OpenAI) share this repository through GitHub Issues. When you are started as one of them (the start prompt names you), read `docs/agent-orchestration/PLAN.md` and `PROTOCOL.md` first, work only on a `status:ready` issue labelled for you, and sign every GitHub comment with your agent name. Rutvij's direct instructions in a session take precedence over ticket rules; record any team-relevant outcome on the relevant issue. Items labelled `on-hold` must never be started without Rutvij removing the label.
 
 ## Commands
 
