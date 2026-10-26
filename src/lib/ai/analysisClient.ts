@@ -101,9 +101,38 @@ export interface ModelConfigResponse {
   models?: { id: string; label: string; pricing: { inputPerMillion: number; outputPerMillion: number } }[];
 }
 
+/** A non-2xx answer from ai-analysis, carrying the server's own reason. */
+export class AnalysisRequestError extends Error {
+  constructor(message: string, readonly status: number | null, readonly serverError: string | null) {
+    super(message);
+    this.name = "AnalysisRequestError";
+  }
+}
+
+/** supabase-js reports every non-2xx as "Edge Function returned a non-2xx
+ *  status code" and leaves the response in `error.context`. ai-analysis
+ *  answers its own failures with `{ ok: false, error }` (e.g. "OpenAI
+ *  analysis request failed (status 429)") — read that, so the screen shows
+ *  why it failed instead of a generic line. Still an error: nothing here
+ *  turns a failure into a result. */
+export async function analysisRequestError(error: unknown): Promise<Error> {
+  const res = (error as { context?: unknown })?.context;
+  if (!(res instanceof Response)) return error instanceof Error ? error : new Error(String(error));
+  let serverError: string | null = null;
+  try {
+    const body = await res.clone().json() as { error?: unknown };
+    // Shown as is (the server already returns it), on one line and capped.
+    if (typeof body?.error === "string" && body.error.trim()) serverError = body.error.replace(/\s+/g, " ").trim().slice(0, 300);
+  } catch { /* not JSON (e.g. a gateway page): the status is all there is */ }
+  const message = serverError
+    ? `${serverError} (HTTP ${res.status})`
+    : `The analysis service failed (HTTP ${res.status}) without saying why.`;
+  return new AnalysisRequestError(message, res.status, serverError);
+}
+
 async function invoke<T>(body: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabase.functions.invoke("ai-analysis", { body });
-  if (error) throw error;
+  if (error) throw await analysisRequestError(error);
   return data as T;
 }
 

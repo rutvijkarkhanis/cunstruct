@@ -392,3 +392,20 @@ describe("WorkspaceAnalyzePanel — reusing an existing BOQ or creating a new on
     expect(createBoq).not.toHaveBeenCalled();
   });
 });
+
+// Production: Analyze Project failed with the function's own HTTP 502 and the
+// panel showed only "Edge Function returned a non-2xx status code". The
+// client now carries the server's reason; the panel must show it as is.
+describe("WorkspaceAnalyzePanel — a failed analysis says why", () => {
+  beforeEach(() => { createBoq.mockClear(); generateAnalysis.mockClear(); });
+
+  it("shows the server's reason when the BOQ analysis is refused", async () => {
+    generateAnalysis.mockRejectedValueOnce(new Error("OpenAI analysis request failed (status 429, insufficient_quota) (HTTP 502)"));
+    renderPanel();
+    await screen.findByText("Ground Floor Plan.pdf");
+    const row = screen.getByText("Ground Floor Plan.pdf").closest("tr")!;
+    fireEvent.click(within(row).getByLabelText(/Assign Ground Floor Plan.pdf to Civil Works/i));
+    fireEvent.click(screen.getByRole("button", { name: /Analyze Project/i }));
+    expect(await screen.findByText(/OpenAI analysis request failed \(status 429, insufficient_quota\) \(HTTP 502\)/)).toBeInTheDocument();
+  });
+});
