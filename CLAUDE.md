@@ -37,7 +37,9 @@ VITE_SUPABASE_URL=
 
 ## Architecture
 
-**Cunstruct** is a procurement forecasting platform with two distinct interfaces:
+**Cunstruct's primary product experience is a single-user construction-estimation workbench.** Its core owner workflow takes projects from drawings through quantity review and correction, BOQ editing and pricing, checks, and export. Never present uncertain quantities as verified; preserve quantity provenance, guarded writes, drawing/revision freshness checks, and the unvalidated-draft disclosures. The binding product direction, scope boundaries, delivery gates, and change-control rules are in [`docs/UX-UI-REVAMP-CHARTER.md`](docs/UX-UI-REVAMP-CHARTER.md).
+
+The repository still contains several distinct existing product surfaces:
 
 1. **Public storefront** — product browsing, cart, checkout, kits (`/`, `/products`, `/kits`, `/cart`, `/checkout`, `/search`, `/auth`)
 2. **Ops dashboard** — gated project management and demand forecasting (`/ops/*` routes, requires `ops` or `admin` role)
