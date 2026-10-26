@@ -16,6 +16,8 @@
 // thinnest possible wrapper so there is as little untested surface as
 // possible.
 
+import { openAiErrorCode } from "./stageLog.ts";
+
 const OPENAI_API_BASE = "https://api.openai.com/v1";
 
 export interface OpenAiFileInput {
@@ -32,10 +34,18 @@ export interface OpenAiAnalysisResult {
   totalTokens: number;
 }
 
-class OpenAiError extends Error {
-  constructor(message: string, readonly status: number) {
+export class OpenAiError extends Error {
+  constructor(message: string, readonly status: number, readonly code: string | null = null) {
     super(message);
   }
+}
+
+/** "OpenAI <what> failed (status N[, code])": the status and OpenAI's short
+ *  error code only (openAiErrorCode) — never the response body, which can
+ *  echo request metadata back. */
+export async function openAiFailure(what: string, res: Response): Promise<OpenAiError> {
+  const code = openAiErrorCode(await res.json().catch(() => null));
+  return new OpenAiError(`OpenAI ${what} failed (status ${res.status}${code ? `, ${code}` : ""})`, res.status, code);
 }
 
 /** Upload one PDF to OpenAI's Files API; returns the file id to reference
@@ -51,8 +61,8 @@ async function uploadFile(apiKey: string, file: OpenAiFileInput): Promise<string
   });
   if (!res.ok) {
     // Never include the response body verbatim — it can echo request
-    // metadata back; surface only the status for diagnostics.
-    throw new OpenAiError(`OpenAI file upload failed (status ${res.status})`, res.status);
+    // metadata back; surface only the status and OpenAI's error code.
+    throw await openAiFailure("file upload", res);
   }
   const data = await res.json();
   return data.id as string;
@@ -105,7 +115,7 @@ export async function generateAnalysisViaOpenAI(
       }),
     });
     if (!res.ok) {
-      throw new OpenAiError(`OpenAI analysis request failed (status ${res.status})`, res.status);
+      throw await openAiFailure("analysis request", res);
     }
     const data = await res.json();
 

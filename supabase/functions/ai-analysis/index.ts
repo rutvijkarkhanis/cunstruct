@@ -42,6 +42,7 @@ import { folderBreadcrumb } from "../_shared/folderContext.ts";
 import { buildStaleReclaimFilter } from "../_shared/claiming.ts";
 import { parseObservationsV1 } from "../_shared/observationValidation.ts";
 import { pinObservations, type ClaimedFile } from "../_shared/observationSource.ts";
+import { stageLogEntry, type AnalysisStage } from "../_shared/stageLog.ts";
 
 // A PROCESSING claim with no completed_at older than this is presumed dead
 // (the edge function that made it crashed/timed out) and becomes reclaimable,
@@ -273,7 +274,7 @@ async function isAdminCaller(supabase: SupabaseClient, userId: string): Promise<
   return !!data;
 }
 
-Deno.serve(async (req) => {
+async function handle(req: Request, ctx: RequestContext): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
 
@@ -289,6 +290,7 @@ Deno.serve(async (req) => {
   const parsed = BodySchema.safeParse(body);
   if (!parsed.success) return json({ ok: false, error: parsed.error.flatten().fieldErrors }, 400);
   const input = parsed.data;
+  Object.assign(ctx, { action: input.action, mode: input.mode, projectId: input.projectId, boqId: input.boqId });
 
   // Every query below runs AS this user (their JWT, the anon key) — RLS
   // enforces project access; no service-role key is used anywhere in this
@@ -298,6 +300,7 @@ Deno.serve(async (req) => {
     auth: { persistSession: false },
   });
 
+  ctx.stage = "auth";
   const { data: userData, error: userErr } = await supabase.auth.getUser();
   if (userErr || !userData?.user) return json({ ok: false, error: "Not authenticated" }, 401);
   const user = userData.user;
@@ -313,6 +316,7 @@ Deno.serve(async (req) => {
 
   if (!input.projectId) return json({ ok: false, error: "projectId is required" }, 400);
 
+  ctx.stage = "project";
   const { data: project, error: projErr } = await supabase
     .from("projects")
     .select("id, project_type, ai_processing_enabled")
@@ -338,6 +342,7 @@ Deno.serve(async (req) => {
   // writes to analysis_run/analysis_review_item/analysis_observation, never
   // creates or edits a BOQ line, never fabricates a candidate. ─────────────
   if (input.action === "identify") {
+    ctx.stage = "identify";
     if (!OPENAI_API_KEY) return json({ ok: false, error: "AI generation is not configured on the server." }, 500);
     if (!input.documentId) return json({ ok: false, error: "documentId is required" }, 400);
     if (!input.page) return json({ ok: false, error: "page is required" }, 400);
@@ -380,6 +385,7 @@ Deno.serve(async (req) => {
   // findSimilarHandler.ts (see its own header comment for why) — this
   // branch is just auth/config plumbing + the injected real dependencies. ─
   if (input.action === "find_similar") {
+    ctx.stage = "find_similar";
     if (!OPENAI_API_KEY) return json({ ok: false, error: "AI generation is not configured on the server." }, 500);
     const { status, body } = await handleFindSimilar(
       { documentId: input.documentId, reference: input.reference },
@@ -411,12 +417,15 @@ Deno.serve(async (req) => {
   let totalProjectFiles: number;
   let eligible: EligibleRow[];
   try {
+    ctx.stage = "load_files";
     ({ totalProjectFiles, eligible } = await loadEligibleFiles(supabase, input.projectId));
   } catch (e) {
     return json({ ok: false, error: e instanceof Error ? e.message : "Failed to load project files" }, 500);
   }
 
+  ctx.stage = "ledger";
   const ledger = await loadLedger(supabase, input.projectId, ANALYSIS_CONTRACT_VERSION, DEFAULT_PROVIDER, model.id, mode, input.boqId ?? null);
+  ctx.stage = "preflight";
   const preflight = computePreflight(
     totalProjectFiles,
     eligible.map((e): EligibleFile => ({
@@ -529,6 +538,7 @@ Deno.serve(async (req) => {
     });
   }
 
+  ctx.stage = "claim";
   // ── Claim each file — DB-enforced idempotency via the unique constraint on
   // analysis_run_source(project_id, content_hash, contract_version, provider,
   // model, mode). A losing race (two tabs, a double-click, a retry) always
@@ -597,6 +607,7 @@ Deno.serve(async (req) => {
     return json({ ok: true, generated: 0, mode, message: "All selected files are already analysed or being analysed elsewhere.", skipped });
   }
 
+  ctx.stage = "download";
   // ── Download bytes for every claimed file, call OpenAI once for the batch ──
   const filesForOpenAi: { filename: string; bytes: Uint8Array }[] = [];
   for (const { file } of claimed) {
@@ -636,6 +647,7 @@ Deno.serve(async (req) => {
     const observationPromptText = buildObservationPrompt({ projectType: project.project_type ?? undefined });
     let locationResult;
     try {
+      ctx.stage = "openai";
       locationResult = await generateAnalysisViaOpenAI(OPENAI_API_KEY, model.id, observationPromptText, filesForOpenAi, CUNSTRUCT_OBSERVATION_JSON_SCHEMA);
     } catch (e) {
       const message = e instanceof Error ? e.message : "OpenAI request failed";
@@ -643,6 +655,7 @@ Deno.serve(async (req) => {
       return json({ ok: false, error: message, skipped }, 502);
     }
 
+    ctx.stage = "validate_response";
     const parsedObservations = parseObservationsV1(locationResult.rawJson);
     if (!parsedObservations.ok || !parsedObservations.observations) {
       await failClaims(supabase, claimed.map((c) => c.claimId), parsedObservations.error ?? "OpenAI response failed schema validation.");
@@ -682,6 +695,7 @@ Deno.serve(async (req) => {
       return json({ ok: false, error: "No observation could be pinned to an exact source document/revision.", skipped, observationDiagnostics }, 502);
     }
 
+    ctx.stage = "persist_run";
     const { data: locationRun, error: locationRunErr } = await supabase
       .from("analysis_run")
       .insert({
@@ -750,6 +764,7 @@ Deno.serve(async (req) => {
   const promptText = buildAnalysisPrompt({ projectType: project.project_type ?? undefined });
   let openAiResult;
   try {
+    ctx.stage = "openai";
     openAiResult = await generateAnalysisViaOpenAI(OPENAI_API_KEY, model.id, promptText, filesForOpenAi, CUNSTRUCT_ANALYSIS_JSON_SCHEMA);
   } catch (e) {
     const message = e instanceof Error ? e.message : "OpenAI request failed";
@@ -757,12 +772,14 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: message, skipped }, 502);
   }
 
+  ctx.stage = "validate_response";
   const parsedAnalysis = parseAnalysisV1(openAiResult.rawJson);
   if (!parsedAnalysis.ok || !parsedAnalysis.analysis) {
     await failClaims(supabase, claimed.map((c) => c.claimId), parsedAnalysis.error ?? "OpenAI response failed schema validation.");
     return json({ ok: false, error: "OpenAI response failed validation: " + (parsedAnalysis.error ?? "unknown error"), skipped }, 502);
   }
 
+  ctx.stage = "persist_run";
   const { data: run, error: runErr } = await supabase
     .from("analysis_run")
     .insert({
@@ -787,6 +804,7 @@ Deno.serve(async (req) => {
     item_key: it.ai.key, item_name: it.ai.item, ai_json: it.ai, reviewer_json: null,
     review_status: it.reviewStatus, sort: i,
   }));
+  ctx.stage = "persist_items";
   const { error: itemsErr } = await supabase.from("analysis_review_item").insert(rows);
   if (itemsErr) {
     await failClaims(supabase, claimed.map((c) => c.claimId), "Failed to persist review items.");
@@ -823,6 +841,41 @@ Deno.serve(async (req) => {
     // files just claimed, never framed as a full-project analysis.
     sourceCoverage: claimed.map((c) => c.file.filename),
   });
+}
+
+interface RequestContext {
+  requestId: string;
+  stage: AnalysisStage;
+  action?: string;
+  mode?: string;
+  projectId?: string;
+  boqId?: string | null;
+}
+
+// Every request runs through handle(); this wrapper only observes it. A 5xx
+// that handle() returns (e.g. its deliberate 502 when OpenAI refuses a call)
+// and any exception it throws are logged as ONE structured line naming the
+// stage that failed (see _shared/stageLog.ts: no headers, tokens, keys,
+// prompts or document contents). A thrown exception becomes an honest
+// { ok: false } 500 that names the stage, instead of an unexplained crash.
+// Nothing here changes a response's success or its body.
+Deno.serve(async (req) => {
+  const ctx: RequestContext = { requestId: req.headers.get("sb-request-id") ?? req.headers.get("x-request-id") ?? crypto.randomUUID(), stage: "parse_request" };
+  const log = (status: number, error: unknown) => {
+    const { requestId, stage, action, mode, projectId, boqId } = ctx;
+    console.error(JSON.stringify(stageLogEntry({ requestId, stage, action, mode, projectId, boqId, status, error })));
+  };
+  try {
+    const res = await handle(req, ctx);
+    if (res.status >= 500) {
+      const body = await res.clone().json().catch(() => null) as { error?: unknown } | null;
+      log(res.status, body?.error ?? `HTTP ${res.status}`);
+    }
+    return res;
+  } catch (e) {
+    log(500, e);
+    return json({ ok: false, error: `Internal error in ai-analysis at stage "${ctx.stage}". Try again; if it repeats, report the time and this stage.`, stage: ctx.stage }, 500);
+  }
 });
 
 async function failClaims(supabase: SupabaseClient, claimIds: string[], error: string): Promise<void> {
