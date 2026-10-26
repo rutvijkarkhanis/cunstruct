@@ -1,0 +1,31 @@
+name: Decision needed (needs-rutvij)
+description: Escalate a decision only Rutvij can make (PROTOCOL §10)
+title: "[CC-NNN] DECISION — "
+labels: ["needs-rutvij"]
+body:
+  - type: markdown
+    attributes:
+      value: "Escalate only for: an action needing authorization (PROTOCOL §15), a product/scope decision outside the plan, an irreversible choice, or an unresolved disagreement (§13). Public repository — no secrets or client data."
+  - type: textarea
+    id: question
+    attributes: { label: Question, description: "One sentence" }
+    validations: { required: true }
+  - type: textarea
+    id: why
+    attributes: { label: "Why it is Rutvij's", description: "Which PROTOCOL rule makes this his decision" }
+    validations: { required: true }
+  - type: textarea
+    id: options
+    attributes: { label: "Options and consequences", value: "A) \nB) \n" }
+    validations: { required: true }
+  - type: input
+    id: default
+    attributes: { label: "Default if no answer", placeholder: "Option A after <date>, or 'none — blocking'" }
+    validations: { required: true }
+  - type: input
+    id: blocks
+    attributes: { label: Blocks, placeholder: "#219" }
+  - type: input
+    id: agent
+    attributes: { label: "Raised by (agent)", placeholder: "Codex" }
+    validations: { required: true }

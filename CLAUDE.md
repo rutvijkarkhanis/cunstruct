@@ -12,6 +12,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Test the actual behavior, report exact results and limitations, and distinguish mocks from real-world verification.
 - End with the single highest-priority next step. Don’t claim more than the evidence proves.
 
+## Multi-agent team
+
+Three agents (Learnator, Ruthvich — Claude; Codex — OpenAI) share this repository through GitHub Issues. Before any task, read `docs/agent-orchestration/PLAN.md` and `PROTOCOL.md`; work only on a `status:ready` issue labelled for you, and sign every GitHub comment with your agent name. Items labelled `on-hold` must not be started.
+
 ## Commands
 
 ```bash

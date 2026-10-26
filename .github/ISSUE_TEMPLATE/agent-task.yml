@@ -1,0 +1,47 @@
+name: Agent task
+description: One task for one agent (docs/agent-orchestration/PROTOCOL.md §4)
+title: "[CC-NNN] "
+labels: ["status:backlog"]
+body:
+  - type: markdown
+    attributes:
+      value: "Public repository — no secrets, production data or client data (PROTOCOL §16)."
+  - type: input
+    id: id
+    attributes: { label: "Task ID", description: "CC-NNN, next unused number", placeholder: "CC-006" }
+    validations: { required: true }
+  - type: dropdown
+    id: owner
+    attributes: { label: Owner, options: [Learnator, Ruthvich, Codex, Unassigned] }
+    validations: { required: true }
+  - type: dropdown
+    id: reviewer
+    attributes: { label: "Reviewer (never the owner)", options: [Learnator, Ruthvich, Codex, Rutvij] }
+    validations: { required: true }
+  - type: input
+    id: plan_item
+    attributes: { label: "Plan item", description: "Which PLAN.md item this implements" }
+    validations: { required: true }
+  - type: input
+    id: depends
+    attributes: { label: "Depends on", description: "CC-IDs; also add GitHub's native 'blocked by' link", placeholder: "— or CC-002, CC-004" }
+  - type: input
+    id: branch
+    attributes: { label: Branch, placeholder: "agent/<name>/CC-NNN-<slug>" }
+    validations: { required: true }
+  - type: textarea
+    id: files
+    attributes: { label: "Files owned", description: "Exact paths/globs this task may change — nothing else" }
+    validations: { required: true }
+  - type: textarea
+    id: goal
+    attributes: { label: "Goal and steps" }
+    validations: { required: true }
+  - type: textarea
+    id: acceptance
+    attributes: { label: "Acceptance criteria", description: "Checkboxes; each objectively testable", value: "- [ ] \n" }
+    validations: { required: true }
+  - type: textarea
+    id: evidence
+    attributes: { label: "Evidence required", placeholder: "e.g. npm run test output; PR link; review comment" }
+    validations: { required: true }
