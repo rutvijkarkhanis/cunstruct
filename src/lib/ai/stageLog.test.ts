@@ -17,6 +17,14 @@ describe("ai-analysis stage logging", () => {
     expect(e.message).not.toMatch(/sk-secret/);
   });
 
+  it("caller-supplied fields are sanitized and capped, so a request cannot write free text into the logs", () => {
+    const e = stageLogEntry({ requestId: "r".repeat(500), stage: "parse_request", mode: `BOQ ${"x".repeat(500)} Bearer abc.def`, status: 500, error: "boom" });
+    expect(e.mode!.length).toBeLessThanOrEqual(32);
+    expect(e.requestId.length).toBeLessThanOrEqual(100);
+    expect(JSON.stringify(e)).not.toMatch(/abc\.def/);
+    expect("action" in e).toBe(false); // absent fields stay absent
+  });
+
   it("keeps only OpenAI's short error code, never its free-text message", () => {
     expect(openAiErrorCode({ error: { code: "insufficient_quota", message: "You exceeded your quota sk-abc" } })).toBe("insufficient_quota");
     expect(openAiErrorCode({ error: { code: null, type: "invalid_request_error" } })).toBe("invalid_request_error");

@@ -38,9 +38,21 @@ export interface StageLogEntry {
   message: string;
 }
 
+/** Caller-supplied short fields (action, mode, ids) — sanitized and capped, so a
+ *  crafted request cannot write arbitrary text into the logs. */
+const shortField = (v: string | null | undefined, max = 64) => (v == null ? v : sanitizeForLog(v).slice(0, max));
+
 export function stageLogEntry(args: Omit<StageLogEntry, "fn" | "level" | "message"> & { error: unknown }): StageLogEntry {
-  const { error, ...rest } = args;
-  return { fn: "ai-analysis", level: "error", ...rest, message: sanitizeForLog(error) };
+  const { error, requestId, action, mode, projectId, boqId, ...rest } = args;
+  return {
+    fn: "ai-analysis", level: "error", ...rest,
+    requestId: shortField(requestId, 100)!,
+    ...(action !== undefined ? { action: shortField(action) as string } : {}),
+    ...(mode !== undefined ? { mode: shortField(mode, 32) as string } : {}),
+    ...(projectId !== undefined ? { projectId: shortField(projectId) as string } : {}),
+    ...(boqId !== undefined ? { boqId: shortField(boqId) } : {}),
+    message: sanitizeForLog(error),
+  };
 }
 
 /** OpenAI's own short error identifiers (e.g. "insufficient_quota",
