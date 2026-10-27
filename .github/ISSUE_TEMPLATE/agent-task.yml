@@ -1,0 +1,39 @@
+name: Agent task
+description: One task, one owner (docs/agent-orchestration/PROTOCOL.md §3)
+title: "[Task] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: "Public repository — no secrets, production data or client data (PROTOCOL §9). Add the owner's `agent:<name>` label after creating."
+  - type: dropdown
+    id: owner
+    attributes: { label: Owner, options: [Learnator, Ruthvich, Codex] }
+    validations: { required: true }
+  - type: input
+    id: workstream
+    attributes: { label: Workstream, description: "From PLAN.md §1", placeholder: "W1 / W2 / bounded" }
+    validations: { required: true }
+  - type: textarea
+    id: outcome
+    attributes: { label: "Outcome", description: "What exists or works when this is done" }
+    validations: { required: true }
+  - type: textarea
+    id: acceptance
+    attributes: { label: "Acceptance criteria", description: "Checkboxes; each testable", value: "- [ ] \n" }
+    validations: { required: true }
+  - type: input
+    id: branch
+    attributes: { label: Branch, placeholder: "agent/<name>/<issue>-<slug>" }
+    validations: { required: true }
+  - type: textarea
+    id: files
+    attributes: { label: "Files or areas it may change" }
+    validations: { required: true }
+  - type: input
+    id: depends
+    attributes: { label: "Depends on", placeholder: "none, or #215 (and the integration point)" }
+  - type: textarea
+    id: evidence
+    attributes: { label: "Evidence and review", description: "What proves it is done; review level per PROTOCOL §6", placeholder: "npm run test output; deno check result; independent review by Ruthvich" }
+    validations: { required: true }
