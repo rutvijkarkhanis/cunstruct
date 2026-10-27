@@ -14,8 +14,11 @@ Closes #<issue> · ID: CC-NNN · Agent: <Learnator | Ruthvich | Codex | Rutvij>
 |---|---|---|
 | Lint | `npm run lint` | |
 | Tests | `npm run test` | |
-| Build | `npm run build` | |
+| Build (no `VERCEL*`/`STAGING_*` vars) | `npm run build` | exit code, last lines, commit SHA |
+| Hosted checks | Vercel, Supabase Preview, … | each result; say "log not available to the agent" where true |
 | Other / not run (and why) | | |
+
+A local build is not proof that a hosted deployment succeeds. Every failing hosted check needs Rutvij's review before merge (PROTOCOL §9).
 
 Pre-existing failures (with proof they also fail on `main`): <none | list>
 

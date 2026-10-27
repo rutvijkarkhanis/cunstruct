@@ -53,7 +53,7 @@ The pilot tests coordination, not Cunstruct features. Each agent gets one small 
    | `REVIEW REQUEST` on CC-003's PR | Codex, to review CC-003 |
    | CC-003 verified and merged | Rutvij: retrospective (CC-005) |
 
-5. Answer the CC-004 simulation question on its issue, not in chat (PROTOCOL §10).
+5. Answer the CC-004 simulation question on its issue as `DECISION CC-004: … — Rutvij`, not in chat (PROTOCOL §2.1, §10).
 
 ## 4. Pilot exit criteria
 
@@ -63,7 +63,8 @@ The pilot tests coordination, not Cunstruct features. Each agent gets one small 
   - `verified` is added by the author, or without a prior signed review from the named reviewer;
   - a closed issue lacks `verified`;
   - an agent acts without a ticket;
-  - an action from PROTOCOL §15 is taken without approval;
+  - an action from PROTOCOL §15 is taken without a `DECISION … — Rutvij` comment (PROTOCOL §2.1);
+  - an agent writes a `DECISION` line or the signature `— Rutvij`, or treats an agent, unsigned or relayed comment as approval;
   - work is lost on interruption.
 
 A failure is recorded in the retrospective with its cause. Gates are never relaxed silently.

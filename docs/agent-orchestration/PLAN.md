@@ -65,7 +65,7 @@ The unpushed LOCATION-assurance work on `claude/gifted-lamport-geu7ff` also wait
 | # | Decision | Default in force | Alternatives |
 |---|---|---|---|
 | D1 | Shared GitHub account: identity by label, signature, branch prefix and commit trailer (PROTOCOL §2) | In force | Separate GitHub accounts or apps per agent. This would allow real approvals and notifications, but needs account and billing changes by Rutvij. |
-| D2 | Who merges pilot PRs | **Rutvij merges** after the PROTOCOL §9 merge checklist. That list accepts the known, by-design Vercel Preview failure. | The reviewing agent merges docs-only pilot PRs. Fewer escalations, but every merge to `main` triggers a Vercel production deploy. |
+| D2 | Who merges pilot PRs | **Rutvij merges** after the PROTOCOL §9 merge checklist: local build evidence plus his own review of every failing hosted check, recorded as a `DECISION`. No failure is accepted by rule. | The reviewing agent merges docs-only pilot PRs. Fewer escalations, but every merge to `main` triggers a Vercel production deploy. |
 | D3 | How Rutvij learns of `needs-rutvij` | **He checks the Needs Rutvij view** (bookmark) at least daily during the pilot | A daily Claude scheduled task that checks the view and sends a phone push. It needs his approval because it creates a scheduled task and spends usage. |
 | D4 | Project board | **Created manually by Rutvij** (CC-006). The agent sessions cannot reach the Projects API. | Labels and saved searches only. These already work without the board. |
 

@@ -104,12 +104,13 @@ Agents keep working entirely from labels and issues. If the board is never creat
 |---|---|
 | Start an agent | Paste the start prompt from `PLAN.md` §7 into a new session of that agent. Use the relay schedule in `PILOT.md` §3 during the pilot. |
 | See what needs you | Open **Needs Rutvij** (§2) or the Project's Needs Rutvij view |
-| Answer a question | Reply **on the issue**, choosing an option. Then restart the asking agent. Answers given in chat must be copied to the issue (PROTOCOL §10). |
+| Answer a question | Reply **on the issue** as `DECISION <ID>: <option and the action it authorizes>` ending `— Rutvij` (PROTOCOL §2.1). Then restart the asking agent. A chat answer relayed by an agent is a record only, never authorization. |
 | Make a ticket claimable | Swap `status:backlog` for `status:ready`, and only if its "blocked by" issues are closed as completed and `verified` |
-| Merge | Run the PROTOCOL §9 merge checklist. The known Vercel Preview failure is the only acceptable red check. |
+| Merge | Run the PROTOCOL §9 merge checklist. Read the log of every failing hosted check yourself; no failure is accepted by rule. A Vercel Preview failure is caused by the staging guard only if its log shows "Vercel Preview build refused". Record the outcome as `DECISION <ID>: merge despite … — Rutvij`. |
 | Recover interrupted work | Start the owning agent with the start prompt. It resumes from its last `CHECKPOINT` (PROTOCOL §14). If an owner is gone for over 24 hours after a `stale` comment, reassign by swapping the `agent:*` label and commenting. |
 | Change the plan | Approve or reject a `type:plan-change` issue. Approved changes bump `PLAN.md`'s version and change log. |
 | Check progress | Open the milestone. Confirm both audit queries (§2) are empty. |
+| Review the decision log | Search the repository's issues for `"DECISION"`. Every hit must be a comment you wrote. An agent-written `DECISION` or `— Rutvij` is a protocol breach (PROTOCOL §2.1). |
 
 ## 6. Verification of the setup (run 26 Oct 2026)
 
