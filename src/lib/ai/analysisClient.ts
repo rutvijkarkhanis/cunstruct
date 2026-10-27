@@ -121,7 +121,8 @@ export async function analysisRequestError(error: unknown): Promise<Error> {
   let serverError: string | null = null;
   try {
     const body = await res.clone().json() as { error?: unknown };
-    if (typeof body?.error === "string" && body.error.trim()) serverError = body.error.trim();
+    // Shown as is (the server already returns it), on one line and capped.
+    if (typeof body?.error === "string" && body.error.trim()) serverError = body.error.replace(/\s+/g, " ").trim().slice(0, 300);
   } catch { /* not JSON (e.g. a gateway page): the status is all there is */ }
   const message = serverError
     ? `${serverError} (HTTP ${res.status})`

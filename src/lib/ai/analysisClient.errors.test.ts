@@ -34,6 +34,13 @@ describe("ai-analysis failures carry the server's reason", () => {
     await expect(fetchPreflight({ projectId: "p1" })).rejects.toThrow("boqId is required for BOQ-mode analysis. (HTTP 400)");
   });
 
+  it("an overlong or multi-line server message is shown on one line, capped", async () => {
+    fn.result = httpError(500, JSON.stringify({ ok: false, error: `line one\n${"x".repeat(1000)}` }));
+    const err = await generateAnalysis({ projectId: "p1" }).catch((e) => e);
+    expect(err.serverError).toHaveLength(300);
+    expect(err.message).not.toMatch(/\n/);
+  });
+
   it("a gateway answer with no JSON still names the status, and says the reason is unknown", async () => {
     fn.result = httpError(502, "<html>Bad Gateway</html>", "text/html");
     await expect(generateAnalysis({ projectId: "p1" })).rejects.toThrow("The analysis service failed (HTTP 502) without saying why.");
