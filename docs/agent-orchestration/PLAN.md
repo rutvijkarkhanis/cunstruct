@@ -1,101 +1,82 @@
-# Cunstruct agent command centre: plan of record v1.0
+# Cunstruct team plan: workstreams and first cycle
 
-| | |
-|---|---|
-| **Version** | v1.0. Draft until the setup PR merges, then frozen. |
-| **Date** | 26 Oct 2026 |
-| **Owner** | Rutvij. Only he approves changes (PROTOCOL §13). |
-| **Baseline** | `main` @ `1c47814` |
-| **Scope** | The multi-agent orchestration system and its pilot. **Nothing else.** No Cunstruct product feature is planned here. |
-| **Tracking issue** | [#221](https://github.com/rutvijkarkhanis/cunstruct/issues/221) (CC-001) |
-| **Rules** | `PROTOCOL.md`. Dashboard: `DASHBOARD.md`. Pilot: `PILOT.md`. |
+The rules are in `PROTOCOL.md`. This file says who owns what, and what the first cycle is. Live status is in issue #221.
 
-This plan follows the conventions of `docs/PLAN-OF-RECORD.md`:
-- every item has an ID, owner, dependencies, a "done when" test and evidence;
-- frozen tests are never edited to pass;
-- changes need a new version with a change-log entry.
+## 1. Workstreams and ownership
 
-Live status is GitHub's (labels and open/closed state), not this file's.
-
----
-
-## 1. Team
-
-| Agent | Kind | Instruction file it reads | Branch prefix | Label |
-|---|---|---|---|---|
-| Learnator | Claude Code (Claude account) | `CLAUDE.md` → this folder | `agent/learnator/` | `agent:learnator` |
-| Ruthvich | Claude Code (Claude account) | `CLAUDE.md` → this folder | `agent/ruthvich/` | `agent:ruthvich` |
-| Codex | OpenAI Codex | `AGENTS.md` → this folder | `agent/codex/` | `agent:codex` |
-| Rutvij | Human owner | — | — | `needs-rutvij` is his queue |
-
-## 2. Items
-
-| ID | Owner | Item | Depends on | Done when | Evidence |
-|---|---|---|---|---|---|
-| CC-001 | Learnator (setup) | Command-centre setup: labels, milestone, tracking issue, protocol, plan, pilot, templates, agent entry points | — | Setup PR merged by Rutvij. Labels, milestone 1 and issues #217–#221 exist as described in `DASHBOARD.md`. | PR link; `DASHBOARD.md` §6 verification output |
-| CC-006 | **Rutvij** | Create the GitHub Project *Cunstruct Agent Command Centre* (optional; the label views work without it) | CC-001 | The Project exists with the items, views and link to #221 in `DASHBOARD.md` §3 | Project URL in a comment on #221 |
-| CC-002 | Learnator | Pilot: capability check-in and interruption drill | CC-001 | #218 closed as completed and `verified` | #218 |
-| CC-003 | Ruthvich | Pilot: capability check-in and capability matrix (integrator) | CC-002, CC-004 | #219 closed as completed and `verified` | #219 |
-| CC-004 | Codex | Pilot: capability check-in and simulated escalation | CC-001 | #220 closed as completed and `verified` | #220 |
-| CC-005 | Rutvij | Pilot retrospective: accept or revise this plan and protocol | CC-002–004 | `PILOT.md` §5 completed, and either v1.1 published or v1.0 confirmed | Comment on #221 |
-
-## 3. Progress measure
-
-**Progress = verified completed items ÷ planned items.** It is measured by GitHub, never self-reported:
-- **Milestone "Orchestration pilot"** ([milestone 1](https://github.com/rutvijkarkhanis/cunstruct/milestone/1)): GitHub's own percentage of closed issues.
-- **Sub-issue progress on #221:** GitHub's own "n of m".
-
-Both count **every closed issue, whatever the close reason**. They therefore measure verified work only because of three rules:
-- **Closing is gated:** a task issue closes only through Rutvij's merge of a verified PR (PROTOCOL §4, §9).
-- **Not planned leaves the counts:** a ticket closed as not planned is first removed from the milestone and from #221's sub-issues (PROTOCOL §4).
-- **Two audit queries must stay empty** (`DASHBOARD.md` §2): "closed, completed, pilot, **not** `verified`" and "closed as not planned, still in the milestone".
-
-Any result from either query makes the bar wrong and is a P0 defect. The `verified` label alone proves nothing on a shared account. It counts only with the signed review that precedes it (PROTOCOL §9).
-
-## 4. On hold: do not start
-
-| ID | Item | Status |
-|---|---|---|
-| CC-HOLD-001 ([#217](https://github.com/rutvijkarkhanis/cunstruct/issues/217)) | BOQ-line provenance contract: scope state, evidence, formula, assumptions and revision per BOQ line | **ON HOLD — DO NOT START.** No agent may claim, branch, or open a PR for it. Only Rutvij removes `on-hold`. |
-
-The unpushed LOCATION-assurance work on `claude/gifted-lamport-geu7ff` also waits for Rutvij. The repository is public, and that work's fixtures contain client-drawing data.
-
-## 5. Decisions
-
-| # | Decision | Default in force | Alternatives |
+| Workstream | Owner | Owns (may change) | Must not change without agreement |
 |---|---|---|---|
-| D1 | Shared GitHub account: identity by label, signature, branch prefix and commit trailer (PROTOCOL §2) | In force | Separate GitHub accounts or apps per agent. This would allow real approvals and notifications, but needs account and billing changes by Rutvij. |
-| D2 | Who merges pilot PRs | **Rutvij merges** after the PROTOCOL §9 merge checklist: local build evidence plus his own review of every failing hosted check, recorded as a `DECISION`. No failure is accepted by rule. | The reviewing agent merges docs-only pilot PRs. Fewer escalations, but every merge to `main` triggers a Vercel production deploy. |
-| D3 | How Rutvij learns of `needs-rutvij` | **He checks the Needs Rutvij view** (bookmark) at least daily during the pilot | A daily Claude scheduled task that checks the view and sends a phone push. It needs his approval because it creates a scheduled task and spends usage. |
-| D4 | Project board | **Created manually by Rutvij** (CC-006). The agent sessions cannot reach the Projects API. | Labels and saved searches only. These already work without the board. |
+| **W1: AI analysis pipeline.** Make "Analyze Project" work, or fail with a named and actionable reason, in production. Then land the LOCATION assurance work on top of it. | Learnator | `supabase/functions/**`, `src/lib/ai/**`, `src/lib/review/assurance/**`, `src/components/ops/workspace/WorkspaceAnalyzePanel*`, `src/components/review/DocumentLocation*` | UI shells and routes (W2) |
+| **W2: UX revamp, charter Phase 0 then Phase 1.** Produce the architecture inventory that the approved UX/UI charter requires before any redesign. Then make its narrow trust fixes. | Ruthvich | `docs/ux/**`, `src/test/uxInventory*`; in Phase 1, the page or component named by each fix | Anything W1 owns |
+| **Bounded tasks** | Codex | Only the files named on its issue | Everything else |
 
-## 6. Capabilities: verified versus assumed
+**Why these two.**
+- W1 is the live production defect on the product's core path: Analyze Project returns HTTP 502 (PR #215). It also covers the pending assurance work, which touches the same Edge Function. Putting both under one owner means one agent owns `ai-analysis/index.ts`.
+- W2 is the next step of the owner-approved charter (PR #209). Phase 0 is documentation and tests only, so it shares no files with W1.
 
-Verified on 26 Oct 2026 by the setup session: Claude Code on the web, presumed Learnator, not yet confirmed by Rutvij, acting on GitHub as `rutvijkarkhanis`.
+**On hold:** #217 (BOQ provenance) stays `on-hold`. Neither workstream starts it.
 
-| Capability | Learnator (setup session) | Ruthvich | Codex |
-|---|---|---|---|
-| Read and write issues, comments, labels and milestones (REST) | **Verified**: created labels, milestone 1, #217–#221 | Assumed | Assumed |
-| Sub-issues and native "blocked by" dependencies (REST) | **Verified**: #221 has 3 sub-issues; #219 blocked by #218 and #220 | Assumed | Assumed |
-| Create branches, push (fast-forward) and open PRs | **Verified** (this PR; earlier #211–#216) | Assumed | Assumed |
-| Force-push or rewrite history | **Not permitted** (blocked by the session's permission policy) | Unknown | Unknown |
-| GitHub GraphQL, Projects v2, pinning issues | **Not available**: the proxy returns 403 for GraphQL | Unknown | Unknown |
-| Read branch-protection settings | **Not available** (403). The API reports `main` as unprotected. | Unknown | Unknown |
-| Formally approve a PR | **Impossible for all three** (same account as the author; GitHub rule, not tested) | Same | Same |
-| Woken by GitHub events | PR comments, reviews and CI only, when subscribed; **issue comments do not wake it** | Assumed similar | **Unknown** |
-| Schedule its own check-ins | Available (Claude scheduled tasks), but costs usage, so it needs D3-style approval | Assumed | **Unknown** |
-| Message another agent directly | **No**: only same-account Claude sessions are reachable, and none of the others is | No | No |
-| Run continuously | **No** | Assumed no | Assumed no |
-| Run `npm run lint/test/build` locally | **Verified** in previous sessions | Assumed | Assumed |
+## 2. First cycle
 
-The pilot replaces every "Assumed" or "Unknown" with "Verified" or "Not available" (`PILOT.md`).
+### Learnator: W1, task 1, make PR #215 mergeable
 
-## 7. Start prompt (Rutvij uses this to start any agent)
+Since #215 was opened, #216 merged its web-only half into `main`. As a result:
+- #215 now conflicts with `main` in `src/lib/ai/analysisClient.ts` and `src/lib/ai/analysisClient.errors.test.ts`;
+- its Edge Function half is still unmerged: `_shared/stageLog.ts`, the `_shared/openaiClient.ts` error codes and the `ai-analysis/index.ts` stage logging.
 
-> You are **<Name>** on the Cunstruct team. Before anything else, read `docs/agent-orchestration/PLAN.md` and `PROTOCOL.md` on `main`, or on branch `claude/agent-command-centre` until it merges. Run the dashboard queries in `DASHBOARD.md` §2. Resume your own `status:in-progress` or `status:blocked` tickets from their latest checkpoint. Then do any review requested of you (a `REVIEW REQUEST` naming you on an open ticket; PROTOCOL §9). Otherwise claim one `status:ready` ticket labelled `agent:<name>`. Never start anything labelled `on-hold`. Follow PROTOCOL exactly. Sign every comment `— <Name>`. Stop after posting a checkpoint when your ticket is in review, blocked, or your session must end.
+**Acceptance:**
+- [ ] `main` merged into the #215 branch, with no rebase or force-push. `main`'s client code is kept wherever #216 already covers the change. Any remaining client difference is explained in the PR.
+- [ ] `npm run lint`, `npm run test` and `npm run build` pass. The PR shows the results.
+- [ ] `deno check supabase/functions/ai-analysis/index.ts`, run on a copy of the tree that includes `src/`, reports no error that `main` does not also report. `main`'s baseline with Deno 2.9.6 is 2 errors: `openaiClient.ts` TS2322 and `index.ts` TS2345.
+- [ ] The PR states exactly what a deploy changes, and the one log line Rutvij must read after it to name the cause of the 502.
+- [ ] Independent review by Ruthvich (high risk: the change deploys an Edge Function).
 
-## 8. Change log
+**Next W1 tasks, in order:**
+1. **Root cause of the 502.** This needs one log line after the deploy, which Rutvij must authorize and read.
+2. **Publish PR A**, the assurance library. It has no runtime effect, but publishing it needs Rutvij's decision (§8: the work came from client material).
+3. **Publish PR B**, the LOCATION persistence gate. It goes on top of #215 and conflicts with it in `ai-analysis/index.ts` and `analysisClient.ts`; W1 owns both sides. It needs the Deno check and an approved staging run (see docs/location-persist-gate-release.md on the PR B branch).
 
-| Version | Date | Change | Approved by |
-|---|---|---|---|
-| v1.0 | 26 Oct 2026 | Initial plan, protocol and pilot | Pending: setup PR |
+### Ruthvich: W2, task 1, charter Phase 0 capability inventory
+
+The deliverable is `docs/ux/PHASE-0-INVENTORY.md`, written according to charter §8.1. The charter is in PR #209 (`docs/UX-UI-REVAMP-CHARTER.md`). Build on `docs/B12-ROUTE-INVENTORY.md` (route rows already tested by `src/lib/routeInventory.test.ts`) and `docs/UX-UI-AUDIT.md`. Do not redo them. No application code changes in this phase.
+
+**Acceptance:**
+- [ ] A shell map: which layout wraps which routes, and the signed-in landing route.
+- [ ] A **canonical shell proposal**, with evidence. It is a proposal: the owner decides.
+- [ ] A capability matrix covering every capability in charter §8.1 item 3. Each row gives:
+  - the owning components;
+  - the persistence functions or tables;
+  - the tests that protect it;
+  - its production status: **works**, **unavailable (migration not applied)** or **unknown — owner check needed**. Never guess this status.
+- [ ] A new test, `src/test/uxInventory.test.ts`, fails if a component, function or test file named in the matrix does not exist.
+- [ ] A disposition table (charter §7) and a viewport proposal, both marked as proposals.
+- [ ] Verified by Codex: it re-runs the test and spot-checks five rows against the code.
+
+**Next W2 tasks:**
+- Owner review of Phase 0 (the charter gate).
+- Then Phase 1: narrow trust fixes (charter §8.4), each on its own branch. A fix that touches W1's files records the dependency first.
+
+### Codex: one bounded task, a Vercel Preview failure report
+
+Every PR's Vercel check is red. That makes every merge need Rutvij's manual review of a hosted failure (§6.1).
+
+**Deliverable:** `docs/bugs/VERCEL-PREVIEW-BUILD-REFUSED.md`. It is documentation only, with no code or configuration change.
+
+**Done when the report:**
+- [ ] names the `main` SHA it was tested on;
+- [ ] shows `npm run build` with no Vercel variables exiting 0;
+- [ ] shows `VERCEL=1 VERCEL_ENV=preview npm run build` exiting non-zero with "Vercel Preview build refused", with the exit code and output lines;
+- [ ] cites the guard's condition in `scripts/staging-guard.mjs` and the commit that introduced it;
+- [ ] lists the PRs whose Vercel check failed before and after that commit, from the GitHub REST check runs;
+- [ ] states plainly that the hosted Vercel log was **not** read;
+- [ ] gives the two options for Rutvij without choosing between them: (a) set the `STAGING_*` variables in Vercel's Preview environment; (b) stop building PRs on Vercel. Both are §8 changes.
+
+## 3. After the first cycle
+
+Evaluate only three things:
+
+1. Did both leads make meaningful independent progress, measured as merged or review-ready PRs with evidence?
+2. Did the agents coordinate without Rutvij, beyond §8 decisions?
+3. Were quality and safety preserved: no red checks hidden, no overlap overwritten, no sensitive data published?
+
+Change `PROTOCOL.md` only for a problem actually observed, and record the observation here.

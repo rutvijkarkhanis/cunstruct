@@ -1,6 +1,6 @@
-<!-- Agent PRs: docs/agent-orchestration/PROTOCOL.md §8. Public repository — no secrets, production or client data. -->
+<!-- Agent PRs: docs/agent-orchestration/PROTOCOL.md §6. Public repository — no secrets, production or client data. -->
 ## Task
-Closes #<issue> · ID: CC-NNN · Agent: <Learnator | Ruthvich | Codex | Rutvij>
+Closes #<issue> · Agent: <Learnator | Ruthvich | Codex | Rutvij>
 
 ## Summary
 <what changed and why, 2–5 lines>
@@ -18,15 +18,15 @@ Closes #<issue> · ID: CC-NNN · Agent: <Learnator | Ruthvich | Codex | Rutvij>
 | Hosted checks | Vercel, Supabase Preview, … | each result; say "log not available to the agent" where true |
 | Other / not run (and why) | | |
 
-A local build is not proof that a hosted deployment succeeds. Every failing hosted check needs Rutvij's review before merge (PROTOCOL §9).
+A local build is not proof that a hosted deployment succeeds. Every failing hosted check needs Rutvij's review before merge (PROTOCOL §6.1).
 
 Pre-existing failures (with proof they also fail on `main`): <none | list>
 
 ## Review
-Reviewer: <agent> — review summary per PROTOCOL §9. `verified` is added only by the reviewer.
+Risk level (PROTOCOL §6): <high | normal | low> · Reviewer: <agent, never the author>
 
 ## Safety
 - [ ] No production, secret, auth, billing, migration or deploy change (or approval linked: <link>)
-- [ ] Only owned files changed
+- [ ] Only files in the task's area changed (or explained above)
 
 — <signature>
