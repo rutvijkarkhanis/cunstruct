@@ -412,9 +412,158 @@ def skirting_takeoff(tables):
     return out
 
 
+# ---------------------------------------------------------------- openings take-off
+
+TAG_MARK = re.compile(r"^([A-Z]{1,3})-?(\d{1,3}[A-Z]?)$")
+COUNT_UNITS = {"nos", "nr", "no", "no.", "nos.", "count", "each", "ea"}
+OPENING_KIND = {"D": "Door", "W": "Window", "V": "Ventilator", "SD": "Sliding door", "FD": "Fire door"}
+
+
+def _mark(key):
+    m = TAG_MARK.match((key or "").strip())
+    return f"{m.group(1)}{m.group(2)}" if m else None
+
+
+def _boxes(item, label=None):
+    return [dict(page=e.get("page", (item.get("source") or {}).get("page")), bbox=e["bbox"], label=label or e.get("label", ""))
+            for e in (item.get("source") or {}).get("evidence", []) if e.get("bbox")]
+
+
+def opening_sizes(schedule_items):
+    """{mark: size fact} from the schedule reader's door/window items
+    (key 'SCHED:<mark>'). A size is resolved only when the schedule printed
+    exactly one width and one height."""
+    out = {}
+    for it in schedule_items:
+        key = it.get("key", "")
+        if not key.startswith("SCHED:") or key.count(":") != 1:
+            continue
+        mark = _mark(key[6:])
+        if not mark:
+            continue
+        notes = it.get("notes") or ""
+        fact = dict(mark=mark, name=it.get("specification") or it.get("item"), evidence=_boxes(it), status=None, width=None, height=None,
+                    candidates=[], reason=None)
+        cd = it.get("calculation_data")
+        if it.get("status") == "MEASURED" and cd and cd.get("formula") == "LENGTH_TIMES_WIDTH" and len(cd["inputs"]) == 2:
+            w, h = cd["inputs"]
+            fact.update(status="calculated", width=measure(f"{mark} width", w["value"], w["unit"], "observed", fact["evidence"]),
+                        height=measure(f"{mark} height", h["value"], h["unit"], "observed", fact["evidence"]))
+        elif it.get("candidates"):
+            fact.update(status="conflicting", candidates=[dict(value=dec(c["value"]), unit=unit_of(c.get("unit")) or "sqm", basis=c.get("basis", "")) for c in it["candidates"]],
+                        reason=f"schedule prints more than one size for {mark}: {notes}")
+        elif "no row in any schedule" in notes:
+            fact.update(status="insufficient", reason=f"{mark} has no row in any schedule found, so its size is unknown")
+        else:
+            fact.update(status="insufficient", reason=f"schedule gives no usable size for {mark}: {notes or 'nothing printed'}")
+        out[mark] = fact
+    return out
+
+
+def opening_counts(count_items):
+    """{mark: count fact} from any instance counter's analysis items (one per
+    mark, or one per mark per floor). Floors add up only when every one is
+    resolved; a count check that disagrees, or two items for one mark on one
+    floor, is a conflict. Nothing is guessed from a pending count."""
+    groups, checks = {}, {}
+    for it in count_items:
+        key = it.get("key", "")
+        if key.startswith("CHECK:count:"):
+            checks.setdefault(_mark(key[12:]) or key[12:], []).append(it)
+            continue
+        mark = _mark(key)
+        if not mark or (it.get("unit") or "").strip().lower() not in COUNT_UNITS:
+            continue
+        groups.setdefault(mark, []).append(it)
+    out = {}
+    for mark in sorted(set(groups) | set(checks)):
+        its = groups.get(mark, [])
+        ev = [b for it in its for b in _boxes(it)]
+        floors = [it.get("location") or "" for it in its]
+        reasons, status, candidates = [], "calculated", []
+        if len(set(floors)) != len(floors):
+            status = "conflicting"
+            reasons.append(f"{mark} is counted more than once for the same floor ({len(its)} count items)")
+        pending = [it for it in its if it.get("status") != "MEASURED" or it.get("quantity") is None]
+        if pending:
+            status = worst([status, "pending_review"])
+            reasons += [f"{mark} count unresolved upstream: {(it.get('notes') or 'no reason given').strip()}" for it in pending]
+            if len(its) == 1 and pending[0].get("candidates"):
+                candidates = [dict(value=dec(c["value"]), basis=c.get("basis", "")) for c in pending[0]["candidates"]]
+        for c in checks.get(mark, []):
+            status = "conflicting"
+            reasons.append(f"{c.get('item') or 'count check'}: {c.get('notes') or ''}".strip())
+            candidates = [dict(value=dec(x["value"]), basis=x.get("basis", "")) for x in c.get("candidates", [])]
+        n = sum(int(it["quantity"]) for it in its) if status == "calculated" else None
+        out[mark] = dict(mark=mark, status=status if its else "insufficient", count=n, evidence=ev, reasons=reasons if its else [f"no count item for {mark}"],
+                         candidates=candidates, floors=[f or "(floor not stated)" for f in floors])
+    return out
+
+
+def openings_takeoff(schedule_items, count_items):
+    """Per door/window type: a joinery line (count, in nos, described with
+    its scheduled size) and an opening-area line (per-unit width x height x
+    count, in sqm: the shutter/opening area, and the deduction a wall-finish
+    take-off will need). Each line is calculated only when both its count
+    and its size are resolved; otherwise it carries the reasons and, where
+    one side is known, candidates."""
+    sizes, counts = opening_sizes(schedule_items), opening_counts(count_items)
+    records = []
+    for mark in sorted(set(sizes) | set(counts), key=lambda m: (TAG_MARK.match(m).group(1), int(re.match(r"\d+", TAG_MARK.match(m).group(2)).group(0)), m)):
+        size = sizes.get(mark) or dict(status="insufficient", reason=f"{mark} is counted but has no row in any schedule found", candidates=[], evidence=[],
+                                       width=None, height=None, name=None)
+        cnt = counts.get(mark) or dict(status="insufficient", count=None, reasons=[f"{mark} is scheduled but no count was supplied for it"],
+                                       candidates=[], evidence=[], floors=[])
+        kind = OPENING_KIND.get(TAG_MARK.match(mark).group(1), "Opening")
+        size_text = None
+        if size["status"] == "calculated":
+            w_mm, h_mm = convert(size["width"]["value"], size["width"]["unit"], "mm"), convert(size["height"]["value"], size["height"]["unit"], "mm")
+            size_text = f"{w_mm.normalize():f} x {h_mm.normalize():f} mm"
+        label = " ".join(x for x in [f"{kind} {mark}", "—" if size.get("name") or size_text else "", ", ".join(x for x in [
+            (size.get("name") or "").split(" (")[0] or None, size_text] if x)] if x)
+        count_m = measure(f"{mark} count", cnt["count"], "nos", "derived", cnt["evidence"]) if cnt["count"] is not None else None
+        deps = [dict(kind="instance_count", key=mark, status=cnt["status"], floors=cnt.get("floors", [])),
+                dict(kind="schedule_size", key=f"SCHED:{mark}", status=size["status"])]
+        size_reasons = [size["reason"]] if size.get("reason") else []
+        # joinery line: the count is the quantity; the size completes its description
+        j_status = worst([cnt["status"], "pending_review" if size["status"] != "calculated" else "calculated"])
+        j_reasons = cnt["reasons"] + ([f"size not resolved: {size_reasons[0]}"] if size_reasons else [])
+        j_cands = [dict(value=dec(cnt["count"]), unit="nos", basis="tags counted on floor plans; the size is unresolved")] \
+            if cnt["status"] == "calculated" and j_status != "calculated" else \
+            [dict(value=c["value"], unit="nos", basis=c["basis"]) for c in cnt["candidates"]]
+        records.append(quantity_record(key=mark, boq_item=label, element_type="joinery", unit="nos", method="instances counted on floor plans",
+                                       formula="none", inputs=[count_m] if count_m else [], status=j_status,
+                                       quantity=dec(cnt["count"]) if j_status == "calculated" else None, reasons=[] if j_status == "calculated" else j_reasons,
+                                       dependencies=deps, candidates=[] if j_status == "calculated" else j_cands))
+        # opening area: per-unit area x count (QUANTITY_PER_UNIT_TIMES_UNIT_COUNT)
+        a_status = worst([cnt["status"], size["status"]])
+        inputs, a_cands = [], []
+        if size["status"] == "calculated":
+            unit_area, _ = rect_area(size["width"], size["height"])
+            inputs.append(measure(f"{mark} area of one opening ({size_text})", unit_area, "sqm", "derived", size["evidence"]))
+        if count_m:
+            inputs.append(count_m)
+        if a_status != "calculated":
+            if size["status"] == "calculated" and cnt["candidates"]:
+                a_cands = [dict(value=inputs[0]["value"] * c["value"], unit="sqm", basis=f"one opening x {c['value']} ({c['basis']})") for c in cnt["candidates"]]
+            elif cnt["status"] == "calculated" and size["candidates"]:
+                a_cands = [dict(value=c["value"] * cnt["count"], unit="sqm", basis=f"{c['basis']} x {cnt['count']} counted") for c in size["candidates"]
+                           if c["unit"] == "sqm"]
+        records.append(quantity_record(key=f"AREA:{mark}", boq_item=f"{label} — opening area", element_type="opening_area", unit="sqm",
+                                       method="area of one opening (scheduled width x height) x openings counted on floor plans",
+                                       formula="QUANTITY_PER_UNIT_TIMES_UNIT_COUNT", inputs=inputs, status=a_status,
+                                       quantity=inputs[0]["value"] * count_m["value"] if a_status == "calculated" else None,
+                                       reasons=[] if a_status == "calculated" else list(dict.fromkeys(cnt["reasons"] + size_reasons)),
+                                       dependencies=deps, candidates=a_cands,
+                                       deductions=[dict(note="none: the opening area itself; it is the deduction a wall-finish take-off applies")]))
+    return records
+
+
 # ---------------------------------------------------------------- output
 
 ANALYSIS_STATUS = {"calculated": "MEASURED"}
+# formulas the app can recompute (analysisSchemaV1.ts CALCULATION_FORMULA_IDS); anything else travels as text only
+APP_FORMULAS = ("SUM_OF_SEGMENTS", "UNIT_CONVERSION", "LENGTH_TIMES_WIDTH", "COUNT_TIMES_MULTIPLIER", "QUANTITY_PER_UNIT_TIMES_UNIT_COUNT")
 
 
 def to_analysis_item(rec, doc_name="drawing", page_size=None):
@@ -436,11 +585,13 @@ def to_analysis_item(rec, doc_name="drawing", page_size=None):
         terms = " + ".join(f"{m['name']} {m['value'].normalize():f} {m['unit']}" + (" (from printed size)" if m["kind"] == "derived" else "") for m in rec["inputs"])
         item["calculation"] = f"{rec['method']}: {terms}" + (f" = {rec['quantity'].normalize():f} {rec['unit']}" if rec["quantity"] is not None else "") + \
             f". {rec['deductions'][0]['note'] if rec['deductions'] and 'note' in rec['deductions'][0] else ''} [{rec['calc_version']}]"
-    if rec["status"] == "calculated" and rec["formula"] in ("SUM_OF_SEGMENTS", "UNIT_CONVERSION", "LENGTH_TIMES_WIDTH", "COUNT_TIMES_MULTIPLIER") and rec["inputs"]:
-        item["calculation_data"] = dict(formula=rec["formula"], inputs=[dict(name=m["name"], value=float(m["value"]), unit=m["unit"]) for m in rec["inputs"]])
+    if rec["status"] == "calculated" and rec["formula"] in APP_FORMULAS and rec["inputs"]:
+        # the app's validator calls a dimensionless count "count" (measurementValidator.ts)
+        item["calculation_data"] = dict(formula=rec["formula"], inputs=[dict(name=m["name"], value=float(m["value"]), unit="count" if m["unit"] == "nos" else m["unit"])
+                                                                        for m in rec["inputs"]])
     notes = []
     if rec["status"] != "calculated":
-        notes.append(f"{rec['status'].replace('_', ' ').capitalize()}: " + "; ".join(rec["reasons"]) + ".")
+        notes.append(f"{rec['status'].replace('_', ' ').capitalize()}: " + "; ".join(r.strip().rstrip(".") for r in rec["reasons"]) + ".")
     if rec["excluded"]:
         notes.append("Not included: " + "; ".join(f"{e['room']} ({e['reason']})" for e in rec["excluded"]) + ".")
     if rounded:
