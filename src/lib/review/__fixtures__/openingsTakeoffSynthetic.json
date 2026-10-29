@@ -1,0 +1,255 @@
+{
+ "items": [
+  {
+   "calculation": "instances counted on floor plans: D1 count 3 nos (from printed size) = 3 nos.  [quantity-core 0.1]",
+   "confidence": null,
+   "item": "Door D1 — Flush Door, 900 x 2100 mm",
+   "key": "D1",
+   "location": null,
+   "quantity": 3.0,
+   "source": {
+    "document": "synthetic drawing page 1",
+    "document_id": null,
+    "evidence": [
+     {
+      "bbox": [
+       100,
+       100,
+       106,
+       105
+      ],
+      "claim": "quantity",
+      "label": "D1 count: D1 tag",
+      "page": 1
+     },
+     {
+      "bbox": [
+       100,
+       100,
+       106,
+       105
+      ],
+      "claim": "quantity",
+      "label": "D1 count: D1 tag",
+      "page": 1
+     }
+    ],
+    "page": 1
+   },
+   "status": "MEASURED",
+   "unit": "nos"
+  },
+  {
+   "calculation": "area of one opening (scheduled width x height) x openings counted on floor plans: D1 area of one opening (900 x 2100 mm) 1.89 sqm (from printed size) + D1 count 3 nos (from printed size) = 5.67 sqm. none: the opening area itself; it is the deduction a wall-finish take-off applies [quantity-core 0.1]",
+   "calculation_data": {
+    "formula": "QUANTITY_PER_UNIT_TIMES_UNIT_COUNT",
+    "inputs": [
+     {
+      "name": "D1 area of one opening (900 x 2100 mm)",
+      "unit": "sqm",
+      "value": 1.89
+     },
+     {
+      "name": "D1 count",
+      "unit": "count",
+      "value": 3.0
+     }
+    ]
+   },
+   "confidence": null,
+   "item": "Door D1 — Flush Door, 900 x 2100 mm — opening area",
+   "key": "AREA:D1",
+   "location": null,
+   "quantity": 5.67,
+   "source": {
+    "document": "synthetic drawing page 1",
+    "document_id": null,
+    "evidence": [
+     {
+      "bbox": [
+       10,
+       10,
+       90,
+       40
+      ],
+      "claim": "quantity",
+      "label": "D1 area of one opening (900 x 2100 mm): schedule row D1",
+      "page": 9
+     },
+     {
+      "bbox": [
+       100,
+       100,
+       106,
+       105
+      ],
+      "claim": "quantity",
+      "label": "D1 count: D1 tag",
+      "page": 1
+     },
+     {
+      "bbox": [
+       100,
+       100,
+       106,
+       105
+      ],
+      "claim": "quantity",
+      "label": "D1 count: D1 tag",
+      "page": 1
+     }
+    ],
+    "page": 1
+   },
+   "status": "MEASURED",
+   "unit": "sqm"
+  },
+  {
+   "candidates": [
+    {
+     "basis": "resolved tags only",
+     "unit": "nos",
+     "value": 4.0
+    },
+    {
+     "basis": "including the uncertain tag",
+     "unit": "nos",
+     "value": 5.0
+    }
+   ],
+   "confidence": null,
+   "item": "Window W1 — Casement, 1200 x 1500 mm",
+   "key": "W1",
+   "location": null,
+   "notes": "Pending review: W1 count unresolved upstream: no reason given.",
+   "quantity": null,
+   "source": {
+    "document": "synthetic drawing",
+    "document_id": null,
+    "evidence": [],
+    "page": null
+   },
+   "status": "PENDING",
+   "unit": "nos"
+  },
+  {
+   "calculation": "area of one opening (scheduled width x height) x openings counted on floor plans: W1 area of one opening (1200 x 1500 mm) 1.8 sqm (from printed size). none: the opening area itself; it is the deduction a wall-finish take-off applies [quantity-core 0.1]",
+   "candidates": [
+    {
+     "basis": "one opening x 4 (resolved tags only)",
+     "unit": "sqm",
+     "value": 7.2
+    },
+    {
+     "basis": "one opening x 5 (including the uncertain tag)",
+     "unit": "sqm",
+     "value": 9.0
+    }
+   ],
+   "confidence": null,
+   "item": "Window W1 — Casement, 1200 x 1500 mm — opening area",
+   "key": "AREA:W1",
+   "location": null,
+   "notes": "Pending review: W1 count unresolved upstream: no reason given.",
+   "quantity": null,
+   "source": {
+    "document": "synthetic drawing page 9",
+    "document_id": null,
+    "evidence": [
+     {
+      "bbox": [
+       10,
+       10,
+       90,
+       40
+      ],
+      "claim": "quantity",
+      "label": "W1 area of one opening (1200 x 1500 mm): schedule row W1",
+      "page": 9
+     }
+    ],
+    "page": 9
+   },
+   "status": "PENDING",
+   "unit": "sqm"
+  },
+  {
+   "calculation": "instances counted on floor plans: W2 count 2 nos (from printed size).  [quantity-core 0.1]",
+   "candidates": [
+    {
+     "basis": "tags counted on floor plans; the size is unresolved",
+     "unit": "nos",
+     "value": 2.0
+    }
+   ],
+   "confidence": null,
+   "item": "Window W2 — Casement",
+   "key": "W2",
+   "location": null,
+   "notes": "Pending review: size not resolved: schedule prints more than one size for W2: Not one size: 2 widths printed.",
+   "quantity": null,
+   "source": {
+    "document": "synthetic drawing page 1",
+    "document_id": null,
+    "evidence": [
+     {
+      "bbox": [
+       100,
+       100,
+       106,
+       105
+      ],
+      "claim": "quantity",
+      "label": "W2 count: W2 tag",
+      "page": 1
+     }
+    ],
+    "page": 1
+   },
+   "status": "PENDING",
+   "unit": "nos"
+  },
+  {
+   "calculation": "area of one opening (scheduled width x height) x openings counted on floor plans: W2 count 2 nos (from printed size). none: the opening area itself; it is the deduction a wall-finish take-off applies [quantity-core 0.1]",
+   "candidates": [
+    {
+     "basis": "width 600 x height 900 x 2 counted",
+     "unit": "sqm",
+     "value": 1.08
+    },
+    {
+     "basis": "width 800 x height 900 x 2 counted",
+     "unit": "sqm",
+     "value": 1.44
+    }
+   ],
+   "confidence": null,
+   "item": "Window W2 — Casement — opening area",
+   "key": "AREA:W2",
+   "location": null,
+   "notes": "Conflicting: schedule prints more than one size for W2: Not one size: 2 widths printed.",
+   "quantity": null,
+   "source": {
+    "document": "synthetic drawing page 1",
+    "document_id": null,
+    "evidence": [
+     {
+      "bbox": [
+       100,
+       100,
+       106,
+       105
+      ],
+      "claim": "quantity",
+      "label": "W2 count: W2 tag",
+      "page": 1
+     }
+    ],
+    "page": 1
+   },
+   "status": "PENDING",
+   "unit": "sqm"
+  }
+ ],
+ "schema_version": "cunstruct.analysis.v1"
+}

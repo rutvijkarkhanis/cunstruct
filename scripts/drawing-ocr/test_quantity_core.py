@@ -8,7 +8,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from quantity_core import (QuantityError, apply_multiplier, convert, dec, floor_finish_takeoff, measure, net_of_deductions,
-                           output_value, rect_area, skirting_takeoff, sum_measures, to_analysis_item, unit_of)
+                           openings_takeoff, output_value, rect_area, skirting_takeoff, sum_measures, to_analysis_item, unit_of)
 from schedule_core import read_document
 
 H = 5.0
@@ -233,7 +233,118 @@ class ThroughTheScheduleReader(unittest.TestCase):
         self.assertEqual((f["status"], f["quantity"], f["unit"]), ("calculated", Decimal("180"), "sqft"))
 
 
+def size_item(mark, w_mm=None, h_mm=None, name="CASEMENT", candidates=None, unscheduled=False):
+    """A schedule reader door/window item (SCHED:<mark>), as schedule_core emits it."""
+    ev = [dict(page=9, bbox=[10, 10, 90, 40], label=f"schedule row {mark}", claim="quantity")]
+    it = dict(key=f"SCHED:{mark}", item=f"Window {mark} opening area", quantity=None, unit="m2", status="PENDING", specification=f"{name.title()} ({mark})",
+              source=dict(page=9, evidence=ev))
+    if w_mm is not None:
+        it.update(quantity=w_mm * h_mm / 1e6, status="MEASURED", dimension=f"{w_mm} x {h_mm} mm",
+                  calculation_data=dict(formula="LENGTH_TIMES_WIDTH", inputs=[dict(name="width", value=w_mm / 1000, unit="m"), dict(name="height", value=h_mm / 1000, unit="m")]))
+    elif candidates:
+        it.update(candidates=[dict(value=v, unit="m2", basis=b) for v, b in candidates], notes="Not one size: 2 widths printed.")
+    elif unscheduled:
+        it.update(notes=f"{mark} appears on the drawing but has no row in any schedule found.")
+    else:
+        it.update(notes="No size printed in this schedule row.")
+    return it
+
+
+def count_item(mark, n=None, floor=None, candidates=None, notes=None, unit="nr"):
+    """A counter's count item, shaped like #232's (one per mark) or #231's (one per mark per floor)."""
+    it = dict(key=mark, item=f"Door {mark} — count", quantity=n, unit=unit, status="MEASURED" if n is not None else "PENDING",
+              source=dict(page=1, evidence=[dict(page=1, bbox=[100, 100, 106, 105], label=f"{mark} tag", claim="location")]))
+    if floor:
+        it["location"] = floor
+    if candidates:
+        it["candidates"] = [dict(value=v, unit="nos", basis=b) for v, b in candidates]
+    if notes:
+        it["notes"] = notes
+    return it
+
+
+def openings(sizes, counts):
+    return {r["key"]: r for r in openings_takeoff(sizes, counts)}
+
+
+class Openings(unittest.TestCase):
+    def test_resolved_size_and_count_give_a_joinery_line_and_an_opening_area(self):
+        r = openings([size_item("W1", 900, 1200)], [count_item("W1", 3)])
+        j, a = r["W1"], r["AREA:W1"]
+        self.assertEqual((j["status"], j["quantity"], j["unit"]), ("calculated", Decimal(3), "nos"))
+        self.assertEqual(j["boq_item"], "Window W1 — Casement, 900 x 1200 mm")
+        self.assertEqual((a["status"], a["quantity"], a["unit"], a["formula"]), ("calculated", Decimal("3.24"), "sqm", "QUANTITY_PER_UNIT_TIMES_UNIT_COUNT"))
+        it = to_analysis_item(a)
+        self.assertEqual(it["calculation_data"]["inputs"], [dict(name="W1 area of one opening (900 x 1200 mm)", value=1.08, unit="sqm"),
+                                                            dict(name="W1 count", value=3.0, unit="count")])
+        self.assertNotIn("calculation_data", to_analysis_item(j))  # the count is the counter's result, not recomputed here
+
+    def test_counts_per_floor_add_up_only_when_all_are_resolved(self):
+        r = openings([size_item("D1", 900, 2100)], [count_item("D1", 2, "Ground"), count_item("D1", 1, "First")])
+        self.assertEqual(r["D1"]["quantity"], Decimal(3))
+        r = openings([size_item("D1", 900, 2100)], [count_item("D1", 2, "Ground"), count_item("D1", None, "First", notes="Unresolved: plan views disagree")])
+        self.assertEqual((r["D1"]["status"], r["AREA:D1"]["status"]), ("pending_review", "pending_review"))
+        self.assertIn("plan views disagree", r["AREA:D1"]["reasons"][0])
+
+    def test_the_same_opening_is_never_counted_twice(self):
+        r = openings([size_item("D1", 900, 2100)], [count_item("D1", 2, "Ground"), count_item("D1", 2, "Ground")])
+        self.assertEqual((r["D1"]["status"], r["D1"]["quantity"], r["AREA:D1"]["quantity"]), ("conflicting", None, None))
+
+    def test_an_unresolved_count_never_becomes_a_confirmed_area(self):
+        r = openings([size_item("W1", 900, 1200)], [count_item("W1", None, candidates=[(1, "resolved tags only"), (2, "including the uncertain tag")])])
+        a = r["AREA:W1"]
+        self.assertEqual((a["status"], a["quantity"]), ("pending_review", None))
+        self.assertEqual([c["value"] for c in a["candidates"]], [Decimal("1.08"), Decimal("2.16")])
+        self.assertEqual([c["value"] for c in r["W1"]["candidates"]], [1, 2])
+
+    def test_a_count_check_that_disagrees_is_a_conflict(self):
+        check = dict(key="CHECK:count:D1", item="Count check — Door D1: drawings 2, schedule 3", quantity=None, unit="nos", status="PENDING",
+                     candidates=[dict(value=2, unit="nos", basis="plan"), dict(value=3, unit="nos", basis="schedule")], notes="Neither value is chosen.")
+        r = openings([size_item("D1", 900, 2100)], [count_item("D1", 2), check])
+        self.assertEqual((r["D1"]["status"], r["AREA:D1"]["status"]), ("conflicting", "conflicting"))
+        self.assertEqual([c["value"] for c in r["AREA:D1"]["candidates"]], [Decimal("3.78"), Decimal("5.67")])
+
+    def test_two_printed_sizes_hold_the_area_and_qualify_the_joinery_line(self):
+        r = openings([size_item("D2", candidates=[(1.596, "width 760 x height 2100"), (1.911, "width 910 x height 2100")])], [count_item("D2", 2)])
+        j, a = r["D2"], r["AREA:D2"]
+        self.assertEqual((j["status"], j["quantity"], [c["value"] for c in j["candidates"]]), ("pending_review", None, [Decimal(2)]))
+        self.assertEqual((a["status"], [c["value"] for c in a["candidates"]]), ("conflicting", [Decimal("3.192"), Decimal("3.822")]))
+
+    def test_a_counted_mark_with_no_schedule_row_has_no_area(self):
+        r = openings([size_item("W6", unscheduled=True)], [count_item("W6", 1)])
+        self.assertEqual((r["W6"]["status"], r["AREA:W6"]["status"], r["AREA:W6"]["quantity"]), ("pending_review", "insufficient", None))
+        self.assertIn("no row in any schedule", r["AREA:W6"]["reasons"][0])
+        r = openings([], [count_item("W7", 1)])
+        self.assertEqual(r["AREA:W7"]["status"], "insufficient")
+
+    def test_a_scheduled_mark_with_no_count_is_insufficient_never_zero(self):
+        r = openings([size_item("W2", 600, 900)], [])
+        self.assertEqual((r["W2"]["status"], r["W2"]["quantity"], r["AREA:W2"]["quantity"]), ("insufficient", None, None))
+
+    def test_items_that_are_not_counts_are_ignored_as_counts(self):
+        r = openings([size_item("W1", 900, 1200)], [count_item("W1", 3), dict(count_item("W1", 9, "Ground"), unit="sqm")])
+        self.assertEqual(r["W1"]["quantity"], Decimal(3))
+
+    def test_deterministic_whatever_the_input_order(self):
+        sizes = [size_item("W1", 900, 1200), size_item("D1", 900, 2100), size_item("W2", 600, 900)]
+        counts = [count_item("W1", 3), count_item("D1", 2, "Ground"), count_item("D1", 1, "First")]
+        first = json.dumps([to_analysis_item(r) for r in openings_takeoff(sizes, counts)], sort_keys=True)
+        rnd = random.Random(5)
+        for _ in range(5):
+            got = json.dumps([to_analysis_item(r) for r in openings_takeoff(rnd.sample(sizes, 3), rnd.sample(counts, 3))], sort_keys=True)
+            self.assertEqual(got, first)
+
+
 FIXTURE = Path(__file__).resolve().parents[2] / "src/lib/review/__fixtures__/quantityTakeoffSynthetic.json"
+OPENINGS_FIXTURE = Path(__file__).resolve().parents[2] / "src/lib/review/__fixtures__/openingsTakeoffSynthetic.json"
+
+
+def openings_fixture():
+    """The made-up schedule and counts behind src/lib/review/openingsTakeoff.integration.test.ts."""
+    sizes = [size_item("D1", 900, 2100, "FLUSH DOOR"), size_item("W1", 1200, 1500), size_item("W2", candidates=[(0.54, "width 600 x height 900"), (0.72, "width 800 x height 900")])]
+    counts = [count_item("D1", 2, "Ground"), count_item("D1", 1, "First"), count_item("W1", None, candidates=[(4, "resolved tags only"), (5, "including the uncertain tag")]),
+              count_item("W2", 2)]
+    return dict(schema_version="cunstruct.analysis.v1", items=[to_analysis_item(r, "synthetic drawing") for r in openings_takeoff(sizes, counts)])
 
 
 def synthetic_fixture():
@@ -246,6 +357,10 @@ def synthetic_fixture():
 
 
 class ContractFixture(unittest.TestCase):
+    def test_the_committed_openings_fixture_matches_the_engine(self):
+        # regenerate with: python3 -c "import test_quantity_core as t, json; print(json.dumps(t.openings_fixture(), indent=1, sort_keys=True, ensure_ascii=False))"
+        self.assertEqual(json.loads(OPENINGS_FIXTURE.read_text()), json.loads(json.dumps(openings_fixture())))
+
     def test_the_committed_typescript_fixture_matches_the_engine(self):
         # regenerate with: python3 -c "import test_quantity_core as t, json; print(json.dumps(t.synthetic_fixture(), indent=1, sort_keys=True, ensure_ascii=False))"
         self.assertEqual(json.loads(FIXTURE.read_text()), json.loads(json.dumps(synthetic_fixture())))
