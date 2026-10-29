@@ -14,6 +14,7 @@ import { parseObservationsV1 } from "./observationSchemaV1";
 import { physicalInstancesForType, hasScheduleEntryForType } from "./typeInstances";
 import { reconcileInstances } from "./instanceReconciliation";
 import { isCountableUnit } from "./typeGrouping";
+import { validateItemCalculation } from "./calculationAdvisory";
 import type { LocationObservation } from "./locationObservations";
 
 const analysis = parseAnalysisV1(JSON.stringify(fixture.analysis));
@@ -71,6 +72,21 @@ describe("instance counter output vs the app's existing contracts", () => {
     // W2: scheduled, never found on a plan
     expect(item("W2")).toMatchObject({ quantity: null, aiStatus: "PENDING" });
     expect(status("W2")).toBe("RED");
+  });
+
+  it("every item that carries a calculation is recomputed by the app (typical floor: tags x floors)", () => {
+    const withCalc = analysis.analysis!.items.filter((i) => i.calculationData);
+    expect(withCalc.map((i) => i.key)).toEqual(["W5"]);
+    expect(item("W5")).toMatchObject({ quantity: 4, aiStatus: "MEASURED" });
+    for (const it of withCalc) {
+      // inputs must be in the validator's own count unit ("count") or nothing recomputes
+      const v = validateItemCalculation(it)!;
+      expect(v.calculation.recomputed).toBe(true);
+      expect(v.calculation.resultValue).toBe(it.quantity);
+      // Known gap, outside this PR: measurementValidator.ts has no "nr"/"nos" unit, so the
+      // stated count can't be compared and the advisory reads "Cannot compare safely."
+      expect(v.comparison?.outcome).toBe("INCOMPARABLE");
+    }
   });
 
   it("reports an untagged opening symbol as a review item with its evidence box", () => {

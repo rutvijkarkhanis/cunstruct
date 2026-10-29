@@ -81,6 +81,12 @@ class Counting(unittest.TestCase):
         p2 = page(2, view("FIRST FLOOR PLAN", [("W1", 40, 40)]))
         self.assertEqual(counts(run([p1, p2])[0])["COUNT:W1"], ("MEASURED", 3))
 
+    def test_calculation_units_are_ones_the_app_recomputes(self):
+        # measurementValidator.ts knows "count", not "nr"/"nos": anything else silently loses the recomputation
+        items = run([page(1, view("TYPICAL FLOOR PLAN x3", [("W1", 40, 40)]))])[0]
+        units = {i["unit"] for it in items if "calculation_data" in it for i in it["calculation_data"]["inputs"]}
+        self.assertEqual(units, {"count"})
+
     def test_typical_plan_counts_once_per_stated_floor(self):
         p1 = page(1, view("TYPICAL FLOOR PLAN (FLOORS 2-5)", [("W1", 40, 40), ("W1", 90, 40)]))
         items = run([p1])[0]
@@ -242,7 +248,8 @@ def synthetic_fixture():
     (src/lib/review/instanceCounterContract.test.ts)."""
     ground = view("GROUND FLOOR PLAN", [("D1", 40, 40), ("D1", 140, 90), ("W1", 200, 40)]) + view("NORTH ELEVATION", [("W1", 40, 40)], x0=330)
     first = view("FIRST FLOOR PLAN", [("W1", 40, 40)])
-    pages = [page(1, ground, symbols=[dict(kind="door", bbox=[230, 180, 260, 210])]), page(2, first)]
+    typical = view("TYPICAL FLOOR PLAN (FLOORS 2-5)", [("W5", 40, 40)])
+    pages = [page(1, ground, symbols=[dict(kind="door", bbox=[230, 180, 260, 210])]), page(2, first), page(3, typical)]
     items, observations, _ = run(pages, sched("D1", "W1", "W2"))
     return dict(analysis=dict(schema_version="cunstruct.analysis.v1", items=items),
                 observations=dict(schema_version="cunstruct.observation.v1", observations=observations))

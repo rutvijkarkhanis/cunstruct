@@ -128,6 +128,53 @@
     "unit": "nr"
    },
    {
+    "calculation_data": {
+     "formula": "COUNT_TIMES_MULTIPLIER",
+     "inputs": [
+      {
+       "name": "tags on TYPICAL 2-5 plan",
+       "unit": "count",
+       "value": 1
+      },
+      {
+       "name": "floors the typical plan stands for",
+       "unit": "count",
+       "value": 4
+      }
+     ]
+    },
+    "confidence": null,
+    "item": "Window W5 — count",
+    "key": "W5",
+    "location": null,
+    "notes": "Tags counted on floor plans, one plan per level (TYPICAL 2-5: 1 x 4 floors). No schedule row found for this mark.",
+    "quantity": 4,
+    "source": {
+     "document": "drawing page 3",
+     "document_id": null,
+     "evidence": [
+      {
+       "bbox": [
+        40,
+        40,
+        46.0,
+        45.0
+       ],
+       "claim": "location",
+       "label": "W5 on TYPICAL FLOOR PLAN (FLOORS 2-5) (page 3)",
+       "page": 3
+      }
+     ],
+     "page": 3,
+     "pageSize": {
+      "height": 700,
+      "width": 1000
+     }
+    },
+    "status": "MEASURED",
+    "unit": "nr"
+   },
+   {
     "confidence": null,
     "item": "Untagged door symbol (page 1)",
     "key": "FLAG:untagged:1:230,180",
@@ -245,6 +292,35 @@
       }
      ],
      "page": 2,
+     "pageSize": {
+      "height": 700,
+      "width": 1000
+     }
+    }
+   },
+   {
+    "attributes": {},
+    "evidence_completeness": "FULL",
+    "location_text": "TYPICAL FLOOR PLAN (FLOORS 2-5) (page 3); typical plan for 4 floors",
+    "mark": "W5",
+    "observation_type": "opening",
+    "scope_hint": "window",
+    "source": {
+     "document": "drawing page 3",
+     "evidence": [
+      {
+       "bbox": [
+        40,
+        40,
+        46.0,
+        45.0
+       ],
+       "claim": "location",
+       "label": "W5 tag",
+       "page": 3
+      }
+     ],
+     "page": 3,
      "pageSize": {
       "height": 700,
       "width": 1000

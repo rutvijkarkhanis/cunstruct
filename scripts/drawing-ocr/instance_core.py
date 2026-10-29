@@ -437,8 +437,9 @@ def count_document(pages, schedule_marks, schedule_tables, doc_name="drawing"):
             mults = [(lv, n, m) for lv, n, m in calc_inputs if m and m > 1]
             if len(calc_inputs) == 1 and mults:
                 lv, n, m = mults[0]
-                extra["calculation_data"] = dict(formula="COUNT_TIMES_MULTIPLIER", inputs=[dict(name=f"tags on {lv} plan", value=n, unit="nr"),
-                                                                                       dict(name="floors the typical plan stands for", value=m, unit="nr")])
+                # "count" is the app's dimensionless unit (measurementValidator.ts); "nr" would not recompute
+                extra["calculation_data"] = dict(formula="COUNT_TIMES_MULTIPLIER", inputs=[dict(name=f"tags on {lv} plan", value=n, unit="count"),
+                                                                                       dict(name="floors the typical plan stands for", value=m, unit="count")])
             breakdown = ", ".join(f"{lv}: {n}{f' x {m} floors' if m and m > 1 else ''}" for lv, n, m in calc_inputs)
             items.append(item(key, f"{kind} {mark} — count", total, "nr", page0, ev, f"{doc_name} page {page0}", size_of.get(page0),
                               notes=f"Tags counted on floor plans, one plan per level ({breakdown}).{corr}{sched_note}", **extra))
