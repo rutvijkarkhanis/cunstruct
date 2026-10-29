@@ -41,9 +41,18 @@ AREA_WORD = re.compile(r"\bAREA\b", re.I)
 COUNT_HEAD = re.compile(r"^(QTY|QUANTITY|NOS?\.?|NUMBER|COUNT)$", re.I)
 DIM_HEAD = re.compile(r"^(SIZE|WIDTH|HEIGHT|DIMENSIONS?|W\s*[xX×]\s*H)\b", re.I)
 TAG_HEAD = re.compile(r"^(TAG|MARK|CODE|REF\.?|TYPE|ID)$", re.I)
+SERIAL_HEAD = re.compile(r"^(S\.?\s*NO\.?|SL\.?\s*NO\.?|SR\.?\s*NO\.?|SERIAL(\s+NO\.?)?|S\.?\s*N\.?)$", re.I)
+# a column headed DOOR / WINDOW may hold the marks themselves; its cells decide (see _retag)
+OPENING_HEAD = re.compile(r"^(DOORS?|WINDOWS?|VENTILATORS?|OPENINGS?)$", re.I)
+WIDTH_HEAD = re.compile(r"^(WIDTH|WD\.?)(\s*\(\s*MM\s*\)|\s+MM|\s+IN\s+MM)?$", re.I)
+HEIGHT_HEAD = re.compile(r"^(HEIGHT|HT\.?)(\s*\(\s*MM\s*\)|\s+MM|\s+IN\s+MM)?$", re.I)
+# a sheet note stating the unit of every dimension, e.g. "ALL DIMENSIONS ARE IN MILLIMETERS"
+UNIT_NOTE = re.compile(r"DIMENSIONS?\s+(?:ARE\s+|IS\s+)?(?:GIVEN\s+)?IN\s+(MM|MILLIMET(?:ER|RE)S?)\b", re.I)
 LABEL_HEAD = re.compile(r"^(DESCRIPTION|SPACE|ROOM|ITEM|NAME|LOCATION|ELEMENT)$", re.I)
 TOTAL = re.compile(r"^(GRAND\s+)?TOTAL\b", re.I)
-KIND_NAME = {"D": "Door", "W": "Window", "V": "Ventilator", "SD": "Sliding door", "FD": "Fire door"}
+KIND_NAME = {"D": "Door", "W": "Window", "V": "Ventilator", "DW": "Door-window", "SD": "Sliding door", "FD": "Fire door"}
+# marks that name openings; a schedule of other marks (beams, slabs) is not an opening schedule
+OPENING_PREFIXES = frozenset(KIND_NAME)
 
 
 def tag_of(text):
@@ -67,8 +76,12 @@ def header_kind(label):
             return "area", unit
     if AREA_WORD.search(s):
         return "area", None  # area with no stated unit: values stay PENDING
+    if SERIAL_HEAD.match(s):
+        return "serial", None  # a row number: never a quantity
     if COUNT_HEAD.match(s):
         return "count", "nr"
+    if OPENING_HEAD.match(s):
+        return "opening", None
     if DIM_HEAD.match(s):
         return "dimension", "mm"
     if TAG_HEAD.match(s):
@@ -239,6 +252,21 @@ def graphical_tables(page, words, hsegs, vsegs, h):
                 continue
             inferred = True
         own = [b for _, b in bands]
+        bx0, by0, bx1, by1 = x0, min(b[0] for b in own), x1, max(b[1] for b in own)
+        # a column-header row over the tags decides what the table is: with a
+        # size column it is a columnar schedule (read by columnar_tables); a
+        # header naming views ('NO. NAME PLAN VIEW ELEVATION VIEW') or a
+        # SCHEDULE title close by makes it a graphical schedule. Tags lined up
+        # on a plan have neither.
+        region = [w for w in words if bx0 - 2 * h <= w["x0"] <= bx1 and by0 - 25 * h <= w["y0"] <= by1]
+        heads = header_lines(lines_of(region, h), h)
+        if any(c["kind"] == "dimension" for hd_ in heads for c in hd_["cells"]):
+            continue
+        width = max(bx1 - bx0, h)
+        titled = any("SCHEDULE" in w["t"].upper() and bx0 - 0.5 * width <= (w["x0"] + w["x1"]) / 2 <= bx1 + 0.5 * width
+                     and by0 - 30 * h <= w["y1"] <= by1 for w in words)
+        if not heads and not titled:
+            continue
         found.append(dict(page=page, kind="graphical", prefix=col["prefix"], rows_inferred=inferred,
                           bbox=[x0, min(b[0] for b in own), x1, max(b[1] for b in own)], rows=bands))
     return found
@@ -311,7 +339,7 @@ def header_lines(lines, h):
         for g in groups:
             kinds = [header_kind(c["t"]) for c in g]
             known = [k for k, _ in kinds if k != "other"]
-            if len(g) >= 3 and len(known) >= 2 and ({"tag", "label"} & set(known)):
+            if len(g) >= 3 and len(known) >= 2 and ({"tag", "label", "opening"} & set(known)):
                 out.append(dict(cy=l["cy"], cells=[dict(c, kind=k, unit=u) for c, (k, u) in zip(g, kinds)]))
     return out
 
@@ -341,7 +369,7 @@ def columnar_tables(page, words, hsegs, vsegs, h):
         # identity column is empty (continuation lines are joined to the row
         # above). The identity column is the first code or name column, not
         # column 0: a SYMBOL column prints graphics, never text.
-        id0 = next(i for i, c in enumerate(cells) if c["kind"] in ("tag", "label"))
+        id0 = next(i for i, c in enumerate(cells) if c["kind"] in ("tag", "label", "opening"))
         # a ruled table: rows are the bands between its own row rules (a cell
         # may wrap over several lines, and a value need not share a baseline
         # with its description); the table ends at its last rule
@@ -455,11 +483,15 @@ def _split_band(row, cells, h):
 
 
 def _retag(cells, body):
-    """'NO.' heads a mark column as often as a count column: its cells decide."""
+    """'NO.' heads a mark column as often as a count column, and 'DOOR' heads
+    a mark column as often as a description: the cells decide."""
     for i, c in enumerate(cells):
         vals = [_cell_text(r["cells"][i]) for r in body if i in r["cells"] and not r["total"]]
-        if c["kind"] == "count" and vals and sum(bool(tag_of(v)) for v in vals) > len(vals) / 2:
+        tags = vals and sum(bool(tag_of(v)) for v in vals) > len(vals) / 2
+        if c["kind"] == "count" and tags:
             c["kind"], c["unit"] = "tag", None
+        elif c["kind"] == "opening":
+            c["kind"], c["unit"] = ("tag", None) if tags else ("label", None)
 
 
 def _cell_text(ws):
@@ -494,6 +526,9 @@ def read_columnar(t, h, doc, page_size):
             if c["kind"] != "other":
                 continue
             vals = [number(_cell_text(r["cells"][i])) for r in data if i in r["cells"]]
+            if len(vals) > 1 and vals == list(range(1, len(vals) + 1)):
+                c["kind"] = "serial"  # an unlabelled row-number column, not counts
+                continue
             # counts per space are small; 3-4 digit numbers there are sizes in mm
             if vals and all(v is not None and float(v).is_integer() and v < 100 for v in vals):
                 qty_cols.append(i)
@@ -581,6 +616,95 @@ def read_columnar(t, h, doc, page_size):
     return items, excluded
 
 
+def opening_table_marks(t):
+    """The mark column of a columnar schedule of openings (its marks mostly
+    door/window/ventilator prefixes), or None for any other schedule."""
+    for i, c in enumerate(t["header"]):
+        if c["kind"] != "tag":
+            continue
+        marks = [tag_of(_cell_text(r["cells"][i])) for r in t["rows"] if not r["total"] and i in r["cells"]]
+        marks = [m for m in marks if m]
+        if marks and sum(m[0] in OPENING_PREFIXES for m in marks) > len(marks) / 2:
+            return i
+    return None
+
+
+def unit_note(lines, h):
+    """('mm', box) when the sheet prints a note stating every dimension is in
+    millimetres; else (None, None). Nothing is assumed without it."""
+    for l in lines:
+        text = " ".join(w["t"] for w in l["words"])
+        if UNIT_NOTE.search(text):
+            return "mm", bbox_of(l["words"])
+    return None, None
+
+
+def read_opening_rows(t, page_note, doc, page_size):
+    """Opening sizes from a columnar door/window schedule: one 'SCHED:<mark>'
+    item per row, the same shape a graphical schedule row gives. The size is
+    a 'W x H' pair in a size column, or separate WIDTH and HEIGHT columns. It
+    is MEASURED only with exactly one size and a unit stated by the header or
+    by a sheet note; everything else is PENDING with the reason."""
+    page, hd = t["page"], t["header"]
+    mark_col = opening_table_marks(t)
+    if mark_col is None:
+        return [], {}
+    width_cols = [i for i, c in enumerate(hd) if WIDTH_HEAD.match(" ".join(c["t"].split()))]
+    height_cols = [i for i, c in enumerate(hd) if HEIGHT_HEAD.match(" ".join(c["t"].split()))]
+    size_cols = [i for i, c in enumerate(hd) if c["kind"] == "dimension" and i not in width_cols + height_cols]
+    desc_cols = [i for i, c in enumerate(hd) if c["kind"] in ("label", "other") and re.search(r"REMARK|DESCRIPTION|DETAIL|NAME|TYPE OF", c["t"], re.I)]
+    header_unit = "mm" if any(re.search(r"\bMM\b", c["t"], re.I) for c in hd if c["kind"] == "dimension") else None
+    unit, note_box = (header_unit, None) if header_unit else page_note
+    items, sizes = [], {}
+    for r in (x for x in t["rows"] if not x["total"]):
+        cell = r["cells"].get(mark_col)
+        tg = tag_of(_cell_text(cell)) if cell else None
+        if not tg:
+            continue  # a row with no readable mark: reported by read_columnar's own rules
+        mark = _cell_text(cell).replace("-", "")
+        kind = KIND_NAME.get(tg[0], "Opening")
+        row_ws = [w for ws in r["cells"].values() for w in ws]
+        ev = [evidence(page, [t["bbox"][0], min(w["y0"] for w in row_ws), t["bbox"][2], max(w["y1"] for w in row_ws)], f"schedule row {mark}")]
+        desc = " ".join(_cell_text(r["cells"][i]) for i in desc_cols if i in r["cells"]).strip()
+        pairs = []
+        for i in size_cols:
+            if i in r["cells"]:
+                m = SIZE_PAIR.search(_cell_text(r["cells"][i]))
+                if m:
+                    pairs.append((int(m.group(1)), int(m.group(2)), r["cells"][i]))
+        if not pairs and width_cols and height_cols:
+            wv = [number(_cell_text(r["cells"][i])) for i in width_cols if i in r["cells"]]
+            hv = [number(_cell_text(r["cells"][i])) for i in height_cols if i in r["cells"]]
+            if len(wv) == 1 and len(hv) == 1 and wv[0] and hv[0]:
+                pairs.append((int(wv[0]), int(hv[0]), r["cells"][width_cols[0]] + r["cells"][height_cols[0]]))
+        name = f"{kind} {mark} opening area" + (f" — {desc}" if desc else "")
+        if len(pairs) != 1:
+            if pairs:
+                why = f"{len(pairs)} sizes printed in this row"
+            elif width_cols and not height_cols:
+                why = "The schedule has a width column but no height column, so the size is incomplete"
+            elif height_cols and not width_cols:
+                why = "The schedule has a height column but no width column, so the size is incomplete"
+            else:
+                why = "No size printed in this schedule row"
+            items.append(item(f"SCHED:{mark}", name, None, "m2", page, ev, doc, page_size, specification=desc or None, notes=f"{why}; check the drawing."))
+            continue
+        w_, h_, cell_ws = pairs[0]
+        ev.append(evidence(page, bbox_of(cell_ws), f"size {w_} x {h_}", "dimension"))
+        sizes.setdefault(mark, set()).add(f"{w_} x {h_}")
+        if unit != "mm":
+            items.append(item(f"SCHED:{mark}", name, None, "m2", page, ev, doc, page_size, dimension=f"{w_} x {h_}", specification=desc or None,
+                              notes=f"Size {w_} x {h_} is printed, but neither the schedule header nor a sheet note states its unit; it is not assumed."))
+            continue
+        if note_box:
+            ev.append(evidence(page, note_box, "sheet note: dimensions in millimetres", "dimension"))
+        items.append(item(f"SCHED:{mark}", name, round(w_ * h_ / 1e6, 6), "m2", page, ev, doc, page_size, dimension=f"{w_} x {h_} mm",
+                          specification=desc or None,
+                          notes="Area of one opening, from the size printed in the schedule row" + (" (unit from the sheet's dimensions note)" if note_box else "") + ". Not a count of openings.",
+                          calculation_data=dict(formula="LENGTH_TIMES_WIDTH", inputs=[dict(name="width", value=w_ / 1000, unit="m"), dict(name="height", value=h_ / 1000, unit="m")])))
+    return items, sizes
+
+
 # ---------------------------------------------------------------- whole document
 
 def merge(items):
@@ -594,10 +718,12 @@ def merge(items):
             continue
         a = out[k]
         a["source"]["evidence"] = a["source"]["evidence"] + it["source"]["evidence"]
-        if a["quantity"] != it["quantity"]:
-            cands = a.get("candidates") or ([dict(value=a["quantity"], unit=a["unit"], basis=f"page {a['source']['page']}")] if a["quantity"] is not None else [])
+        if a["quantity"] != it["quantity"] or (a.get("dimension") and it.get("dimension") and a["dimension"] != it["dimension"]):
+            def basis(x):
+                return f"page {x['source']['page']}" + (f", size {x['dimension']}" if x.get("dimension") else "")
+            cands = a.get("candidates") or ([dict(value=a["quantity"], unit=a["unit"], basis=basis(a))] if a["quantity"] is not None else [])
             if it["quantity"] is not None:
-                cands.append(dict(value=it["quantity"], unit=it["unit"], basis=f"page {it['source']['page']}"))
+                cands.append(dict(value=it["quantity"], unit=it["unit"], basis=basis(it)))
             a.update(quantity=None, status="PENDING", candidates=cands or None,
                      notes=(a.get("notes") or "") + " The same entry is printed more than once with different values.")
     return list(out.values())
@@ -613,7 +739,12 @@ def read_document(pages, doc_name="drawing"):
     for p in pages:
         words, h = p["words"], word_height(p["words"])
         doc = f"{doc_name} page {p['page']} schedule ({p.get('source', 'text')})"
+        page_note = unit_note(lines_of(words, h), h)
         for t in graphical_tables(p["page"], words, p["hsegs"], p["vsegs"], h):
+            if t["prefix"] not in OPENING_PREFIXES:
+                # tag-column tables of other marks (beam, slab, column schedules) are not opening schedules
+                obs["tables"].append(dict(page=p["page"], kind="graphical (not openings)", prefix=t["prefix"], bbox=t["bbox"], rows=len(t["rows"])))
+                continue
             its, seen = read_graphical(t, words, h, doc, p.get("size"))
             items += its
             scheduled.setdefault(t["prefix"], set()).update(seen)
@@ -628,6 +759,14 @@ def read_document(pages, doc_name="drawing"):
                 continue  # the header row of a schedule already read as graphical
             its, excl = read_columnar(t, h, doc, p.get("size"))
             items += its
+            size_items, sizes = read_opening_rows(t, page_note, doc, p.get("size"))
+            items += size_items
+            if opening_table_marks(t) is not None:
+                opening_prefixes.update(tag_of(it["key"][6:])[0] for it in size_items)
+            for m, szs in sizes.items():
+                obs.setdefault("schedule_sizes", {}).setdefault(m, set()).update(szs)
+                # per sheet: a schedule printed on a plan sheet belongs to that sheet's plans
+                obs.setdefault("page_schedule_sizes", {}).setdefault(p["page"], {}).setdefault(m, set()).update(szs)
             in_tables.append((p["page"], t["bbox"]))
             obs["tables"].append(dict(page=p["page"], kind="columnar", header=[c["t"] for c in t["header"]],
                                       kinds=[c["kind"] for c in t["header"]], bbox=t["bbox"], rows=len(t["rows"]), total_checks=t.get("checks", [])))

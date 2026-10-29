@@ -27,13 +27,26 @@ import schedule_sources
 EXTRACTOR = "instance-counter 0.1 + schedule-reader 0.1"
 
 
+def analyse(src, name="drawing"):
+    """Schedules, then counts, for already-read pages (schedule_sources
+    pages). The one pipeline the CLI and the tests share.
+    Returns (schedule items, count items, observations, report)."""
+    sched_items, sched_obs = schedule_core.read_document(src, name)
+    tables = [(t["page"], t["bbox"]) for t in sched_obs["tables"]]
+    marks = sched_obs["schedule_marks"]
+    for m, sizes in sched_obs.get("schedule_sizes", {}).items():
+        if m in marks:
+            marks[m]["sizes"] = sorted(sizes)
+    families = instance_core.schedule_families(sched_obs.get("page_schedule_sizes", {}))
+    counts, observations, report = instance_core.count_document(src, marks, tables, name, families=families)
+    return sched_items, counts, observations, report
+
+
 def read(path, pages=None):
     path = Path(path)
     sha = hashlib.sha256(path.read_bytes()).hexdigest()
     src = schedule_sources.dxf_pages(path) if path.suffix.lower() == ".dxf" else schedule_sources.pdf_pages(path, pages)
-    sched_items, sched_obs = schedule_core.read_document(src, path.name)
-    tables = [(t["page"], t["bbox"]) for t in sched_obs["tables"]]
-    counts, observations, report = instance_core.count_document(src, sched_obs["schedule_marks"], tables, path.name)
+    sched_items, counts, observations, report = analyse(src, path.name)
     analysis = dict(schema_version="cunstruct.analysis.v1", source_drawing=dict(sha256=sha, filename=path.name, extractor=EXTRACTOR),
                     items=sched_items + counts)
     obs_doc = dict(schema_version="cunstruct.observation.v1", source_drawing=dict(sha256=sha, filename=path.name, extractor=EXTRACTOR),
