@@ -1,0 +1,402 @@
+{
+ "analysis": {
+  "items": [
+   {
+    "confidence": null,
+    "item": "Door D1 — count",
+    "key": "D1",
+    "location": null,
+    "notes": "Tags counted on floor plans, one plan per level (L0: 2).",
+    "quantity": 2,
+    "source": {
+     "document": "drawing page 1",
+     "document_id": null,
+     "evidence": [
+      {
+       "bbox": [
+        40,
+        40,
+        46.0,
+        45.0
+       ],
+       "claim": "location",
+       "label": "D1 on GROUND FLOOR PLAN (page 1)",
+       "page": 1
+      },
+      {
+       "bbox": [
+        140,
+        90,
+        146.0,
+        95.0
+       ],
+       "claim": "location",
+       "label": "D1 on GROUND FLOOR PLAN (page 1)",
+       "page": 1
+      }
+     ],
+     "page": 1,
+     "pageSize": {
+      "height": 700,
+      "width": 1000
+     }
+    },
+    "status": "MEASURED",
+    "unit": "nr"
+   },
+   {
+    "candidates": [
+     {
+      "basis": "resolved floor-plan tags only",
+      "unit": "nr",
+      "value": 1
+     },
+     {
+      "basis": "including the uncertain tags",
+      "unit": "nr",
+      "value": 2
+     }
+    ],
+    "confidence": null,
+    "item": "Window W1 — count",
+    "key": "W1",
+    "location": null,
+    "notes": "Count not resolved: 1 tag(s) not counted: view unknown: on the boundary between 'GROUND FLOOR PLAN' and the view beside it. Also shown on 1 other view(s) (elevations, sections, other plans); not counted again.",
+    "quantity": null,
+    "source": {
+     "document": "drawing page 2",
+     "document_id": null,
+     "evidence": [
+      {
+       "bbox": [
+        40,
+        40,
+        46.0,
+        45.0
+       ],
+       "claim": "location",
+       "label": "W1 on FIRST FLOOR PLAN (page 2)",
+       "page": 2
+      },
+      {
+       "bbox": [
+        200,
+        40,
+        206.0,
+        45.0
+       ],
+       "claim": "location",
+       "label": "W1 not counted: view unknown: on the boundary between 'GROUND FLOOR PLAN' and the view beside it",
+       "page": 1
+      }
+     ],
+     "page": 2,
+     "pageSize": {
+      "height": 700,
+      "width": 1000
+     }
+    },
+    "status": "PENDING",
+    "unit": "nr"
+   },
+   {
+    "confidence": null,
+    "item": "Window W2 — count",
+    "key": "W2",
+    "location": null,
+    "notes": "W2 is in the schedule but no tag for it was found on any floor plan. Count unknown; check the drawing.",
+    "quantity": null,
+    "source": {
+     "document": "drawing page 9",
+     "document_id": null,
+     "evidence": [
+      {
+       "bbox": [
+        0,
+        20,
+        10,
+        25
+       ],
+       "claim": "quantity",
+       "label": "W2 schedule row",
+       "page": 9
+      }
+     ],
+     "page": 9
+    },
+    "status": "PENDING",
+    "unit": "nr"
+   },
+   {
+    "calculation_data": {
+     "formula": "COUNT_TIMES_MULTIPLIER",
+     "inputs": [
+      {
+       "name": "tags on TYPICAL 2-5 plan",
+       "unit": "count",
+       "value": 1
+      },
+      {
+       "name": "floors the typical plan stands for",
+       "unit": "count",
+       "value": 4
+      }
+     ]
+    },
+    "confidence": null,
+    "item": "Window W5 — count",
+    "key": "W5",
+    "location": null,
+    "notes": "Tags counted on floor plans, one plan per level (TYPICAL 2-5: 1 x 4 floors). No schedule row found for this mark.",
+    "quantity": 4,
+    "source": {
+     "document": "drawing page 3",
+     "document_id": null,
+     "evidence": [
+      {
+       "bbox": [
+        40,
+        40,
+        46.0,
+        45.0
+       ],
+       "claim": "location",
+       "label": "W5 on TYPICAL FLOOR PLAN (FLOORS 2-5) (page 3)",
+       "page": 3
+      }
+     ],
+     "page": 3,
+     "pageSize": {
+      "height": 700,
+      "width": 1000
+     }
+    },
+    "status": "MEASURED",
+    "unit": "nr"
+   },
+   {
+    "confidence": null,
+    "item": "Untagged door symbol (page 1)",
+    "key": "FLAG:untagged:1:230,180",
+    "location": null,
+    "notes": "A door symbol on a floor plan has no tag within reach; its type and count are unknown. Check the drawing.",
+    "quantity": null,
+    "source": {
+     "document": "drawing page 1",
+     "document_id": null,
+     "evidence": [
+      {
+       "bbox": [
+        230,
+        180,
+        260,
+        210
+       ],
+       "claim": "location",
+       "label": "door symbol",
+       "page": 1
+      }
+     ],
+     "page": 1,
+     "pageSize": {
+      "height": 700,
+      "width": 1000
+     }
+    },
+    "status": "PENDING",
+    "unit": "nr"
+   }
+  ],
+  "schema_version": "cunstruct.analysis.v1"
+ },
+ "observations": {
+  "observations": [
+   {
+    "attributes": {},
+    "evidence_completeness": "FULL",
+    "location_text": "GROUND FLOOR PLAN (page 1)",
+    "mark": "D1",
+    "observation_type": "opening",
+    "scope_hint": "door",
+    "source": {
+     "document": "drawing page 1",
+     "evidence": [
+      {
+       "bbox": [
+        40,
+        40,
+        46.0,
+        45.0
+       ],
+       "claim": "location",
+       "label": "D1 tag",
+       "page": 1
+      }
+     ],
+     "page": 1,
+     "pageSize": {
+      "height": 700,
+      "width": 1000
+     }
+    }
+   },
+   {
+    "attributes": {},
+    "evidence_completeness": "FULL",
+    "location_text": "GROUND FLOOR PLAN (page 1)",
+    "mark": "D1",
+    "observation_type": "opening",
+    "scope_hint": "door",
+    "source": {
+     "document": "drawing page 1",
+     "evidence": [
+      {
+       "bbox": [
+        140,
+        90,
+        146.0,
+        95.0
+       ],
+       "claim": "location",
+       "label": "D1 tag",
+       "page": 1
+      }
+     ],
+     "page": 1,
+     "pageSize": {
+      "height": 700,
+      "width": 1000
+     }
+    }
+   },
+   {
+    "attributes": {},
+    "evidence_completeness": "FULL",
+    "location_text": "FIRST FLOOR PLAN (page 2)",
+    "mark": "W1",
+    "observation_type": "opening",
+    "scope_hint": "window",
+    "source": {
+     "document": "drawing page 2",
+     "evidence": [
+      {
+       "bbox": [
+        40,
+        40,
+        46.0,
+        45.0
+       ],
+       "claim": "location",
+       "label": "W1 tag",
+       "page": 2
+      }
+     ],
+     "page": 2,
+     "pageSize": {
+      "height": 700,
+      "width": 1000
+     }
+    }
+   },
+   {
+    "attributes": {},
+    "evidence_completeness": "FULL",
+    "location_text": "TYPICAL FLOOR PLAN (FLOORS 2-5) (page 3); typical plan for 4 floors",
+    "mark": "W5",
+    "observation_type": "opening",
+    "scope_hint": "window",
+    "source": {
+     "document": "drawing page 3",
+     "evidence": [
+      {
+       "bbox": [
+        40,
+        40,
+        46.0,
+        45.0
+       ],
+       "claim": "location",
+       "label": "W5 tag",
+       "page": 3
+      }
+     ],
+     "page": 3,
+     "pageSize": {
+      "height": 700,
+      "width": 1000
+     }
+    }
+   },
+   {
+    "attributes": {},
+    "evidence_completeness": "FULL",
+    "mark": "D1",
+    "observation_type": "schedule_entry",
+    "source": {
+     "document": "drawing page 9 schedule",
+     "evidence": [
+      {
+       "bbox": [
+        0,
+        0,
+        10,
+        5
+       ],
+       "claim": "location",
+       "label": "D1 schedule row",
+       "page": 9
+      }
+     ],
+     "page": 9
+    }
+   },
+   {
+    "attributes": {},
+    "evidence_completeness": "FULL",
+    "mark": "W1",
+    "observation_type": "schedule_entry",
+    "source": {
+     "document": "drawing page 9 schedule",
+     "evidence": [
+      {
+       "bbox": [
+        0,
+        10,
+        10,
+        15
+       ],
+       "claim": "location",
+       "label": "W1 schedule row",
+       "page": 9
+      }
+     ],
+     "page": 9
+    }
+   },
+   {
+    "attributes": {},
+    "evidence_completeness": "FULL",
+    "mark": "W2",
+    "observation_type": "schedule_entry",
+    "source": {
+     "document": "drawing page 9 schedule",
+     "evidence": [
+      {
+       "bbox": [
+        0,
+        20,
+        10,
+        25
+       ],
+       "claim": "location",
+       "label": "W2 schedule row",
+       "page": 9
+      }
+     ],
+     "page": 9
+    }
+   }
+  ],
+  "schema_version": "cunstruct.observation.v1"
+ }
+}
