@@ -606,7 +606,7 @@ def merge(items):
 def read_document(pages, doc_name="drawing"):
     """pages: [{page, words, hsegs, vsegs, size, source}] -> (items, observations).
     hsegs: (y, x0, x1); vsegs: (x, y0, y1)."""
-    items, obs = [], dict(tables=[], excluded_columns=[], unscheduled=[])
+    items, obs = [], dict(tables=[], excluded_columns=[], unscheduled=[], schedule_marks={})
     scheduled = {}  # prefix -> set of tags
     opening_prefixes = set()  # prefixes scheduled as door/window elevations
     in_tables = []  # (page, bbox) of every schedule found
@@ -618,6 +618,9 @@ def read_document(pages, doc_name="drawing"):
             items += its
             scheduled.setdefault(t["prefix"], set()).update(seen)
             opening_prefixes.add(t["prefix"])
+            for tw, band in t["rows"]:
+                mark = tw["t"].replace("-", "")
+                obs["schedule_marks"].setdefault(mark, dict(page=p["page"], bbox=[tw["x0"], tw["y0"], tw["x1"], tw["y1"]], qty=None, kind="graphical"))
             in_tables.append((p["page"], t["bbox"]))
             obs["tables"].append(dict(page=p["page"], kind="graphical", prefix=t["prefix"], bbox=t["bbox"], rows=len(t["rows"])))
         for t in columnar_tables(p["page"], words, p["hsegs"], p["vsegs"], h):
@@ -633,7 +636,12 @@ def read_document(pages, doc_name="drawing"):
                 for i, c in enumerate(t["header"]):
                     if c["kind"] == "tag" and i in r["cells"] and tag_of(_cell_text(r["cells"][i])):
                         pre, _ = tag_of(_cell_text(r["cells"][i]))
-                        scheduled.setdefault(pre, set()).add(_cell_text(r["cells"][i]).replace("-", ""))
+                        mark = _cell_text(r["cells"][i]).replace("-", "")
+                        scheduled.setdefault(pre, set()).add(mark)
+                        qty = [number(_cell_text(r["cells"][j])) for j, cj in enumerate(t["header"]) if cj["kind"] == "count" and j in r["cells"]]
+                        obs["schedule_marks"].setdefault(mark, dict(page=p["page"], bbox=bbox_of(r["cells"][i]),
+                                                                    qty=qty[0] if len(qty) == 1 and qty[0] is not None and float(qty[0]).is_integer() else None,
+                                                                    kind="columnar"))
     # tags on the drawing with no schedule row: flagged, never dropped
     elsewhere = {}
     for p in pages:
