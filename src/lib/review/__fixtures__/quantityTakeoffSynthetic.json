@@ -1,0 +1,152 @@
+{
+ "items": [
+  {
+   "calculation": "sum of the floor areas the schedule assigns this finish (printed areas; areas from printed sizes where no area is printed): R1 — Room A area 120 sqft + R2 — Room B area 80.5 sqft = 200.5 sqft. none: a schedule area is the room's floor area; no openings or fixtures are deducted from it [quantity-core 0.1]",
+   "calculation_data": {
+    "formula": "SUM_OF_SEGMENTS",
+    "inputs": [
+     {
+      "name": "R1 — Room A area",
+      "unit": "sqft",
+      "value": 120.0
+     },
+     {
+      "name": "R2 — Room B area",
+      "unit": "sqft",
+      "value": 80.5
+     }
+    ]
+   },
+   "confidence": null,
+   "item": "Flooring FL-1 — Oak strip",
+   "key": "FLOOR:FL-1",
+   "location": null,
+   "quantity": 200.5,
+   "source": {
+    "document": "synthetic schedule page 1",
+    "document_id": null,
+    "evidence": [
+     {
+      "bbox": [
+       90,
+       20,
+       120,
+       25
+      ],
+      "claim": "quantity",
+      "label": "R1 — Room A area: SFT",
+      "page": 1
+     },
+     {
+      "bbox": [
+       90,
+       30,
+       120,
+       35
+      ],
+      "claim": "quantity",
+      "label": "R2 — Room B area: SFT",
+      "page": 1
+     }
+    ],
+    "page": 1
+   },
+   "status": "MEASURED",
+   "unit": "sqft"
+  },
+  {
+   "calculation": "sum of the floor areas the schedule assigns this finish (printed areas; areas from printed sizes where no area is printed): R3 — Room C area 45 sqft. none: a schedule area is the room's floor area; no openings or fixtures are deducted from it [quantity-core 0.1]",
+   "confidence": null,
+   "item": "Flooring FL-2 — Porcelain tile",
+   "key": "FLOOR:FL-2",
+   "location": null,
+   "notes": "Ambiguous: R5 — Room E lists 2 floor finishes (FL-4 / FL-2); its area isn't split between them.",
+   "quantity": null,
+   "source": {
+    "document": "synthetic schedule page 1",
+    "document_id": null,
+    "evidence": [
+     {
+      "bbox": [
+       90,
+       40,
+       120,
+       45
+      ],
+      "claim": "quantity",
+      "label": "R3 — Room C area: SFT",
+      "page": 1
+     }
+    ],
+    "page": 1
+   },
+   "status": "PENDING",
+   "unit": "sqft"
+  },
+  {
+   "confidence": null,
+   "item": "Flooring FL-3 — Stone",
+   "key": "FLOOR:FL-3",
+   "location": null,
+   "notes": "Insufficient: R4 — Room D: nothing printed in column SFT.",
+   "quantity": null,
+   "source": {
+    "document": "synthetic schedule",
+    "document_id": null,
+    "evidence": [],
+    "page": null
+   },
+   "status": "PENDING",
+   "unit": "sqft"
+  },
+  {
+   "confidence": null,
+   "item": "Flooring FL-4",
+   "key": "FLOOR:FL-4",
+   "location": null,
+   "notes": "Ambiguous: R5 — Room E lists 2 floor finishes (FL-4 / FL-2); its area isn't split between them.",
+   "quantity": null,
+   "source": {
+    "document": "synthetic schedule",
+    "document_id": null,
+    "evidence": [],
+    "page": null
+   },
+   "status": "PENDING",
+   "unit": "sqft"
+  },
+  {
+   "confidence": null,
+   "item": "Skirting — Oak 3in",
+   "key": "SKIRT:Oak 3in",
+   "location": null,
+   "notes": "Insufficient: room perimeters are not printed in the schedule; skirting length can't be derived without measuring the plan, which this engine does not do.",
+   "quantity": null,
+   "source": {
+    "document": "synthetic schedule",
+    "document_id": null,
+    "evidence": [],
+    "page": null
+   },
+   "status": "PENDING",
+   "unit": "m"
+  },
+  {
+   "confidence": null,
+   "item": "Skirting — Tile 4in",
+   "key": "SKIRT:Tile 4in",
+   "location": null,
+   "notes": "Insufficient: room perimeters are not printed in the schedule; skirting length can't be derived without measuring the plan, which this engine does not do.",
+   "quantity": null,
+   "source": {
+    "document": "synthetic schedule",
+    "document_id": null,
+    "evidence": [],
+    "page": null
+   },
+   "status": "PENDING",
+   "unit": "m"
+  }
+ ],
+ "schema_version": "cunstruct.analysis.v1"
+}
