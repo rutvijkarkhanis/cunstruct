@@ -627,7 +627,11 @@ def read_document(pages, doc_name="drawing"):
             items += its
             in_tables.append((p["page"], t["bbox"]))
             obs["tables"].append(dict(page=p["page"], kind="columnar", header=[c["t"] for c in t["header"]],
-                                      kinds=[c["kind"] for c in t["header"]], bbox=t["bbox"], rows=len(t["rows"]), total_checks=t.get("checks", [])))
+                                      kinds=[c["kind"] for c in t["header"]], units=[c["unit"] for c in t["header"]],
+                                      bbox=t["bbox"], rows=len(t["rows"]), total_checks=t.get("checks", []),
+                                      # the rows as read, for downstream take-off (quantity_core)
+                                      row_cells=[dict(total=r["total"], cells={i: dict(text=_cell_text(ws), bbox=bbox_of(ws)) for i, ws in sorted(r["cells"].items())})
+                                                 for r in t["rows"]]))
             obs["excluded_columns"] += [dict(page=p["page"], column=c, reason="money (rate/amount/value) — never a quantity") for c in excl]
             for r in t["rows"]:
                 for i, c in enumerate(t["header"]):
