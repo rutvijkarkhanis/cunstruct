@@ -229,7 +229,9 @@ class ColumnarSchedule(unittest.TestCase):
 
     def test_sizes_in_mm_are_not_a_count_matrix(self):
         items, _ = read_document([columnar(["CODE", "NAME", "WIDTH MM", "LEAF"], [["D1", "Door", "950", "850"], ["D2", "Door", "750", "650"]])])
-        self.assertEqual(items, [])
+        # no count items from the sizes; the opening rows are flagged as incomplete (width but no height)
+        self.assertEqual([(i["key"], i["status"]) for i in items], [("SCHED:D1", "PENDING"), ("SCHED:D2", "PENDING")])
+        self.assertIn("no height column", items[0]["notes"])
 
     def test_a_code_missing_from_a_columnar_schedule_is_flagged_without_an_opening_unit(self):
         sched = columnar(["CODE", "SPACE", "SFT"], [["R1", "Room A", "600"], ["R2", "Room B", "400"]])
@@ -239,7 +241,9 @@ class ColumnarSchedule(unittest.TestCase):
 
     def test_no_column_holding_tags_is_a_mark_column_not_a_count(self):
         items, _ = read_document([columnar(["NO.", "NAME", "QTY"], [["W1", "CASEMENT", "2"], ["W2", "FIXED", "1"]])])
-        self.assertEqual(sorted((i["key"], i["quantity"]) for i in items), [("SCHED:W1 — CASEMENT:QTY", 2), ("SCHED:W2 — FIXED:QTY", 1)])
+        self.assertEqual(sorted((i["key"], i["quantity"]) for i in items if ":QTY" in i["key"]), [("SCHED:W1 — CASEMENT:QTY", 2), ("SCHED:W2 — FIXED:QTY", 1)])
+        # a schedule of window marks with no size column flags each size as missing, never silently
+        self.assertEqual(sorted(i["key"] for i in items if i["status"] == "PENDING"), ["SCHED:W1", "SCHED:W2"])
 
 
 class RotatedText(unittest.TestCase):

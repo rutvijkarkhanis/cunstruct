@@ -39,7 +39,14 @@ from schedule_core import tag_of, lines_of, phrases, word_height, evidence, item
 
 SECONDARY_PLAN = re.compile(r"\b(SITE|ROOF|CEILING|REFLECTED|RCP|FURNITURE|FURNISHING|ELECTRICAL|LIGHTING|POWER|PLUMBING|DRAINAGE|"
                             r"FINISH(?:ES)?|FLOORING|FRAMING|FOUNDATION|STRUCTURAL|DIMENSION(?:S|ED)?|DEMOLITION|SETTING[- ]OUT|"
-                            r"HVAC|MECHANICAL|LANDSCAPE|KEY|CALLOUT|ENLARGED|PART|PARTIAL)\b", re.I)
+                            r"HVAC|MECHANICAL|LANDSCAPE|KEY|CALLOUT|ENLARGED|PART|PARTIAL|"
+                            # structural plans show the same storey's structure, not its openings
+                            r"SLAB|BEAMS?|COLUMNS?|FOOTINGS?|PLINTH|LINTEL|GRADE|TIE|RAFT|PILES?|REINFORCEMENT|SHUTTERING|"
+                            r"CENTRE\s*LINE|CENTER\s*LINE|EXCAVATION)\b", re.I)
+# a title-block label in front of a sheet title ("DRAWING TITLE FIRST FLOOR PLAN")
+TITLE_LABEL = re.compile(r"^(?:DRAWING|DRG\.?|SHEET)\s+TITLE\s*:?\s*", re.I)
+# a building qualifier in a plan title: plans of different buildings are different levels
+BUILDING = re.compile(r"\b(TYPE[-\s]?[A-Z0-9]{1,4}|BLOCK[-\s]?[A-Z0-9]{1,3}|TOWER[-\s]?[A-Z0-9]{1,3}|WING[-\s]?[A-Z0-9]{1,3})\b")
 ROLE_WORDS = (("schedule", re.compile(r"\bSCHEDULE\b", re.I)), ("elevation", re.compile(r"\bELEVATIONS?\b", re.I)),
               ("section", re.compile(r"\bSECTIONS?\b", re.I)), ("detail", re.compile(r"\bDETAILS?\b", re.I)),
               ("plan", re.compile(r"\bPLAN\b", re.I)))
@@ -55,12 +62,21 @@ NOTE_START = re.compile(r"^(?:SEE|REFER|REF\.?|AS|TO|FOR|NOTE|NOTES|PROVIDE|ALL)
 def view_role(text):
     """(role, subtype) of a view title, or None when the text is not a title.
     subtype for plans: 'floor' (counted) or 'secondary'. Notes ('SEE D1
-    DETAIL', 'REFER PLAN') name views without being their titles."""
-    t = " ".join(text.split())
-    if len(t.split()) > 9 or len(t) < 4 or NOTE_START.match(t):
+    DETAIL', 'REFER PLAN') name views without being their titles. A title
+    ends with its view word, give or take a short label ('SECTION A-A',
+    'PLAN - CALLOUT 1'); a longer phrase that merely contains one (a project
+    name such as '... OF SECTIONS FOR AN OFFICE AND WORKSHOPS') is not a title,
+    and neither is a file path."""
+    t = TITLE_LABEL.sub("", " ".join(text.split()))
+    if len(t.split()) > 9 or len(t) < 4 or NOTE_START.match(t) or re.search(r"\\|\.(?:png|jpe?g|dwg|pdf|tiff?)\b", t, re.I):
         return None
+    toks = t.split()
     for role, rx in ROLE_WORDS:
-        if rx.search(t):
+        at = [i for i, tok in enumerate(toks) if rx.search(tok)]
+        if at:
+            after = toks[at[-1] + 1:]
+            if len(after) > 3 or any(len(a) > 8 for a in after):
+                return None
             if role != "plan":
                 return role, None
             return "plan", "secondary" if SECONDARY_PLAN.search(t) else "floor"
@@ -71,7 +87,16 @@ def level_of(text):
     """(level key, multiplier) from a plan title. Multiplier is 1 for an
     ordinary plan, an int for a typical plan that states its floors, and
     None for a typical plan that does not."""
-    t = " ".join(text.upper().split())
+    t = TITLE_LABEL.sub("", " ".join(text.upper().split()))
+    b = BUILDING.search(t)
+    bld = (re.sub(r"\s+", "-", b.group(1)) + " ") if b else ""
+    # an explicit range of storeys: "FIRST TO THIRD FLOOR PLAN" stands for 3 floors
+    r = re.search(r"\b(" + "|".join(k for k in ORDINAL if " " not in k) + r")\s+TO\s+(" + "|".join(k for k in ORDINAL if " " not in k) + r")\b", t)
+    if r:
+        lo, hi = ORDINAL[r.group(1)], ORDINAL[r.group(2)]
+        if float(lo).is_integer() and float(hi).is_integer() and hi > lo:
+            return f"{bld}L{lo:g}-L{hi:g}", int(hi - lo + 1)
+        return f"{bld}{r.group(0)}", None
     m = re.search(r"\bLEVEL\s*(\d{1,2})\b|\b(\d{1,2})(?:ST|ND|RD|TH)\s+FLOOR\b|\bFLOOR\s*(\d{1,2})\b", t)
     key = None
     if m:
@@ -84,11 +109,11 @@ def level_of(text):
     if "TYPICAL" in t:
         r = MULT[1].search(t)
         if r:
-            a, b = int(r.group(1)), int(r.group(2))
-            return key or f"TYPICAL {a}-{b}", (b - a + 1 if b >= a else None)
+            a, z = int(r.group(1)), int(r.group(2))
+            return bld + (key or f"TYPICAL {a}-{z}"), (z - a + 1 if z >= a else None)
         n = MULT[0].search(t)
-        return key or "TYPICAL", (int(n.group(1) or n.group(2)) if n else None)
-    return key or "(unnamed level)", 1
+        return bld + (key or "TYPICAL"), (int(n.group(1) or n.group(2)) if n else None)
+    return bld + (key or "(unnamed level)"), 1
 
 
 SCALE = re.compile(r"\b1\s*:\s*\d{1,4}\b|\bSCALE\b|\bN\.?T\.?S\b", re.I)
@@ -213,13 +238,42 @@ def detail_reference(w, words, h):
 MULT_WORD = re.compile(r"^\(?(?:[xX×]\d{0,2}|\d{1,2}|NOS?\.?|NO\.?|TYP\.?|TYPICAL)\)?$", re.I)
 
 
+TITLE_OR_NOTE_WORD = re.compile(r"^(?:PLAN|ELEVATION|SECTION|DETAIL|SCHEDULE|WALL|FRAMING|SEE|REFER|REF\.?|NOTE|AS|PER|TYPE|TYPICAL)$", re.I)
+
+
 def in_text(w, words, h):
-    """A placed tag stands alone. A tag that is one word of a phrase
-    ('W2 - WALL FRAMING', 'REFER D1 DETAIL') is text: a title or a note,
-    not an opening. Sizes, counts and TYP. beside a tag are allowed."""
+    """A placed tag stands alone; sizes, counts and TYP. beside it are allowed.
+    Returns None for a standalone tag, ('text', words) for a tag that is one
+    word of a title or note ('W2 - WALL FRAMING', 'SEE D1 DETAIL': not an
+    opening), or ('ambiguous', words) for a tag printed beside other text
+    that can't be told apart (a two- or three-letter fragment). An
+    ambiguous tag is never dropped silently: it keeps its count unresolved."""
     near = _same_line_neighbours(w, words, h, reach=1.2)
-    return any(sum(ch.isalpha() for ch in o["t"]) >= 2 and not MULT_WORD.match(o["t"]) for o in near) or \
-        any(o["t"] in ("-", "–", "—", ":") for o in near)
+    if any(o["t"] in ("-", "–", "—", ":") for o in near):
+        return "text", [o["t"] for o in near]
+    wordy = [o for o in near if sum(ch.isalpha() for ch in o["t"]) >= 2 and not MULT_WORD.match(o["t"]) and not tag_of(o["t"].strip("()[]."))]
+    if not wordy:
+        return None
+    real = [o for o in wordy if sum(ch.isalpha() for ch in o["t"]) >= 3]
+    if any(TITLE_OR_NOTE_WORD.match(o["t"].strip(".,:")) for o in wordy) or len(real) >= 2:
+        return "text", [o["t"] for o in wordy]
+    return "ambiguous", [o["t"] for o in wordy]
+
+
+SIZE_PAIR_TEXT = re.compile(r"\b\d{3,5}\s*[xX×]\s*\d{3,5}\b")
+
+
+def schedule_row_like(w, words, h):
+    """A tag on a line that reads like a schedule row (a row number just
+    before it and a size after it, e.g. '7 D9 1111 x 2222 ...') outside any
+    schedule that was recognised. Such a line is not a placed opening."""
+    cy = (w["y0"] + w["y1"]) / 2
+    line = sorted((o for o in words if o is not w and abs((o["y0"] + o["y1"]) / 2 - cy) <= 0.6 * h), key=lambda o: o["x0"])
+    left = [o for o in line if o["x1"] <= w["x0"] + 0.1 * h and w["x0"] - o["x1"] <= 4 * h]
+    right = [o for o in line if o["x0"] >= w["x1"] - 0.1 * h and o["x0"] - w["x1"] <= 25 * h]
+    serial = left and re.fullmatch(r"\d{1,2}\.?", left[-1]["t"])
+    size = SIZE_PAIR_TEXT.search(" ".join(o["t"] for o in right)) or sum(1 for o in right if re.fullmatch(r"\d{3,5}", o["t"])) >= 2
+    return bool(serial and size)
 
 
 def multiplicity(w, words, h):
@@ -256,12 +310,17 @@ def candidates_on_page(p, prefixes, schedule_boxes, h):
         box = [w["x0"], w["y0"], w["x1"], w["y1"]]
         mark = w["t"].strip("()[].").replace("-", "")
         rec = dict(mark=mark, page=p["page"], bbox=box, word=w)
+        text = in_text(w, words, h)
         if any(_overlap(box, b) > 0.5 for b in schedule_boxes):
             rec.update(state="schedule")
         elif detail_reference(w, words, h):
             rec.update(state="detail_ref")
-        elif in_text(w, words, h):
-            rec.update(state="text")
+        elif schedule_row_like(w, words, h):
+            rec.update(state="schedule_row")
+        elif text and text[0] == "text":
+            rec.update(state="text", why=f"part of a title or note ({' '.join(text[1])})")
+        elif text:
+            rec.update(state="ambiguous", why=f"tag printed beside other text ('{' '.join(text[1])}'): it may be part of a label")
         else:
             view, why = view_of(w, [t for t in titles if t["role"] != "schedule"] or titles, h)
             if view is None:
@@ -321,9 +380,33 @@ def attach_symbols(p, recs, h):
     return flags
 
 
+# ---------------------------------------------------------------- schedule families
+
+def schedule_families(page_sizes):
+    """Group sheets by the door/window schedule printed on them. Sheets whose
+    schedules give every mark the same sizes are one family (one building
+    type); a set covering several buildings reuses marks with different
+    sizes, and each sheet's plans belong to the schedule printed beside
+    them. Returns {"pages": {page: family}, "sizes": {family: {mark: sizes}}};
+    empty when the drawing has fewer than two different schedules."""
+    sig = {}
+    for page in sorted(page_sizes):
+        key = tuple(sorted((m, tuple(sorted(v))) for m, v in page_sizes[page].items()))
+        sig.setdefault(key, []).append(page)
+    if len(sig) < 2:
+        return {}
+    out = dict(pages={}, sizes={})
+    for key, pages in sorted(sig.items(), key=lambda kv: kv[1][0]):
+        fam = f"schedule on p{','.join(map(str, pages))}"
+        out["sizes"][fam] = {m: set(v) for m, v in key}
+        for pg in pages:
+            out["pages"][pg] = fam
+    return out
+
+
 # ---------------------------------------------------------------- counting
 
-def count_document(pages, schedule_marks, schedule_tables, doc_name="drawing"):
+def count_document(pages, schedule_marks, schedule_tables, doc_name="drawing", families=None):
     """pages: schedule_sources pages (+ optional 'symbols': [{kind, bbox}]).
     schedule_marks: {mark: {page, bbox, qty, kind}} from schedule_core.
     schedule_tables: [(page, bbox)] of every schedule table found.
@@ -333,7 +416,7 @@ def count_document(pages, schedule_marks, schedule_tables, doc_name="drawing"):
     # schedule are not openings
     schedule_marks = {m: v for m, v in schedule_marks.items()
                       if tag_of(m) and (v.get("kind") == "graphical" or tag_of(m)[0] in KIND_NAME)}
-    prefixes = {tag_of(m)[0] for m in schedule_marks} | {"D", "W"}
+    prefixes = {tag_of(m)[0] for m in schedule_marks} | {"D", "W", "V", "DW"}
     recs, flags, all_titles = [], [], []
     hs = {}
     pages = sorted(pages, key=lambda p: p["page"])
@@ -361,8 +444,12 @@ def count_document(pages, schedule_marks, schedule_tables, doc_name="drawing"):
         sched = schedule_marks.get(mark)
         floor = [r for r in rs if r["state"] == "plan" and r["view"]["subtype"] == "floor"]
         levels = {}
+        fam_of = (families or {}).get("pages", {})
         for r in floor:
             lv, mult = level_of(r["view"]["text"])
+            if fam_of:
+                # plans are levels within their own sheet family (building)
+                lv = f"[{fam_of.get(r['page'], 'no schedule on sheet')}] {lv}"
             view_id = (r["page"], r["view"]["text"], tuple(round(v) for v in r["view"]["bbox"]))
             L = levels.setdefault(lv, dict(mult=mult, views={}))
             if mult != L["mult"]:
@@ -389,6 +476,32 @@ def count_document(pages, schedule_marks, schedule_tables, doc_name="drawing"):
                 problems.append(f"{lv}: typical plan does not state how many floors it stands for")
             total += n * (L["mult"] or 1)
             calc_inputs.append((lv, n, L["mult"]))
+        # two plans claiming the same storey of the same building (e.g. 'FIRST FLOOR PLAN'
+        # and 'FIRST TO THIRD FLOOR PLAN' with no building named) would count it twice
+        spans = []
+        for lv in levels:
+            m_ = re.match(r"^(.*?)\bL(-?[\d.]+)(?:-L(-?[\d.]+))?$", lv)
+            if m_:
+                spans.append((m_.group(1), float(m_.group(2)), float(m_.group(3) or m_.group(2)), lv))
+        for i, (b1, lo1, hi1, k1) in enumerate(spans):
+            for b2, lo2, hi2, k2 in spans[i + 1:]:
+                if b1 == b2 and lo1 <= hi2 and lo2 <= hi1:
+                    problems.append(f"plans {k1} and {k2} cover the same storey; it may be counted twice")
+        # one mark scheduled with different sizes names different openings (e.g. in different buildings)
+        if fam_of:
+            fams = sorted({fam_of.get(r["page"]) for r in floor} - {None})
+            unscoped = [r for r in floor if r["page"] not in fam_of]
+            sizes = {f: (families["sizes"].get(f, {}).get(mark) or set()) for f in fams}
+            union = set().union(*sizes.values()) if sizes else set()
+            if any(len(v) > 1 for v in sizes.values()):
+                problems.append(f"{mark} is scheduled with more than one size on the same sheet(s) ({'; '.join(f'{f}: ' + ', '.join(sorted(v)) for f, v in sizes.items() if len(v) > 1)})")
+            elif len(union) > 1:
+                problems.append(f"{mark} names different openings on different sheets ({'; '.join(f'{f}: ' + ', '.join(sorted(v)) for f, v in sizes.items())}); one line can't hold both")
+            all_sizes = {sz for f in families["sizes"].values() for sz in f.get(mark, ())}
+            if unscoped and len(all_sizes) > 1:
+                problems.append(f"{len(unscoped)} tag(s) are on sheets with no schedule, and {mark} has different sizes in different schedules, so which opening they are is unknown")
+        elif sched and len(sched.get("sizes") or ()) > 1:
+            problems.append(f"{mark} is scheduled with different sizes ({'; '.join(sorted(sched['sizes']))}), so it may name different openings")
         if typ:
             problems.append(f"{len(typ)} tag(s) marked TYP. with no number of openings")
         if ambiguous:
@@ -405,6 +518,12 @@ def count_document(pages, schedule_marks, schedule_tables, doc_name="drawing"):
             ev.append(evidence(r["page"], r["bbox"], f"{mark} not counted: {r['why']}", "location"))
         page0 = (floor or ambiguous or corroborating or [dict(page=sched["page"] if sched else None)])[0]["page"]
         corr = f" Also shown on {len(corroborating)} other view(s) (elevations, sections, other plans); not counted again." if corroborating else ""
+        text_ex = sum(r["state"] == "text" for r in rs)
+        row_ex = sum(r["state"] == "schedule_row" for r in rs)
+        if text_ex:
+            corr += f" {text_ex} occurrence(s) read as part of a title or note were not counted."
+        if row_ex:
+            corr += f" {row_ex} line(s) reading like schedule rows outside a recognised schedule were not counted."
         sched_note = ""
         cands = None
         if sched is None:
@@ -417,6 +536,7 @@ def count_document(pages, schedule_marks, schedule_tables, doc_name="drawing"):
                 cands = [dict(value=total, unit="nr", basis="tags counted on floor plans"),
                          dict(value=int(sched["qty"]), unit="nr", basis="QTY printed in the schedule")]
         report["marks"][mark] = dict(levels=level_report, ambiguous=len(ambiguous), corroborating=len(corroborating),
+                                     text_excluded=text_ex, schedule_rows_excluded=row_ex,
                                      detail_refs=sum(r["state"] == "detail_ref" for r in rs), in_schedule=sched is not None,
                                      merged_duplicates=sum(len(r.get("duplicates", [])) for r in rs), problems=problems)
         if not floor and not ambiguous:
