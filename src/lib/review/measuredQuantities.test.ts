@@ -100,3 +100,58 @@ describe("unitless sizes become areas only with established units", () => {
     });
   });
 });
+
+describe("a printed size that can't be a room is held, not priced", () => {
+  const rec = (texts: string[]) => reconcileRoomDimensions(buildDrawingInventory([{
+    documentId: "d", page: 1, pageSize: { width: 1191, height: 842 }, textLayer: "available",
+    runs: texts.map((t, i) => ({ text: t, origin: [100, i === 0 ? 700 : 100 + (i - 1) * 8] as [number, number], direction: [1, 0] as [number, number], width: 44, height: 6 })),
+  }])).rooms;
+
+  // Regression from a real development drawing: a room tag printed "7000M X 7000M"
+  // on a sheet noted "ALL DIMENSIONS ARE IN MILLIMETERS" was priced at 49,000,000 m².
+  it("a metre suffix that contradicts the page's millimetre note is held with both readings", () => {
+    const [q] = measuredQuantitiesFor(rec(["ALL DIMENSIONS ARE IN MILLIMETERS", "COMMON ROOM", "7000M X 7000M"]));
+    expect(q).toMatchObject({ status: "pending", quantity: null, unroundedQuantity: null });
+    expect(q.pendingReason).toContain("7,000 m × 7,000 m, which is not a plausible room size");
+    expect(q.pendingReason).toContain("states mm, which would give 7 m × 7 m (49 m²)");
+  });
+
+  it("the same impossible size with no note is held too, without a substitute", () => {
+    const [q] = measuredQuantitiesFor(rec(["SCALE 1:100", "COMMON ROOM", "7000M X 7000M"]));
+    expect(q).toMatchObject({ status: "pending", quantity: null });
+    expect(q.pendingReason).toBe('"7000M X 7000M" reads as 7,000 m × 7,000 m, which is not a plausible room size. Check the printed unit before this area is used.');
+  });
+
+  it("a printed metre size on a millimetre-noted sheet is kept when it is plausible (the printed unit wins)", () => {
+    const [q] = measuredQuantitiesFor(rec(["ALL DIMENSIONS ARE IN MILLIMETERS", "BED ROOM", "3.5M X 4.2M"]));
+    expect(q).toMatchObject({ status: "ready", quantity: 14.7 });
+  });
+
+  it("small but real spaces stay measurable", () => {
+    const [q] = measuredQuantitiesFor(rec(["ALL DIMENSIONS ARE IN MM", "STORE", "900 X 1200"]));
+    expect(q).toMatchObject({ status: "ready", quantity: 1.08 });
+  });
+});
+
+describe("a services drawing of a plan does not add its rooms' areas again", () => {
+  const page = (n: number, texts: [string, number, number][]) => ({
+    documentId: "d", page: n, pageSize: { width: 1191, height: 842 }, textLayer: "available" as const,
+    runs: texts.map(([t, x, y]) => ({ text: t, origin: [x, y] as [number, number], direction: [1, 0] as [number, number], width: 44, height: 6 })),
+  });
+  const plan: [string, number, number][] = [["ALL DIMENSIONS ARE IN MM", 900, 800], ["GROUND FLOOR PLAN", 900, 780], ["CLASS ROOM", 100, 100], ["7000 X 7000", 100, 108]];
+
+  // Regression from a real development drawing: the electrical layouts of four
+  // floors were measured as more floor area on top of the architectural plans.
+  it("rooms on an ELECTRICAL LAYOUT sheet are held with the reason; the plan's rooms are measured", () => {
+    const rooms = reconcileRoomDimensions(buildDrawingInventory([page(1, plan), page(2, [["ELECTRICAL LAYOUT OF", 900, 760], ...plan])])).rooms;
+    const q = measuredQuantitiesFor(rooms);
+    expect(q.map((x) => [x.provenance.page, x.status, x.quantity])).toEqual([[1, "ready", 49], [2, "pending", null]]);
+    expect(q[1].pendingReason).toContain("electrical drawing (\"ELECTRICAL LAYOUT OF\")");
+  });
+
+  it("a note that only mentions a services drawing does not change an architectural plan", () => {
+    const rooms = reconcileRoomDimensions(buildDrawingInventory([page(1, [["REFER ELECTRICAL LAYOUT FOR POINTS", 900, 700], ...plan])])).rooms;
+    expect(measuredQuantitiesFor(rooms)[0]).toMatchObject({ status: "ready", quantity: 49 });
+  });
+});
+

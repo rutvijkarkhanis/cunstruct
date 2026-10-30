@@ -56,6 +56,8 @@ export interface ReconciledRoom {
   /** Other plausible dimensions — set for "ambiguous", and for a medium-confidence match. */
   alternatives: DimensionRef[];
   reason: string;
+  /** The page is a services/derived drawing of a plan (see InventoryPage.derivedSheet). */
+  derivedSheet?: { discipline: string; text: string };
 }
 
 export interface UnmatchedDimension {
@@ -101,6 +103,7 @@ export function reconcileRoomDimensions(inventory: DrawingInventory): RoomReconc
   const dims = inventory.candidates.filter((c) => c.kind === "room_dimension");
   const openingSizes = inventory.candidates.filter((c) => c.kind === "opening_size");
   const floorOf = new Map(inventory.pages.map((p) => [`${p.documentId}:${p.page}`, p.floor.status === "identified" ? p.floor.floor : null]));
+  const derivedOf = new Map(inventory.pages.filter((p) => p.derivedSheet).map((p) => [`${p.documentId}:${p.page}`, p.derivedSheet!]));
 
   // Plausible pairs, nearest first, from each side.
   const byLabel = new Map<string, { dim: InventoryCandidate; d: number }[]>();
@@ -136,6 +139,9 @@ export function reconcileRoomDimensions(inventory: DrawingInventory): RoomReconc
     const base = {
       candidateId: label.id, label: label.text, spaceClass: label.spaceClass!, documentId: label.documentId,
       page: label.page, pageSize: label.pageSize, floor: floorOf.get(`${label.documentId}:${label.page}`) ?? null, box: label.box,
+      ...(derivedOf.has(`${label.documentId}:${label.page}`)
+        ? { derivedSheet: { discipline: derivedOf.get(`${label.documentId}:${label.page}`)!.discipline, text: derivedOf.get(`${label.documentId}:${label.page}`)!.text } }
+        : {}),
     };
     if (label.scheduleRow) return { ...base, status: "ambiguous", alternatives: [], reason: label.scheduleRow.reason };
     const options = byLabel.get(label.id) ?? [];

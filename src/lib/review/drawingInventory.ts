@@ -92,6 +92,11 @@ export interface DimensionPair {
   unitBasis?: UnitBasis;
   /** For a unitless pair: what was done to read it. The printed text is kept on each Length. */
   normalization?: string;
+  /** The single dimension unit this page's note states, when there is exactly
+   *  one ("ALL DIMENSIONS ARE IN MM"). Kept on every size on that page, also
+   *  sizes printed with their own unit, so a printed unit that contradicts
+   *  the note can be held instead of trusted. */
+  pageNote?: { unit: "mm" | "m" | "cm" | "ft-in"; candidateId: string; text: string };
 }
 
 const FT_IN = String.raw`(\d+)\s*['’′]\s*-?\s*(?:(\d+(?:\.\d+)?)\s*(?:["”″]|''))?`;
@@ -188,6 +193,20 @@ function spaceClassOf(text: string): SpaceClass | null {
   return null;
 }
 
+// A title line that STARTS with a services/derived-drawing word, e.g.
+// "ELECTRICAL LAYOUT OF", "PLUMBING PLAN", "REFLECTED CEILING PLAN",
+// "FURNITURE LAYOUT". Only a short line that begins this way counts, so a note
+// such as "REFER ELECTRICAL LAYOUT" on an architectural plan does not.
+const DERIVED_SHEET = /^(ELECTRICAL|ELECTRIFICATION|LIGHTING|POWER|PLUMBING|SANITARY|DRAINAGE|WATER\s+SUPPLY|FIRE(?:\s+FIGHTING|\s+ALARM)?|HVAC|AIR\s+CONDITIONING|FURNITURE|REFLECTED\s+CEILING|CEILING|STRUCTURAL|FRAMING|FOUNDATION)\s+(?:LAYOUT|PLAN|DRAWING|DETAILS?)\b/i;
+
+/** The services/derived discipline a title line names, or null. */
+export function derivedSheetOf(text: string): string | null {
+  const t = text.trim();
+  if (t.split(/\s+/).length > 8) return null;
+  const m = DERIVED_SHEET.exec(t);
+  return m ? m[1].toUpperCase().replace(/\s+/g, " ") : null;
+}
+
 const SHEET_TITLE = /\b((?:[A-Z0-9]+\s+){0,2}FLOOR)\s+PLAN\b/i;
 
 // ── Inventory ───────────────────────────────────────────────────────────────
@@ -235,6 +254,11 @@ export interface InventoryPage {
   pageSize: PageSize;
   textLayer: "available" | "absent";
   floor: PageFloor;
+  /** Set when the page's own title names a services or derived drawing of a
+   *  plan ("ELECTRICAL LAYOUT OF ...", "PLUMBING PLAN", "REFLECTED CEILING
+   *  PLAN"). Such a sheet repeats the architectural plan's rooms; measuring
+   *  them again would count the same floor twice. */
+  derivedSheet?: { discipline: string; candidateId: string; text: string };
 }
 
 export interface DrawingInventory {
@@ -290,6 +314,12 @@ export function buildDrawingInventory(pages: DrawingTextPage[]): DrawingInventor
     // states one supported length unit. No note, conflicting notes, or a note
     // naming another unit leaves it unresolved.
     const noteUnits = [...new Set(pageCandidates.filter((c) => c.kind === "unit_note").map((c) => c.unitNote!))];
+    if (noteUnits.length === 1) {
+      const note = pageCandidates.find((n) => n.kind === "unit_note")!;
+      for (const c of pageCandidates) {
+        if (c.kind === "room_dimension" && c.dimension) c.dimension = { ...c.dimension, pageNote: { unit: noteUnits[0], candidateId: note.id, text: note.text } };
+      }
+    }
     for (const c of pageCandidates) {
       if (c.kind !== "room_dimension" || c.dimension?.unitBasis?.kind !== "unresolved") continue;
       if (noteUnits.length > 1) {
@@ -310,8 +340,10 @@ export function buildDrawingInventory(pages: DrawingTextPage[]): DrawingInventor
     candidates.push(...pageCandidates);
     const titles = pageCandidates.filter((c) => c.kind === "sheet_title");
     const floors = [...new Set(titles.map((t) => t.floorText!))];
+    const derived = pageCandidates.map((c) => ({ c, d: derivedSheetOf(c.text) })).find((x) => x.d);
     inventoryPages.push({
       documentId: p.documentId, page: p.page, pageSize: p.pageSize, textLayer: p.textLayer,
+      ...(derived ? { derivedSheet: { discipline: derived.d!, candidateId: derived.c.id, text: derived.c.text } } : {}),
       floor: floors.length === 0 ? { status: "unidentified" }
         : floors.length > 1 ? { status: "conflict", floors: floors.map(floorName) }
         : { status: "identified", floor: floorName(floors[0]), candidateId: titles[0].id },

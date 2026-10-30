@@ -16,7 +16,7 @@
 // existing BOQ quantities. Pure and deterministic.
 
 import { computeCalculation, type CalculationInput } from "./measurementValidator";
-import { labelKey, type Box, type Length, type UnitBasis } from "./drawingInventory";
+import { labelKey, type Box, type DimensionPair, type Length, type UnitBasis } from "./drawingInventory";
 import type { ReconciledRoom } from "./roomDimensionReconciliation";
 
 export type AreaUnit = "sqm" | "sqft";
@@ -67,6 +67,31 @@ function unitProblem(lengths: Length[], basis?: UnitBasis): string | null {
   return null;
 }
 
+// A room side outside this range is not a plausible room: the printed unit is
+// almost certainly wrong (e.g. "7000M X 7000M" on a sheet whose note says all
+// dimensions are in millimetres). It is a review trigger, never a rejection of
+// a real small or large space: the size stays visible and pending with the
+// reason, and nothing is substituted for it.
+const ROOM_SIDE_M = { min: 0.3, max: 150 };
+const METRES: Record<string, number> = { in: 0.0254, mm: 0.001, m: 1, cm: 0.01 };
+const fmtM = (v: number) => (Math.round(v * 1000) / 1000).toLocaleString("en-US", { maximumFractionDigits: 3 });
+
+/** Why a printed size can't be a room's size, with what the page's own unit
+ *  note would make of it; null when it is plausible. */
+function implausibleSize(dim: DimensionPair, text: string): string | null {
+  const sides = [dim.first, dim.second].map((l) => l.value * METRES[l.unit!]);
+  if (sides.every((m) => m >= ROOM_SIDE_M.min && m <= ROOM_SIDE_M.max)) return null;
+  const read = `"${text}" reads as ${sides.map(fmtM).join(" m × ")} m, which is not a plausible room size`;
+  const note = dim.pageNote;
+  if (note && note.unit in METRES && [dim.first, dim.second].some((l) => l.unit !== note.unit)) {
+    const alt = [dim.first, dim.second].map((l) => l.value * METRES[note.unit]);
+    if (alt.every((m) => m >= ROOM_SIDE_M.min && m <= ROOM_SIDE_M.max)) {
+      return `${read}. This page's note ("${note.text}") states ${note.unit}, which would give ${alt.map(fmtM).join(" m × ")} m (${fmtM(alt[0] * alt[1])} m²). The printed unit contradicts the note: confirm the unit before this area is used.`;
+    }
+  }
+  return `${read}. Check the printed unit before this area is used.`;
+}
+
 const roundHalfUp = (v: number, decimals: number) => {
   const f = 10 ** decimals;
   return Math.round((v + Number.EPSILON) * f) / f;
@@ -107,9 +132,14 @@ export function measuredQuantitiesFor(
     const pending = (reason: string): MeasuredQuantity => ({ ...base, status: "pending", pendingReason: reason, quantity: null, unroundedQuantity: null });
 
     if (room.status !== "dimensioned") return pending(room.reason);
+    if (room.derivedSheet) {
+      return pending(`This page is a ${room.derivedSheet.discipline.toLowerCase()} drawing ("${room.derivedSheet.text}") that repeats the floor plan's rooms. Floor area is measured from the architectural plan, so it is not counted again here.`);
+    }
     if (room.confidence !== "high") return pending(`The dimension match is only ${room.confidence ?? "low"} confidence; confirm it first.`);
     const problem = unitProblem(lengths, room.dimension!.dimension.unitBasis);
     if (problem) return pending(problem);
+    const implausible = implausibleSize(room.dimension!.dimension, room.dimension!.text);
+    if (implausible) return pending(implausible);
     const result = computeCalculation({ formula: "LENGTH_TIMES_WIDTH", inputs });
     if (!result.recomputed || result.resultValue == null) return pending(result.reason ?? "The area could not be computed from these inputs.");
     const unrounded = unit === "sqm" ? result.resultValue : result.resultValue / SQM_PER_SQFT;
