@@ -156,3 +156,55 @@ describe("extractPageGeometry — rotated-90.pdf (page declares /Rotate 90)", ()
     }
   });
 });
+
+describe("extractPageGeometry — transformed-geometry.pdf (paths drawn under a `cm` transform)", () => {
+  // Ground truth: 612x792 page whose content stream is
+  //   q 1 0 0 1 100 200 cm 0 0 m 50 0 l S Q              line (100,200)-(150,200)
+  //   q 2 0 0 2 0 0 cm 10 10 20 10 re S Q                rect (20,20)-(60,40)
+  //   0 0 m 10 0 l S                                     line (0,0)-(10,0): the Q restored identity
+  //   q 0 1 -1 0 300 300 cm 0 0 m 40 0 l S Q             line (300,300)-(300,340): rotated 90°
+  //   q 1 0 0.5 1 0 0 cm 450 100 20 20 re S Q            skewed rect: (500,100) (520,100) (530,120) (510,120)
+  //   q 1 0 0 1 10 0 cm q 1 0 0 1 0 20 cm 200 600 m 210 600 l S Q 200 650 m 210 650 l S Q
+  //                                                      nested: (210,620)-(220,620), then (210,650)-(220,650)
+  //   /Fm1 Do  (form /Matrix [1 0 0 1 500 500], content 0 0 m 0 30 l S)
+  //                                                      line (500,500)-(500,530)
+  //   BT 1 0 0 1 100 220 Tm (4000) Tj ET                 text at (100,220)
+  // CAD exports draw almost everything under such transforms; before the fix
+  // the raw operand coordinates were reported, so shapes and text disagreed.
+  const pageY = (y: number) => 792 - y;
+  const lines = async () => {
+    const result = await extractPageGeometry(await loadPage("transformed-geometry.pdf"), 1);
+    return { result, lines: result.shapes.filter((s) => s.type === "line").map((s) => s.points) };
+  };
+
+  it("applies the current transformation matrix to path points", async () => {
+    const { lines: ls } = await lines();
+    expect(ls).toContainEqual([[100, pageY(200)], [150, pageY(200)]]);
+    expect(ls).toContainEqual([[300, pageY(300)], [300, pageY(340)]]);
+  });
+
+  it("restores the previous matrix at Q, including nested q/Q", async () => {
+    const { lines: ls } = await lines();
+    expect(ls).toContainEqual([[0, pageY(0)], [10, pageY(0)]]);
+    expect(ls).toContainEqual([[210, pageY(620)], [220, pageY(620)]]);
+    expect(ls).toContainEqual([[210, pageY(650)], [220, pageY(650)]]);
+  });
+
+  it("applies a form XObject's own /Matrix to the paths inside it", async () => {
+    const { lines: ls } = await lines();
+    expect(ls).toContainEqual([[500, pageY(500)], [500, pageY(530)]]);
+  });
+
+  it("a scaled rectangle stays a rectangle; a skewed one is reported as the polygon it really is", async () => {
+    const { result } = await lines();
+    expect(result.shapes.find((s) => s.type === "rectangle")!.bbox).toEqual([20, pageY(40), 60, pageY(20)]);
+    const skew = result.shapes.find((s) => s.type === "polygon")!;
+    expect(skew.points).toEqual([[500, pageY(100)], [520, pageY(100)], [530, pageY(120)], [510, pageY(120)]]);
+  });
+
+  it("text and the line drawn beside it land in the same page space", async () => {
+    const { result } = await lines();
+    const t = result.textRuns.find((r) => r.text === "4000")!;
+    expect([t.x, t.y]).toEqual([100, pageY(220)]);
+  });
+});

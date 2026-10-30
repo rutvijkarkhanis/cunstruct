@@ -169,6 +169,36 @@ function classifySubpath(sp: RawSubpath): GeometryType {
   return "polyline";
 }
 
+type Matrix = [number, number, number, number, number, number];
+const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
+
+const isMatrix = (m: unknown): m is Matrix =>
+  (Array.isArray(m) || ArrayBuffer.isView(m)) && (m as ArrayLike<number>).length === 6;
+
+/** `cm n` under CTM m: points go through n first, then m (PDF: CTM' = n × CTM). */
+function multiply(m: Matrix, n: ArrayLike<number>): Matrix {
+  return [
+    m[0] * n[0] + m[2] * n[1],
+    m[1] * n[0] + m[3] * n[1],
+    m[0] * n[2] + m[2] * n[3],
+    m[1] * n[2] + m[3] * n[3],
+    m[0] * n[4] + m[2] * n[5] + m[4],
+    m[1] * n[4] + m[3] * n[5] + m[5],
+  ];
+}
+
+const apply = (m: Matrix, [x, y]: [number, number]): [number, number] =>
+  [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+
+/** The four corners of a transformed rectangle still form an axis-aligned box. */
+function axisAligned(pts: [number, number][]): boolean {
+  const eq = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+  return pts.every((p, k) => {
+    const q = pts[(k + 1) % pts.length];
+    return eq(p[0], q[0]) || eq(p[1], q[1]);
+  });
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Viewport = { convertToViewportPoint(x: number, y: number): any[] };
 
@@ -195,13 +225,32 @@ export async function extractPageGeometry(pdfPage: PDFPageProxy, pageNumber: num
   ]);
 
   const shapes: DrawingGeometry[] = [];
+  // Path operands are in the CURRENT user space, not raw page space: track
+  // the graphics state's transformation matrix (q/Q, cm, form XObjects) and
+  // apply it before the viewport conversion. Text items from getTextContent
+  // already include it.
+  let ctm: Matrix = IDENTITY;
+  const stack: Matrix[] = [];
   for (let i = 0; i < opList.fnArray.length; i++) {
-    if (opList.fnArray[i] !== OPS.constructPath) continue;
-    const subpaths = decodeConstructPath(opList.argsArray[i]);
+    const fn = opList.fnArray[i];
+    const args = opList.argsArray[i];
+    if (fn === OPS.save) { stack.push(ctm); continue; }
+    if (fn === OPS.restore) { ctm = stack.pop() ?? ctm; continue; }
+    if (fn === OPS.transform) { if (isMatrix(args)) ctm = multiply(ctm, args); continue; }
+    if (fn === OPS.paintFormXObjectBegin) {
+      stack.push(ctm);
+      if (Array.isArray(args) && isMatrix(args[0])) ctm = multiply(ctm, args[0]);
+      continue;
+    }
+    if (fn === OPS.paintFormXObjectEnd) { ctm = stack.pop() ?? ctm; continue; }
+    if (fn !== OPS.constructPath) continue;
+    const subpaths = decodeConstructPath(args);
     for (const sp of subpaths) {
       if (sp.points.length === 0) continue;
-      const type = classifySubpath(sp);
-      const pagePoints = toPageSpace(sp.points, viewport);
+      const userPoints = sp.points.map((pt) => apply(ctm, pt));
+      // a rotated or skewed rectangle is a polygon, not an axis-aligned rectangle
+      const type = sp.isRectangle && !axisAligned(userPoints) ? "polygon" : classifySubpath(sp);
+      const pagePoints = toPageSpace(userPoints, viewport);
       shapes.push({
         type,
         page: pageNumber,
