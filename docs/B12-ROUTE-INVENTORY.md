@@ -41,6 +41,7 @@ Rows marked `[gated: …]` are rendered only when that condition holds. `WORKBEN
 | app | `/auth` | Auth | Keep |
 | app | `/share/:token` | PublicWorkspaceShare | Keep: B10 share-link target |
 | app | `/design-system` | DesignSystem | Keep: staff-only D1 reference |
+| app | `/floor-plan-3d` | FloorPlan3D | Keep: preview, local only; off in production unless `VITE_CUNSTRUCT_FLOORPLAN_3D=true` |
 | app | `/my-projects` | MyProjects | Review: contractor views; candidate for B10 phone surfaces (owner decision) |
 | app | `/my-projects/:id` | MyProjectDetail | Review: contractor views; candidate for B10 phone surfaces (owner decision) |
 | app | `/my-projects/:id/order` | MyProjectOrder | Review: contractor views; candidate for B10 phone surfaces (owner decision) |

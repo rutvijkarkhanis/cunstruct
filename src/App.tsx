@@ -70,6 +70,7 @@ const PublicWorkspaceShare = lazy(() => import("./pages/PublicWorkspaceShare.tsx
 // ── Design-system reference (D1). Unlinked; dev, or staff in production. ────
 const DesignSystem = lazy(() => import("./pages/DesignSystem.tsx"));
 const EngineeringPreview = lazy(() => import("./pages/ops/EngineeringPreview.tsx"));
+const FloorPlan3D = lazy(() => import("./pages/FloorPlan3D.tsx"));
 
 const PageLoader = () => (
   <div className="min-h-screen bg-background flex items-center justify-center">
@@ -159,6 +160,8 @@ function AppRoutes() {
       <Route path="/share/:token" element={<PublicWorkspaceShare />} />
       {/* Unlinked; renders in dev, or for staff — everyone else gets the 404. */}
       <Route path="/design-system" element={<DesignSystem />} />
+      {/* Floor plan to 3D preview: local only, no data access; disabled in production unless VITE_CUNSTRUCT_FLOORPLAN_3D=true. */}
+      <Route path="/floor-plan-3d" element={<FloorPlan3D />} />
       <Route path="/my-projects" element={<MyProjects />} />
       <Route path="/my-projects/:id" element={<MyProjectDetail />} />
       <Route path="/my-projects/:id/order" element={<MyProjectOrder />} />
