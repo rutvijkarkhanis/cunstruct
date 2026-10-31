@@ -95,7 +95,29 @@ describe("existing contracts and the production boundary", () => {
     expect(toAnalysisPayload([])).toEqual({ schema_version: "cunstruct.analysis.v1", items: [] });
   });
 
-  it("no product code imports the measurement engine or the measurement-quality tooling", () => {
+  it("the engine reaches the product only through the admin-only, lazy-loaded Measurement Lab", () => {
+    const root = path.resolve(__dirname, "../..");
+    const importers = (pattern: RegExp) => {
+      const out: string[] = [];
+      const walk = (dir: string) => {
+        for (const f of readdirSync(dir)) {
+          const p = path.join(dir, f);
+          if (statSync(p).isDirectory()) { if (f !== "__fixtures__") walk(p); continue; }
+          if (/\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f) && pattern.test(readFileSync(p, "utf8"))) out.push(path.relative(root, p));
+        }
+      };
+      walk(root);
+      return out.sort();
+    };
+    // only the lab core imports the lab's engines; only the lazy launcher loads the lab panel;
+    // only the verification screen renders the launcher
+    expect(importers(/from\s+["']@\/lib\/measurement-lab\/core["']/)).toEqual(["components/review/MeasurementLabPanel.tsx"]);
+    expect(importers(/import\(["']\.\/MeasurementLabPanel["']\)/)).toEqual(["components/review/MeasurementLabLauncher.tsx"]);
+    expect(importers(/from\s+["'][^"']*MeasurementLabPanel["']/)).toEqual([]); // never a static import
+    expect(importers(/from\s+["'][^"']*MeasurementLabLauncher["']/)).toEqual(["pages/ops/BoqReviewWorkstation.tsx"]);
+  });
+
+  it("no product code imports the measurement engine or the measurement-quality tooling (the lab core excepted)", () => {
     const root = path.resolve(__dirname, "../..");
     const offenders: string[] = [];
     const walk = (dir: string) => {
@@ -105,6 +127,8 @@ describe("existing contracts and the production boundary", () => {
         if (!/\.(ts|tsx)$/.test(f) || /\.test\.tsx?$/.test(f)) continue;
         const rel = path.relative(root, p);
         if (rel.startsWith(path.join("lib", "measurement-quality"))) continue;
+        // the Measurement Lab runs both engines by design (owner decision); it is admin-only and lazy-loaded (test above)
+        if (rel.startsWith(path.join("lib", "measurement-lab"))) continue;
         // the engine's own modules may import each other
         if (["linearDimensions.ts", "dimensionTerminators.ts", "dimensionAssociation.ts"].includes(f)) continue;
         const src = readFileSync(p, "utf8");
