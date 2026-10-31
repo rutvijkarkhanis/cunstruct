@@ -7,7 +7,7 @@
  * Pure functions; no review verdict is produced here. Synthetic data appears only in tests.
  */
 import { z } from "zod";
-import { REVIEW_RESPONSE_SCHEMA, ReviewResponse } from "./reviewPackages";
+import { cohensKappa, REVIEW_RESPONSE_SCHEMA, ReviewResponse } from "./reviewPackages";
 
 // ── CSV form → responses ────────────────────────────────────────────────────
 export function parseCsv(text: string): Record<string, string>[] {
@@ -32,7 +32,9 @@ export function fromFormRow(r: Record<string, string>): ReviewResponse | null {
   const hasElement = r.element_kind?.trim() || (r.end1_type?.trim() && r.end2_type?.trim());
   return ReviewResponse.parse({
     schema: REVIEW_RESPONSE_SCHEMA, item_id: r.item_id?.trim(), reviewer_id: r.reviewer_id?.trim(), reviewed_at: r.reviewed_at?.trim(),
-    is_dimension: r.is_dimension.trim(), printed_value: num(r.printed_value), unit: r.unit?.trim() || null,
+    is_dimension: r.is_dimension.trim(), legibility: r.legibility?.trim() || null,
+    end1_mark: r.end1_mark?.trim() || null, end2_mark: r.end2_mark?.trim() || null,
+    printed_value: num(r.printed_value), unit: r.unit?.trim() || null,
     line: la && lb ? { a: la, b: lb } : null, endpoints: e1 && e2 ? [e1, e2] : null,
     measured_element: hasElement ? {
       ...(r.element_kind?.trim() ? { kind: r.element_kind.trim() } : {}),
@@ -110,6 +112,25 @@ export function adjudicationBlockers(roster: Roster, register: SubmissionRegiste
 /** Share of items on which two raters gave the same label. */
 export function rawAgreement(pairs: [string, string][]): number | null {
   return pairs.length ? pairs.filter(([a, b]) => a === b).length / pairs.length : null;
+}
+
+/**
+ * Agreement summary for two raters' categorical labels: raw agreement, Cohen's κ, PABAK
+ * (prevalence- and bias-adjusted κ = (k·po − 1)/(k − 1) over the k categories used) and each
+ * category's share. κ can be low despite high raw agreement when one category dominates (the
+ * "kappa paradox"); reporting the prevalences and PABAK beside it keeps that visible.
+ */
+export function agreementSummary(pairs: [string, string][]) {
+  const po = rawAgreement(pairs);
+  const cats = [...new Set(pairs.flat())].sort();
+  const k = cats.length;
+  const prevalence = Object.fromEntries(cats.map((c) => [c, pairs.reduce((t, [a, b]) => t + (a === c ? 1 : 0) + (b === c ? 1 : 0), 0) / (2 * pairs.length)]));
+  return {
+    n: pairs.length, raw_agreement: po, disagreements: pairs.filter(([a, b]) => a !== b).length,
+    /** undefined (null) when fewer than two categories were observed: chance agreement is then 1 */
+    kappa: k < 2 ? null : cohensKappa(pairs), pabak: po === null || k < 2 ? null : (k * po - 1) / (k - 1), categories: k, prevalence,
+    max_prevalence: k ? Math.max(...Object.values(prevalence)) : null,
+  };
 }
 
 /** Wilson score interval for x successes in n (95% by default). A census is exact for the items it

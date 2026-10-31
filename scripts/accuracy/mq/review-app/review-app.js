@@ -6,6 +6,8 @@
   const P = window.REVIEW_ITEMS, NS = "http://www.w3.org/2000/svg", $ = (id) => document.getElementById(id);
   const KEY = `cunstruct-review:${P.drawing.sha256}:${P.reviewer_id}`;
   const END_TYPES = ["", "grid", "wall-face", "column-face", "opening-edge", "slab-or-floor-edge", "stair", "other-drawn-edge", "other", "cannot-tell"];
+  const MARKS = ["", "tick", "arrowhead", "dot", "extension-line-only", "none", "cannot-tell"];
+  for (const id of ["end1_mark", "end2_mark"]) $(id).innerHTML = MARKS.map((t) => `<option value="${t}">${t || `(${id === "end1_mark" ? "End 1" : "End 2"} mark)`}</option>`).join("");
   for (const id of ["end1_type", "end2_type"]) $(id).innerHTML = END_TYPES.map((t) => `<option value="${t}">${t || "(end type)"}</option>`).join("");
   let store = {};
   try { store = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch { store = {}; }
@@ -17,7 +19,7 @@
   const el = (t, a, p = svg) => { const n = document.createElementNS(NS, t); for (const [k, v] of Object.entries(a)) n.setAttribute(k, v); p.appendChild(n); return n; };
   const r1 = (v) => Math.round(v * 10) / 10;
 
-  const REQUIRED = ["is_dimension", "evidence_sufficient", "ambiguous", "confidence"];
+  const REQUIRED = ["is_dimension", "legibility", "evidence_sufficient", "ambiguous", "confidence"];
   const status = (a) => (!a ? "" : REQUIRED.every((k) => a[k]) ? "ok" : "part");
   function list() {
     $("list").innerHTML = items.map((it, i) => { const s = status(store[it.item_id]); return `<li data-i="${i}" class="${i === cur ? "sel" : ""}"><span>${it.item_id}</span><span class="${s}">${s === "ok" ? "✓" : s === "part" ? "…" : ""}</span></li>`; }).join("");
@@ -65,7 +67,7 @@
   const showCoords = () => { const a = store[items[cur].item_id] || {}; $("coords").innerHTML = `End 1 ${fmt(a.end1)} · End 2 ${fmt(a.end2)}<br>Line A ${fmt(a.la)} · Line B ${fmt(a.lb)}`; };
   $("clearpts").onclick = () => { const a = store[items[cur].item_id]; if (a) { delete a.end1; delete a.end2; delete a.la; delete a.lb; persist(); } showCoords(); draw(); };
 
-  const radios = ["is_dimension", "ambiguous", "evidence_sufficient", "confidence"], fields = ["printed_value", "unit", "end1_type", "end2_type", "element_end1", "element_end2", "ambiguity_note", "explanation"];
+  const radios = ["is_dimension", "legibility", "ambiguous", "evidence_sufficient", "confidence"], fields = ["printed_value", "unit", "end1_mark", "end2_mark", "end1_type", "end2_type", "element_end1", "element_end2", "ambiguity_note", "explanation"];
   function loadForm() {
     const it = items[cur], a = store[it.item_id] || {};
     $("itemhead").textContent = `${it.item_id} · page ${it.page} · ring at (${it.marker_pt[0]}, ${it.marker_pt[1]}) pt`;
@@ -87,6 +89,7 @@
       if (a.printed_value === "") e.push("printed value is required for a determinable dimension");
       if (!a.end1 || !a.end2) e.push("place End 1 and End 2");
       if (!a.end1_type || !a.end2_type) e.push("give both end types");
+      if (!a.end1_mark || !a.end2_mark) e.push("give both end marks");
     }
     if (a.ambiguous === "yes" && !a.ambiguity_note) e.push("say why it is ambiguous");
     return e;
@@ -106,8 +109,9 @@
     const both = a.end1_type && a.end2_type;
     return {
       schema: "cunstruct.review-response.v1", item_id: it.item_id, reviewer_id: P.reviewer_id, reviewed_at: a.reviewed_at || new Date().toISOString(),
-      is_dimension: a.is_dimension, printed_value: num(a.printed_value), unit: a.unit || null,
+      is_dimension: a.is_dimension, legibility: a.legibility || null, printed_value: num(a.printed_value), unit: a.unit || null,
       line: a.la && a.lb ? { a: a.la, b: a.lb } : null, endpoints: a.end1 && a.end2 ? [a.end1, a.end2] : null,
+      end1_mark: a.end1_mark || null, end2_mark: a.end2_mark || null,
       measured_element: both ? { end1: a.element_end1 || "", end2: a.element_end2 || "", end1_type: a.end1_type, end2_type: a.end2_type } : null,
       evidence_sufficient: a.evidence_sufficient, ambiguous: a.ambiguous, ambiguity_note: a.ambiguity_note || "", confidence: a.confidence, explanation: a.explanation || "",
     };
@@ -117,7 +121,7 @@
   const incompleteNote = () => { const n = items.filter((it) => status(store[it.item_id]) === "part").length; $("status").textContent = n ? `${n} incomplete answer(s) were not exported — finish them first.` : "Exported."; };
   $("xjson").onclick = () => { incompleteNote(); download(`review-${P.reviewer_id}-${stamp()}.json`, JSON.stringify({ schema: "cunstruct.review-responses.v1", reviewer_id: P.reviewer_id, drawing: P.drawing, responses: items.map(toResponse).filter(Boolean) }, null, 1), "application/json"); };
   $("xcsv").onclick = () => {
-    const cols = ["item_id", "reviewer_id", "reviewed_at", "page", "marker_x", "marker_y", "is_dimension", "printed_value", "unit", "line_a_x", "line_a_y", "line_b_x", "line_b_y", "end1_x", "end1_y", "end2_x", "end2_y", "element_kind", "end1_type", "element_end1", "end2_type", "element_end2", "evidence_sufficient", "ambiguous", "ambiguity_note", "confidence", "explanation"];
+    const cols = ["item_id", "reviewer_id", "reviewed_at", "page", "marker_x", "marker_y", "is_dimension", "legibility", "printed_value", "unit", "line_a_x", "line_a_y", "line_b_x", "line_b_y", "end1_x", "end1_y", "end1_mark", "end2_x", "end2_y", "end2_mark", "element_kind", "end1_type", "element_end1", "end2_type", "element_end2", "evidence_sufficient", "ambiguous", "ambiguity_note", "confidence", "explanation"];
     const cell = (v) => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
     incompleteNote();
     const rows = items.map((it) => { const a = status(store[it.item_id]) === "ok" ? store[it.item_id] : {}; const v = { item_id: it.item_id, reviewer_id: P.reviewer_id, reviewed_at: a.reviewed_at, page: it.page, marker_x: it.marker_pt[0], marker_y: it.marker_pt[1], ...a,
@@ -130,7 +134,7 @@
     try {
       const j = JSON.parse(await f.text());
       if (j.reviewer_id !== P.reviewer_id) throw new Error(`file is for reviewer ${j.reviewer_id}`);
-      for (const r of j.responses) store[r.item_id] = { is_dimension: r.is_dimension, printed_value: r.printed_value ?? "", unit: r.unit ?? "", la: r.line?.a, lb: r.line?.b, end1: r.endpoints?.[0], end2: r.endpoints?.[1],
+      for (const r of j.responses) store[r.item_id] = { is_dimension: r.is_dimension, legibility: r.legibility ?? "", end1_mark: r.end1_mark ?? "", end2_mark: r.end2_mark ?? "", printed_value: r.printed_value ?? "", unit: r.unit ?? "", la: r.line?.a, lb: r.line?.b, end1: r.endpoints?.[0], end2: r.endpoints?.[1],
         end1_type: r.measured_element?.end1_type ?? "", end2_type: r.measured_element?.end2_type ?? "", element_end1: r.measured_element?.end1 ?? "", element_end2: r.measured_element?.end2 ?? "",
         evidence_sufficient: r.evidence_sufficient, ambiguous: r.ambiguous, ambiguity_note: r.ambiguity_note, confidence: r.confidence, explanation: r.explanation, reviewed_at: r.reviewed_at };
       persist(); go(cur); $("status").textContent = `imported ${j.responses.length}`;

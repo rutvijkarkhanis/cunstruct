@@ -36,29 +36,30 @@ We are asking for **your own reading of the drawing**, as a professional would r
 ## Questions for each item
 1. **Is the ringed text the value of a linear dimension?** Answer yes, no or unsure.
    - These are not dimensions: grid labels, room or door tags, levels (LVL), scale notes, area figures, schedule entries, note numbers.
-2. **Printed value and unit.**
+2. **Legibility.** Is the ringed text legible, partly legible, or illegible? If it is illegible, say so instead of guessing digits.
+3. **Printed value and unit.**
    - Write the value exactly as printed, digits only.
    - For the unit: if the sheet has a note such as "All dimensions are in mm", use that unit. If no unit is stated anywhere, choose "none stated".
-3. **Dimension line.** Click two points on it (Line pt A, Line pt B).
-4. **Endpoints.** Click the two endpoints (End 1, End 2). About 1–2 pt accuracy is enough. Zoom in.
-5. **What each end measures to.** For each end:
+4. **Dimension line.** Click two points on it (Line pt A, Line pt B).
+5. **Endpoints and end marks.** Click the two endpoints (End 1, End 2). About 1–2 pt accuracy is enough; zoom in. For each end, record its end mark: tick (slash or filled bar), arrowhead, dot, extension-line-only (the line simply meets an extension line), none, or cannot-tell.
+6. **What each end measures to.** For each end:
    - Choose a type: grid, wall-face, column-face, opening-edge, slab-or-floor-edge, stair, other-drawn-edge, other, cannot-tell.
    - Name it. For a grid, give its label (for example `7`). Otherwise use plain words (for example "outer face of south wall").
-6. **Could a careful reader reasonably decide differently?**
+7. **Could a careful reader reasonably decide differently?**
    - If yes, say why. Examples: two equally close lines; a tick that may sit on the grid or on the face beside it; extension lines running both ways.
    - **Record ambiguity instead of guessing.**
-7. **Does the drawing show enough to decide questions 1–5?** If not, answer "no".
+8. **Does the drawing show enough to decide questions 1–6?** If not, answer "no".
    - Insufficient evidence is different from ambiguity, and different from a dimension that is simply wrong on the drawing. Note a wrong or conflicting dimension in the explanation.
-8. **Confidence:**
+9. **Confidence:**
    - **high**: you would set out on site from this reading;
    - **medium**: probably right, but one point needed judgement;
    - **low**: your best reading, but you could well be wrong.
-9. **Explanation**: anything that helped you decide or troubled you. This includes a disagreement with another view of the same thing.
+10. **Explanation**: anything that helped you decide or troubled you. This includes a disagreement with another view of the same thing.
 
 ## Please do not
 - Compute a value from the drawn geometry and enter it as the printed value.
 - Correct the drawing.
-- Leave questions 1, 6, 7 or confidence empty.
+- Leave questions 1, 2, 7, 8 or confidence empty.
 - Guess. Use "unsure", "cannot-tell", "ambiguous" or "evidence insufficient" instead.
 
 ## Submitting

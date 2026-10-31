@@ -67,7 +67,8 @@ const key: AnswerKeyEntry[] = order.map(({ p, d, item_id }) => ({
   item_id, package: p, engine_id: d.id, gold_id: goldOf.get(d.id)?.measurement_id ?? null, page: d.page, view: goldOf.get(d.id)?.view ?? `p${d.page}`,
   scale_region: d.scaleCheck?.region ?? null, orientation: orientation(d), measures: d.association?.measures ?? null, engine_status: d.decisions.overall,
   primary_reason: reason(d), engine_value: d.parsed.value, engine_span: d.span ? [d.span.start, d.span.end] : null,
-  engine_ends: d.association?.ends.map((e) => (e.kind === "grid" ? { kind: "grid", labels: e.labels } : { kind: e.kind })) ?? null, developer_verdict: devVerdict(d),
+  engine_ends: d.association?.ends.map((e) => (e.kind === "grid" ? { kind: "grid", labels: e.labels } : { kind: e.kind })) ?? null,
+  engine_marks: d.span ? [d.span.ends[0], d.span.ends[1]] : null, developer_verdict: devVerdict(d),
 }));
 
 // second reviewer: stratified by package, at least 30, accepted and held both present
@@ -116,8 +117,8 @@ for (const j of [".render-jobs.json", ".render-context.json", ".render-pages.jso
 // ── reviewer packages ───────────────────────────────────────────────────────
 const instructions = readFileSync(path.join(REPO, "docs/measurement-quality/REVIEWER-INSTRUCTIONS.md"), "utf8");
 // page and marker_x/y are pre-filled locators (where the ringed text is); everything else is the reviewer's
-const formCols = ["item_id", "reviewer_id", "reviewed_at", "page", "marker_x", "marker_y", "is_dimension", "printed_value", "unit", "line_a_x", "line_a_y", "line_b_x", "line_b_y",
-  "end1_x", "end1_y", "end2_x", "end2_y", "element_kind", "end1_type", "element_end1", "end2_type", "element_end2", "evidence_sufficient", "ambiguous", "ambiguity_note", "confidence", "explanation"];
+const formCols = ["item_id", "reviewer_id", "reviewed_at", "page", "marker_x", "marker_y", "is_dimension", "legibility", "printed_value", "unit", "line_a_x", "line_a_y", "line_b_x", "line_b_y",
+  "end1_x", "end1_y", "end1_mark", "end2_x", "end2_y", "end2_mark", "element_kind", "end1_type", "element_end1", "end2_type", "element_end2", "evidence_sufficient", "ambiguous", "ambiguity_note", "confidence", "explanation"];
 const R1_ID = a["r1-id"] ?? "R1", R2_ID = a["r2-id"] ?? "R2", ADJ_ID = a["adj-id"] ?? "ADJ";
 const pkg = (dir: string, items: typeof reviewerItems, reviewer: string) => {
   mkdirSync(path.join(dir, "crops"), { recursive: true });

@@ -35,15 +35,21 @@ Review states: {{STATES}}. Adjudication: {{ADJ_STATUS}}.
 - Correctly rejected: {{D_CORRECT}}. Recoverable from the drawing: {{D_RECOVERABLE}}.
 - Population estimate of correctly rejected items: {{WEIGHTED_D}}.
 
-## 5. Inter-reviewer agreement
+## 5. Per-stage agreement with the engine (direct counts over items the resolved reviewer answer calls a determinable dimension)
+{{STAGES}}
+
+These are observed counts, not population estimates. Engine scale, region and line choice are checked only through the endpoint pair and value; a separate scale verdict is not asked of reviewers.
+
+## 6. Inter-reviewer agreement
 - Items reviewed by both of the first two reviewers: {{PAIRS}}.
-- Raw agreement on the derived per-item verdict: {{AGREE}}. Cohen's κ: {{KAPPA}}.
+- Raw agreement on the derived per-item verdict: {{AGREE}}. Cohen's κ: {{KAPPA}}. PABAK (prevalence- and bias-adjusted): {{PABAK}}.
+- Verdict prevalence across both reviewers: {{PREVALENCE}}. When one verdict dominates, κ can be low even though raw agreement is high, so read κ together with raw agreement, PABAK and the disagreement count.
 - Items with any key-field disagreement: {{DISAGREE}}. The key fields are dimension yes/no, value, element kind, ambiguity, evidence sufficiency, and endpoints within 2 pt.
 - Disagreements by measurement type (disagreeing / co-reviewed): {{DIS_BY_TYPE}}
 - Disagreements by view: {{DIS_BY_VIEW}}
 - Disagreements by scale region: {{DIS_BY_SCALE}}
 
-## 6. Limitations
+## 7. Limitations
 - **One drawing set (W976646), which is also the development drawing.** Its thresholds were developed on this drawing.
 - **The scoring tolerances are defined in `reviewPackages.ts`.** Endpoints must agree within 2 pt. The value must match exactly. The element kind and any grid labels the reviewer names must match.
 - **The ring marks the text the engine read as a candidate.** Dimensions the engine never read as text cannot appear in these packages. Detection recall is measured separately, against the Gold Set.

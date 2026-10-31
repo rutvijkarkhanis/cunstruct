@@ -120,17 +120,28 @@ export function namedGrids(m: { end1?: string; end2?: string; end1_type?: EndTyp
     return g ? g.split("/").filter(Boolean) : [];
   });
 }
+/** The end mark a reviewer sees at one end of the dimension line. */
+export const TerminatorMark = z.enum(["tick", "arrowhead", "dot", "extension-line-only", "none", "cannot-tell"]);
+export type TerminatorMark = z.infer<typeof TerminatorMark>;
+/** The engine's terminator kinds in the reviewer's vocabulary. */
+export const ENGINE_MARK: Record<string, TerminatorMark> = { "filled-tick": "tick", "stroke-tick": "tick", arrowhead: "arrowhead", dot: "dot", "extension-stub": "extension-line-only" };
+
 export const ReviewResponse = z.object({
   schema: z.literal(REVIEW_RESPONSE_SCHEMA),
   item_id: z.string().regex(/^RV-[2-9A-HJ-NP-Z]{6}$/),
   reviewer_id: z.string().min(1),
   reviewed_at: z.string().min(10),
   is_dimension: z.enum(["yes", "no", "unsure"]),
+  /** null only in responses made before this field existed (v2.0 packages) */
+  legibility: z.enum(["legible", "partly-legible", "illegible"]).nullable().default(null),
   printed_value: z.number().nullable(),
   unit: z.enum(["mm", "cm", "m", "in", "none-stated", "unsure"]).nullable(),
   /** page points (PDF, top-left origin, y down — the coordinates printed on every crop's ruler) */
   line: z.object({ a: pt, b: pt }).nullable(),
   endpoints: pair.nullable(),
+  /** end marks at End 1 and End 2, in the same order as endpoints */
+  end1_mark: TerminatorMark.nullable().default(null),
+  end2_mark: TerminatorMark.nullable().default(null),
   measured_element: MeasuredElement.nullable(),
   evidence_sufficient: z.enum(["yes", "no"]),
   ambiguous: z.enum(["yes", "no"]),
@@ -159,6 +170,8 @@ export interface AnswerKeyEntry {
   engine_value: number;
   engine_span: [[number, number], [number, number]] | null;
   engine_ends: { kind: string; labels?: string[] }[] | null;
+  /** engine terminator kinds at the span's start and end (null when no pair) */
+  engine_marks?: [string, string] | null;
   developer_verdict: string | null;
 }
 
@@ -196,6 +209,14 @@ export function verdict(r: ReviewResponse, k: AnswerKeyEntry): { verdict: ItemVe
     if (namedGrids(r.measured_element).some((g) => !grids.includes(g))) m.push("grid label");
   }
   return { verdict: m.length ? "engine-disputed" : "engine-confirmed", mismatches: m };
+}
+
+/** Do the reviewer's two end marks match the engine's (order-free, in reviewer vocabulary)?
+ *  null when either side did not record both marks. Reported as its own stage; it does not change the verdict. */
+export function marksAgree(r: ReviewResponse, k: AnswerKeyEntry): boolean | null {
+  if (!r.end1_mark || !r.end2_mark || !k.engine_marks) return null;
+  const e = k.engine_marks.map((m) => ENGINE_MARK[m] ?? "cannot-tell").sort().join("|");
+  return [r.end1_mark, r.end2_mark].sort().join("|") === e;
 }
 
 /** What a reviewed item says about the engine's decision. */

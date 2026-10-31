@@ -143,3 +143,29 @@ describe("intervals and stratified weights", () => {
     expect([e.estimate, e.design_variance, ...e.exact_interval]).toEqual([116, 0, 116, 116]);
   });
 });
+
+describe("Phase 3 additions (SYNTHETIC)", () => {
+  it("kappa paradox: 90 agree on one category, 10 split → raw 0.90, κ ≈ −0.053, PABAK 0.80, prevalence 0.95", async () => {
+    const { agreementSummary } = await import("./reviewScoring");
+    const pairs: [string, string][] = [...Array(90).fill(["c", "c"]), ...Array(5).fill(["c", "d"]), ...Array(5).fill(["d", "c"])];
+    const s = agreementSummary(pairs);
+    expect(s.raw_agreement).toBeCloseTo(0.9, 10);
+    expect(s.kappa).toBeCloseTo((0.9 - 0.905) / (1 - 0.905), 10); // pe = .95·.95 + .05·.05
+    expect(s.pabak).toBeCloseTo(0.8, 10);
+    expect(s.max_prevalence).toBeCloseTo(0.95, 10);
+    expect(s.disagreements).toBe(10);
+    expect(agreementSummary([["c", "c"], ["c", "c"]]).kappa).toBeNull(); // one category: κ undefined, not 1
+  });
+  it("end marks compare order-free in reviewer vocabulary; missing marks are not scored", async () => {
+    const { marksAgree } = await import("./reviewPackages");
+    const k = { engine_marks: ["filled-tick", "extension-stub"] } as unknown as AnswerKeyEntry;
+    expect(marksAgree(resp({ end1_mark: "extension-line-only", end2_mark: "tick" }), k)).toBe(true);
+    expect(marksAgree(resp({ end1_mark: "arrowhead", end2_mark: "tick" }), k)).toBe(false);
+    expect(marksAgree(resp({ end1_mark: null, end2_mark: "tick" }), k)).toBeNull();
+  });
+  it("form rows carry legibility and end marks; an unknown mark is refused", () => {
+    const base = { item_id: "RV-AAAAAA", reviewer_id: "R1", reviewed_at: "2026-11-01T10:00", is_dimension: "yes", evidence_sufficient: "yes", ambiguous: "no", confidence: "high" };
+    expect(fromFormRow({ ...base, legibility: "partly-legible", end1_mark: "tick", end2_mark: "dot" })).toMatchObject({ legibility: "partly-legible", end1_mark: "tick", end2_mark: "dot" });
+    expect(() => fromFormRow({ ...base, end1_mark: "slash" })).toThrow();
+  });
+});

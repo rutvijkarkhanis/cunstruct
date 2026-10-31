@@ -56,19 +56,23 @@ fieldset label { display:inline-block; font-weight:400; margin-right:10px; }
     <div class="muted small" id="itemhead"></div>
     <label>1. Is the ringed text the value of a linear dimension?</label>
     <fieldset id="f-is_dimension"><label><input type="radio" name="is_dimension" value="yes"> yes</label><label><input type="radio" name="is_dimension" value="no"> no</label><label><input type="radio" name="is_dimension" value="unsure"> unsure</label></fieldset>
-    <label>2. Printed value <span class="muted">(exactly as printed, digits only)</span></label><input id="printed_value" type="number" step="any">
+    <label>2. Is the printed text legible?</label>
+    <fieldset><label><input type="radio" name="legibility" value="legible"> legible</label><label><input type="radio" name="legibility" value="partly-legible"> partly</label><label><input type="radio" name="legibility" value="illegible"> illegible</label></fieldset>
+    <label>3. Printed value <span class="muted">(exactly as printed, digits only)</span></label><input id="printed_value" type="number" step="any">
     <label>Unit</label>
     <select id="unit"><option value=""></option><option>mm</option><option>cm</option><option>m</option><option>in</option><option value="none-stated">none stated on the drawing</option><option>unsure</option></select>
-    <label>3–4. Dimension line and endpoints <span class="muted">(use the buttons above, then click on the drawing)</span></label>
+    <label>4–5. Dimension line and endpoints <span class="muted">(use the buttons above, then click on the drawing)</span></label>
     <div class="coords" id="coords"></div>
     <div class="row"><button type="button" id="clearpts">Clear points</button></div>
-    <label>5. What does each end measure to?</label>
+    <label>5. End marks <span class="muted">(what terminates the line at End 1 / End 2)</span></label>
+    <div class="row"><select id="end1_mark"></select><select id="end2_mark"></select></div>
+    <label>6. What does each end measure to?</label>
     <div class="row"><select id="end1_type"></select><input id="element_end1" type="text" placeholder="end 1: e.g. 7 (grid) or outer face of south wall"></div>
     <div class="row"><select id="end2_type"></select><input id="element_end2" type="text" placeholder="end 2"></div>
-    <label>6. Could a careful reader reasonably decide differently?</label>
+    <label>7. Could a careful reader reasonably decide differently?</label>
     <fieldset><label><input type="radio" name="ambiguous" value="no"> no</label><label><input type="radio" name="ambiguous" value="yes"> yes — explain:</label></fieldset>
     <input id="ambiguity_note" type="text" placeholder="e.g. two equally close lines; tick could be on the grid or on the face beside it">
-    <label>7. Does the drawing show enough to decide 1–5?</label>
+    <label>8. Does the drawing show enough to decide 1–6?</label>
     <fieldset><label><input type="radio" name="evidence_sufficient" value="yes"> yes</label><label><input type="radio" name="evidence_sufficient" value="no"> no</label></fieldset>
     <label>Confidence</label>
     <fieldset><label title="I would set out on site from this reading"><input type="radio" name="confidence" value="high"> high</label><label title="Probably right; one point needed care"><input type="radio" name="confidence" value="medium"> medium</label><label title="Best reading, but I could be wrong"><input type="radio" name="confidence" value="low"> low</label></fieldset>

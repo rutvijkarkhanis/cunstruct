@@ -7,8 +7,8 @@
 // adjudication input is accepted only once every reviewer's submission is locked in the register.
 import path from "node:path";
 import { readFileSync } from "node:fs";
-import { Adjudication, cohensKappa, decisionOutcome, disagreements, resolveItems, ReviewResponse, verdict, type AnswerKeyEntry, type DecisionOutcome } from "@/lib/measurement-quality/reviewPackages";
-import { adjudicationBlockers, fromFormRow, ingest, parseCsv, rawAgreement, Roster, stratifiedEstimate, SubmissionRegister, wilson } from "@/lib/measurement-quality/reviewScoring";
+import { Adjudication, decisionOutcome, marksAgree, disagreements, resolveItems, ReviewResponse, verdict, type AnswerKeyEntry, type DecisionOutcome } from "@/lib/measurement-quality/reviewPackages";
+import { adjudicationBlockers, agreementSummary, fromFormRow, ingest, parseCsv, Roster, stratifiedEstimate, SubmissionRegister, wilson } from "@/lib/measurement-quality/reviewScoring";
 import { args, assertOutsideRepo, need, readJson, REPO, sha256File, toCsv, writeJson, writeText } from "./common";
 
 /** Malformed responses are rejected one by one with a reason; they never stop the run and are never repaired. */
@@ -72,13 +72,28 @@ for (const id of new Set(responses.map((r) => r.item_id))) {
   if (x && y) pairs.push({ id, a: x, b: y });
 }
 const vpairs = pairs.map((p) => [verdict(p.a, byId.get(p.id)!).verdict, verdict(p.b, byId.get(p.id)!).verdict] as [string, string]);
-const kappa = cohensKappa(vpairs), agree = rawAgreement(vpairs);
+const ag = agreementSummary(vpairs), kappa = ag.kappa, agree = ag.raw_agreement;
 const dis = pairs.map((p) => ({ ...p, d: disagreements(p.a, p.b) })).filter((p) => p.d.length);
 const groupBy = (f: (k: AnswerKeyEntry) => string) => {
   const m = new Map<string, [number, number]>();
   for (const p of pairs) { const g = f(byId.get(p.id)!); const v = m.get(g) ?? [0, 0]; v[1]++; if (disagreements(p.a, p.b).length) v[0]++; m.set(g, v); }
   return [...m].sort().map(([g, [d, n]]) => `${g}: ${d}/${n}`).join("; ") || "n/a";
 };
+/** Per-stage agreement between the final (resolved) reviewer answer and the engine, over items the
+ *  reviewer judged a determinable dimension. Directly observed counts; no weighting. */
+function stageTable(): string {
+  const rows = res.filter((r) => r.final && r.final.is_dimension === "yes" && r.final.evidence_sufficient === "yes" && r.final.ambiguous === "no").map((r) => ({ r: r.final!, k: byId.get(r.item_id)! }));
+  const stage = (name: string, f: (x: { r: ReviewResponse; k: AnswerKeyEntry }) => boolean | null) => {
+    const v = rows.map(f).filter((x): x is boolean => x !== null);
+    return `| ${name} | ${v.filter(Boolean).length} | ${v.length} |`;
+  };
+  return ["| stage (engine matches reviewer) | agree | of determinable items with data |", "|---|---|---|",
+    stage("printed value", ({ r, k }) => r.printed_value === null ? null : r.printed_value === k.engine_value),
+    stage("endpoint pair (within 2 pt)", ({ r, k }) => (!r.endpoints ? null : !k.engine_span ? false : verdict(r, k).mismatches.indexOf("endpoints") < 0)),
+    stage("end marks (terminators)", ({ r, k }) => marksAgree(r, k)),
+    stage("measured element", ({ r, k }) => (!r.measured_element ? null : verdict(r, k).mismatches.every((m) => m !== "element" && m !== "grid label"))),
+  ].join("\n");
+}
 const pct = (w: ReturnType<typeof wilson>) => (w ? `${(w.low * 100).toFixed(1)}%–${(w.high * 100).toFixed(1)}%` : "n/a");
 function weighted(pkg: string, o: DecisionOutcome[]): string {
   const strata = sampling.packages[pkg]?.strata;
@@ -101,7 +116,9 @@ const fill: Record<string, string> = {
   C_TOTAL: String(total("C")), C_REVIEWED: String(reviewed("C")), C_UNNECESSARY: String(count("C", ["held-unnecessarily"])), C_ENGINE_WRONG: String(count("C", ["held-recoverable-engine-evidence-wrong"])), C_CORRECT: String(count("C", ["held-correctly"])),
   C_POPULATION: String(sampling.packages.C?.population ?? "?"),
   D_TOTAL: String(total("D")), D_REVIEWED: String(reviewed("D")), D_CORRECT: String(count("D", ["rejected-correctly"])), D_RECOVERABLE: String(count("D", ["rejected-recoverable"])), D_POPULATION: String(sampling.packages.D?.population ?? "?"),
-  PAIRS: String(pairs.length), KAPPA: kappa === null ? "n/a" : kappa.toFixed(3), AGREE: agree === null ? "n/a" : `${(agree * 100).toFixed(1)}%`, DISAGREE: String(dis.length),
+  PABAK: ag.pabak === null ? "n/a" : ag.pabak.toFixed(3), PREVALENCE: Object.entries(ag.prevalence).map(([c, v]) => `${c} ${(v * 100).toFixed(0)}%`).join(", ") || "n/a",
+  STAGES: stageTable(),
+  PAIRS: String(pairs.length), KAPPA: kappa === null ? (pairs.length ? "undefined (only one verdict category observed)" : "n/a") : kappa.toFixed(3), AGREE: agree === null ? "n/a" : `${(agree * 100).toFixed(1)}%`, DISAGREE: String(dis.length),
   DIS_BY_TYPE: groupBy((k) => k.measures ?? "none"), DIS_BY_VIEW: groupBy((k) => k.view), DIS_BY_SCALE: groupBy((k) => k.scale_region ?? "none"),
   STATES: ["single-review", "agreed", "needs-adjudication", "adjudicated"].map((s) => `${s} ${res.filter((r) => r.state === s).length}`).join(", "),
   A_ERROR_IDS: scored.filter((s) => s.outcome === "accepted-error").map((s) => `${s.item_id} (${s.mismatches.join(", ") || s.verdict})`).join("; ") || "none",
