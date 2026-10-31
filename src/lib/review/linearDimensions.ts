@@ -26,6 +26,8 @@
 import type { DrawingGeometry } from "./drawingGeometry";
 import type { ExtractedTextRun } from "./pdfGeometry";
 import { unitNoteOf } from "./drawingInventory";
+import { chooseEndpoints, findTerminators, type EndpointDecision, type Endpoints, type Terminator, type TerminatorKind } from "./dimensionTerminators";
+import { associateEndpoints, type Association, type AssociationDecision, type GridTag } from "./dimensionAssociation";
 
 export type Point = [number, number];
 export type DimensionUnit = "mm" | "cm" | "m" | "in";
@@ -125,6 +127,8 @@ export interface Segment {
   b: Point;
   /** Index of the source shape. */
   shape: number;
+  /** An edge of a closed outline (a filled mark, a box), not a drawn stroke. */
+  closed?: boolean;
 }
 
 /** Straight edges of the page's shapes, except closed shapes that sit inside a
@@ -140,7 +144,7 @@ export function drawingSegments(shapes: DrawingGeometry[], runs: ExtractedTextRu
     const n = closed ? p.length : p.length - 1;
     for (let k = 0; k < n; k++) {
       const a = p[k], b = p[(k + 1) % p.length];
-      if (Math.hypot(b[0] - a[0], b[1] - a[1]) > 0.05) out.push({ a, b, shape: i });
+      if (Math.hypot(b[0] - a[0], b[1] - a[1]) > 0.05) out.push({ a, b, shape: i, ...(closed ? { closed: true } : {}) });
     }
   });
   return out;
@@ -164,31 +168,75 @@ export interface DimensionLine {
   offset: number;
   /** Other parallel lines at the same distance that give a different span. */
   alternatives: number;
+  /** The line is drawn in two pieces, interrupted by the text itself, and was
+   *  read as one line across that gap (common in CAD exports). */
+  joinedAcrossText?: true;
+  /** The other lines counted in `alternatives` (same distance, different line). */
+  rivals?: DimensionLine[];
 }
 
 const PARALLEL_SIN = 0.01;
 
+/** Does any non-parallel segment cross the line a→a+u·L between `from` and `to`
+ *  (distances along the line)? Used to refuse joining two pieces across a gap
+ *  that holds a terminator: then the text would sit over two dimensions. */
+function crossedBetween(a: Point, u: Point, from: number, to: number, segs: Segment[]): boolean {
+  return segs.some((s) => {
+    const ex = s.b[0] - s.a[0], ey = s.b[1] - s.a[1];
+    const den = u[0] * ey - u[1] * ex;
+    if (Math.abs(den) < PARALLEL_SIN * Math.hypot(ex, ey)) return false;
+    const along = ((s.a[0] - a[0]) * ey - (s.a[1] - a[1]) * ex) / den;
+    const on = ((s.a[0] - a[0]) * u[1] - (s.a[1] - a[1]) * u[0]) / den;
+    return on >= -0.01 && on <= 1.01 && along > from && along < to;
+  });
+}
+
 /** The drawn line parallel to the text, passing under (or just over) its
- *  middle: within half a text height above the baseline to 1.5 heights below. */
+ *  middle: within half a text height above the baseline to 1.5 heights below.
+ *  A line drawn in two pieces with the text written in the gap between them is
+ *  read as one line across the gap, but only when the gap is no wider than the
+ *  text (plus a text height either side), sits at the text, and nothing crosses
+ *  the line inside it. */
 export function findDimensionLine(t: DimensionText, segs: Segment[]): DimensionLine | null {
   const h = t.run.height;
   const found: DimensionLine[] = [];
+  // pieces that are parallel and in the window but do not pass under the anchor
+  const pieces: { s: Segment; u: Point; offset: number; lo: number; hi: number }[] = [];
   for (const s of segs) {
     const L = Math.hypot(s.b[0] - s.a[0], s.b[1] - s.a[1]);
     const u: Point = [(s.b[0] - s.a[0]) / L, (s.b[1] - s.a[1]) / L];
     if (Math.abs(u[0] * t.dir[1] - u[1] * t.dir[0]) > PARALLEL_SIN) continue;
-    const at = (t.anchor[0] - s.a[0]) * u[0] + (t.anchor[1] - s.a[1]) * u[1];
-    if (at < 0 || at > L) continue;
     const offset = (s.a[0] - t.anchor[0]) * t.normal[0] + (s.a[1] - t.anchor[1]) * t.normal[1];
     if (offset < -0.5 * h || offset > 1.5 * h) continue;
-    found.push({ a: s.a, b: s.b, u, length: L, at, offset, alternatives: 0 });
+    const at = (t.anchor[0] - s.a[0]) * u[0] + (t.anchor[1] - s.a[1]) * u[1];
+    if (at >= 0 && at <= L) { found.push({ a: s.a, b: s.b, u, length: L, at, offset, alternatives: 0 }); continue; }
+    // signed positions of the piece's ends along the text direction, relative to the anchor
+    const pa = (s.a[0] - t.anchor[0]) * t.dir[0] + (s.a[1] - t.anchor[1]) * t.dir[1];
+    const pb = (s.b[0] - t.anchor[0]) * t.dir[0] + (s.b[1] - t.anchor[1]) * t.dir[1];
+    pieces.push({ s, u, offset, lo: Math.min(pa, pb), hi: Math.max(pa, pb) });
+  }
+  const reach = t.run.width / 2 + h;
+  for (const left of pieces) {
+    if (left.hi > 0 || left.hi < -reach) continue;
+    const right = pieces
+      .filter((r) => r.lo >= 0 && r.lo <= reach && Math.abs(r.offset - left.offset) < 0.1)
+      .sort((p, q) => p.lo - q.lo)[0];
+    if (!right) continue;
+    if (pieces.some((o) => o !== left && Math.abs(o.offset - left.offset) < 0.1 && o.hi > left.hi + 0.05 && o.hi <= 0)) continue; // a nearer left piece exists
+    const a: Point = [t.anchor[0] + t.dir[0] * left.lo + t.normal[0] * left.offset, t.anchor[1] + t.dir[1] * left.lo + t.normal[1] * left.offset];
+    const b: Point = [t.anchor[0] + t.dir[0] * right.hi + t.normal[0] * left.offset, t.anchor[1] + t.dir[1] * right.hi + t.normal[1] * left.offset];
+    const L = right.hi - left.lo, at = -left.lo;
+    if (crossedBetween(a, t.dir, left.hi - left.lo, right.lo - left.lo, segs)) continue;
+    found.push({ a, b, u: t.dir, length: L, at, offset: left.offset, alternatives: 0, joinedAcrossText: true });
   }
   if (!found.length) return null;
   found.sort((p, q) => Math.abs(p.offset) - Math.abs(q.offset) || q.length - p.length);
   const best = found[0];
   // a different line at (almost) the same distance is a real ambiguity; the same line drawn twice is not
   const sameLine = (l: DimensionLine) => Math.abs(l.offset - best.offset) < 0.05 && Math.abs(l.length - best.length) < 0.05;
-  best.alternatives = found.filter((l) => l !== best && !sameLine(l) && Math.abs(Math.abs(l.offset) - Math.abs(best.offset)) < 0.25 * h).length;
+  const rivals = found.filter((l) => l !== best && !sameLine(l) && Math.abs(Math.abs(l.offset) - Math.abs(best.offset)) < 0.25 * h);
+  best.alternatives = rivals.length;
+  if (rivals.length) best.rivals = rivals;
   return best;
 }
 
@@ -197,40 +245,11 @@ export interface Span {
   end: Point;
   /** Page units (PDF points at scale 1). */
   length: number;
-  /** How each end was found: a crossing extension line or tick, or the
-   *  dimension line's own end (when nothing crosses it there). */
-  ends: ["terminator" | "line-end", "terminator" | "line-end"];
+  /** The terminator found at each end (see dimensionTerminators.ts). */
+  ends: [TerminatorKind, TerminatorKind];
 }
 
-/** The nearest terminator on each side of the text. A terminator is a
- *  non-parallel drawn segment that meets the dimension line and ENDS near it
- *  (an extension line's overshoot, a tick or an arrowhead) — a wall or grid
- *  line passing straight through is not one. */
-export function findSpan(t: DimensionText, line: DimensionLine, segs: Segment[]): Span | null {
-  const reach = 1.5 * t.run.height;
-  const { a, u, length: L, at } = line;
-  const hits: number[] = [];
-  for (const s of segs) {
-    const ex = s.b[0] - s.a[0], ey = s.b[1] - s.a[1];
-    const segL = Math.hypot(ex, ey);
-    const den = u[0] * ey - u[1] * ex;
-    if (Math.abs(den) < PARALLEL_SIN * segL) continue;
-    const along = ((s.a[0] - a[0]) * ey - (s.a[1] - a[1]) * ex) / den;
-    const on = ((s.a[0] - a[0]) * u[1] - (s.a[1] - a[1]) * u[0]) / den;
-    if (on < -0.01 || on > 1.01 || along < -0.5 || along > L + 0.5) continue;
-    if (Math.min(on, 1 - on) * segL > reach) continue;
-    hits.push(along);
-  }
-  const before = hits.filter((s) => s < at - 0.5), after = hits.filter((s) => s > at + 0.5);
-  const s0 = before.length ? Math.max(...before) : 0;
-  const s1 = after.length ? Math.min(...after) : L;
-  const ends: Span["ends"] = [before.length ? "terminator" : "line-end", after.length ? "terminator" : "line-end"];
-  if (ends[0] === "line-end" && ends[1] === "line-end") return null;
-  const p = (s: number): Point => [a[0] + u[0] * s, a[1] + u[1] * s];
-  return { start: p(s0), end: p(s1), length: s1 - s0, ends };
-}
-
-// ── 5. the page's own scale ──────────────────────────────────────────────────
+// ── 5. scale, per drawing region ─────────────────────────────────────────────
 
 export interface PageScale {
   /** Printed value units per page unit, agreed by `support` dimensions. */
@@ -244,16 +263,24 @@ export interface PageScale {
   ratioIfMm: number;
 }
 
+/** One group of dimensions on a page whose value ÷ drawn length agree: the
+ *  scale of the drawing region (viewport) they belong to. A sheet can hold
+ *  several (plans at 1:50, details at 1:10); none is assumed, and the ratio is
+ *  never snapped to a "standard" scale. */
+export interface ScaleRegion extends PageScale {
+  id: string;
+  /** Ids of the agreeing dimensions. */
+  members: string[];
+}
+
 const SCALE_TOLERANCE = 0.015;
 const MIN_CALIBRATION_SPAN = 20; // page units; shorter spans are too coarse to calibrate from
 const MIN_SUPPORT = 3;
 
-/** The largest group of dimensions whose value ÷ drawn length agree within
- *  1.5%, from at least three different printed values. Null when no such
- *  group exists: then nothing on the page is checked against geometry. */
-export function calibratePage(samples: { value: number; length: number }[]): Omit<PageScale, "mmPerPoint" | "ratioIfMm"> | null {
-  const usable = samples.filter((s) => s.length >= MIN_CALIBRATION_SPAN && s.value > 0);
-  let best: { members: typeof usable; ratio: number } | null = null;
+interface ScaleSample { id?: string; value: number; length: number }
+
+function bestGroup<S extends ScaleSample>(usable: S[]): { members: S[]; ratio: number } | null {
+  let best: { members: S[]; ratio: number } | null = null;
   for (const seed of usable) {
     const r = seed.value / seed.length;
     const members = usable.filter((s) => Math.abs(s.value / s.length - r) <= SCALE_TOLERANCE * r);
@@ -263,9 +290,29 @@ export function calibratePage(samples: { value: number; length: number }[]): Omi
       best = { members, ratio: median };
   }
   if (!best) return null;
-  const distinctValues = new Set(best.members.map((s) => s.value)).size;
-  if (best.members.length < MIN_SUPPORT || distinctValues < MIN_SUPPORT) return null;
-  return { valuePerPoint: best.ratio, support: best.members.length, distinctValues };
+  if (best.members.length < MIN_SUPPORT || new Set(best.members.map((s) => s.value)).size < MIN_SUPPORT) return null;
+  return best;
+}
+
+/** The largest group of dimensions whose value ÷ drawn length agree within
+ *  1.5%, from at least three different printed values. Null when no such
+ *  group exists: then nothing on the page is checked against geometry. */
+export function calibratePage(samples: { value: number; length: number }[]): Omit<PageScale, "mmPerPoint" | "ratioIfMm"> | null {
+  const g = bestGroup(samples.filter((s) => s.length >= MIN_CALIBRATION_SPAN && s.value > 0));
+  return g ? { valuePerPoint: g.ratio, support: g.members.length, distinctValues: new Set(g.members.map((s) => s.value)).size } : null;
+}
+
+/** Every agreeing group on the page, largest first: take the best group,
+ *  remove its members, repeat. */
+export function calibrateRegions(samples: Required<ScaleSample>[]): { id: string; valuePerPoint: number; members: Required<ScaleSample>[] }[] {
+  let rest = samples.filter((s) => s.length >= MIN_CALIBRATION_SPAN && s.value > 0);
+  const out: { id: string; valuePerPoint: number; members: Required<ScaleSample>[] }[] = [];
+  for (let g = bestGroup(rest); g; g = bestGroup(rest)) {
+    const ids = new Set(g.members.map((m) => m.id));
+    out.push({ id: `S${out.length + 1}`, valuePerPoint: g.ratio, members: g.members });
+    rest = rest.filter((s) => !ids.has(s.id));
+  }
+  return out;
 }
 
 /** "1:25", "SCALE 1 : 100" — the ratio a scale note prints, or null. */
@@ -275,19 +322,43 @@ export function scaleNoteRatio(text: string): number | null {
   return n >= 1 ? n : null;
 }
 
-// ── 6–7. relations and status ────────────────────────────────────────────────
+// ── 6–7. decisions, relations and status ────────────────────────────────────
 
 export type DimensionStatus =
-  /** value and drawn length agree with the page's calibrated scale */
+  /** value and drawn length agree with the scale of its region */
   | "consistent"
-  /** a line and span were found, but value and drawn length disagree */
+  /** a line and endpoints were found, but value and drawn length disagree */
   | "conflict"
-  /** more than one line could be the one labelled */
+  /** more than one line, or more than one endpoint pair, could be the one labelled */
   | "ambiguous"
-  /** a line and span were found but the page has no calibrated scale to check them against */
+  /** a line and endpoints were found but no region scale is available to check them against */
   | "unchecked"
-  /** no dimension line or no terminators found */
+  /** no dimension line, or no endpoint pair */
   | "unassociated";
+
+/** Each stage's own outcome. A failure in one stage is never hidden by another. */
+export interface DimensionDecisions {
+  text: "detected";
+  parse: "parsed";
+  unit: "printed" | "page-note" | "none";
+  line: "found" | "chosen-by-endpoints" | "ambiguous" | "not-found";
+  endpoints: EndpointDecision | "not-attempted";
+  association: AssociationDecision | "not-attempted";
+  scale: "consistent" | "conflicting" | "unavailable" | "not-attempted";
+  /** acceptable: every stage established; hold: some evidence, not enough; reject: no dimension evidence (no line or no terminators). */
+  overall: "acceptable" | "hold" | "reject";
+}
+
+export interface ScaleCheck {
+  region: string;
+  /** Ratio from the region's OTHER dimensions (this one excluded). */
+  valuePerPoint: number;
+  basedOn: number;
+  /** Drawn length converted with that ratio, in the printed value's unit. */
+  measured: number;
+  deviation: number;
+  tolerance: number;
+}
 
 export interface LinearDimension {
   id: string;
@@ -300,11 +371,20 @@ export interface LinearDimension {
   /** The printed value in mm, only when the unit is established. */
   statedMm: number | null;
   textAnchor: Point;
-  line: { a: Point; b: Point } | null;
+  /** Text height (page units): the scale of every geometric tolerance used for this dimension. */
+  textHeight: number;
+  /** joinedAcrossText: the line is drawn in two pieces with this text in the gap. */
+  line: { a: Point; b: Point; joinedAcrossText?: true } | null;
   span: Span | null;
-  /** Drawn length converted with the page's calibrated scale (mm only when the unit is known). */
+  /** Endpoint evidence: terminators considered and the decision with its reason. */
+  endpoints: Endpoints | null;
+  /** What each end is measured from. */
+  association: Association | null;
+  scaleCheck: ScaleCheck | null;
+  /** Drawn length converted with the region's scale (mm only when the unit is known). */
   measured: { value: number; mm: number | null } | null;
   status: DimensionStatus;
+  decisions: DimensionDecisions;
   reasons: string[];
   /** Same printed value over the same stretch as an earlier dimension: usually
    *  the same extent stated on the opposite side, but two equal rooms in line
@@ -314,12 +394,16 @@ export interface LinearDimension {
   chain?: string;
   /** For an overall dimension: the chain it totals, and whether the sum agrees. */
   covers?: { ids: string[]; sum: number; agrees: boolean };
+  /** The same pair of grids dimensioned elsewhere (any page): agreeing or conflicting values. */
+  crossView?: { grids: string; values: number[]; ids: string[]; conflict: boolean };
 }
 
 export interface PageDimensions {
   page: number;
   dimensions: LinearDimension[];
+  /** The page's largest scale region (kept for callers that read one scale). */
   scale: PageScale | null;
+  regions: ScaleRegion[];
   unitNote: { unit: string; text: string } | null;
   scaleNotes: { ratio: number; text: string; mmPerPoint: number; agreesWithCalibration: boolean | null }[];
   /** Numbers that look like lengths but were not read as dimensions, and why. */
@@ -327,6 +411,8 @@ export interface PageDimensions {
 }
 
 const PT_MM = 25.4 / 72;
+/** A region covers the extent of its agreeing dimensions (their spans and text) plus this many text heights. */
+const REGION_MARGIN = 10;
 
 export function extractLinearDimensions(page: { page: number; shapes: DrawingGeometry[]; textRuns: ExtractedTextRun[] }): PageDimensions {
   const segs = drawingSegments(page.shapes, page.textRuns);
@@ -335,78 +421,181 @@ export function extractLinearDimensions(page: { page: number; shapes: DrawingGeo
   const unitNote = units.size === 1 ? { unit: notes[0].unit as string, text: notes[0].text } : null;
   const noteUnit: DimensionUnit | null = unitNote && unitNote.unit !== "ft-in" ? (unitNote.unit as DimensionUnit) : null;
 
+  // ── text and tags
   const excluded: PageDimensions["excluded"] = [];
+  const tags: GridTag[] = [];
   const texts = dimensionTextCandidates(page.textRuns).filter((t) => {
+    const tag = isScaleNoteNumber(t, page.textRuns) ? null : enclosingTag(t, page.shapes);
     const why = isScaleNoteNumber(t, page.textRuns) ? "part of a scale note"
-      : enclosingTag(t, page.shapes) ? "a tag inside a small closed outline (grid bubble, view or section marker)" : null;
+      : tag ? "a tag inside a small closed outline (grid bubble, view or section marker)" : null;
+    if (tag) tags.push({ label: t.parsed.text, ...tag });
     if (why) excluded.push({ text: t.parsed.text, at: t.anchor, reason: `Not read as a dimension: ${why}.` });
     return !why;
   });
+  // non-numeric grid labels inside the same outlines are grid tags too. Grid labels are
+  // letters (A, AA, A') or numbers with an optional suffix (4a, 6'); a letter-and-number
+  // mark (D3, W2, SD1) is a door/window/element tag, never a grid
+  for (const r of page.textRuns) {
+    const label = r.text.trim();
+    if (!/^[A-Z]{1,2}'?$|^\d{1,3}[a-z']$/.test(label)) continue;
+    const dir = runDir(r), normal: Point = [-dir[1], dir[0]];
+    const probe = { run: r, parsed: { text: label, value: 0, unit: null, notation: "unitless" as const }, dir, normal, anchor: [r.x + (dir[0] * r.width) / 2, r.y + (dir[1] * r.width) / 2] as Point };
+    const c = enclosingTag(probe, page.shapes);
+    if (c) tags.push({ label, ...c });
+  }
+
+  // ── line, then endpoints (the endpoints decide between equally close lines)
   const raw = texts.map((t, i) => {
-    const line = findDimensionLine(t, segs);
-    const span = line ? findSpan(t, line, segs) : null;
-    return { id: `D${page.page}-${i + 1}`, t, line, span };
+    const id = `D${page.page}-${i + 1}`, h = t.run.height;
+    const best = findDimensionLine(t, segs);
+    if (!best) return { id, t, line: null, lineDecision: "not-found" as const, ep: null };
+    const tried = [best, ...(best.rivals ?? [])].map((l) => ({ l, ep: chooseEndpoints(l, l.at, h, findTerminators(l, h, page.shapes, segs)) }));
+    const valid = tried.filter((x) => x.ep.decision === "valid-pair");
+    const distinct = valid.filter((x, k) => valid.findIndex((y) => Math.abs(y.ep.length! - x.ep.length!) < 0.5 && Math.hypot(y.ep.start![0] - x.ep.start![0], y.ep.start![1] - x.ep.start![1]) < 0.5) === k);
+    if (tried.length === 1) return { id, t, line: best, lineDecision: "found" as const, ep: tried[0].ep };
+    if (distinct.length === 1) return { id, t, line: valid[0].l, lineDecision: "chosen-by-endpoints" as const, ep: valid[0].ep };
+    return { id, t, line: best, lineDecision: "ambiguous" as const, ep: tried[0].ep };
   });
 
-  const cal = calibratePage(raw.filter((r) => r.span && !r.line!.alternatives).map((r) => ({ value: r.t.parsed.value, length: r.span!.length })));
+  // ── scale per region, each dimension checked against the OTHER members of its region
+  const samples = raw.filter((r) => r.lineDecision !== "ambiguous" && r.ep?.decision === "valid-pair").map((r) => ({ id: r.id, value: r.t.parsed.value, length: r.ep!.length! }));
+  const groups = calibrateRegions(samples);
+  const memberOf = new Map<string, (typeof groups)[number]>();
+  for (const g of groups) for (const m of g.members) memberOf.set(m.id, g);
+  const byId = new Map(raw.map((r) => [r.id, r]));
   const commonUnit = (() => {
     const us = new Set(raw.map((r) => r.t.parsed.unit ?? noteUnit));
     return us.size === 1 ? [...us][0] : null;
   })();
-  const scale: PageScale | null = cal
-    ? { ...cal, mmPerPoint: commonUnit ? cal.valuePerPoint * MM_PER[commonUnit] : null, ratioIfMm: round(cal.valuePerPoint / PT_MM, 1) }
-    : null;
+  const asScale = (vpp: number, support: number, distinctValues: number): PageScale =>
+    ({ valuePerPoint: vpp, support, distinctValues, mmPerPoint: commonUnit ? vpp * MM_PER[commonUnit] : null, ratioIfMm: round(vpp / PT_MM, 1) });
+  const regions: ScaleRegion[] = groups.map((g) => ({ id: g.id, members: g.members.map((m) => m.id), ...asScale(g.valuePerPoint, g.members.length, new Set(g.members.map((m) => m.value)).size) }));
 
-  const dimensions: LinearDimension[] = raw.map(({ id, t, line, span }) => {
+  const median = (xs: number[]) => { const v = [...xs].sort((a, b) => a - b); return v[Math.floor(v.length / 2)]; };
+  function scaleFor(r: (typeof raw)[number]): { check: ScaleCheck | null; why: string } {
+    const h = r.t.run.height, own = memberOf.get(r.id), [x, y] = r.t.anchor, margin = REGION_MARGIN * h;
+    const near = groups.filter((g) => {
+      const pts = g.members.filter((m) => m.id !== r.id).flatMap((m) => { const o = byId.get(m.id)!; return [o.t.anchor, o.ep!.start!, o.ep!.end!]; });
+      if (!pts.length) return false;
+      const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+      return x >= Math.min(...xs) - margin && x <= Math.max(...xs) + margin && y >= Math.min(...ys) - margin && y <= Math.max(...ys) + margin;
+    });
+    const candidates = own && !near.includes(own) ? [own, ...near] : near;
+    if (!candidates.length) return { check: null, why: "No agreeing group of dimensions (at least three different values) near this one, so its drawn length can't be checked." };
+    const ratios = candidates.map((g) => { const others = g.members.filter((m) => m.id !== r.id); return { g, others, vpp: others.length >= MIN_SUPPORT - 1 ? median(others.map((m) => m.value / m.length)) : null }; });
+    const usable = ratios.filter((x) => x.vpp !== null);
+    if (!usable.length) return { check: null, why: "Its region's scale rests on too few other dimensions to check this one independently." };
+    const lo = Math.min(...usable.map((x) => x.vpp!)), hi = Math.max(...usable.map((x) => x.vpp!));
+    if (hi - lo > SCALE_TOLERANCE * lo) return { check: null, why: `It lies where drawing regions of different scales meet (${usable.map((x) => x.g.id).join(", ")}), so no one scale applies.` };
+    const pick = usable.find((x) => x.g === own) ?? usable[0];
+    const measured = r.ep!.length! * pick.vpp!;
+    const tolerance = Math.max(SCALE_TOLERANCE * r.t.parsed.value, 0.3 * pick.vpp!);
+    return { check: { region: pick.g.id, valuePerPoint: pick.vpp!, basedOn: pick.others.length, measured: round(measured, 1), deviation: round(measured - r.t.parsed.value, 1), tolerance: round(tolerance, 1) }, why: "" };
+  }
+
+  const dimensions: LinearDimension[] = raw.map((r) => {
+    const { id, t, line, lineDecision, ep } = r;
+    const h = t.run.height;
     const unit = t.parsed.unit ?? noteUnit;
     const reasons: string[] = [];
     if (!unit) reasons.push("No unit is printed with this number and the page has no note stating the dimension unit.");
-    let status: DimensionStatus;
-    let measured: LinearDimension["measured"] = null;
+    let status: DimensionStatus, measured: LinearDimension["measured"] = null, span: Span | null = null, scaleCheck: ScaleCheck | null = null, association: Association | null = null;
+    let scale: DimensionDecisions["scale"] = "not-attempted";
     if (!line) { status = "unassociated"; reasons.push("No drawn line runs parallel to this text just beside it."); }
-    else if (!span) { status = "unassociated"; reasons.push("The dimension line has no extension line or tick on either side of the text."); }
-    else if (line.alternatives) { status = "ambiguous"; reasons.push(`${line.alternatives + 1} different lines sit equally close to this text.`); }
-    else if (!scale) { status = "unchecked"; reasons.push("The page has no calibrated scale (fewer than three dimensions agree), so the drawn length can't be checked."); }
+    else if (lineDecision === "ambiguous") { status = "ambiguous"; reasons.push(`${(line.rivals?.length ?? 0) + 1} different lines sit equally close to this text, and the terminators do not single one out.`); }
+    else if (ep!.decision !== "valid-pair") { status = ep!.decision === "ambiguous" ? "ambiguous" : "unassociated"; reasons.push(ep!.reason); }
     else {
-      const value = span.length * scale.valuePerPoint;
-      measured = { value: round(value, 1), mm: unit ? round(value * MM_PER[unit], 1) : null };
-      const tol = Math.max(SCALE_TOLERANCE * t.parsed.value, 0.3 * scale.valuePerPoint);
-      if (Math.abs(value - t.parsed.value) <= tol) status = "consistent";
-      else { status = "conflict"; reasons.push(`The printed ${t.parsed.text} does not match the drawn length (${round(value, 0)} at this page's scale): the text may label a different line.`); }
+      span = { start: ep!.start!, end: ep!.end!, length: ep!.length!, ends: [ep!.ends![0].kind, ep!.ends![1].kind] };
+      association = associateEndpoints(span.start, span.end, line.u, h, segs, tags);
+      if (association.decision !== "associated") reasons.push(association.reason);
+      const sc = scaleFor(r);
+      if (!sc.check) { status = "unchecked"; scale = "unavailable"; reasons.push(sc.why); }
+      else {
+        scaleCheck = sc.check;
+        measured = { value: sc.check.measured, mm: unit ? round(sc.check.measured * MM_PER[unit], 1) : null };
+        if (Math.abs(sc.check.deviation) <= sc.check.tolerance) { status = "consistent"; scale = "consistent"; }
+        else { status = "conflict"; scale = "conflicting"; reasons.push(`The printed ${t.parsed.text} does not match the drawn length (${round(sc.check.measured, 0)} at the scale of its region, from ${sc.check.basedOn} other dimensions): the text may label a different line, or the drawing is not to scale here. The printed value is kept.`); }
+      }
     }
-    if (span && span.ends.includes("line-end")) reasons.push("One end is the dimension line's own end: no extension line or tick was found there.");
+    if (lineDecision === "chosen-by-endpoints") reasons.push("Another line sat equally close; this one was chosen because it alone has a terminator either side of the text.");
+    const noEvidence = !line || (ep && ep.decision === "unresolved" && !ep.left.length && !ep.right.length);
+    const decisions: DimensionDecisions = {
+      text: "detected", parse: "parsed", unit: t.parsed.unit ? "printed" : unit ? "page-note" : "none",
+      line: lineDecision, endpoints: ep && lineDecision !== "ambiguous" ? ep.decision : "not-attempted",
+      association: association ? association.decision : "not-attempted", scale,
+      overall: noEvidence ? "reject" : status === "consistent" && unit && association?.decision === "associated" ? "acceptable" : "hold",
+    };
+    const trim = (xs: Terminator[]) => xs.slice(0, 3);
     return {
-      id, page: page.page, text: t.parsed.text, parsed: t.parsed, unit, unitBasis: t.parsed.unit ? "printed" : unit ? "page-note" : "none",
+      id, page: page.page, text: t.parsed.text, parsed: t.parsed, unit, unitBasis: decisions.unit,
       statedMm: unit ? round(t.parsed.value * MM_PER[unit], 3) : null,
-      textAnchor: t.anchor, line: line ? { a: line.a, b: line.b } : null, span, measured, status, reasons, role: "single",
+      textAnchor: t.anchor, textHeight: h,
+      line: line ? { a: line.a, b: line.b, ...(line.joinedAcrossText ? { joinedAcrossText: true as const } : {}) } : null,
+      span, endpoints: ep ? { ...ep, left: trim(ep.left), right: trim(ep.right) } : null, association, scaleCheck, measured,
+      status, decisions, reasons, role: "single",
     };
   });
 
-  relateDimensions(dimensions, texts.map((t) => t.dir), scale);
+  relateDimensions(dimensions, texts.map((t) => t.dir), regions[0] ?? null);
+  // an overall dimension whose parts do not add up is held
+  for (const d of dimensions) if (d.covers && !d.covers.agrees && d.decisions.overall === "acceptable") d.decisions.overall = "hold";
 
-  const scaleNotes = page.textRuns.flatMap((r) => {
+  // scale notes: only text that says it is a scale ("SCALE 1:50", "(Scale 1:10)"), never a slope ("1:12")
+  const scaleNotes = page.textRuns.flatMap((r, i) => {
     const ratio = scaleNoteRatio(r.text);
-    if (!ratio) return [];
+    if (!ratio || !(/scale/i.test(r.text) || /^\s*scale\s*:?\s*$/i.test(page.textRuns[i - 1]?.text ?? ""))) return [];
     const mmPerPoint = ratio * PT_MM;
-    const agrees = scale?.mmPerPoint ? Math.abs(scale.mmPerPoint - mmPerPoint) <= SCALE_TOLERANCE * mmPerPoint : null;
+    const known = regions.filter((g) => g.mmPerPoint);
+    const agrees = known.length ? known.some((g) => Math.abs(g.mmPerPoint! - mmPerPoint) <= SCALE_TOLERANCE * mmPerPoint) : null;
     return [{ ratio, text: r.text.trim(), mmPerPoint: round(mmPerPoint, 4), agreesWithCalibration: agrees }];
   });
 
-  return { page: page.page, dimensions, excluded, scale, unitNote, scaleNotes };
+  return { page: page.page, dimensions, excluded, scale: regions[0] ?? null, regions, unitNote, scaleNotes };
+}
+
+/** Grid-to-grid dimensions of the same pair of grids anywhere in a drawing set:
+ *  equal values support each other; different values are a conflict, held on
+ *  every page for review (no value is chosen). */
+export function relateAcrossPages(pages: PageDimensions[]): void {
+  const byPair = new Map<string, LinearDimension[]>();
+  for (const d of pages.flatMap((p) => p.dimensions)) {
+    if (d.association?.measures !== "grid-to-grid") continue;
+    const [a, b] = d.association.ends.map((e) => (e.kind === "grid" ? e.labels.join("/") : ""));
+    const key = [a, b].sort().join(" ↔ ");
+    byPair.set(key, [...(byPair.get(key) ?? []), d]);
+  }
+  for (const [grids, ds] of byPair) {
+    if (ds.length < 2) continue;
+    const values = [...new Set(ds.map((d) => d.parsed.value))].sort((x, y) => x - y);
+    const conflict = values.length > 1;
+    for (const d of ds) {
+      d.crossView = { grids, values, ids: ds.map((x) => x.id), conflict };
+      if (conflict) {
+        d.reasons.push(`Grids ${grids} are dimensioned ${values.join(" and ")} on different views: the printed values disagree. Held for review; no value is chosen.`);
+        if (d.decisions.overall === "acceptable") d.decisions.overall = "hold";
+      }
+    }
+  }
 }
 
 /** A number written inside a small round outline — a grid bubble, a view
  *  number or a section marker — is a tag, not a length. Only curved outlines
  *  about as wide as they are tall count: boxes and hatch cells round a real
  *  dimension's text do not. */
-function enclosingTag(t: DimensionText, shapes: DrawingGeometry[]): boolean {
-  const h = t.run.height, [x, y] = t.anchor;
-  return shapes.some((s) => {
-    if (s.type !== "path") return false;
+function enclosingTag(t: DimensionText, shapes: DrawingGeometry[]): { center: Point; radius: number } | null {
+  const h = t.run.height;
+  // the text's own middle (the anchor is the middle of its baseline)
+  const x = t.anchor[0] - (t.normal[0] * h) / 2, y = t.anchor[1] - (t.normal[1] * h) / 2;
+  for (const s of shapes) {
+    if (s.type !== "path") continue;
     const w = s.bbox[2] - s.bbox[0], ht = s.bbox[3] - s.bbox[1];
-    return s.bbox[0] <= x && s.bbox[2] >= x && s.bbox[1] <= y && s.bbox[3] >= y
-      && w >= t.run.width && ht >= h && w <= 5 * h && ht <= 5 * h && w / ht >= 0.75 && w / ht <= 1.33;
-  });
+    if (!(w >= t.run.width && ht >= h && w <= 5 * h && ht <= 5 * h && w / ht >= 0.75 && w / ht <= 1.33)) continue;
+    // a tag's text is written in the middle of its outline; a number that only
+    // overlaps the outline's box (a dimension just beside a door or grid tag) is not inside it
+    const cx = (s.bbox[0] + s.bbox[2]) / 2, cy = (s.bbox[1] + s.bbox[3]) / 2;
+    if (Math.abs(x - cx) <= 0.25 * w && Math.abs(y - cy) <= 0.25 * ht) return { center: [cx, cy], radius: Math.max(w, ht) / 2 };
+  }
+  return null;
 }
 
 /** The "25" of a "1 : 25" split over several runs is not a dimension. */

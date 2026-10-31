@@ -208,3 +208,55 @@ describe("extractPageGeometry — transformed-geometry.pdf (paths drawn under a 
     expect([t.x, t.y]).toEqual([100, pageY(220)]);
   });
 });
+
+describe("extractPageGeometry — ctm-transforms.pdf (cm, nested q/Q, form /Matrix, annotation, CropBox, /Rotate)", () => {
+  // Ground truth (build-ctm-transforms-pdf.py; hand-derived from the PDF
+  // spec, then checked against an independent renderer — poppler pdftoppm
+  // — by sampling ink along each expected segment). MediaBox 600x400,
+  // CropBox [50 50 550 350]; page 1 /Rotate 0, page 2 /Rotate 90, same
+  // content. Raw user-space segments AFTER the full CTM:
+  //   L1 q 0.5 0 0 0.5 100 100 cm; 0 0 m 400 0 l       -> (100,100)-(300,100)
+  //   L2 nested cm translate(20,0) x rotate90@(300,200) -> (320,200)-(320,300)
+  //   L3 form /Matrix [2 0 0 2 0 0] under translate(100,250) -> (100,250)-(200,250)
+  //   L4 no transform (control)                         -> (400,300)-(500,300)
+  //   L5 annotation /Rect [400 100 500 150], AP BBox 50x25 -> (400,120)-(500,120)
+  //   Text "AA" drawn at the origin of L1's cm         -> (100,100)
+  // Page 1 page space: x = X-50, y = 350-Y. Page 2 (rotated): x = Y-50, y = X-50.
+  // Before the CTM fix L1-L3 came back in untransformed user space (e.g. L1
+  // at (-50,350)-(350,350): off the page and twice as long) while the text
+  // was correct — vectors and text disagreed by 100+ points.
+  const lines = async (n: number) => {
+    const result = await extractPageGeometry(await loadPage("ctm-transforms.pdf", n), n);
+    return { result, segs: result.shapes.filter((s) => s.type === "line").map((s) => s.points.map(([x, y]) => [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000])) };
+  };
+
+  it("applies cm, nested rotation, form matrix and annotation matrix to vector paths (page 1)", async () => {
+    const { result, segs } = await lines(1);
+    expect(result.pageSize).toEqual({ width: 500, height: 300 });
+    expect(segs).toEqual([
+      [[50, 250], [250, 250]],
+      [[270, 150], [270, 50]],
+      [[50, 100], [150, 100]],
+      [[350, 50], [450, 50]],
+      [[350, 230], [450, 230]],
+    ]);
+  });
+
+  it("puts text and the vector drawn under the same cm at the same place", async () => {
+    const { result, segs } = await lines(1);
+    const aa = result.textRuns.find((t) => t.text === "AA")!;
+    expect([aa.x, aa.y]).toEqual(segs[0][0]);
+  });
+
+  it("composes the CTM with page rotation and crop (page 2, /Rotate 90)", async () => {
+    const { result, segs } = await lines(2);
+    expect(result.pageSize).toEqual({ width: 300, height: 500 });
+    expect(segs).toEqual([
+      [[50, 50], [50, 250]],
+      [[150, 270], [250, 270]],
+      [[200, 50], [200, 150]],
+      [[250, 350], [250, 450]],
+      [[70, 350], [70, 450]],
+    ]);
+  });
+});

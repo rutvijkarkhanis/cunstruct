@@ -226,16 +226,26 @@ export async function extractPageGeometry(pdfPage: PDFPageProxy, pageNumber: num
 
   const shapes: DrawingGeometry[] = [];
   // Path operands are in the CURRENT user space, not raw page space: track
-  // the graphics state's transformation matrix (q/Q, cm, form XObjects) and
-  // apply it before the viewport conversion. Text items from getTextContent
-  // already include it.
+  // the graphics state's transformation matrix (q/Q, cm, form XObjects,
+  // transparency groups, annotation appearances) and apply it before the
+  // viewport conversion, as pdf.js's own canvas renderer does. Text items
+  // from getTextContent already include it.
   let ctm: Matrix = IDENTITY;
   const stack: Matrix[] = [];
   for (let i = 0; i < opList.fnArray.length; i++) {
     const fn = opList.fnArray[i];
     const args = opList.argsArray[i];
-    if (fn === OPS.save) { stack.push(ctm); continue; }
-    if (fn === OPS.restore) { ctm = stack.pop() ?? ctm; continue; }
+    // a group's own matrix only sizes its scratch canvas; the paintFormXObjectBegin that follows applies it
+    if (fn === OPS.save || fn === OPS.beginGroup) { stack.push(ctm); continue; }
+    if (fn === OPS.restore || fn === OPS.endGroup || fn === OPS.endAnnotation) { ctm = stack.pop() ?? ctm; continue; }
+    // an annotation's appearance is drawn from the page's base space through its rect transform, then its /Matrix
+    if (fn === OPS.beginAnnotation) {
+      stack.push(ctm);
+      ctm = IDENTITY;
+      if (Array.isArray(args) && isMatrix(args[2])) ctm = multiply(ctm, args[2]);
+      if (Array.isArray(args) && isMatrix(args[3])) ctm = multiply(ctm, args[3]);
+      continue;
+    }
     if (fn === OPS.transform) { if (isMatrix(args)) ctm = multiply(ctm, args); continue; }
     if (fn === OPS.paintFormXObjectBegin) {
       stack.push(ctm);
