@@ -57,6 +57,7 @@ import ApplyReceiptPanel from "@/components/review/ApplyReceiptPanel";
 import { clearReceipt, loadReceipt, saveReceipt, type ApplyReceipt } from "@/lib/review/applyReceipt";
 import DocumentSelector from "@/components/review/DocumentSelector";
 import AiApiPanel from "@/components/review/AiApiPanel";
+import MeasurementLabLauncher from "@/components/review/MeasurementLabLauncher";
 import AiStateBadge from "@/components/review/AiStateBadge";
 import IdentifyResultPanel from "@/components/review/IdentifyResultPanel";
 import FindSimilarResultPanel, { type FindSimilarMatchState } from "@/components/review/FindSimilarResultPanel";
@@ -896,6 +897,8 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId, returnTo: i
 
   if (!runId || items.length === 0) {
     return (
+      <>
+      <MeasurementLabLauncher floating />
       <ImportGate
         boqName={boq?.name}
         projectType={project?.project_type ?? null}
@@ -913,6 +916,7 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId, returnTo: i
         onBack={goBack}
         backLabel={returnTo ? "Project" : "BOQ"}
       />
+      </>
     );
   }
 
@@ -977,6 +981,7 @@ export default function BoqReviewWorkstation({ boqId: injectedBoqId, returnTo: i
               Apply{applyableCandidates.length > 0 ? ` (${applyableCandidates.length})` : ""}
             </button>
           )}
+          <MeasurementLabLauncher />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="More options"><MoreHorizontal className="w-4 h-4" /></Button>
