@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Measurement Evidence Workbench</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <strong>Measurement evidence workbench</strong>
+  <span id="dataset" class="muted"></span>
+  <span class="warn">Developer tool. Shows engine evidence. Not a blinded review. Not for pricing or BOQ.</span>
+</header>
+<main>
+  <aside id="left">
+    <input id="search" type="search" placeholder="Search id, Gold id or printed value">
+    <div class="filters">
+      <label>Page <select id="f-page"></select></label>
+      <label>View <select id="f-view"></select></label>
+      <label>Status <select id="f-status"></select></label>
+      <label>Failure stage <select id="f-stage"></select></label>
+      <label>Primary reason <select id="f-reason"></select></label>
+      <label>Measures <select id="f-measures"></select></label>
+      <label>Orientation <select id="f-orient"></select></label>
+      <label>Scale region <select id="f-region"></select></label>
+      <label class="row"><input type="checkbox" id="f-gold"> Gold Set only</label>
+      <label class="row"><input type="checkbox" id="f-unann"> Not yet annotated</label>
+    </div>
+    <div id="count" class="muted"></div>
+    <ol id="list"></ol>
+  </aside>
+  <section id="center">
+    <div id="toolbar">
+      <button id="prev" title="Previous (k)">◀</button><button id="next" title="Next (j)">▶</button>
+      <button id="fit" title="Fit measurement (f)">Fit</button><button id="fitpage" title="Whole page">Page</button>
+      <button id="zin">+</button><button id="zout">−</button>
+      <span id="zoom" class="muted"></span>
+      <span class="sep"></span>
+      <span id="layers"></span>
+    </div>
+    <svg id="view" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div id="pickhint" hidden>Picking corrected endpoints: click two points on the drawing (Esc to cancel).</div>
+  </section>
+  <aside id="right">
+    <div id="info"></div>
+    <form id="annot">
+      <h3>Reviewer annotation</h3>
+      <p class="muted small">Stored in this browser only and exported separately from engine output. Annotations made here see engine evidence, so they are not independent blind reviews.</p>
+      <label>Reviewer <input id="a-reviewer" required placeholder="name or ID"></label>
+      <fieldset><legend>Verdict</legend>
+        <label><input type="radio" name="verdict" value="correct"> Correct</label>
+        <label><input type="radio" name="verdict" value="incorrect"> Incorrect</label>
+        <label><input type="radio" name="verdict" value="ambiguous"> Ambiguous</label>
+        <label><input type="radio" name="verdict" value="cannot-determine"> Cannot determine</label>
+      </fieldset>
+      <fieldset><legend>Confidence</legend>
+        <label><input type="radio" name="confidence" value="high"> High</label>
+        <label><input type="radio" name="confidence" value="medium"> Medium</label>
+        <label><input type="radio" name="confidence" value="low"> Low</label>
+      </fieldset>
+      <details><summary>Corrected evidence (optional)</summary>
+        <label>Value <input id="a-value" type="number" step="any"></label>
+        <label>Element measured <input id="a-element" placeholder="e.g. grid 6 → outer face of wall"></label>
+        <div class="row"><button type="button" id="a-pick">Pick endpoints</button> <span id="a-ends" class="muted small"></span> <button type="button" id="a-clear-ends">Clear</button></div>
+      </details>
+      <label>Notes <textarea id="a-notes" rows="3"></textarea></label>
+      <div class="row"><button type="submit">Save</button> <button type="button" id="a-delete">Delete</button> <span id="a-saved" class="muted small"></span></div>
+      <div class="row export">
+        <button type="button" id="x-json">Export JSON</button><button type="button" id="x-csv">Export CSV</button>
+        <label class="file">Import JSON <input type="file" id="x-import" accept="application/json"></label>
+      </div>
+      <div id="a-count" class="muted small"></div>
+    </form>
+  </aside>
+</main>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

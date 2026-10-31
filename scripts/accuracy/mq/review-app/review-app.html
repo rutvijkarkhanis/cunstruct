@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dimension Review</title>
+<style>
+:root { --bg:#f6f6f4; --panel:#fff; --ink:#1d2230; --muted:#6b7180; --line:#d9dbe0; --mark:#c000c0; --end:#0050ff; --lin:#00a050; }
+* { box-sizing: border-box; }
+body { margin:0; font:13px/1.45 system-ui,-apple-system,Segoe UI,sans-serif; color:var(--ink); background:var(--bg); height:100vh; display:flex; flex-direction:column; }
+header { display:flex; gap:12px; align-items:baseline; padding:6px 12px; background:var(--panel); border-bottom:1px solid var(--line); flex-wrap:wrap; }
+.muted { color:var(--muted); } .small { font-size:11px; }
+main { flex:1; display:grid; grid-template-columns:200px 1fr 380px; min-height:0; }
+aside { background:var(--panel); overflow:auto; padding:8px; }
+#list { list-style:none; margin:0; padding:0; }
+#list li { padding:3px 6px; cursor:pointer; border-bottom:1px solid #f0f0f0; display:flex; justify-content:space-between; }
+#list li.sel { background:#e8f0ff; } #list li .ok { color:#1a7f37; } #list li .part { color:#b58100; }
+#center { display:flex; flex-direction:column; min-width:0; }
+#tools { display:flex; gap:4px; padding:4px 8px; background:var(--panel); border-bottom:1px solid var(--line); flex-wrap:wrap; align-items:center; }
+#tools button.on { background:#111; color:#fff; }
+#view { flex:1; width:100%; background:#fff; cursor:grab; user-select:none; }
+#view.placing { cursor:crosshair; }
+label { display:block; margin:5px 0 2px; font-weight:600; }
+label .muted { font-weight:400; }
+input[type=text], input[type=number], textarea, select { width:100%; padding:3px; }
+fieldset { border:1px solid var(--line); margin:6px 0; padding:4px 8px; }
+fieldset label { display:inline-block; font-weight:400; margin-right:10px; }
+.coords { font-family:ui-monospace,monospace; font-size:12px; }
+.row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+#status { margin-top:6px; }
+.err { color:#c0362c; }
+</style>
+</head>
+<body>
+<header>
+  <strong>Dimension review</strong>
+  <span id="who" class="muted"></span>
+  <span id="progress" class="muted"></span>
+  <span class="muted small">Your answers are saved in this browser as you go. Export to send them.</span>
+</header>
+<main>
+  <aside><ol id="list"></ol></aside>
+  <section id="center">
+    <div id="tools">
+      <button id="prev">◀ Prev</button><button id="next">Next ▶</button>
+      <button id="fit">Fit item</button><button id="wide">Wide context</button><button id="zin">+</button><button id="zout">−</button>
+      <span class="muted">|</span>
+      <span>Click to place:</span>
+      <button data-place="end1">End 1</button><button data-place="end2">End 2</button>
+      <button data-place="la">Line pt A</button><button data-place="lb">Line pt B</button>
+      <span id="coordhint" class="coords muted"></span>
+    </div>
+    <svg id="view" xmlns="http://www.w3.org/2000/svg"></svg>
+  </section>
+  <aside id="form">
+    <div class="muted small" id="itemhead"></div>
+    <label>1. Is the ringed text the value of a linear dimension?</label>
+    <fieldset id="f-is_dimension"><label><input type="radio" name="is_dimension" value="yes"> yes</label><label><input type="radio" name="is_dimension" value="no"> no</label><label><input type="radio" name="is_dimension" value="unsure"> unsure</label></fieldset>
+    <label>2. Is the printed text legible?</label>
+    <fieldset><label><input type="radio" name="legibility" value="legible"> legible</label><label><input type="radio" name="legibility" value="partly-legible"> partly</label><label><input type="radio" name="legibility" value="illegible"> illegible</label></fieldset>
+    <label>3. Printed value <span class="muted">(exactly as printed, digits only)</span></label><input id="printed_value" type="number" step="any">
+    <label>Unit</label>
+    <select id="unit"><option value=""></option><option>mm</option><option>cm</option><option>m</option><option>in</option><option value="none-stated">none stated on the drawing</option><option>unsure</option></select>
+    <label>4–5. Dimension line and endpoints <span class="muted">(use the buttons above, then click on the drawing)</span></label>
+    <div class="coords" id="coords"></div>
+    <div class="row"><button type="button" id="clearpts">Clear points</button></div>
+    <label>5. End marks <span class="muted">(what terminates the line at End 1 / End 2)</span></label>
+    <div class="row"><select id="end1_mark"></select><select id="end2_mark"></select></div>
+    <label>6. What does each end measure to?</label>
+    <div class="row"><select id="end1_type"></select><input id="element_end1" type="text" placeholder="end 1: e.g. 7 (grid) or outer face of south wall"></div>
+    <div class="row"><select id="end2_type"></select><input id="element_end2" type="text" placeholder="end 2"></div>
+    <label>7. Could a careful reader reasonably decide differently?</label>
+    <fieldset><label><input type="radio" name="ambiguous" value="no"> no</label><label><input type="radio" name="ambiguous" value="yes"> yes — explain:</label></fieldset>
+    <input id="ambiguity_note" type="text" placeholder="e.g. two equally close lines; tick could be on the grid or on the face beside it">
+    <label>8. Does the drawing show enough to decide 1–6?</label>
+    <fieldset><label><input type="radio" name="evidence_sufficient" value="yes"> yes</label><label><input type="radio" name="evidence_sufficient" value="no"> no</label></fieldset>
+    <label>Confidence</label>
+    <fieldset><label title="I would set out on site from this reading"><input type="radio" name="confidence" value="high"> high</label><label title="Probably right; one point needed care"><input type="radio" name="confidence" value="medium"> medium</label><label title="Best reading, but I could be wrong"><input type="radio" name="confidence" value="low"> low</label></fieldset>
+    <label>Explanation</label><textarea id="explanation" rows="3"></textarea>
+    <div class="row" style="margin-top:8px"><button id="save">Save &amp; next</button></div>
+    <div id="status" class="small"></div>
+    <hr>
+    <div class="row"><button id="xjson">Export JSON</button><button id="xcsv">Export CSV</button><label class="small" style="font-weight:400">Import JSON <input type="file" id="ximport" accept="application/json"></label></div>
+  </aside>
+</main>
+<script src="items.js"></script>
+<script src="review-app.js"></script>
+</body>
+</html>
