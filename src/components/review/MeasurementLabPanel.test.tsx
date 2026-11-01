@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // SYNTHETIC UI checks: no drawing is processed here (the engines are covered in measurement-lab tests).
@@ -72,5 +72,78 @@ describe("Measurement Lab panel", () => {
     expect(src.page).toBe(2);
     expect(src.evidence.map((e) => e.label)).toEqual(['printed "1730"', "engine dimension line", "engine endpoint 1", "engine endpoint 2"]);
     expect(src.evidence[1].bbox).toEqual([78.5, 52.5, 131.5, 55.5]);
+  });
+});
+
+describe("resume identity in the panel (content fingerprint, not filename)", () => {
+  const urls = { made: [] as string[], revoked: [] as string[] };
+  const file = (name: string, text: string) => {
+    const f = new File([text], name, { type: "application/pdf" });
+    if (!("arrayBuffer" in f)) Object.defineProperty(f, "arrayBuffer", { value: async () => new TextEncoder().encode(text).buffer });
+    return f;
+  };
+  const shaOf = async (text: string) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))].map((x) => x.toString(16).padStart(2, "0")).join("");
+  beforeEach(async () => {
+    localStorage.clear();
+    const pdfjs = await import("pdfjs-dist");
+    (pdfjs.getDocument as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => ({ promise: Promise.resolve({ numPages: 2, getPage: async () => ({ getViewport: () => ({ width: 600, height: 400 }) }), destroy: async () => {} }), destroy: async () => {} }));
+    let n = 0; urls.made = []; urls.revoked = [];
+    Object.defineProperty(URL, "createObjectURL", { value: () => { const u = `blob:test-${++n}`; urls.made.push(u); return u; }, configurable: true });
+    Object.defineProperty(URL, "revokeObjectURL", { value: (u: string) => { urls.revoked.push(u); }, configurable: true });
+  });
+  const upload = async (f: File) => { fireEvent.change(screen.getByLabelText("Drawing PDF"), { target: { files: [f] } }); };
+  it("restores the saved place for the same content under another name, never for different content with the same name", async () => {
+    const { saveUi } = await import("@/lib/measurement-lab/reviewState");
+    saveUi({ v: 1, drawing: { name: "plan-original.pdf", sha256: await shaOf("%PDF SYNTHETIC A"), numPages: 2 }, context_path: "/ops", mode: "blind", ref_scope: "blind", pages_text: "2", engine: "engine-9ac1f71", filter: "all", selected: "D1-4", inspector_open: true, focus: true, shortcuts: true, last_reviewed: "D1-3", saved_at: "2026-11-01T09:00:00Z" });
+    wrap(<MeasurementLabPanel />);
+    expect(screen.getByTestId("lab-resume").textContent).toMatch(/plan-original\.pdf.*matched by its content/);
+    await upload(file("renamed-copy.pdf", "%PDF SYNTHETIC A"));
+    expect((await screen.findByTestId("lab-restored")).textContent).toMatch(/last reviewed D1-3.*Same drawing content as “plan-original\.pdf”/);
+    expect((screen.getByLabelText("Pages") as HTMLInputElement).value).toBe("2");
+    await upload(file("plan-original.pdf", "%PDF SYNTHETIC B"));
+    await waitFor(() => expect(screen.getByText(/plan-original\.pdf · 2 pages/)).toBeTruthy());
+    expect(screen.queryByTestId("lab-restored")).toBeNull();
+    expect((screen.getByLabelText("Pages") as HTMLInputElement).value).toBe("2"); // left as typed; nothing restored from the other file
+    expect(urls.revoked).toEqual([]); // never revoked while a viewer may still be reading it (see the panel)
+  });
+  it("a fingerprint failure opens nothing, restores nothing and clears the previous drawing from the screen", async () => {
+    wrap(<MeasurementLabPanel />);
+    await upload(file("a.pdf", "%PDF SYNTHETIC A"));
+    await waitFor(() => expect(screen.getByText(/a\.pdf · 2 pages/)).toBeTruthy());
+    const spy = vi.spyOn(crypto.subtle, "digest").mockRejectedValueOnce(new Error("SubtleCrypto unavailable"));
+    await upload(file("b.pdf", "%PDF SYNTHETIC B"));
+    expect((await screen.findByRole("status")).textContent).toMatch(/Could not fingerprint the drawing \(SubtleCrypto unavailable\).*nothing was restored or saved/);
+    expect(screen.queryByText(/a\.pdf · 2 pages/)).toBeNull();
+    expect(screen.queryByTestId("lab-restored")).toBeNull();
+    spy.mockRestore();
+  });
+  it("only the latest file opened wins: a slower earlier open never replaces it, and its failure never clears it", async () => {
+    const pdfjs = await import("pdfjs-dist");
+    let releaseSlow: () => void = () => {};
+    const gate = new Promise<void>((r) => { releaseSlow = r; });
+    const destroyed: string[] = [];
+    (pdfjs.getDocument as unknown as ReturnType<typeof vi.fn>).mockImplementation(({ data }: { data: Uint8Array }) => {
+      const tag = new TextDecoder().decode(data);
+      const doc = { numPages: 1, getPage: async () => { if (tag.includes("SLOW")) await gate; return { getViewport: () => ({ width: 600, height: 400 }) }; }, destroy: async () => {} };
+      return { promise: Promise.resolve(doc), destroy: async () => { destroyed.push(tag); } };
+    });
+    wrap(<MeasurementLabPanel />);
+    await upload(file("slow.pdf", "%PDF SLOW"));
+    await upload(file("fast.pdf", "%PDF FAST"));
+    await waitFor(() => expect(screen.getByText(/fast\.pdf · 1 pages/)).toBeTruthy());
+    await act(async () => { releaseSlow(); await new Promise((r) => setTimeout(r, 20)); });
+    expect(screen.getByText(/fast\.pdf · 1 pages/)).toBeTruthy();
+    expect(screen.queryByText(/slow\.pdf/)).toBeNull();
+    expect(destroyed.sort()).toEqual(["%PDF FAST", "%PDF SLOW"]); // every temporary document is destroyed
+    expect(urls.made).toHaveLength(1); // the superseded open never even created a blob URL
+  });
+  it("a document is destroyed even when reading its pages fails", async () => {
+    const pdfjs = await import("pdfjs-dist");
+    const destroy = vi.fn(async () => {});
+    (pdfjs.getDocument as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => ({ promise: Promise.resolve({ numPages: 1, getPage: async () => { throw new Error("bad page"); } }), destroy }));
+    wrap(<MeasurementLabPanel />);
+    await upload(file("broken.pdf", "%PDF BROKEN"));
+    expect((await screen.findByRole("status")).textContent).toMatch(/Could not open the PDF: bad page/);
+    expect(destroy).toHaveBeenCalledTimes(1);
   });
 });

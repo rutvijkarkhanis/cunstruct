@@ -11,3 +11,42 @@ export function evidenceFor(m: LabMeasurement, pageSize?: { width: number; heigh
   return { page: m.page, evidence: ev, ...(pageSize ? { pageSize } : {}) };
 }
 
+
+/** A drawing marker in the shape the existing evidence viewer's marker mode accepts (structurally the
+ *  same as its DrawingMarker; declared here so the lab imports nothing from the production review code). */
+export interface LabMarker {
+  id: string;
+  reviewItemId: string;
+  category: "Other";
+  kind: "evidence";
+  box: { bbox: [number, number, number, number]; page: number; label: string; claim: "dimension" };
+  page: number;
+  pageSize?: { width: number; height: number };
+  label: string;
+  emphasis: "primary" | "secondary" | "muted";
+}
+const finite = (p: readonly number[] | null | undefined) => !!p && p.every(Number.isFinite);
+
+/** Clickable markers for one run's measurements: one muted marker (the printed text) per measurement
+ *  that has a page position, and — for the selected measurement — its text, line and endpoints as
+ *  highlighted markers. A measurement without coordinates gets no marker: nothing is placed by guess.
+ *  Marker ids are `${measurementId}::${part}`; use `measurementIdOf` to map a click back. */
+export function labMarkers(ms: readonly LabMeasurement[], selectedId: string | null, pageSizes: Record<number, { width: number; height: number } | undefined>): LabMarker[] {
+  const out: LabMarker[] = [];
+  for (const m of ms) {
+    if (!finite(m.textAnchor)) continue;
+    const sel = m.id === selectedId;
+    const parts = sel ? evidenceFor(m).evidence : evidenceFor(m).evidence.slice(0, 1);
+    parts.forEach((b, i) => {
+      if (!b.bbox.every(Number.isFinite)) return;
+      const ps = pageSizes[m.page];
+      out.push({
+        id: `${m.id}::${i}`, reviewItemId: m.id, category: "Other", kind: "evidence",
+        box: { bbox: b.bbox, page: m.page, label: b.label ?? "", claim: "dimension" }, page: m.page, ...(ps ? { pageSize: ps } : {}),
+        label: sel ? (i === 0 ? `${m.id} · ${m.text}` : (b.label ?? "")) : m.text, emphasis: sel ? "primary" : "muted",
+      });
+    });
+  }
+  return out;
+}
+export const measurementIdOf = (markerId: string) => markerId.split("::")[0];

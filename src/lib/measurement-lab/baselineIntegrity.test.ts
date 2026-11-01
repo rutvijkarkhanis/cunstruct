@@ -48,7 +48,7 @@ const specifiers = (src: string) => [
   ...[...src.matchAll(/^\s*(?:import|export)\b[^;]*?\bfrom\s*["']([^"']+)["']/gm)].map((m) => m[1]),
   ...[...src.matchAll(/\bimport\(\s*["']([^"']+)["']\s*\)/g)].map((m) => m[1]),
 ];
-const LAB_UI = ["MeasurementLabPanel.tsx", "MeasurementLabLauncher.tsx", "BlindReferenceCapture.tsx"];
+const LAB_UI = ["MeasurementLabPanel.tsx", "MeasurementLabLauncher.tsx", "BlindReferenceCapture.tsx", "MeasurementReviewWorkspace.tsx"];
 
 describe("frozen engines", () => {
   it("each copy is byte-identical to its original commit, and the manifest agrees", () => {

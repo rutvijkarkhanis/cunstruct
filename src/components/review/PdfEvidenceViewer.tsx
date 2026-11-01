@@ -84,6 +84,15 @@ interface Props {
    *  distinct hue per status (pending/confirmed/rejected) so a match's
    *  local decision is visible on the canvas, not just in the side panel. */
   similarMatches?: { id: string; evidence: EvidenceBox[]; status: "pending" | "confirmed" | "rejected" }[] | null;
+  /**
+   * Opt-in (additive; omitted or false = exactly the existing behaviour). When true, a document whose
+   * loading task is still in flight when the viewer unmounts or switches file is destroyed only after
+   * that load settles, instead of immediately. pdf.js 4.x throws an uncaught "Worker was terminated"
+   * from inside its worker when a document is destroyed mid-load; the Measurement Lab, which can unmount
+   * a viewer mid-load (e.g. locking a reference), opts in. Results of a superseded load are still never
+   * applied (the `cancelled` guard below), and an already-loaded document is still destroyed at once.
+   */
+  deferDestroyUntilLoaded?: boolean;
 }
 
 type Size = { width: number; height: number };
@@ -98,7 +107,7 @@ type Size = { width: number; height: number };
 // real rectangle doesn't need to stop being drawn as a rectangle either.
 const RICH_GEOMETRY_TYPES = new Set(["point", "line", "polyline", "polygon", "path"]);
 
-export default function PdfEvidenceViewer({ fileUrl, source, documentName, unavailableReason, selectedClaim, selectedClaimValue, pageTitles, markers, onSelectMarker, markerContextLabel, identifyModeActive, onIdentifyPoint, identifyHighlight, similarMatches }: Props) {
+export default function PdfEvidenceViewer({ fileUrl, source, documentName, unavailableReason, selectedClaim, selectedClaimValue, pageTitles, markers, onSelectMarker, markerContextLabel, identifyModeActive, onIdentifyPoint, identifyHighlight, similarMatches, deferDestroyUntilLoaded = false }: Props) {
   // Marker mode is signaled by PRESENCE of `markers` (even []), not its
   // length — an empty marker set for the current selection (e.g. a category
   // with no real evidence at all) must still suppress the old per-item
@@ -197,13 +206,16 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
     setStatus("loading");
     setErrorDetail(null);
     const task = pdfjsLib.getDocument(fileUrl);
+    let settled = false;
     task.promise.then((doc) => {
+      settled = true;
       if (cancelled) return;
       docRef.current = doc;
       setNumPages(doc.numPages);
       setPage((p) => Math.min(Math.max(1, p), doc.numPages));
       setStatus("ready");
     }).catch((err) => {
+      settled = true;
       if (!cancelled) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error("[PdfEvidenceViewer] Failed to load PDF:", msg);
@@ -211,7 +223,14 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
         setStatus("error");
       }
     });
-    return () => { cancelled = true; try { task.destroy?.(); } catch { /* noop */ } };
+    return () => {
+      cancelled = true;
+      const destroy = () => { try { task.destroy?.(); } catch { /* noop */ } };
+      if (deferDestroyUntilLoaded && !settled && task.promise) { task.promise.then(destroy, destroy); return; }
+      destroy();
+    };
+  // deferDestroyUntilLoaded is read at cleanup time only; it never re-triggers loading
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileUrl]);
 
   // Extract real PDF vector geometry (Layer A) for the CURRENT page, at
