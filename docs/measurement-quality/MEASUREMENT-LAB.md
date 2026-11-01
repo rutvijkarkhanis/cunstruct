@@ -50,6 +50,64 @@ The report states which scope it used.
 
 **Lab verdicts are not independent reviews.** Engine overlays are visible in Stage B. Independent validation uses the blind review packages; see REVIEW-PROTOCOL.md.
 
+## Review workspace (Stage B)
+Once an engine run is under review, the setup cards fold into one summary line ("Show setup" opens them again). The drawing is the main surface, with the measurement list on its left and a collapsible inspector on its right.
+
+- **Two-way linking.** Every measurement with a page position is a clickable marker on the drawing. Clicking one selects it; selecting one in the list highlights its text, dimension line and endpoints and zooms to them, moving to the right page. A measurement without a position gets no marker, and the Lab says that precise location linking is unavailable, naming the page.
+- **Inspector.** Shows the measurement's identity, the engine's result, your verdict, its current value and where that value comes from. It then lists every source-evidence fact labelled *available*, *derived*, *missing* or *unresolved*:
+  - printed text and its location;
+  - dimension line and endpoints;
+  - endpoint distance (derived, in drawing units);
+  - scale: always *missing*, because the frozen run does not record one; the value comes from the printed text;
+  - associated element;
+  - conflicts reported by the engine.
+
+  The inspector also shows the engine version and output hash, and every verdict as a change receipt.
+- **What changed?** For each measurement, and for the whole run (newest first), every receipt shows:
+  - previous status → new verdict;
+  - value before → after, and whether the value changed;
+  - reason, reviewer, time;
+  - the log event's hash.
+
+  Receipts are derived from the append-only log. The engine's frozen output is never changed, and nothing is applied to the BOQ.
+- **Progress.** Reviewed out of total, with counts for not reviewed, correct, incorrect, unclear and still to resolve. Status comes only from recorded verdicts: opening or selecting a measurement never marks it reviewed. *Unresolved* means not reviewed, or the latest verdict is unclear. There is no separate *deferred* state, and none was added. Filters cover review status (unresolved, not reviewed, correct, incorrect, unclear) and the engine's own decision. The default filter is *unresolved*.
+- **Keyboard** (only inside the Lab, never while typing in a field; switch off with the *keys* tick box; `?` shows the list):
+
+| key | action |
+|---|---|
+| A | mark correct |
+| R / U | mark incorrect / unclear. Without a reason nothing is recorded: the reason field is focused, and Ctrl+Enter (or the button) then records it. |
+| N | next unresolved, continuing from the current position even after a verdict removed it from the filtered list |
+| P | previous measurement |
+| F | zoom the drawing to the selection |
+| I | show or hide the inspector |
+| ? | the shortcut list |
+| Esc | clear the selection; with nothing selected, close the Lab |
+
+- **Keys stay in the Lab.** While the Lab is open, no key press reaches the workstation's own shortcuts behind it (V, E, F, P, arrows). Before this change, they could act on the production review item behind the dialog.
+- **Drawing identity.** A drawing is identified by the sha256 of its exact bytes, never by its filename:
+  - the same file under another name resumes, and the Lab says which name it was saved under;
+  - a different file with the same name starts fresh.
+
+  If the fingerprint cannot be computed (or is malformed), the drawing is not opened at all: nothing is restored, saved or keyed to it, and any previously shown drawing is cleared, so a verdict cannot land on the wrong drawing.
+- **Resume.** Your place is saved in this browser's localStorage, one entry per drawing (by sha256):
+  - project/BOQ route;
+  - reference mode, pages and engine;
+  - filter and selected measurement;
+  - inspector, zoom and shortcut settings;
+  - last reviewed measurement.
+
+  The Lab shows the last session when it opens. Choosing the same PDF restores everything, and the viewer zooms back to the selected measurement. Notes:
+  - **No content stored.** The saved place holds no verdicts and no drawing content: verdicts stay in the integrity-checked IndexedDB log, and the PDF itself is not stored, so it has to be chosen again.
+  - **Viewport.** The exact manual zoom and scroll position is not saved; the viewer re-fits to the selection.
+  - **Historical mode.** The Gold Set file has to be chosen again.
+  - **Scope.** Clearing site data, or another browser or device, starts without a saved place.
+- **PDF lifecycle.**
+  - **Opening a drawing.** Only the most recently chosen file can become the drawing: a slower, earlier open is dropped when it finishes, and its failure never clears the newer drawing. The temporary pdf.js document used to read page sizes is always destroyed, after its reads have finished, even when reading fails. A drawing's blob URL is not revoked (as before): a viewer finishing a deferred load may still be reading it, and pdf.js throws if it disappears. Each opened drawing therefore stays in memory until the page is reloaded.
+  - **Viewers.** Both Lab viewers (Stage A capture and the review workspace) pass `deferDestroyUntilLoaded` to the shared `PdfEvidenceViewer`. A viewer that unmounts while its document is still loading (for example, when locking a reference or importing a backup) destroys that document only after the load settles. pdf.js 4.7 throws an uncaught "Worker was terminated" inside its worker when a document is destroyed mid-load. The prop is opt-in: the production review screen does not pass it, and its teardown is unchanged.
+  - **Engine run in progress.** An engine run already running when the Lab closes finishes, is frozen and stored, and then destroys its document.
+- **Import counts.** An import reports only what it actually added; re-importing a file that is already stored says there was nothing new.
+
 ## Track B (in-house engine + AI review) — UNAVAILABLE
 The data contract is defined and tested. No AI call exists anywhere in the lab, and the UI shows Track B as *Unavailable*.
 
@@ -132,6 +190,12 @@ The data contract is defined and tested. No AI call exists anywhere in the lab, 
 | Admin only and lazy-loaded: the engines appear only in the `MeasurementLabPanel` chunk (checked in the production build) | `MeasurementLabPanel.test.tsx`, `evidenceContract.test.ts` |
 | No path to the BOQ, pricing, exports, analysis runs, apply-review, Supabase or AI | `baselineIntegrity.test.ts`, `aiTrack.test.ts`, `evidenceContract.test.ts` |
 | Both engines reproduce: repeated runs give identical output hashes, in the browser and headless | `core.test.ts`; `labCompare.ts --repeat` |
+| Inspector facts are labelled available / derived / missing / unresolved; corrections never change the frozen engine value; receipts show before → after | `record.test.ts`, `MeasurementReviewWorkspace.test.tsx` |
+| Review status comes only from verdicts; navigation, filters and the saved place (corrupt or blocked storage tolerated) | `reviewState.test.ts`, `MeasurementReviewWorkspace.test.tsx` |
+| Correction lifecycle: frozen output immutable; correction stored separately with reason, reviewer and time; original recoverable; survives export/import with every hash; tampering refused; never overwrites | `correctionLifecycle.test.ts` |
+| Resume identity is the content fingerprint (renamed copy resumes; same name with other content does not; fingerprint failure opens nothing) | `reviewState.test.ts`, `MeasurementLabPanel.test.tsx` |
+| PDF lifecycle: the latest open wins; temporary documents are always destroyed; Lab viewers never destroy a document mid-load; the production default teardown is unchanged | `MeasurementLabPanel.test.tsx`, `PdfEvidenceViewer.lifecycle.test.tsx` |
+| Shortcuts never fire while typing, never record Incorrect/Unclear without a reason, and never reach the workstation behind the Lab | `MeasurementReviewWorkspace.test.tsx`, `MeasurementLabLauncher.test.tsx` |
 
 **Headless equivalent.** This uses the same core and gives identical hashes:
 ```bash

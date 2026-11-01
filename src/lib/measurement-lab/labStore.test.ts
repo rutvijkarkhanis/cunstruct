@@ -40,7 +40,7 @@ describe("backup: export and import with integrity checks", () => {
     const { x, run } = await fixture();
     const s = memoryStore();
     await importLab(s, x);
-    expect(await importLab(s, x)).toEqual({ runs: 1, events: 0, refEvents: 0 });
+    expect(await importLab(s, x)).toEqual({ runs: 0, events: 0, refEvents: 0 }); // nothing new: counts say so
     const other = await appendVerdict([], { run_id: run.run_id, measurement_id: "D1", verdict: "correct", reviewer_id: "u" });
     await expect(importLab(s, { ...x, correction_log: [...other] })).rejects.toThrow(/differs/);
     expect((await s.getLog(SHA))[0].verdict).toBe("unclear");

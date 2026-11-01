@@ -111,7 +111,9 @@ describe("existing contracts and the production boundary", () => {
     };
     // only the lab core imports the lab's engines; only the lazy launcher loads the lab panel;
     // only the verification screen renders the launcher
-    expect(importers(/from\s+["']@\/lib\/measurement-lab\/core["']/)).toEqual(["components/review/MeasurementLabPanel.tsx"]);
+    expect(importers(/from\s+["']@\/lib\/measurement-lab\/core["']/)).toEqual(["components/review/MeasurementLabPanel.tsx", "components/review/MeasurementReviewWorkspace.tsx"]);
+    // the review workspace is part of the lazy lab chunk: only the panel renders it
+    expect(importers(/from\s+["'][^"']*MeasurementReviewWorkspace["']/)).toEqual(["components/review/MeasurementLabPanel.tsx"]);
     expect(importers(/import\(["']\.\/MeasurementLabPanel["']\)/)).toEqual(["components/review/MeasurementLabLauncher.tsx"]);
     expect(importers(/from\s+["'][^"']*MeasurementLabPanel["']/)).toEqual([]); // never a static import
     expect(importers(/from\s+["'][^"']*MeasurementLabLauncher["']/)).toEqual(["pages/ops/BoqReviewWorkstation.tsx"]);

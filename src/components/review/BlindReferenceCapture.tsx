@@ -47,7 +47,7 @@ export default function BlindReferenceCapture(props: {
       {props.engineRunsExisted && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1" role="alert">Engine results for this drawing were generated before this reference was started. A reference recorded now may not be blind; this is recorded with every entry.</p>}
       <div className="grid gap-3 lg:grid-cols-[1fr_340px]">
         <div className="h-[520px] border rounded overflow-hidden">
-          <PdfEvidenceViewer fileUrl={props.fileUrl} documentName={props.fileName}
+          <PdfEvidenceViewer fileUrl={props.fileUrl} documentName={props.fileName} deferDestroyUntilLoaded
             source={{ page: draft.page, evidence: [], pageSize: props.pageSizes[draft.page] }}
             identifyModeActive={target !== null}
             onIdentifyPoint={({ page, point }) => { if (!target) return; setDraft((d) => ({ ...d, page, [target]: [Math.round(point.x * 10) / 10, Math.round(point.y * 10) / 10] as P })); setTarget(null); }} />

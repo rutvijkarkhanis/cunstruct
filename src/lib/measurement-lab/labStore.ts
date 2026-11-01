@@ -141,7 +141,9 @@ export async function importLab(store: LabStore, x: LabExport): Promise<{ runs: 
   const problems = await checkImport(x);
   if (problems.length) throw new Error(`import refused: ${problems.join("; ")}`);
   let runs = 0, events = 0, refEvents = 0;
-  for (const r of x.runs) { await store.putRun(r); runs++; }
+  // count only what is actually added: a run already stored (same id and hash) is kept, not re-imported
+  const stored = new Set((await store.getRuns(x.drawing_sha256)).map((r) => r.run_id));
+  for (const r of x.runs) { await store.putRun(r); if (!stored.has(r.run_id)) { stored.add(r.run_id); runs++; } }
   const have = await store.getLog(x.drawing_sha256);
   for (const [i, ev] of x.correction_log.entries()) {
     if (i < have.length) { if (have[i].hash !== ev.hash) throw new Error("import refused: the stored correction log differs from the file's (no overwrite)"); continue; }

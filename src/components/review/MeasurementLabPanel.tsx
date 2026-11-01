@@ -10,7 +10,7 @@
 // corrections are append-only and hash-chained; Track B (in-house + AI) is shown as unavailable.
 // Storage is this browser only. Nothing here writes to the BOQ, pricing, exports, analysis runs or the
 // review/apply path, and nothing here calls a server.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as pdfjsLib from "pdfjs-dist";
 import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min?url";
@@ -20,17 +20,17 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import PdfEvidenceViewer from "@/components/review/PdfEvidenceViewer";
 import BlindReferenceCapture from "@/components/review/BlindReferenceCapture";
+import MeasurementReviewWorkspace, { type WorkspaceUi } from "@/components/review/MeasurementReviewWorkspace";
 import type { ReferenceDimension } from "@/lib/measurement-quality/ledger";
 import {
-  appendVerdict, buildLabReport, ENGINES, freezeRun, latestVerdicts, runEngineOn, sha256Hex, verifyLog,
+  appendVerdict, buildLabReport, ENGINES, freezeRun, runEngineOn, sha256Hex, verifyLog,
   type CorrectionEvent, type EngineId, type FrozenRun, type Verdict,
 } from "@/lib/measurement-lab/core";
 import { appendReferenceEvent, replay, toReferenceDimensions, type RefEvent, type RefEventBody, type ReferenceMeasurement } from "@/lib/measurement-lab/reference";
 import { TRACK_B_STATUS } from "@/lib/measurement-lab/aiTrack";
 import { browserStore, checkImport, exportLab, importLab, type LabExport } from "@/lib/measurement-lab/labStore";
-import { evidenceFor } from "@/lib/measurement-lab/overlay";
+import { fingerprintDrawing, lastSession, loadUi, saveUi, type Filter } from "@/lib/measurement-lab/reviewState";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 const ENGINE_IDS = Object.keys(ENGINES) as EngineId[];
@@ -44,7 +44,6 @@ const download = (name: string, text: string, type: string) => {
   a.download = name; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 };
-const badge: Record<string, string> = { accepted: "bg-emerald-600", held: "bg-amber-600", rejected: "bg-red-600", correct: "bg-emerald-700", incorrect: "bg-red-700", unclear: "bg-slate-500" };
 const mb = (n: number) => `${(n / 1048576).toFixed(1)} MB`;
 
 export default function MeasurementLabPanel() {
@@ -62,10 +61,12 @@ function Lab({ reviewerId, reviewerLabel }: { reviewerId: string; reviewerLabel:
   const [refScope, setRefScope] = useState<"blind" | "amended">("blind");
   const [pagesText, setPagesText] = useState("");
   const [engine, setEngine] = useState<EngineId>("engine-9ac1f71");
-  const [filter, setFilter] = useState<"all" | "accepted" | "held" | "rejected" | "unverified">("all");
-  const [selected, setSelected] = useState<string | null>(null);
-  const [note, setNote] = useState("");
-  const [corrValue, setCorrValue] = useState("");
+  // the reviewer's place (selection, filter, layout); restored per drawing — see reviewState.ts
+  const [ui, setUi] = useState<WorkspaceUi>({ filter: "unresolved", selected: null, inspector_open: true, focus: true, shortcuts: true });
+  const [lastReviewed, setLastReviewed] = useState<string | null>(null);
+  const [restoredFrom, setRestoredFrom] = useState<string | null>(null);
+  const [last] = useState(() => lastSession());
+  const [setupOpen, setSetupOpen] = useState(true);
   const [amend, setAmend] = useState({ ref_id: "", field: "value", to: "", reason: "" });
   const [report, setReport] = useState<ReturnType<typeof buildLabReport> | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -88,26 +89,56 @@ function Lab({ reviewerId, reviewerLabel }: { reviewerId: string; reviewerLabel:
   const stageB = mode === "blind" ? refState.locked : !!refFile;
   const runFor = (id: EngineId): FrozenRun | undefined => (runsQ.data ?? []).filter((r) => r.engine.id === id && r.input.pages.join(",") === pages.join(",")).sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
   const run = stageB ? runFor(engine) : undefined;
-  const verdicts = useMemo(() => (run ? latestVerdicts(log, run.run_id) : new Map<string, CorrectionEvent>()), [log, run]);
-  const list = (run?.measurements ?? []).filter((m) => (filter === "all" ? true : filter === "unverified" ? !verdicts.has(m.id) : m.decision === filter));
-  const current = run?.measurements.find((m) => m.id === selected) ?? null;
   const fail = (e: unknown) => setMsg((e as Error).message);
   const refresh = (k: string) => qc.invalidateQueries({ queryKey: [k, sha] });
 
+  // PDF lifecycle: only the most recent "open" may set the drawing (a slower earlier open must not
+  // replace a newer one) and the temporary pdf.js document is always destroyed. A drawing's blob URL is
+  // deliberately NOT revoked: a Lab viewer that unmounted mid-load may still be reading it (it destroys
+  // its document only after that load settles), and pdf.js throws if the URL disappears underneath it.
+  const openSeq = useRef(0);
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const openPdf = useMutation({
     mutationFn: async (f: File) => {
-      const bytes = new Uint8Array(await f.arrayBuffer());
-      const sha256 = await sha256Hex(bytes);
-      const doc = await pdfjsLib.getDocument({ data: bytes.slice() }).promise;
-      const pageSizes: Drawing["pageSizes"] = {};
-      for (let n = 1; n <= doc.numPages; n++) { const v = (await doc.getPage(n)).getViewport({ scale: 1 }); pageSizes[n] = { width: v.width, height: v.height }; }
-      const numPages = doc.numPages;
-      await doc.destroy();
-      return { name: f.name, sha256, url: URL.createObjectURL(f), bytes, numPages, pageSizes } as Drawing;
+      const seq = ++openSeq.current;
+      try { return await openDrawing(f, seq); } catch (e) { throw Object.assign(e instanceof Error ? e : new Error(String(e)), { openSeq: seq }); }
     },
-    onSuccess: (d) => { setDrawing(d); setSelected(null); setReport(null); setMsg(null); },
-    onError: (e) => setMsg(`Could not open the PDF: ${(e as Error).message}`),
+    onSuccess: ({ superseded, drawing: d }) => {
+      if (superseded) return; // a newer file was chosen meanwhile, or the lab closed: this result is dropped
+      applyOpened(d);
+    },
+    // never leave a previous drawing on screen after a failed open: a verdict must not land on the wrong drawing.
+    // A failure of an older, superseded open is ignored: it must not clear the newer drawing.
+    onError: (e) => { if (!alive.current || (e as { openSeq?: number }).openSeq !== openSeq.current) return; setDrawing(null); setReport(null); setRestoredFrom(null); setUi((u) => ({ ...u, selected: null })); setMsg(`Could not open the PDF: ${(e as Error).message}`); },
   });
+  async function openDrawing(f: File, seq: number) {
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      // identity = content fingerprint; without one the drawing is not opened (nothing restored or stored)
+      const fp = await fingerprintDrawing(bytes, sha256Hex);
+      if ("reason" in fp) throw new Error(`Could not fingerprint the drawing (${fp.reason}). It was not opened, and nothing was restored or saved.`);
+      const sha256 = fp.sha256;
+      const task = pdfjsLib.getDocument({ data: bytes.slice() });
+      const pageSizes: Drawing["pageSizes"] = {};
+      let numPages = 0;
+      try {
+        const doc = await task.promise;
+        numPages = doc.numPages;
+        // awaited one by one, so nothing is still running in the worker when the document is destroyed
+        for (let n = 1; n <= numPages; n++) { const v = (await doc.getPage(n)).getViewport({ scale: 1 }); pageSizes[n] = { width: v.width, height: v.height }; }
+      } finally { await task.destroy(); }
+      const superseded = seq !== openSeq.current || !alive.current;
+      return { superseded, drawing: { name: f.name, sha256, url: superseded ? "" : URL.createObjectURL(f), bytes, numPages, pageSizes } as Drawing };
+  }
+  function applyOpened(d: Drawing) {
+      const saved = loadUi(d.sha256);
+      setDrawing(d); setReport(null); setMsg(null);
+      if (saved) {
+        setMode(saved.mode); setRefScope(saved.ref_scope); setPagesText(saved.pages_text); setEngine(saved.engine); setLastReviewed(saved.last_reviewed);
+        setUi({ filter: saved.filter, selected: saved.selected, inspector_open: saved.inspector_open, focus: saved.focus, shortcuts: saved.shortcuts });
+        setRestoredFrom(saved.drawing.name !== d.name ? `${saved.saved_at}|${saved.drawing.name}` : saved.saved_at);
+      } else { setUi((u) => ({ ...u, selected: null })); setRestoredFrom(null); setLastReviewed(null); }
+    }
   const openReference = useMutation({
     mutationFn: async (f: File) => {
       const raw = new Uint8Array(await f.arrayBuffer());
@@ -147,13 +178,12 @@ function Lab({ reviewerId, reviewerLabel }: { reviewerId: string; reviewerLabel:
     onError: (e) => setMsg(`Engine run failed: ${(e as Error).message}`),
   });
   const mark = useMutation({
-    mutationFn: async (verdict: Verdict) => {
-      const v = corrValue.trim() === "" ? null : Number(corrValue);
-      const next = await appendVerdict(log, { run_id: run!.run_id, measurement_id: current!.id, verdict, note, reviewer_id: reviewerId, reviewer_label: reviewerLabel, correction: verdict === "incorrect" && v !== null && Number.isFinite(v) ? { value: v } : null });
+    mutationFn: async (x: { measurement_id: string; verdict: Verdict; note: string; corrected_value: number | null }) => {
+      const next = await appendVerdict(log, { run_id: run!.run_id, measurement_id: x.measurement_id, verdict: x.verdict, note: x.note, reviewer_id: reviewerId, reviewer_label: reviewerLabel, correction: x.verdict === "incorrect" && x.corrected_value !== null ? { value: x.corrected_value } : null });
       await store!.appendEvent(next[next.length - 1]);
+      return x.measurement_id;
     },
-    onSuccess: () => { setNote(""); setCorrValue(""); refresh("measurement-lab-log"); },
-    onError: fail,
+    onSuccess: (id) => { setLastReviewed(id); return qc.invalidateQueries({ queryKey: ["measurement-lab-log", sha] }); },
   });
   const reference = useMemo(() => {
     if (mode === "file") return refFile ? { ...refFile, items: refFile.items.filter((i) => i.sha256 === sha) } : undefined;
@@ -178,12 +208,30 @@ function Lab({ reviewerId, reviewerLabel }: { reviewerId: string; reviewerLabel:
       if (x.drawing_sha256 !== sha) throw new Error("Import refused: the file is for another drawing");
       return importLab(store!, x);
     },
-    onSuccess: (r) => { ["measurement-lab-runs", "measurement-lab-log", "measurement-lab-ref"].forEach(refresh); setMsg(`Imported ${r.runs} runs, ${r.events} verdict events, ${r.refEvents} reference events (nothing overwritten).`); },
+    onSuccess: (r) => { ["measurement-lab-runs", "measurement-lab-log", "measurement-lab-ref"].forEach(refresh); setMsg(r.runs + r.events + r.refEvents === 0 ? "Nothing new to import: everything in the file is already stored (nothing overwritten)." : `Imported ${r.runs} new runs, ${r.events} verdict events, ${r.refEvents} reference events (nothing overwritten).`); },
     onError: fail,
   });
 
-  const history = current ? log.filter((e) => e.run_id === run?.run_id && e.measurement_id === current.id) : [];
+  const runId = run?.run_id;
+  useEffect(() => { if (runId) setSetupOpen(false); }, [runId]);
+  // save the reviewer's place whenever it changes (UI preference only; verdicts live in the log)
+  useEffect(() => {
+    if (!drawing) return;
+    saveUi({ v: 1, drawing: { name: drawing.name, sha256: drawing.sha256, numPages: drawing.numPages }, context_path: typeof window !== "undefined" ? window.location.pathname : "",
+      mode, ref_scope: refScope, pages_text: pagesText, engine, filter: ui.filter as Filter, selected: ui.selected, inspector_open: ui.inspector_open, focus: ui.focus, shortcuts: ui.shortcuts,
+      last_reviewed: lastReviewed, saved_at: new Date().toISOString() });
+  }, [drawing, mode, refScope, pagesText, engine, ui, lastReviewed]);
   const s = storeQ.data;
+  // once an engine run is under review, setup folds into one line so the drawing stays the main surface
+  const setupVisible = setupOpen || !run;
+  const setupSummary = drawing ? (
+    <div className="flex flex-wrap items-center gap-2 rounded border px-3 py-1.5 text-xs" data-testid="lab-setup-summary">
+      <span><b>{drawing.name}</b> · pages {pages.join(",")}</span>
+      <span className="text-muted-foreground">· {mode === "blind" ? `blind reference locked (${refState.current.length})` : refFile ? `historical reference ${refFile.name}` : "no reference"}</span>
+      <span className="text-muted-foreground">· {ENGINE_IDS.filter((id) => runFor(id)).length}/{ENGINE_IDS.length} engines run (frozen)</span>
+      <Button size="sm" variant="ghost" className="ml-auto h-6 px-2 text-xs" onClick={() => setSetupOpen(true)}>Show setup</Button>
+    </div>
+  ) : null;
   return (
     <div className="space-y-3 text-sm" data-testid="measurement-lab">
       <p className="rounded bg-amber-50 border border-amber-200 px-3 py-2 text-amber-900">
@@ -195,8 +243,15 @@ function Lab({ reviewerId, reviewerLabel }: { reviewerId: string; reviewerLabel:
         It is not synced to other devices.
       </p>
       {msg && <p className="text-muted-foreground" role="status">{msg}</p>}
+      {!drawing && last && (
+        <p className="text-xs rounded border px-3 py-2" data-testid="lab-resume">
+          Last session: <b>{last.name}</b>{last.saved_at ? ` (saved ${last.saved_at.slice(0, 16).replace("T", " ")})` : ""}. Choose the same PDF below to continue where you left off (it is matched by its content, so a renamed copy works and a different file with the same name does not) —
+          your verdicts, reference and place are kept in this browser. The drawing itself is not stored.
+        </p>
+      )}
+      {drawing && restoredFrom && <p className="text-xs text-muted-foreground" data-testid="lab-restored">Resumed your place from {restoredFrom.slice(0, 16).replace("T", " ")}{lastReviewed ? ` · last reviewed ${lastReviewed}` : ""}.{restoredFrom.includes("|") ? ` Same drawing content as “${restoredFrom.split("|")[1]}”, which you saved under that name.` : ""}</p>}
 
-      <Card><CardContent className="pt-4 space-y-2">
+      {setupVisible ? (<Card><CardContent className="pt-4 space-y-2">
         <div className="font-medium">1. Drawing</div>
         <label className="block">Drawing (PDF) <Input type="file" accept="application/pdf" aria-label="Drawing PDF" onChange={(e) => e.target.files?.[0] && openPdf.mutate(e.target.files[0])} /></label>
         {drawing && <div className="text-xs text-muted-foreground">{drawing.name} · {drawing.numPages} pages · sha256 <code>{drawing.sha256}</code></div>}
@@ -209,7 +264,7 @@ function Lab({ reviewerId, reviewerLabel }: { reviewerId: string; reviewerLabel:
         </div>
         {mode === "file" && <label className="block">Reference file (Gold Set JSON) <Input type="file" accept="application/json" aria-label="Reference JSON" onChange={(e) => e.target.files?.[0] && openReference.mutate(e.target.files[0])} /></label>}
         {mode === "file" && refFile && <div className="text-xs text-muted-foreground">{refFile.name} · {refFile.items.length} dimensions · {refFile.type} · sha256 <code>{refFile.sha256.slice(0, 16)}…</code></div>}
-      </CardContent></Card>
+      </CardContent></Card>) : setupSummary}
 
       {drawing && mode === "blind" && !refState.locked && (
         <Card><CardContent className="pt-4">
@@ -222,6 +277,7 @@ function Lab({ reviewerId, reviewerLabel }: { reviewerId: string; reviewerLabel:
       )}
 
       {drawing && stageB && (<>
+        {setupVisible && (<>
         {mode === "blind" && (
           <Card><CardContent className="pt-4 space-y-2 text-xs">
             <div className="font-medium text-sm">Locked reference — {refState.current.length} measurements (locked {refState.locked_at?.slice(0, 16).replace("T", " ")})</div>
@@ -244,7 +300,8 @@ function Lab({ reviewerId, reviewerLabel }: { reviewerId: string; reviewerLabel:
         )}
 
         <Card><CardContent className="pt-4 space-y-2">
-          <div className="font-medium">{mode === "blind" ? "3" : "2"}. Stage B — engines (frozen)</div>
+          <div className="flex items-center justify-between"><span className="font-medium">{mode === "blind" ? "3" : "2"}. Stage B — engines (frozen)</span>
+            {run && <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => setSetupOpen(false)}>Hide setup</Button>}</div>
           <Button size="sm" disabled={!store || runBoth.isPending} onClick={() => runBoth.mutate()}>{runBoth.isPending ? "Running…" : "Run both engines"}</Button>
           <table className="w-full text-xs"><tbody>
             {ENGINE_IDS.map((id) => { const r = runFor(id); return (
@@ -253,46 +310,18 @@ function Lab({ reviewerId, reviewerLabel }: { reviewerId: string; reviewerLabel:
           </tbody></table>
         </CardContent></Card>
 
+        </>)}
         {run && (
           <Card><CardContent className="pt-4 space-y-2">
             <div className="font-medium">Verify each engine measurement</div>
-            <div className="flex flex-wrap gap-2">
-              <Select value={engine} onValueChange={(v) => { setEngine(v as EngineId); setSelected(null); }}>
-                <SelectTrigger className="w-64" aria-label="Engine"><SelectValue /></SelectTrigger>
-                <SelectContent>{ENGINE_IDS.map((id) => <SelectItem key={id} value={id}>{ENGINES[id].label}</SelectItem>)}</SelectContent>
-              </Select>
-              <Select value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
-                <SelectTrigger className="w-40" aria-label="Filter"><SelectValue /></SelectTrigger>
-                <SelectContent>{["all", "accepted", "held", "rejected", "unverified"].map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}</SelectContent>
-              </Select>
-              <span className="text-xs text-muted-foreground self-center">{verdicts.size}/{run.measurements.length} verified</span>
-            </div>
-            <div className="grid gap-3 lg:grid-cols-[260px_1fr]">
-              <ol className="max-h-[480px] overflow-auto border rounded" aria-label="Measurements">
-                {list.map((m) => { const v = verdicts.get(m.id); return (
-                  <li key={m.id}><button type="button" onClick={() => setSelected(m.id)} className={`w-full text-left px-2 py-1 flex justify-between gap-2 ${selected === m.id ? "bg-primary/10" : ""}`}>
-                    <span>{m.id} · “{m.text}”</span>
-                    <span className="flex gap-1"><span className={`rounded px-1 text-white text-[10px] ${badge[m.decision]}`}>{m.decision}</span>{v && <span className={`rounded px-1 text-white text-[10px] ${badge[v.verdict]}`}>{v.verdict}</span>}</span>
-                  </button></li>); })}
-              </ol>
-              <div className="space-y-2 min-w-0">
-                {current ? (<>
-                  <div className="h-[420px] border rounded overflow-hidden"><PdfEvidenceViewer fileUrl={drawing.url} source={evidenceFor(current, drawing.pageSizes[current.page])} documentName={drawing.name} /></div>
-                  <div className="text-xs space-y-1">
-                    <div><b>{current.id}</b> · page {current.page} · printed “{current.text}” → {current.value} {current.unit ?? "(no unit)"} · engine: <b>{current.decision}</b> ({current.status})</div>
-                    {current.span && <div>endpoints ({current.span.start.join(", ")}) → ({current.span.end.join(", ")}) · {current.span.length} pt</div>}
-                    {current.association && <div>association: {current.association.decision} {current.association.measures ?? ""} {current.association.ends.map((e) => (e.kind === "grid" ? `grid ${e.labels?.join("/")}` : e.kind)).join(" ↔ ")}</div>}
-                    {current.reasons.length > 0 && <div className="text-muted-foreground">{current.reasons.join(" | ")}</div>}
-                  </div>
-                  <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why (required for incorrect or unclear)" aria-label="Verdict note" rows={2} />
-                  <Input value={corrValue} onChange={(e) => setCorrValue(e.target.value)} placeholder="Corrected value (optional, with Incorrect)" aria-label="Corrected value" />
-                  <div className="flex gap-2">
-                    {(["correct", "incorrect", "unclear"] as Verdict[]).map((v) => <Button key={v} size="sm" variant={v === "correct" ? "default" : "outline"} disabled={mark.isPending} onClick={() => mark.mutate(v)}>{v[0].toUpperCase() + v.slice(1)}</Button>)}
-                  </div>
-                  {history.length > 0 && <ul className="text-xs text-muted-foreground" aria-label="Verdict history">{history.map((e) => <li key={e.hash}>#{e.seq} {e.at.slice(0, 16).replace("T", " ")} · {e.reviewer_label} · <b>{e.verdict}</b>{e.correction?.value !== undefined ? ` → corrected value ${e.correction.value}` : ""}{e.note ? ` — ${e.note}` : ""}</li>)}</ul>}
-                </>) : <p className="text-muted-foreground">Select a measurement to see the engine's dimension on the drawing.</p>}
-              </div>
-            </div>
+            <MeasurementReviewWorkspace run={run} log={log} drawing={drawing} ui={ui} busy={mark.isPending}
+              onUi={(patch) => setUi((u) => ({ ...u, ...patch }))}
+              onVerdict={async (x) => { await mark.mutateAsync(x); }}
+              engineControl={
+                <Select value={engine} onValueChange={(v) => { setEngine(v as EngineId); setUi((u) => ({ ...u, selected: null })); }}>
+                  <SelectTrigger className="w-56 h-8 text-xs" aria-label="Engine"><SelectValue /></SelectTrigger>
+                  <SelectContent>{ENGINE_IDS.map((id) => <SelectItem key={id} value={id}>{ENGINES[id].label}</SelectItem>)}</SelectContent>
+                </Select>} />
           </CardContent></Card>
         )}
 
