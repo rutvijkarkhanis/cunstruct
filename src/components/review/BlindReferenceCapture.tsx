@@ -4,7 +4,7 @@
 // (a test enforces it), so nothing it renders or prefills can come from engine output. The founder
 // clicks points on the drawing (text location, start, end) and types the rest. Records are drafts until
 // "Lock reference"; after locking they change only through amendments (handled in Stage B).
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -34,6 +34,9 @@ export default function BlindReferenceCapture(props: {
   const [draft, setDraft] = useState<ReferenceMeasurement>(() => blank(state.blind.length + 1));
   const [editing, setEditing] = useState(false);
   const [target, setTarget] = useState<"text_point" | "start" | "end" | null>(null);
+  // One source object per draft page: a new object on every render made the viewer re-run its
+  // automatic fit (and page jump) on every keystroke and click, snapping a reviewer's zoom back.
+  const viewerSource = useMemo(() => ({ page: draft.page, evidence: [], pageSize: props.pageSizes[draft.page] }), [draft.page, props.pageSizes]);
   const missing = incompleteFields(draft);
   const set = (k: keyof ReferenceMeasurement, v: unknown) => setDraft((d) => ({ ...d, [k]: v }));
   const save = () => { if (editing) props.onEdit(draft); else props.onAdd(draft); setDraft(blank(state.blind.length + 2)); setEditing(false); };
@@ -47,8 +50,8 @@ export default function BlindReferenceCapture(props: {
       {props.engineRunsExisted && <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1" role="alert">Engine results for this drawing were generated before this reference was started. A reference recorded now may not be blind; this is recorded with every entry.</p>}
       <div className="grid gap-3 lg:grid-cols-[1fr_340px]">
         <div className="h-[520px] border rounded overflow-hidden">
-          <PdfEvidenceViewer fileUrl={props.fileUrl} documentName={props.fileName} deferDestroyUntilLoaded
-            source={{ page: draft.page, evidence: [], pageSize: props.pageSizes[draft.page] }}
+          <PdfEvidenceViewer fileUrl={props.fileUrl} documentName={props.fileName} deferDestroyUntilLoaded zoomControls="full"
+            source={viewerSource}
             identifyModeActive={target !== null}
             onIdentifyPoint={({ page, point }) => { if (!target) return; setDraft((d) => ({ ...d, page, [target]: [Math.round(point.x * 10) / 10, Math.round(point.y * 10) / 10] as P })); setTarget(null); }} />
         </div>
