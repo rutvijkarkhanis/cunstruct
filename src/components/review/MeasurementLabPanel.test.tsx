@@ -94,7 +94,7 @@ describe("resume identity in the panel (content fingerprint, not filename)", () 
   const upload = async (f: File) => { fireEvent.change(screen.getByLabelText("Drawing PDF"), { target: { files: [f] } }); };
   it("restores the saved place for the same content under another name, never for different content with the same name", async () => {
     const { saveUi } = await import("@/lib/measurement-lab/reviewState");
-    saveUi({ v: 1, drawing: { name: "plan-original.pdf", sha256: await shaOf("%PDF SYNTHETIC A"), numPages: 2 }, context_path: "/ops", mode: "blind", ref_scope: "blind", pages_text: "2", engine: "engine-9ac1f71", filter: "all", selected: "D1-4", inspector_open: true, focus: true, shortcuts: true, last_reviewed: "D1-3", saved_at: "2026-11-01T09:00:00Z" });
+    saveUi({ v: 1, drawing: { name: "plan-original.pdf", sha256: await shaOf("%PDF SYNTHETIC A"), numPages: 2 }, context_path: "/ops", mode: "blind", ref_scope: "blind", pages_text: "2", engine: "engine-9ac1f71", filter: "all", selected: "D1-4", inspector_open: true, register_open: true, show_reviewed: false, focus: true, shortcuts: true, last_reviewed: "D1-3", saved_at: "2026-11-01T09:00:00Z" });
     wrap(<MeasurementLabPanel />);
     expect(screen.getByTestId("lab-resume").textContent).toMatch(/plan-original\.pdf.*matched by its content/);
     await upload(file("renamed-copy.pdf", "%PDF SYNTHETIC A"));

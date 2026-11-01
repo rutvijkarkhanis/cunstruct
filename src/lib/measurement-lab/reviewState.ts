@@ -15,29 +15,35 @@ export type { ReviewStatus } from "./record";
 export const isUnresolved = (s: ReviewStatus) => s === "not-reviewed" || s === "unclear";
 export const statusOf = (verdicts: ReadonlyMap<string, CorrectionEvent>, id: string): ReviewStatus => verdicts.get(id)?.verdict ?? "not-reviewed";
 
-export interface Progress { total: number; reviewed: number; notReviewed: number; correct: number; incorrect: number; unclear: number; unresolved: number }
-export function progressOf(ms: readonly LabMeasurement[], verdicts: ReadonlyMap<string, CorrectionEvent>): Progress {
-  const p: Progress = { total: ms.length, reviewed: 0, notReviewed: 0, correct: 0, incorrect: 0, unclear: 0, unresolved: 0 };
+const NONE: ReadonlySet<string> = new Set();
+/** Correctness counts (from verdicts) and workflow counts (deferred) are kept apart: `unresolved` is
+ *  what is left to do NOW (not reviewed or unclear, and not deferred); `deferred` counts flagged items
+ *  whatever their verdict. Deferral never changes a correctness count. */
+export interface Progress { total: number; reviewed: number; notReviewed: number; correct: number; incorrect: number; unclear: number; unresolved: number; deferred: number }
+export function progressOf(ms: readonly LabMeasurement[], verdicts: ReadonlyMap<string, CorrectionEvent>, deferred: ReadonlySet<string> = NONE): Progress {
+  const p: Progress = { total: ms.length, reviewed: 0, notReviewed: 0, correct: 0, incorrect: 0, unclear: 0, unresolved: 0, deferred: 0 };
   for (const m of ms) {
     const s = statusOf(verdicts, m.id);
     if (s === "not-reviewed") p.notReviewed++; else { p.reviewed++; p[s]++; }
-    if (isUnresolved(s)) p.unresolved++;
+    if (deferred.has(m.id)) p.deferred++;
+    else if (isUnresolved(s)) p.unresolved++;
   }
   return p;
 }
 
-export const FILTERS = ["all", "unresolved", "not-reviewed", "correct", "incorrect", "unclear", "accepted", "held", "rejected"] as const;
+export const FILTERS = ["all", "unresolved", "deferred", "not-reviewed", "correct", "incorrect", "unclear", "accepted", "held", "rejected"] as const;
 export type Filter = (typeof FILTERS)[number];
 export const FILTER_LABELS: Record<Filter, string> = {
-  all: "all", unresolved: "unresolved (to do)", "not-reviewed": "not reviewed", correct: "reviewed · correct", incorrect: "reviewed · incorrect",
+  all: "all", unresolved: "unresolved (to do)", deferred: "deferred", "not-reviewed": "not reviewed", correct: "reviewed · correct", incorrect: "reviewed · incorrect",
   unclear: "reviewed · unclear", accepted: "engine accepted", held: "engine held", rejected: "engine rejected",
 };
-export function applyFilter(ms: readonly LabMeasurement[], verdicts: ReadonlyMap<string, CorrectionEvent>, f: Filter): LabMeasurement[] {
+export function applyFilter(ms: readonly LabMeasurement[], verdicts: ReadonlyMap<string, CorrectionEvent>, f: Filter, deferred: ReadonlySet<string> = NONE): LabMeasurement[] {
   return ms.filter((m) => {
     const s = statusOf(verdicts, m.id);
     switch (f) {
       case "all": return true;
-      case "unresolved": return isUnresolved(s);
+      case "unresolved": return isUnresolved(s) && !deferred.has(m.id);
+      case "deferred": return deferred.has(m.id);
       case "not-reviewed": case "correct": case "incorrect": case "unclear": return s === f;
       default: return m.decision === f;
     }
@@ -59,16 +65,30 @@ function positionIn(ms: readonly LabMeasurement[], currentId: string | null, ord
 }
 /** The next unresolved measurement after `currentId` in list order, wrapping; null when none is left.
  *  The current measurement is returned only if it is the sole unresolved one. */
-export function nextUnresolved(ms: readonly LabMeasurement[], verdicts: ReadonlyMap<string, CorrectionEvent>, currentId: string | null, order?: readonly LabMeasurement[]): string | null {
+export function nextUnresolved(ms: readonly LabMeasurement[], verdicts: ReadonlyMap<string, CorrectionEvent>, currentId: string | null, order?: readonly LabMeasurement[], deferred: ReadonlySet<string> = NONE): string | null {
   if (!ms.length) return null;
   const pos = positionIn(ms, currentId, order);
   const start = Math.floor(pos + 1);
   for (let k = 0; k < ms.length; k++) {
     const m = ms[(start + k) % ms.length];
     if (m.id === currentId && k < ms.length - 1) continue;
-    if (isUnresolved(statusOf(verdicts, m.id))) return m.id;
+    if (isUnresolved(statusOf(verdicts, m.id)) && !deferred.has(m.id)) return m.id; // deferred items are skipped: come back via the "deferred" filter
   }
   return null;
+}
+
+/** Filters that explicitly ask for resolved items; "Show reviewed" cannot hide those. */
+const ASKS_FOR_REVIEWED: readonly Filter[] = ["correct", "incorrect", "deferred"];
+/** The register and the drawing show the SAME measurements: the active filter, minus resolved ones
+ *  (correct / incorrect) unless "Show reviewed" is on or the filter asks for them. The selected
+ *  measurement stays visible (`pinned`) after a verdict resolves it, so its receipt can be read; a
+ *  filter change that leaves it out clears the selection instead (see the workspace). */
+export function visibleMeasurements(ms: readonly LabMeasurement[], verdicts: ReadonlyMap<string, CorrectionEvent>, f: Filter, showReviewed: boolean, deferred: ReadonlySet<string> = NONE, selected: string | null = null): { list: LabMeasurement[]; pinned: string | null } {
+  const hideResolved = !showReviewed && !ASKS_FOR_REVIEWED.includes(f);
+  const keep = new Set(applyFilter(ms, verdicts, f, deferred).filter((m) => { const s = statusOf(verdicts, m.id); return !(hideResolved && (s === "correct" || s === "incorrect")); }).map((m) => m.id));
+  const pinned = selected && !keep.has(selected) && ms.some((m) => m.id === selected) ? selected : null;
+  if (pinned) keep.add(pinned);
+  return { list: ms.filter((m) => keep.has(m.id)), pinned };
 }
 /** The neighbour in list order (no wrap); the first item when nothing is selected. */
 export function step(ms: readonly LabMeasurement[], currentId: string | null, dir: 1 | -1, order?: readonly LabMeasurement[]): string | null {
@@ -106,6 +126,10 @@ export interface LabUiState {
   filter: Filter;
   selected: string | null;
   inspector_open: boolean;
+  /** the measurement register (left list) is shown */
+  register_open: boolean;
+  /** show measurements already resolved (correct / incorrect) in the register and on the drawing */
+  show_reviewed: boolean;
   /** true: the drawing zooms to the selected measurement; false: the whole sheet */
   focus: boolean;
   shortcuts: boolean;
@@ -130,7 +154,7 @@ export function sanitizeUi(x: unknown): LabUiState | null {
     context_path: str(o.context_path, ""), mode: o.mode === "file" ? "file" : "blind", ref_scope: o.ref_scope === "amended" ? "amended" : "blind",
     pages_text: str(o.pages_text, "").slice(0, 200), engine: ENGINE_IDS.includes(o.engine as EngineId) ? (o.engine as EngineId) : "engine-9ac1f71",
     filter: (FILTERS as readonly string[]).includes(o.filter as string) ? (o.filter as Filter) : "unresolved",
-    selected: typeof o.selected === "string" ? o.selected : null, inspector_open: bool(o.inspector_open, true), focus: bool(o.focus, true),
+    selected: typeof o.selected === "string" ? o.selected : null, inspector_open: bool(o.inspector_open, true), register_open: bool(o.register_open, true), show_reviewed: bool(o.show_reviewed, false), focus: bool(o.focus, true),
     shortcuts: bool(o.shortcuts, true), last_reviewed: typeof o.last_reviewed === "string" ? o.last_reviewed : null, saved_at: str(o.saved_at, ""),
   };
 }
@@ -155,12 +179,13 @@ export function lastSession(store: KV | null = ls()): { name: string; sha256: st
 }
 
 // ── keyboard ────────────────────────────────────────────────────────────────
-export type ShortcutAction = "accept" | "incorrect" | "unclear" | "next-unresolved" | "previous" | "focus" | "toggle-inspector" | "help" | "clear";
+export type ShortcutAction = "accept" | "incorrect" | "unclear" | "defer" | "next-unresolved" | "previous" | "focus" | "toggle-inspector" | "help" | "clear";
 export const SHORTCUTS: { keys: string; action: ShortcutAction; label: string }[] = [
   { keys: "A", action: "accept", label: "Mark the selected measurement correct" },
   { keys: "R", action: "incorrect", label: "Mark incorrect — records only once a reason is typed" },
   { keys: "U", action: "unclear", label: "Mark unclear — records only once a reason is typed" },
-  { keys: "N", action: "next-unresolved", label: "Next unresolved measurement" },
+  { keys: "D", action: "defer", label: "Defer / undefer — a workflow flag to come back later, not a verdict" },
+  { keys: "N", action: "next-unresolved", label: "Next unresolved measurement (skips deferred)" },
   { keys: "P", action: "previous", label: "Previous measurement in the list" },
   { keys: "F", action: "focus", label: "Zoom the drawing to the selected measurement" },
   { keys: "I", action: "toggle-inspector", label: "Show or hide the inspector" },
@@ -178,6 +203,6 @@ export function shortcutFor(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey"
   if (e.ctrlKey || e.metaKey || e.altKey) return null;
   if (e.key === "Escape") return "clear";
   if (e.key === "?") return "help";
-  const map: Record<string, ShortcutAction> = { a: "accept", r: "incorrect", u: "unclear", n: "next-unresolved", p: "previous", f: "focus", i: "toggle-inspector" };
+  const map: Record<string, ShortcutAction> = { a: "accept", r: "incorrect", u: "unclear", d: "defer", n: "next-unresolved", p: "previous", f: "focus", i: "toggle-inspector" };
   return map[e.key.toLowerCase()] ?? null;
 }

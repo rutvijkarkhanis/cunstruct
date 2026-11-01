@@ -13,12 +13,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import PdfEvidenceViewer from "@/components/review/PdfEvidenceViewer";
 import { latestVerdicts, type CorrectionEvent, type FrozenRun, type Verdict } from "@/lib/measurement-lab/core";
 import { changesForRun, describeMeasurement, type ChangeReceipt, type EvidenceState, type ReviewStatus } from "@/lib/measurement-lab/record";
-import { applyFilter, FILTER_LABELS, FILTERS, isTypingTarget, nextUnresolved, progressOf, shortcutFor, SHORTCUTS, statusOf, step, type Filter } from "@/lib/measurement-lab/reviewState";
-import { labMarkers, measurementIdOf } from "@/lib/measurement-lab/overlay";
+import { FILTER_LABELS, FILTERS, isTypingTarget, nextUnresolved, progressOf, shortcutFor, SHORTCUTS, statusOf, step, visibleMeasurements, type Filter } from "@/lib/measurement-lab/reviewState";
+import { labMarkers, measurementIdOf, overlappingWith } from "@/lib/measurement-lab/overlay";
+import { deferredSet, type DeferEvent } from "@/lib/measurement-lab/defer";
 
 type ViewerMarkers = NonNullable<ComponentProps<typeof PdfEvidenceViewer>["markers"]>;
 
-export interface WorkspaceUi { filter: Filter; selected: string | null; inspector_open: boolean; focus: boolean; shortcuts: boolean }
+export interface WorkspaceUi { filter: Filter; selected: string | null; inspector_open: boolean; register_open: boolean; show_reviewed: boolean; focus: boolean; shortcuts: boolean }
 interface Props {
   run: FrozenRun;
   log: readonly CorrectionEvent[];
@@ -27,6 +28,10 @@ interface Props {
   onUi: (patch: Partial<WorkspaceUi>) => void;
   /** appends one verdict to the log; rejects with a message when the log refuses it */
   onVerdict: (v: { measurement_id: string; verdict: Verdict; note: string; corrected_value: number | null }) => Promise<void>;
+  /** the append-only defer log (a workflow flag, never a verdict) */
+  deferLog?: readonly DeferEvent[];
+  /** appends one defer/undefer event; rejects with a message when the log refuses it */
+  onDefer?: (v: { measurement_id: string; deferred: boolean; note: string }) => Promise<void>;
   busy?: boolean;
   /** the engine picker, owned by the panel */
   engineControl?: ReactNode;
@@ -51,7 +56,9 @@ function Receipt({ r, onOpen }: { r: ChangeReceipt; onOpen?: () => void }) {
   );
 }
 
-export default function MeasurementReviewWorkspace({ run, log, drawing, ui, onUi, onVerdict, busy, engineControl }: Props) {
+const GRID: Record<string, string> = { "11": "lg:grid-cols-[220px_1fr_300px]", "10": "lg:grid-cols-[220px_1fr]", "01": "lg:grid-cols-[1fr_300px]", "00": "grid-cols-1" };
+
+export default function MeasurementReviewWorkspace({ run, log, drawing, ui, onUi, onVerdict, deferLog = [], onDefer, busy, engineControl }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const reasonRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLOListElement>(null);
@@ -62,24 +69,58 @@ export default function MeasurementReviewWorkspace({ run, log, drawing, ui, onUi
   const [showHelp, setShowHelp] = useState(false);
   const [showChanges, setShowChanges] = useState(false);
   const [refit, setRefit] = useState(0);
+  // overlapping markers under one click: the reviewer chooses; never whichever is drawn on top
+  const [chooser, setChooser] = useState<string[] | null>(null);
+  // where the reviewer was before a filter change cleared the selection, so N continues from there
+  const anchor = useRef<string | null>(ui.selected);
 
   const verdicts = useMemo(() => latestVerdicts(log, run.run_id), [log, run.run_id]);
-  const list = useMemo(() => applyFilter(run.measurements, verdicts, ui.filter), [run.measurements, verdicts, ui.filter]);
-  const progress = useMemo(() => progressOf(run.measurements, verdicts), [run.measurements, verdicts]);
+  const deferred = useMemo(() => deferredSet(deferLog, run.run_id), [deferLog, run.run_id]);
+  // the register and the drawing show exactly the same measurements
+  const { list, pinned } = useMemo(() => visibleMeasurements(run.measurements, verdicts, ui.filter, ui.show_reviewed, deferred, ui.selected), [run.measurements, verdicts, ui.filter, ui.show_reviewed, deferred, ui.selected]);
+  const progress = useMemo(() => progressOf(run.measurements, verdicts, deferred), [run.measurements, verdicts, deferred]);
   const current = run.measurements.find((m) => m.id === ui.selected) ?? null;
   const record = useMemo(() => (current ? describeMeasurement(current, run, log) : null), [current, run, log]);
   const changes = useMemo(() => changesForRun(run, log), [run, log]);
   // focus on: highlight + zoom to the selected measurement; focus off: whole sheet, nothing emphasised.
   // `refit` gives F a fresh marker set, which makes the viewer re-fit even when the selection is unchanged.
-  const markers = useMemo(() => labMarkers(run.measurements, ui.focus ? ui.selected : null, drawing.pageSizes) as unknown as ViewerMarkers,
+  const markers = useMemo(() => labMarkers(list, ui.focus ? ui.selected : null, drawing.pageSizes) as unknown as ViewerMarkers,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [run.measurements, ui.focus, ui.selected, drawing.pageSizes, refit]);
+    [list, ui.focus, ui.selected, drawing.pageSizes, refit]);
 
   // a half-typed reason belongs to the measurement it was typed for
-  useEffect(() => { setNote(""); setCorrected(""); setPending(null); }, [ui.selected]);
+  useEffect(() => { setNote(""); setCorrected(""); setPending(null); if (ui.selected) anchor.current = ui.selected; }, [ui.selected]);
+  // a filter change that hides the selected measurement clears the selection (no invisible selection);
+  // the first render keeps a restored selection
+  const filterKey = `${ui.filter}|${ui.show_reviewed}`;
+  const lastFilterKey = useRef(filterKey);
+  useEffect(() => {
+    if (lastFilterKey.current === filterKey) return;
+    lastFilterKey.current = filterKey;
+    setChooser(null);
+    if (ui.selected && pinned === ui.selected) onUi({ selected: null });
+  }, [filterKey, pinned, ui.selected, onUi]);
   useEffect(() => { listRef.current?.querySelector('[aria-current="true"]')?.scrollIntoView?.({ block: "nearest" }); }, [ui.selected, ui.filter]);
 
-  const select = (id: string | null) => { onUi({ selected: id }); setMessage(null); };
+  const select = (id: string | null) => { onUi({ selected: id }); setMessage(null); setChooser(null); };
+  const isDeferred = current ? deferred.has(current.id) : false;
+  const toggleDefer = async () => {
+    if (!current) { setMessage("Select a measurement first."); return; }
+    if (!onDefer) return;
+    try {
+      await onDefer({ measurement_id: current.id, deferred: !isDeferred, note: "" });
+      setMessage(`${current.id}: ${isDeferred ? "undeferred" : "deferred — N now skips it; find it under the “deferred” filter"}. Its verdict is unchanged.`);
+    } catch (e) { setMessage(`Not recorded: ${(e as Error).message}`); }
+  };
+  // a click on the drawing: when several visible measurements overlap there, ask which one was meant
+  const onMarker = (markerId: string) => {
+    const id = measurementIdOf(markerId);
+    if (id === ui.selected) { setChooser(null); return; }
+    const m = list.find((x) => x.id === id);
+    if (!m) return;
+    const hits = overlappingWith(m, list);
+    if (hits.length > 1) { setChooser(hits.map((h) => h.id)); setMessage(null); } else select(id);
+  };
   const record_ = async (verdict: Verdict, reason = note) => {
     if (!current) { setMessage("Select a measurement first."); return; }
     if (verdict !== "correct" && !reason.trim()) {
@@ -115,12 +156,13 @@ export default function MeasurementReviewWorkspace({ run, log, drawing, ui, onUi
         case "accept": void record_("correct", ""); break;
         case "incorrect": void record_("incorrect"); break;
         case "unclear": void record_("unclear"); break;
-        case "next-unresolved": { const n = nextUnresolved(list, verdicts, ui.selected, run.measurements); if (n) select(n); else setMessage("No unresolved measurement left in this list."); break; }
+        case "defer": void toggleDefer(); break;
+        case "next-unresolved": { const n = nextUnresolved(list, verdicts, ui.selected ?? anchor.current, run.measurements, deferred); if (n) select(n); else setMessage("No unresolved measurement left in this list (deferred ones are skipped)."); break; }
         case "previous": { const p = step(list, ui.selected, -1, run.measurements); if (p) select(p); break; }
         case "focus": onUi({ focus: true }); setRefit((k) => k + 1); break;
         case "toggle-inspector": onUi({ inspector_open: !ui.inspector_open }); break;
         case "help": setShowHelp((s) => !s); break;
-        case "clear": if (ui.selected) select(null); else if (showHelp) setShowHelp(false); break;
+        case "clear": if (chooser) setChooser(null); else if (ui.selected) select(null); else if (showHelp) setShowHelp(false); break;
       }
     };
     el.addEventListener("keydown", onKey);
@@ -129,14 +171,16 @@ export default function MeasurementReviewWorkspace({ run, log, drawing, ui, onUi
 
   const pct = progress.total ? Math.round((progress.reviewed / progress.total) * 100) : 0;
   return (
-    <div ref={rootRef} tabIndex={-1} className="space-y-2 outline-none" data-testid="review-workspace" data-lab-esc={ui.shortcuts && ui.selected ? "clear" : undefined}>
+    <div ref={rootRef} tabIndex={-1} className="space-y-2 outline-none" data-testid="review-workspace" data-lab-esc={ui.shortcuts && (ui.selected || chooser) ? "clear" : undefined}>
       <div className="flex flex-wrap items-center gap-2">
         {engineControl}
         <Select value={ui.filter} onValueChange={(v) => onUi({ filter: v as Filter })}>
           <SelectTrigger className="w-48 h-8 text-xs" aria-label="Filter"><SelectValue /></SelectTrigger>
           <SelectContent>{FILTERS.map((f) => <SelectItem key={f} value={f}>{FILTER_LABELS[f]}</SelectItem>)}</SelectContent>
         </Select>
-        <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => { const n = nextUnresolved(list, verdicts, ui.selected, run.measurements); if (n) select(n); else setMessage("No unresolved measurement left in this list."); }}>Next unresolved <kbd className="ml-1 text-[10px] opacity-60">N</kbd></Button>
+        <label className="flex items-center gap-1 text-xs font-medium"><input type="checkbox" checked={ui.show_reviewed} onChange={(e) => onUi({ show_reviewed: e.target.checked })} aria-label="Show reviewed" />Show reviewed</label>
+        <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => { const n = nextUnresolved(list, verdicts, ui.selected ?? anchor.current, run.measurements, deferred); if (n) select(n); else setMessage("No unresolved measurement left in this list (deferred ones are skipped)."); }}>Next unresolved <kbd className="ml-1 text-[10px] opacity-60">N</kbd></Button>
+        <Button size="sm" variant="ghost" className="h-8 text-xs" aria-pressed={ui.register_open} onClick={() => onUi({ register_open: !ui.register_open })}>{ui.register_open ? "Hide list" : "Show list"}</Button>
         <Button size="sm" variant="ghost" className="h-8 text-xs" aria-pressed={ui.focus} onClick={() => { onUi({ focus: !ui.focus }); setRefit((k) => k + 1); }}>{ui.focus ? "Whole sheet" : "Zoom to selection"} <kbd className="ml-1 text-[10px] opacity-60">F</kbd></Button>
         <Button size="sm" variant="ghost" className="h-8 text-xs" aria-pressed={ui.inspector_open} onClick={() => onUi({ inspector_open: !ui.inspector_open })}>{ui.inspector_open ? "Hide inspector" : "Show inspector"} <kbd className="ml-1 text-[10px] opacity-60">I</kbd></Button>
         <Button size="sm" variant="ghost" className="h-8 text-xs" aria-pressed={showChanges} onClick={() => setShowChanges((s) => !s)}>What changed? ({changes.length})</Button>
@@ -147,11 +191,9 @@ export default function MeasurementReviewWorkspace({ run, log, drawing, ui, onUi
       <div className="space-y-1" aria-label="Review progress">
         <div className="flex flex-wrap gap-x-3 text-xs">
           <span><b>{progress.reviewed}</b> of {progress.total} reviewed ({pct}%)</span>
-          <span className="text-muted-foreground">not reviewed {progress.notReviewed}</span>
-          <span className="text-emerald-700">correct {progress.correct}</span>
-          <span className="text-red-700">incorrect {progress.incorrect}</span>
-          <span className="text-slate-600">unclear {progress.unclear}</span>
-          <span className="font-medium">still to resolve {progress.unresolved}</span>
+          <span className="text-muted-foreground" aria-label="Verdicts">verdicts: correct <span className="text-emerald-700">{progress.correct}</span> · incorrect <span className="text-red-700">{progress.incorrect}</span> · unclear {progress.unclear} · not reviewed {progress.notReviewed}</span>
+          <span aria-label="Workflow"><span className="font-medium">to resolve {progress.unresolved}</span> · deferred {progress.deferred}</span>
+          <span className="text-muted-foreground">{list.length} shown on list and drawing</span>
         </div>
         <div className="flex h-1.5 w-full overflow-hidden rounded bg-slate-200" role="img" aria-label={`${progress.reviewed} of ${progress.total} reviewed`}>
           <div className="bg-emerald-700" style={{ width: `${(progress.correct / (progress.total || 1)) * 100}%` }} />
@@ -175,27 +217,40 @@ export default function MeasurementReviewWorkspace({ run, log, drawing, ui, onUi
         </div>
       )}
 
-      <div className={`grid gap-2 ${ui.inspector_open ? "lg:grid-cols-[220px_1fr_300px]" : "lg:grid-cols-[220px_1fr]"}`}>
-        <ol ref={listRef} className="max-h-[520px] overflow-auto rounded border text-xs" aria-label="Measurements">
+      <div className={`grid gap-2 ${GRID[`${ui.register_open ? 1 : 0}${ui.inspector_open ? 1 : 0}`]}`}>
+        {ui.register_open && <ol ref={listRef} className="max-h-[520px] overflow-auto rounded border text-xs" aria-label="Measurements">
           {list.map((m) => { const s = statusOf(verdicts, m.id); const sel = m.id === ui.selected; return (
             <li key={m.id}>
               <button type="button" aria-current={sel ? "true" : undefined} onClick={() => select(m.id)}
                 className={`flex w-full items-center justify-between gap-1 px-2 py-1 text-left ${sel ? "bg-primary/10 font-medium" : "hover:bg-muted"}`}>
-                <span className="truncate">{m.id} · “{m.text}”</span>
+                <span className="truncate">{m.id} · “{m.text}”{m.id === pinned ? <span className="text-muted-foreground font-normal"> (selected; hidden by the filter)</span> : null}</span>
                 <span className="flex shrink-0 gap-1">
+                  {deferred.has(m.id) && <span className="rounded border border-amber-500 px-1 text-[10px] text-amber-800">deferred</span>}
                   <span className={`rounded px-1 text-[10px] ${DECISION_STYLE[m.decision]}`}>{m.decision}</span>
                   <span className={`rounded px-1 text-[10px] ${STATUS_STYLE[s]}`}>{statusText(s)}</span>
                 </span>
               </button>
             </li>); })}
-          {!list.length && <li className="p-2 text-muted-foreground">No measurement matches this filter.</li>}
-        </ol>
+          {!list.length && <li className="p-2 text-muted-foreground">No measurement matches this filter{ui.show_reviewed ? "" : " (reviewed ones are hidden — tick “Show reviewed”)"}.</li>}
+        </ol>}
 
         <div className="min-w-0 space-y-1">
+          {chooser && (
+            <div className="rounded border border-amber-400 bg-amber-50 p-2 text-xs" role="dialog" aria-label="Choose a measurement">
+              <div className="mb-1 font-medium">{chooser.length} measurements overlap here — choose the one you meant:</div>
+              <div className="flex flex-wrap gap-1">
+                {chooser.map((id) => { const m = run.measurements.find((x) => x.id === id)!; const s = statusOf(verdicts, id); return (
+                  <Button key={id} size="sm" variant="outline" className="h-7 text-xs" onClick={() => select(id)}>
+                    {id} · {m.value} {m.unit ?? ""} · {statusText(s)}{deferred.has(id) ? " · deferred" : ""}
+                  </Button>); })}
+                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setChooser(null)}>Cancel</Button>
+              </div>
+            </div>
+          )}
           {current && record && !record.location_linkable && <p className="text-xs text-amber-800" role="note">Precise location linking is unavailable for {current.id}: the frozen run has no position for it. It is on page {current.page}.</p>}
           <div className="h-[520px] overflow-hidden rounded border">
             <PdfEvidenceViewer fileUrl={drawing.url} source={undefined} documentName={drawing.name} markers={markers} deferDestroyUntilLoaded
-              onSelectMarker={(id) => select(measurementIdOf(id))} markerContextLabel={current ? `${current.id} · page ${current.page}` : "Click a measurement on the drawing or in the list"} />
+              onSelectMarker={onMarker} markerContextLabel={current ? `${current.id} · page ${current.page}` : "Click a measurement on the drawing or in the list"} />
           </div>
         </div>
 
@@ -204,17 +259,36 @@ export default function MeasurementReviewWorkspace({ run, log, drawing, ui, onUi
             <div className="flex items-center justify-between"><span className="font-medium text-sm">Inspector</span>
               <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => onUi({ inspector_open: false })}>Hide</Button></div>
             {!record || !current ? <p className="text-muted-foreground">Select a measurement in the list or on the drawing.</p> : (<>
-              <section aria-label="Measurement">
+              <section aria-label="Result">
                 <div className="text-sm"><b>{record.id}</b> · {record.engine_value} {record.unit ?? "(no unit)"}</div>
                 <dl className="grid grid-cols-[110px_1fr] gap-x-2">
                   <dt className="text-muted-foreground">Type</dt><dd>linear dimension</dd>
                   <dt className="text-muted-foreground">Page</dt><dd>{record.source.page}</dd>
                   <dt className="text-muted-foreground">Engine result</dt><dd><span className={`rounded px-1 ${DECISION_STYLE[record.extraction.decision]}`}>{record.extraction.decision}</span> ({record.extraction.status})</dd>
                   <dt className="text-muted-foreground">Your verdict</dt><dd><span className={`rounded px-1 ${STATUS_STYLE[record.verification.status]}`}>{statusText(record.verification.status)}</span></dd>
+                  <dt className="text-muted-foreground">Workflow</dt><dd>{isDeferred ? <span className="rounded border border-amber-500 px-1 text-amber-800">deferred</span> : "not deferred"}</dd>
                   <dt className="text-muted-foreground">Current value</dt><dd>{record.current_value} {record.unit ?? ""} <span className="text-muted-foreground">({record.provenance.replace("-", " ")})</span></dd>
                 </dl>
               </section>
-              <section aria-label="Record a verdict" className="space-y-1">
+              <section aria-label="Evidence">
+                <div className="font-medium">Evidence</div>
+                <ul>{record.evidence.map((f) => (
+                  <li key={f.key} className="grid grid-cols-[110px_1fr] gap-x-2">
+                    <span className="text-muted-foreground">{f.label}</span>
+                    <span><span className={STATE_STYLE[f.state]}>{f.state}</span>{f.value ? ` · ${f.value}` : ""}{f.note ? <span className="text-muted-foreground"> — {f.note}</span> : null}</span>
+                  </li>))}</ul>
+              </section>
+              <section aria-label="History">
+                <div className="font-medium">History</div>
+                <div>{record.engine.label} · output <code>{record.engine.output_sha256.slice(0, 12)}…</code> (frozen)</div>
+                {record.verification.latest?.note && <div>Latest reason: {record.verification.latest.note}</div>}
+                {deferLog.some((d) => d.run_id === run.run_id && d.measurement_id === record.id) && (
+                  <ul aria-label="Defer history" className="text-muted-foreground">
+                    {deferLog.filter((d) => d.run_id === run.run_id && d.measurement_id === record.id).map((d) => <li key={d.hash}>{when(d.at)} · {d.reviewer_label || d.reviewer_id} · {d.deferred ? "deferred" : "undeferred"} (workflow flag, not a verdict)</li>)}
+                  </ul>)}
+                {record.verification.receipts.length ? <ul aria-label="Verdict history">{record.verification.receipts.map((r) => <Receipt key={r.event_hash} r={r} />)}</ul> : <div className="text-muted-foreground">No verdicts yet — selecting a measurement does not mark it reviewed.</div>}
+              </section>
+              <section aria-label="Record a verdict" className="sticky bottom-0 -mx-2 -mb-2 space-y-1 border-t bg-background p-2">
                 <Textarea ref={reasonRef} value={note} rows={2} aria-label="Verdict note" placeholder="Why (required for Incorrect or Unclear)"
                   onChange={(e) => setNote(e.target.value)}
                   onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && pending) { e.preventDefault(); void record_(pending, e.currentTarget.value); } }} />
@@ -223,22 +297,9 @@ export default function MeasurementReviewWorkspace({ run, log, drawing, ui, onUi
                   <Button size="sm" className="h-7 text-xs" disabled={busy} onClick={() => void record_("correct")}>Correct <kbd className="ml-1 opacity-60">A</kbd></Button>
                   <Button size="sm" variant="outline" className="h-7 text-xs" disabled={busy} onClick={() => void record_("incorrect")}>Incorrect <kbd className="ml-1 opacity-60">R</kbd></Button>
                   <Button size="sm" variant="outline" className="h-7 text-xs" disabled={busy} onClick={() => void record_("unclear")}>Unclear <kbd className="ml-1 opacity-60">U</kbd></Button>
+                  {onDefer && <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={busy} aria-pressed={isDeferred} onClick={() => void toggleDefer()}>{isDeferred ? "Undefer" : "Defer"} <kbd className="ml-1 opacity-60">D</kbd></Button>}
                 </div>
                 <div className="text-muted-foreground">A verdict is appended to the tamper-evident log. It never changes the engine's frozen output or the BOQ.</div>
-              </section>
-              <section aria-label="Source evidence">
-                <div className="font-medium">Source evidence</div>
-                <ul>{record.evidence.map((f) => (
-                  <li key={f.key} className="grid grid-cols-[110px_1fr] gap-x-2">
-                    <span className="text-muted-foreground">{f.label}</span>
-                    <span><span className={STATE_STYLE[f.state]}>{f.state}</span>{f.value ? ` · ${f.value}` : ""}{f.note ? <span className="text-muted-foreground"> — {f.note}</span> : null}</span>
-                  </li>))}</ul>
-              </section>
-              <section aria-label="Verification">
-                <div className="font-medium">Verification</div>
-                <div>{record.engine.label} · output <code>{record.engine.output_sha256.slice(0, 12)}…</code> (frozen)</div>
-                {record.verification.latest?.note && <div>Latest reason: {record.verification.latest.note}</div>}
-                {record.verification.receipts.length ? <ul aria-label="Verdict history">{record.verification.receipts.map((r) => <Receipt key={r.event_hash} r={r} />)}</ul> : <div className="text-muted-foreground">No verdicts yet — selecting a measurement does not mark it reviewed.</div>}
               </section>
             </>)}
           </aside>
