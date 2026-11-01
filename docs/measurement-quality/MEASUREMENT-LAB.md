@@ -70,6 +70,12 @@ Once an engine run is under review, the setup cards fold into one summary line (
   - the log event's hash.
 
   Receipts are derived from the append-only log. The engine's frozen output is never changed, and nothing is applied to the BOQ.
+- **Zoom.** Both Lab viewers (Stage A capture and the review workspace) have the full zoom controls:
+  - zoom − / + (×1.25), the zoom percentage, **100%**, **Fit width** and **Fit page**;
+  - Ctrl/⌘ + wheel or trackpad pinch, zooming at the pointer;
+  - keys **+ − 0 1** while the drawing has focus.
+
+  A manual zoom stays put: it survives page navigation, selecting from the form, and background geometry extraction. Re-fitting happens only when the selected measurement or the marker set changes. The drawing renders at the device pixel ratio (up to 2); a very large sheet at high zoom is capped at about 32 megapixels so it stays rendered, slightly softer.
 - **Overlay filters.** The register and the drawing always show the same measurements: the active filter, with resolved ones (correct or incorrect) hidden unless **Show reviewed** is ticked or the filter asks for them. Show reviewed is off by default. Behaviour around the selection:
   - **After a verdict:** the selected measurement stays visible ("selected; hidden by the filter") so its receipt can be read.
   - **After a filter change:** if the change hides the selection, the selection is cleared, and **N** continues from where you were.

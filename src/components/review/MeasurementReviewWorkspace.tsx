@@ -249,7 +249,7 @@ export default function MeasurementReviewWorkspace({ run, log, drawing, ui, onUi
           )}
           {current && record && !record.location_linkable && <p className="text-xs text-amber-800" role="note">Precise location linking is unavailable for {current.id}: the frozen run has no position for it. It is on page {current.page}.</p>}
           <div className="h-[520px] overflow-hidden rounded border">
-            <PdfEvidenceViewer fileUrl={drawing.url} source={undefined} documentName={drawing.name} markers={markers} deferDestroyUntilLoaded
+            <PdfEvidenceViewer fileUrl={drawing.url} source={undefined} documentName={drawing.name} markers={markers} deferDestroyUntilLoaded zoomControls="full"
               onSelectMarker={onMarker} markerContextLabel={current ? `${current.id} · page ${current.page}` : "Click a measurement on the drawing or in the list"} />
           </div>
         </div>

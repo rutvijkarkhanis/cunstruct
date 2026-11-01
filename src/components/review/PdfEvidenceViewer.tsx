@@ -7,12 +7,12 @@
 // Graceful states for loading, error, "no file", and "no coordinates" — nothing
 // is fabricated.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min?url";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { ZoomIn, ZoomOut, Maximize, Crosshair, ChevronLeft, ChevronRight, FileWarning, Loader2 } from "lucide-react";
+import { ZoomIn, ZoomOut, Maximize, Crosshair, ChevronLeft, ChevronRight, FileWarning, Loader2, MoveHorizontal } from "lucide-react";
 import { resolvePageSpace, transformBoxes, transformPoints, screenPointToPageSpace, fitToEvidence, getEvidenceForClaim, detectPageSizeMismatch, type Rect } from "@/lib/review/evidenceCoords";
 import { claimLabel, sheetPositionLabel } from "@/lib/review/evidenceDisplay";
 import { resolvePageTitle } from "@/lib/review/documentResolve";
@@ -93,7 +93,22 @@ interface Props {
    * applied (the `cancelled` guard below), and an already-loaded document is still destroyed at once.
    */
   deferDestroyUntilLoaded?: boolean;
+  /**
+   * Opt-in (additive; omitted = "basic" = exactly the existing toolbar). "full" adds what drawing
+   * verification needs: Fit page and Fit width as separate actions, a 100% button, multiplicative zoom
+   * steps, Ctrl/⌘ + wheel (and trackpad pinch) zoom anchored at the pointer, and + / − / 0 / 1 keys
+   * while the drawing has focus. Used by the Measurement Lab.
+   */
+  zoomControls?: "basic" | "full";
 }
+
+// Canvas backing-store limits: browsers refuse or silently blank canvases past ~16k px a side or a few
+// hundred megapixels, and memory grows with the area. Up to these limits the canvas renders at the
+// device pixel ratio (capped at 2, as before); beyond them the backing ratio is lowered just enough to
+// stay inside, so a large sheet at high zoom stays rendered (slightly softer) instead of failing.
+const MAX_CANVAS_SIDE = 16384;
+const MAX_CANVAS_PIXELS = 32_000_000;
+const MIN_SCALE = 0.05, MAX_SCALE = 8;
 
 type Size = { width: number; height: number };
 
@@ -107,7 +122,7 @@ type Size = { width: number; height: number };
 // real rectangle doesn't need to stop being drawn as a rectangle either.
 const RICH_GEOMETRY_TYPES = new Set(["point", "line", "polyline", "polygon", "path"]);
 
-export default function PdfEvidenceViewer({ fileUrl, source, documentName, unavailableReason, selectedClaim, selectedClaimValue, pageTitles, markers, onSelectMarker, markerContextLabel, identifyModeActive, onIdentifyPoint, identifyHighlight, similarMatches, deferDestroyUntilLoaded = false }: Props) {
+export default function PdfEvidenceViewer({ fileUrl, source, documentName, unavailableReason, selectedClaim, selectedClaimValue, pageTitles, markers, onSelectMarker, markerContextLabel, identifyModeActive, onIdentifyPoint, identifyHighlight, similarMatches, deferDestroyUntilLoaded = false, zoomControls = "basic" }: Props) {
   // Marker mode is signaled by PRESENCE of `markers` (even []), not its
   // length — an empty marker set for the current selection (e.g. a category
   // with no real evidence at all) must still suppress the old per-item
@@ -120,6 +135,10 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
   const docRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const renderTaskRef = useRef<any>(null);
+  // every render call gets a generation; a call that a newer one has overtaken stops before drawing
+  const renderGenRef = useRef(0);
+  // scroll position to restore after a pointer-anchored zoom (applied once the new size is laid out)
+  const pendingScrollRef = useRef<{ left: number; top: number } | null>(null);
 
   const [numPages, setNumPages] = useState(1);
   const [page, setPage] = useState(source?.page ?? 1);
@@ -267,12 +286,22 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
     const doc = docRef.current;
     const canvas = canvasRef.current;
     if (!doc || !canvas) return;
+    const gen = ++renderGenRef.current;
     try {
       const pdfPage = await doc.getPage(Math.min(Math.max(1, page), doc.numPages));
+      if (gen !== renderGenRef.current) return; // overtaken by a newer render (rapid zoom / page change)
       const base = pdfPage.getViewport({ scale: 1 });
-      setPageBase({ width: base.width, height: base.height });
+      // ROOT CAUSE of the "zoom does nothing" report: this used to store a NEW object on every render,
+      // and fitPage / fitMarkers / fitEvidence all depend on pageBase — so every manual zoom re-rendered,
+      // which re-ran the automatic fit and snapped the scale straight back. Keep the same object while
+      // the page size is unchanged; a page of a different size still re-fits, as intended.
+      setPageBase((prev) => (prev && prev.width === base.width && prev.height === base.height ? prev : { width: base.width, height: base.height }));
       const viewport = pdfPage.getViewport({ scale });
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = Math.min(
+        Math.min(window.devicePixelRatio || 1, 2),
+        MAX_CANVAS_SIDE / viewport.width, MAX_CANVAS_SIDE / viewport.height,
+        Math.sqrt(MAX_CANVAS_PIXELS / (viewport.width * viewport.height)),
+      );
       canvas.width = Math.floor(viewport.width * dpr);
       canvas.height = Math.floor(viewport.height * dpr);
       canvas.style.width = `${viewport.width}px`;
@@ -327,6 +356,49 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
   // this in the same commit — effects fire in source order) still overrides
   // it with a tighter fit whenever the item actually has evidence.
   useEffect(() => { if (status === "ready" && pageBase) fitPage(); }, [status, pageBase, fitPage]);
+
+  // Keep the canvas's displayed size in step with the scale at once (the bitmap re-renders right
+  // after), so overlays and clicks — which use pageBase × scale — never disagree with what is shown
+  // while a render is in flight; then apply any pending pointer-anchored scroll.
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current, c = containerRef.current;
+    if (!canvas || !pageBase) return;
+    canvas.style.width = `${pageBase.width * scale}px`;
+    canvas.style.height = `${pageBase.height * scale}px`;
+    if (c && pendingScrollRef.current) { c.scrollLeft = pendingScrollRef.current.left; c.scrollTop = pendingScrollRef.current.top; pendingScrollRef.current = null; }
+  }, [scale, pageBase]);
+
+  // "full" zoom controls (opt-in): fit the whole page, fit the width, and zoom about a point.
+  const fitWholePage = useCallback(() => {
+    const c = containerRef.current;
+    if (!c || !pageBase || !c.clientWidth || !c.clientHeight) return;
+    setScale(Math.max(MIN_SCALE, Math.min(MAX_SCALE, Math.min((c.clientWidth - 24) / pageBase.width, (c.clientHeight - 24) / pageBase.height))));
+  }, [pageBase]);
+  /** Zoom to `next`, keeping the page point under (clientX, clientY) — default: the view's centre — still. */
+  const zoomTo = useCallback((next: number, at?: { clientX: number; clientY: number }) => {
+    const c = containerRef.current;
+    const target = Math.max(MIN_SCALE, Math.min(MAX_SCALE, next));
+    if (c && pageBase) {
+      const r = c.getBoundingClientRect();
+      const ox = at ? at.clientX - r.left : c.clientWidth / 2, oy = at ? at.clientY - r.top : c.clientHeight / 2;
+      const k = target / scale;
+      pendingScrollRef.current = { left: (c.scrollLeft + ox) * k - ox, top: (c.scrollTop + oy) * k - oy };
+    }
+    setScale(target);
+  }, [pageBase, scale]);
+  const fullZoom = zoomControls === "full";
+  // Ctrl/⌘ + wheel (trackpad pinch sends ctrlKey) zooms at the pointer; a plain wheel still scrolls.
+  useEffect(() => {
+    const c = containerRef.current;
+    if (!fullZoom || !c) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      zoomTo(scale * Math.exp(-Math.max(-100, Math.min(100, e.deltaY)) * 0.004), { clientX: e.clientX, clientY: e.clientY });
+    };
+    c.addEventListener("wheel", onWheel, { passive: false });
+    return () => c.removeEventListener("wheel", onWheel);
+  }, [fullZoom, zoomTo, scale]);
 
   // Fit-to-evidence: delegate the scale calculation to the ONE canonical
   // implementation (evidenceCoords.fitToEvidence), then scroll to centre it.
@@ -421,10 +493,23 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
     }, 30);
   }, [markersOnPage, pageBase, fitPage]);
 
+  // Re-fit only when what is being fitted changes — the marker set or the selected (primary) marker, or
+  // the page size — never on manual page navigation or when background geometry extraction finishes,
+  // which used to reset a reviewer's zoom. A primary marker on another page is fitted once the
+  // marker-navigation effect has brought that page up.
+  const fitMarkersRef = useRef(fitMarkers);
+  fitMarkersRef.current = fitMarkers;
+  const markerSetKey = useMemo(() => (markers ?? []).map((m) => `${m.id}:${m.emphasis}:${m.page}:${m.box.bbox.join(",")}`).join("|"), [markers]);
+  const lastMarkerFitRef = useRef<string | null>(null);
   useEffect(() => {
-    if (status !== "ready" || !markerModeActive) return;
-    fitMarkers();
-  }, [status, markerModeActive, fitMarkers]);
+    if (status !== "ready" || !markerModeActive || !pageBase) return;
+    const primary = (markers ?? []).find((m) => m.emphasis === "primary");
+    if (primary && primary.page !== page) return; // wait for the page jump
+    const key = `${fileUrl}#${markerSetKey}#${pageBase.width}x${pageBase.height}`;
+    if (lastMarkerFitRef.current === key) return;
+    lastMarkerFitRef.current = key;
+    fitMarkersRef.current();
+  }, [status, markerModeActive, markerSetKey, page, pageBase, markers, fileUrl]);
 
   // Click-to-Identify's click handler. Only active when identifyModeActive
   // is true (see Props doc) — when it isn't, this never runs and nothing
@@ -585,10 +670,19 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
       identity={sheetIdentity}
       toolbar={
         <div className="flex items-center gap-1">
+          {fullZoom ? (<>
+            <IconBtn title="Zoom out (−)" onClick={() => zoomTo(scale / 1.25)}><ZoomOut className="w-4 h-4" /></IconBtn>
+            <span className="text-xs tabular-nums w-11 text-center" aria-label="Zoom level">{Math.round(scale * 100)}%</span>
+            <IconBtn title="Zoom in (+)" onClick={() => zoomTo(scale * 1.25)}><ZoomIn className="w-4 h-4" /></IconBtn>
+            <Button variant="ghost" size="sm" className="h-7 px-1.5 text-xs" title="Actual size, 100% (1)" onClick={() => zoomTo(1)}>100%</Button>
+            <IconBtn title="Fit width" onClick={fitPage}><MoveHorizontal className="w-4 h-4" /></IconBtn>
+            <IconBtn title="Fit page (0)" onClick={fitWholePage}><Maximize className="w-4 h-4" /></IconBtn>
+          </>) : (<>
           <IconBtn title="Zoom out" onClick={() => setScale((s) => Math.max(0.1, s - 0.25))}><ZoomOut className="w-4 h-4" /></IconBtn>
           <span className="text-xs tabular-nums w-10 text-center">{Math.round(scale * 100)}%</span>
           <IconBtn title="Zoom in" onClick={() => setScale((s) => Math.min(8, s + 0.25))}><ZoomIn className="w-4 h-4" /></IconBtn>
           <IconBtn title="Fit page" onClick={fitPage}><Maximize className="w-4 h-4" /></IconBtn>
+          </>)}
           <IconBtn
             title={markerModeActive ? "Fit to selection" : "Fit to evidence"}
             onClick={markerModeActive ? fitMarkers : fitEvidence}
@@ -618,6 +712,15 @@ export default function PdfEvidenceViewer({ fileUrl, source, documentName, unava
           scrollable-region-focusable): the canvas inside has nothing
           focusable, so the container itself takes focus and a name. */}
       <div ref={containerRef} tabIndex={0} role="region" aria-label={documentName ? `Drawing: ${documentName}` : "Drawing"}
+        onKeyDown={fullZoom ? (e) => {
+          if (e.ctrlKey || e.metaKey || e.altKey) return;
+          const t = e.target as HTMLElement;
+          if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+          if (e.key === "+" || e.key === "=") { e.preventDefault(); zoomTo(scale * 1.25); }
+          else if (e.key === "-" || e.key === "_") { e.preventDefault(); zoomTo(scale / 1.25); }
+          else if (e.key === "0") { e.preventDefault(); fitWholePage(); }
+          else if (e.key === "1") { e.preventDefault(); zoomTo(1); }
+        } : undefined}
         className="relative overflow-auto w-full max-w-full min-w-0 h-[60vh] min-h-[360px] max-h-[72vh] lg:h-auto lg:flex-1 lg:min-h-0 lg:max-h-none focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
         {status === "loading" && <div className="absolute inset-0 flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>}
         {status === "error" && (
