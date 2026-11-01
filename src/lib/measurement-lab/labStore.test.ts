@@ -17,7 +17,7 @@ describe("backup: export and import with integrity checks", () => {
   it("round-trips through JSON into an empty store", async () => {
     const { x } = await fixture();
     const s = memoryStore();
-    expect(await importLab(s, JSON.parse(JSON.stringify(x)))).toEqual({ runs: 1, events: 1, refEvents: 1 });
+    expect(await importLab(s, JSON.parse(JSON.stringify(x)))).toEqual({ runs: 1, events: 1, refEvents: 1, deferEvents: 0 });
     expect(await s.getRuns(SHA)).toHaveLength(1);
     expect(await s.getLog(SHA)).toHaveLength(1);
     expect(await s.getRefLog(SHA)).toHaveLength(1);
@@ -40,7 +40,7 @@ describe("backup: export and import with integrity checks", () => {
     const { x, run } = await fixture();
     const s = memoryStore();
     await importLab(s, x);
-    expect(await importLab(s, x)).toEqual({ runs: 0, events: 0, refEvents: 0 }); // nothing new: counts say so
+    expect(await importLab(s, x)).toEqual({ runs: 0, events: 0, refEvents: 0, deferEvents: 0 }); // nothing new: counts say so
     const other = await appendVerdict([], { run_id: run.run_id, measurement_id: "D1", verdict: "correct", reviewer_id: "u" });
     await expect(importLab(s, { ...x, correction_log: [...other] })).rejects.toThrow(/differs/);
     expect((await s.getLog(SHA))[0].verdict).toBe("unclear");

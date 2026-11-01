@@ -43,7 +43,7 @@ describe("correction lifecycle", () => {
     const file = roundTrip(exportLab(SHA, await store.getRuns(SHA), await store.getLog(SHA), await store.getRefLog(SHA)));
     expect(await checkImport(file)).toEqual([]);
     const fresh = memoryStore();
-    expect(await importLab(fresh, file)).toEqual({ runs: 1, events: 2, refEvents: 0 });
+    expect(await importLab(fresh, file)).toEqual({ runs: 1, events: 2, refEvents: 0, deferEvents: 0 });
     const [run2] = await fresh.getRuns(SHA);
     const log2 = await fresh.getLog(SHA);
     expect(run2.output_sha256).toBe(run.output_sha256);
@@ -85,9 +85,9 @@ describe("correction lifecycle", () => {
     expect((await other.getLog(SHA)).map((e) => e.hash)).toEqual([theirs[0].hash]);
     // an older backup (only the first event) into the full store: nothing changes
     const older = roundTrip({ ...full, correction_log: full.correction_log.slice(0, 1) });
-    expect(await importLab(store, older)).toEqual({ runs: 0, events: 0, refEvents: 0 });
+    expect(await importLab(store, older)).toEqual({ runs: 0, events: 0, refEvents: 0, deferEvents: 0 });
     expect(await store.getLog(SHA)).toHaveLength(2);
-    expect(await importLab(store, full)).toEqual({ runs: 0, events: 0, refEvents: 0 });
+    expect(await importLab(store, full)).toEqual({ runs: 0, events: 0, refEvents: 0, deferEvents: 0 });
     expect(await store.getLog(SHA)).toHaveLength(2);
   });
 

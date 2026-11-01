@@ -9,6 +9,7 @@ vi.mock("@/components/review/PdfEvidenceViewer", () => ({ default: (p: typeof vi
 
 import MeasurementReviewWorkspace, { type WorkspaceUi } from "./MeasurementReviewWorkspace";
 import { appendVerdict, freezeRun, type CorrectionEvent, type FrozenRun, type LabMeasurement } from "@/lib/measurement-lab/core";
+import { appendDefer, type DeferEvent } from "@/lib/measurement-lab/defer";
 
 const m = (id: string, over: Partial<LabMeasurement> = {}): LabMeasurement => ({
   id, page: 1, text: id === "D2" ? "900" : "1730", value: id === "D2" ? 900 : 1730, unit: "mm", textAnchor: [100, 50], line: { a: [80, 54], b: [130, 54] },
@@ -16,14 +17,18 @@ const m = (id: string, over: Partial<LabMeasurement> = {}): LabMeasurement => ({
 });
 let run: FrozenRun;
 const verdictSpy = vi.fn();
+const deferSpy = vi.fn();
 function Harness({ initial, initialLog = [] }: { initial?: Partial<WorkspaceUi>; initialLog?: readonly CorrectionEvent[] }) {
-  const [ui, setUi] = useState<WorkspaceUi>({ filter: "all", selected: null, inspector_open: true, focus: true, shortcuts: true, ...initial });
+  const [ui, setUi] = useState<WorkspaceUi>({ filter: "all", selected: null, inspector_open: true, register_open: true, show_reviewed: true, focus: true, shortcuts: true, ...initial });
   const [log, setLog] = useState<readonly CorrectionEvent[]>(initialLog);
+  const [deferLog, setDeferLog] = useState<readonly DeferEvent[]>([]);
   return (
     <div>
       <div data-testid="ui">{JSON.stringify(ui)}</div>
       <MeasurementReviewWorkspace run={run} log={log} drawing={{ name: "t.pdf", url: "blob:x", pageSizes: { 1: { width: 600, height: 400 }, 2: { width: 600, height: 400 } } }} ui={ui}
         onUi={(p) => setUi((u) => ({ ...u, ...p }))}
+        deferLog={deferLog}
+        onDefer={async (x) => { deferSpy(x); setDeferLog(await appendDefer(deferLog, { run_id: run.run_id, measurement_id: x.measurement_id, deferred: x.deferred, reviewer_id: "u1", reviewer_label: "admin@x" })); }}
         onVerdict={async (x) => { verdictSpy(x); const next = await appendVerdict(log, { run_id: run.run_id, measurement_id: x.measurement_id, verdict: x.verdict, note: x.note, reviewer_id: "u1", reviewer_label: "admin@x", correction: x.corrected_value !== null ? { value: x.corrected_value } : null }); setLog(next); }} />
     </div>
   );
@@ -34,7 +39,7 @@ const key = async (k: string, target: Element = ws(), mod = {}) => { await act(a
 const inspector = () => screen.getByRole("complementary", { name: "Measurement inspector" });
 
 beforeEach(async () => {
-  verdictSpy.mockReset();
+  verdictSpy.mockReset(); deferSpy.mockReset();
   run = await freezeRun("engine-9ac1f71", { name: "t.pdf", sha256: "a".repeat(64), pages: [1, 2] }, { measurements: [m("D1"), m("D2", { page: 2, textAnchor: [300, 90] }), m("D3", { textAnchor: [Number.NaN, 0], line: null, span: null }), m("D4", { decision: "accepted", status: "acceptable" })], raw: {} });
 });
 
@@ -44,22 +49,34 @@ describe("contextual inspector and drawing linking", () => {
     expect(within(inspector()).getByText(/Select a measurement/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /D1 · “1730”/ }));
     expect(within(inspector()).getByText("D1")).toBeTruthy();
-    expect(within(inspector()).getByRole("region", { name: "Measurement" }).textContent).toMatch(/D1 · 1730 mm.*Typelinear dimension.*Page1.*Engine resultheld.*Your verdictnot reviewed/);
+    expect(within(inspector()).getByRole("region", { name: "Result" }).textContent).toMatch(/D1 · 1730 mm.*Typelinear dimension.*Page1.*Engine resultheld.*Your verdictnot reviewed/);
     expect(within(inspector()).getByText("Scale used").nextSibling?.textContent).toMatch(/missing/);
     expect(within(inspector()).getByText("Endpoint distance on the sheet").nextSibling?.textContent).toMatch(/derived · 50 pt/);
     expect(viewer.props!.markers!.filter((k) => k.emphasis === "primary").every((k) => k.reviewItemId === "D1")).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: /D2 · “900”/ }));
-    expect(within(inspector()).getByRole("region", { name: "Measurement" }).textContent).toMatch(/D2 · 900 mm.*Page2/);
+    expect(within(inspector()).getByRole("region", { name: "Result" }).textContent).toMatch(/D2 · 900 mm.*Page2/);
     const primary = viewer.props!.markers!.filter((k) => k.emphasis === "primary");
     expect(primary.length).toBe(4);
     expect(primary.every((k) => k.reviewItemId === "D2" && k.page === 2)).toBe(true); // the viewer follows the primary marker to its page
   });
-  it("clicking a measurement on the drawing selects it (drawing → inspector), also among overlapping markers", () => {
+  it("a click on a lone marker selects it directly (drawing → inspector)", () => {
     render(<Harness initial={{ selected: "D1" }} />);
+    const d2 = viewer.props!.markers!.find((k) => k.reviewItemId === "D2")!;
+    act(() => viewer.props!.onSelectMarker!(d2.id));
+    expect(ui().selected).toBe("D2");
+    expect(screen.queryByRole("dialog", { name: "Choose a measurement" })).toBeNull();
+  });
+  it("overlapping markers never select by drawing order: a chooser lists them and the reviewer picks", () => {
+    render(<Harness initial={{ selected: "D2" }} />); // D1 and D4 share a position
     const d4 = viewer.props!.markers!.find((k) => k.reviewItemId === "D4")!;
     act(() => viewer.props!.onSelectMarker!(d4.id));
+    expect(ui().selected).toBe("D2"); // nothing chosen yet
+    const chooser = screen.getByRole("dialog", { name: "Choose a measurement" });
+    expect(chooser.textContent).toMatch(/2 measurements overlap here/);
+    expect(within(chooser).getByRole("button", { name: /D1 · 1730 mm · not reviewed/ })).toBeTruthy();
+    fireEvent.click(within(chooser).getByRole("button", { name: /D4 · 1730 mm/ }));
     expect(ui().selected).toBe("D4");
-    expect(within(inspector()).getByText("D4")).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Choose a measurement" })).toBeNull();
   });
   it("says so when a measurement has no position, instead of placing a highlight", () => {
     render(<Harness initial={{ selected: "D3" }} />);
@@ -76,6 +93,55 @@ describe("contextual inspector and drawing linking", () => {
     expect(screen.queryByRole("complementary", { name: "Measurement inspector" })).toBeNull();
     await key("i");
     expect(inspector()).toBeTruthy();
+  });
+});
+
+describe("overlay filters, defer and layout", () => {
+  it("drawing markers follow the register: reviewed items are hidden from both unless Show reviewed is on", async () => {
+    const pre = await appendVerdict([], { run_id: run.run_id, measurement_id: "D1", verdict: "correct", reviewer_id: "u1" });
+    render(<Harness initial={{ show_reviewed: false }} initialLog={pre} />);
+    const listed = () => screen.getAllByRole("button", { name: /^D\d · / }).map((b) => b.textContent!.split(" · ")[0]);
+    const marked = () => [...new Set(viewer.props!.markers!.map((k) => k.reviewItemId))].sort();
+    expect(listed()).toEqual(["D2", "D3", "D4"]);
+    expect(marked()).toEqual(["D2", "D4"]); // D3 has no position: listed, never placed
+    fireEvent.click(screen.getByLabelText("Show reviewed"));
+    expect(listed()).toEqual(["D1", "D2", "D3", "D4"]);
+    expect(marked()).toEqual(["D1", "D2", "D4"]);
+  });
+  it("a filter change that hides the selection clears it; a verdict keeps the selected item pinned for its receipt", async () => {
+    render(<Harness initial={{ selected: "D1", filter: "unresolved", show_reviewed: false }} />);
+    await key("a");
+    await waitFor(() => expect(screen.getByRole("button", { name: /D1 · .*selected; hidden by the filter/ })).toBeTruthy());
+    expect(ui().selected).toBe("D1");
+    fireEvent.click(screen.getByLabelText("Show reviewed"));
+    fireEvent.click(screen.getByLabelText("Show reviewed"));
+    expect(ui().selected).toBeNull();
+    await key("n");
+    expect(ui().selected).toBe("D2"); // continues after D1, not from the top
+  });
+  it("Defer is a workflow flag: D defers, counts and filters separately, N skips it, and no verdict is recorded", async () => {
+    render(<Harness initial={{ selected: "D2", filter: "unresolved" }} />);
+    await key("d");
+    expect(deferSpy).toHaveBeenCalledWith({ measurement_id: "D2", deferred: true, note: "" });
+    await waitFor(() => expect(screen.getByLabelText("Workflow").textContent).toMatch(/to resolve 3 · deferred 1/));
+    expect(screen.getByLabelText("Verdicts").textContent).toMatch(/not reviewed 4/); // correctness counts untouched
+    expect(verdictSpy).not.toHaveBeenCalled();
+    expect(within(inspector()).getByLabelText("Defer history").textContent).toMatch(/deferred \(workflow flag, not a verdict\)/);
+    const visited: (string | null)[] = [];
+    for (let i = 0; i < 4; i++) { await key("n"); visited.push(ui().selected); }
+    expect(visited).toEqual(["D3", "D4", "D1", "D3"]); // D2 is deferred: skipped every time
+    fireEvent.click(screen.getByRole("button", { name: /Hide list/ })); // collapse the register; the drawing keeps working
+    expect(screen.queryByRole("list", { name: "Measurements" })).toBeNull();
+    expect(screen.getByTestId("viewer")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Show list/ }));
+    expect(screen.getByRole("list", { name: "Measurements" })).toBeTruthy();
+  });
+  it("the inspector reads Result → Evidence → History, with the verdict actions pinned last", () => {
+    render(<Harness initial={{ selected: "D1" }} />);
+    const order = within(inspector()).getAllByRole("region").map((r) => r.getAttribute("aria-label"));
+    expect(order).toEqual(["Result", "Evidence", "History", "Record a verdict"]);
+    expect(within(inspector()).getByRole("region", { name: "Record a verdict" }).className).toMatch(/sticky bottom-0/);
+    expect(within(inspector()).getByRole("button", { name: /Defer D/ })).toBeTruthy();
   });
 });
 

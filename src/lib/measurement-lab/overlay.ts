@@ -50,3 +50,24 @@ export function labMarkers(ms: readonly LabMeasurement[], selectedId: string | n
   return out;
 }
 export const measurementIdOf = (markerId: string) => markerId.split("::")[0];
+
+/** The clickable (printed-text) box of a measurement, in page points — the same box its marker uses. */
+export function textBoxOf(m: LabMeasurement): [number, number, number, number] | null {
+  return finite(m.textAnchor) ? evidenceFor(m).evidence[0].bbox as [number, number, number, number] : null;
+}
+/** Every candidate on the same page whose clickable box substantially overlaps `m`'s (the overlap
+ *  covers at least `minShare` of the smaller box), including `m` itself, in candidate order. A click on
+ *  a marker with more than one result must be resolved by the reviewer, never by drawing order. */
+export function overlappingWith(m: LabMeasurement, candidates: readonly LabMeasurement[], minShare = 0.3): LabMeasurement[] {
+  const a = textBoxOf(m);
+  if (!a) return [m];
+  const area = (b: number[]) => Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]);
+  return candidates.filter((c) => {
+    if (c.id === m.id) return true;
+    if (c.page !== m.page) return false;
+    const b = textBoxOf(c);
+    if (!b) return false;
+    const inter = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+    return inter > 0 && inter >= minShare * Math.min(area(a), area(b));
+  });
+}

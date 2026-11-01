@@ -31,6 +31,7 @@ import { appendReferenceEvent, replay, toReferenceDimensions, type RefEvent, typ
 import { TRACK_B_STATUS } from "@/lib/measurement-lab/aiTrack";
 import { browserStore, checkImport, exportLab, importLab, type LabExport } from "@/lib/measurement-lab/labStore";
 import { fingerprintDrawing, lastSession, loadUi, saveUi, type Filter } from "@/lib/measurement-lab/reviewState";
+import { appendDefer, type DeferEvent } from "@/lib/measurement-lab/defer";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 const ENGINE_IDS = Object.keys(ENGINES) as EngineId[];
@@ -62,7 +63,7 @@ function Lab({ reviewerId, reviewerLabel }: { reviewerId: string; reviewerLabel:
   const [pagesText, setPagesText] = useState("");
   const [engine, setEngine] = useState<EngineId>("engine-9ac1f71");
   // the reviewer's place (selection, filter, layout); restored per drawing — see reviewState.ts
-  const [ui, setUi] = useState<WorkspaceUi>({ filter: "unresolved", selected: null, inspector_open: true, focus: true, shortcuts: true });
+  const [ui, setUi] = useState<WorkspaceUi>({ filter: "unresolved", selected: null, inspector_open: true, register_open: true, show_reviewed: false, focus: true, shortcuts: true });
   const [lastReviewed, setLastReviewed] = useState<string | null>(null);
   const [restoredFrom, setRestoredFrom] = useState<string | null>(null);
   const [last] = useState(() => lastSession());
@@ -79,6 +80,8 @@ function Lab({ reviewerId, reviewerLabel }: { reviewerId: string; reviewerLabel:
   const refLogQ = useQuery({ queryKey: ["measurement-lab-ref", sha], enabled: !!sha && !!store, queryFn: () => store!.getRefLog(sha!) });
   const log: readonly CorrectionEvent[] = useMemo(() => logQ.data ?? [], [logQ.data]);
   const refLog: readonly RefEvent[] = useMemo(() => refLogQ.data ?? [], [refLogQ.data]);
+  const deferQ = useQuery({ queryKey: ["measurement-lab-defer", sha], enabled: !!sha && !!store, queryFn: () => store!.getDeferLog(sha!) });
+  const deferLog: readonly DeferEvent[] = useMemo(() => deferQ.data ?? [], [deferQ.data]);
   const refState = useMemo(() => replay(refLog), [refLog]);
   const pages = useMemo(() => {
     if (!drawing) return [];
@@ -135,7 +138,7 @@ function Lab({ reviewerId, reviewerLabel }: { reviewerId: string; reviewerLabel:
       setDrawing(d); setReport(null); setMsg(null);
       if (saved) {
         setMode(saved.mode); setRefScope(saved.ref_scope); setPagesText(saved.pages_text); setEngine(saved.engine); setLastReviewed(saved.last_reviewed);
-        setUi({ filter: saved.filter, selected: saved.selected, inspector_open: saved.inspector_open, focus: saved.focus, shortcuts: saved.shortcuts });
+        setUi({ filter: saved.filter, selected: saved.selected, inspector_open: saved.inspector_open, register_open: saved.register_open, show_reviewed: saved.show_reviewed, focus: saved.focus, shortcuts: saved.shortcuts });
         setRestoredFrom(saved.drawing.name !== d.name ? `${saved.saved_at}|${saved.drawing.name}` : saved.saved_at);
       } else { setUi((u) => ({ ...u, selected: null })); setRestoredFrom(null); setLastReviewed(null); }
     }
@@ -185,6 +188,14 @@ function Lab({ reviewerId, reviewerLabel }: { reviewerId: string; reviewerLabel:
     },
     onSuccess: (id) => { setLastReviewed(id); return qc.invalidateQueries({ queryKey: ["measurement-lab-log", sha] }); },
   });
+  // Defer is a workflow flag in its own append-only log: it never touches verdicts, corrections or runs
+  const deferIt = useMutation({
+    mutationFn: async (x: { measurement_id: string; deferred: boolean; note: string }) => {
+      const next = await appendDefer(deferLog, { run_id: run!.run_id, measurement_id: x.measurement_id, deferred: x.deferred, note: x.note, reviewer_id: reviewerId, reviewer_label: reviewerLabel });
+      await store!.appendDeferEvent(next[next.length - 1]);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["measurement-lab-defer", sha] }),
+  });
   const reference = useMemo(() => {
     if (mode === "file") return refFile ? { ...refFile, items: refFile.items.filter((i) => i.sha256 === sha) } : undefined;
     if (!refState.locked || !sha) return undefined;
@@ -208,7 +219,7 @@ function Lab({ reviewerId, reviewerLabel }: { reviewerId: string; reviewerLabel:
       if (x.drawing_sha256 !== sha) throw new Error("Import refused: the file is for another drawing");
       return importLab(store!, x);
     },
-    onSuccess: (r) => { ["measurement-lab-runs", "measurement-lab-log", "measurement-lab-ref"].forEach(refresh); setMsg(r.runs + r.events + r.refEvents === 0 ? "Nothing new to import: everything in the file is already stored (nothing overwritten)." : `Imported ${r.runs} new runs, ${r.events} verdict events, ${r.refEvents} reference events (nothing overwritten).`); },
+    onSuccess: (r) => { ["measurement-lab-runs", "measurement-lab-log", "measurement-lab-ref", "measurement-lab-defer"].forEach(refresh); setMsg(r.runs + r.events + r.refEvents + r.deferEvents === 0 ? "Nothing new to import: everything in the file is already stored (nothing overwritten)." : `Imported ${r.runs} new runs, ${r.events} verdict events, ${r.refEvents} reference events, ${r.deferEvents} defer events (nothing overwritten).`); },
     onError: fail,
   });
 
@@ -218,7 +229,7 @@ function Lab({ reviewerId, reviewerLabel }: { reviewerId: string; reviewerLabel:
   useEffect(() => {
     if (!drawing) return;
     saveUi({ v: 1, drawing: { name: drawing.name, sha256: drawing.sha256, numPages: drawing.numPages }, context_path: typeof window !== "undefined" ? window.location.pathname : "",
-      mode, ref_scope: refScope, pages_text: pagesText, engine, filter: ui.filter as Filter, selected: ui.selected, inspector_open: ui.inspector_open, focus: ui.focus, shortcuts: ui.shortcuts,
+      mode, ref_scope: refScope, pages_text: pagesText, engine, filter: ui.filter as Filter, selected: ui.selected, inspector_open: ui.inspector_open, register_open: ui.register_open, show_reviewed: ui.show_reviewed, focus: ui.focus, shortcuts: ui.shortcuts,
       last_reviewed: lastReviewed, saved_at: new Date().toISOString() });
   }, [drawing, mode, refScope, pagesText, engine, ui, lastReviewed]);
   const s = storeQ.data;
@@ -317,6 +328,8 @@ function Lab({ reviewerId, reviewerLabel }: { reviewerId: string; reviewerLabel:
             <MeasurementReviewWorkspace run={run} log={log} drawing={drawing} ui={ui} busy={mark.isPending}
               onUi={(patch) => setUi((u) => ({ ...u, ...patch }))}
               onVerdict={async (x) => { await mark.mutateAsync(x); }}
+              deferLog={deferLog}
+              onDefer={async (x) => { await deferIt.mutateAsync(x); }}
               engineControl={
                 <Select value={engine} onValueChange={(v) => { setEngine(v as EngineId); setUi((u) => ({ ...u, selected: null })); }}>
                   <SelectTrigger className="w-56 h-8 text-xs" aria-label="Engine"><SelectValue /></SelectTrigger>
@@ -342,7 +355,7 @@ function Lab({ reviewerId, reviewerLabel }: { reviewerId: string; reviewerLabel:
         <Card><CardContent className="pt-4 space-y-2 text-xs">
           <div className="font-medium text-sm">Backup</div>
           <div className="flex flex-wrap gap-2 items-center">
-            <Button size="sm" variant="outline" onClick={() => download(`measurement-lab-${drawing.sha256.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(exportLab(drawing.sha256, runsQ.data ?? [], log, refLog), null, 1), "application/json")}>Export everything for this drawing</Button>
+            <Button size="sm" variant="outline" onClick={() => download(`measurement-lab-${drawing.sha256.slice(0, 8)}-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(exportLab(drawing.sha256, runsQ.data ?? [], log, refLog, deferLog), null, 1), "application/json")}>Export everything for this drawing</Button>
             <label>Import a backup <Input type="file" accept="application/json" aria-label="Import backup" onChange={(e) => e.target.files?.[0] && doImport.mutate(e.target.files[0])} /></label>
           </div>
           <div className="text-muted-foreground">An import is checked first (run hashes, both hash chains, same drawing) and never overwrites stored data.</div>

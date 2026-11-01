@@ -70,7 +70,18 @@ Once an engine run is under review, the setup cards fold into one summary line (
   - the log event's hash.
 
   Receipts are derived from the append-only log. The engine's frozen output is never changed, and nothing is applied to the BOQ.
-- **Progress.** Reviewed out of total, with counts for not reviewed, correct, incorrect, unclear and still to resolve. Status comes only from recorded verdicts: opening or selecting a measurement never marks it reviewed. *Unresolved* means not reviewed, or the latest verdict is unclear. There is no separate *deferred* state, and none was added. Filters cover review status (unresolved, not reviewed, correct, incorrect, unclear) and the engine's own decision. The default filter is *unresolved*.
+- **Overlay filters.** The register and the drawing always show the same measurements: the active filter, with resolved ones (correct or incorrect) hidden unless **Show reviewed** is ticked or the filter asks for them. Show reviewed is off by default. Behaviour around the selection:
+  - **After a verdict:** the selected measurement stays visible ("selected; hidden by the filter") so its receipt can be read.
+  - **After a filter change:** if the change hides the selection, the selection is cleared, and **N** continues from where you were.
+  - **Measurements without a position:** listed, but never placed on the drawing.
+- **Overlapping markers.** When a click lands on a measurement whose box substantially overlaps other visible measurements (at least 30% of the smaller box), a chooser lists them (ID, value, review status, deferred) and the reviewer picks one. Nothing is ever selected by drawing order. A lone marker still selects directly.
+- **Defer.** A workflow flag ("come back later"), **not a verdict**:
+  - **Storage:** its own append-only, hash-chained log, recording who, when, and defer or undefer.
+  - **What it never touches:** verdicts, corrections, frozen runs, or any accuracy metric.
+  - **Navigation:** deferred items are counted separately, have their own filter, and are skipped by **N** and by the "unresolved" filter.
+  - **Keyboard:** **D** toggles it.
+- **Layout.** Both the register and the inspector can be hidden; the drawing takes the space. The inspector reads **Result → Evidence → History**, with the verdict and Defer actions pinned at its bottom.
+- **Progress.** Reviewed out of total, with counts for not reviewed, correct, incorrect, unclear and still to resolve. Status comes only from recorded verdicts: opening or selecting a measurement never marks it reviewed. *Unresolved* ("to resolve") means not reviewed, or the latest verdict is unclear, and not deferred. Correctness counts (correct, incorrect, unclear, not reviewed) are shown apart from workflow counts (to resolve, deferred). Filters cover review status (unresolved, deferred, not reviewed, correct, incorrect, unclear) and the engine's own decision. The default filter is *unresolved*.
 - **Keyboard** (only inside the Lab, never while typing in a field; switch off with the *keys* tick box; `?` shows the list):
 
 | key | action |
@@ -82,7 +93,8 @@ Once an engine run is under review, the setup cards fold into one summary line (
 | F | zoom the drawing to the selection |
 | I | show or hide the inspector |
 | ? | the shortcut list |
-| Esc | clear the selection; with nothing selected, close the Lab |
+| D | defer / undefer (a workflow flag, not a verdict) |
+| Esc | close the overlap chooser, else clear the selection; with nothing selected, close the Lab |
 
 - **Keys stay in the Lab.** While the Lab is open, no key press reaches the workstation's own shortcuts behind it (V, E, F, P, arrows). Before this change, they could act on the production review item behind the dialog.
 - **Drawing identity.** A drawing is identified by the sha256 of its exact bytes, never by its filename:
@@ -149,9 +161,9 @@ The data contract is defined and tested. No AI call exists anywhere in the lab, 
 **Matching.** A measurement matches a reference by position first: the text anchor must be within 12 pt. An equal value is preferred when several candidates are in range.
 
 ## Storage and backup
-- **Where data lives.** This browser only, in IndexedDB database `cunstruct-measurement-lab` v2, with stores `runs`, `events` and `refEvents`. This was an owner decision.
+- **Where data lives.** This browser only, in IndexedDB database `cunstruct-measurement-lab` v3, with stores `runs`, `events`, `refEvents` and `deferEvents` (v3 only adds `deferEvents`; existing data is kept). This was an owner decision.
 - **Durability.** The lab calls `navigator.storage.persist()` and shows the result and the usage. Without persistence the browser **may clear the data under storage pressure**.
-- **Back up regularly.** Use **Export backup**, which writes `cunstruct.lab-export.v2`: runs, the verdict log and the reference log.
+- **Back up regularly.** Use **Export backup**, which writes `cunstruct.lab-export.v3`: runs, the verdict log, the reference log and the defer log. Older `v2` backups (no defer log) still import.
 - **Importing a backup:**
   - **Integrity.** Every run hash and both hash chains are re-verified *before* anything is written. A tampered file is refused.
   - **Wrong drawing.** A backup for another drawing is refused.

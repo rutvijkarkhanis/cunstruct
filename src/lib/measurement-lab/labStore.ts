@@ -6,6 +6,7 @@
  */
 import { verifyLog, verifyRun, type CorrectionEvent, type FrozenRun } from "./core";
 import { verifyReferenceLog, type RefEvent } from "./reference";
+import { verifyDeferLog, type DeferEvent } from "./defer";
 
 export interface LabStore {
   putRun(run: FrozenRun): Promise<void>;
@@ -15,11 +16,14 @@ export interface LabStore {
   /** blind reference log for one drawing (append-only, same chain rule) */
   appendRefEvent(ev: RefEvent): Promise<void>;
   getRefLog(drawingSha256: string): Promise<RefEvent[]>;
+  /** defer/undefer workflow log for one drawing (append-only, same chain rule; never a verdict) */
+  appendDeferEvent(ev: DeferEvent): Promise<void>;
+  getDeferLog(inputSha256: string): Promise<DeferEvent[]>;
 }
 
 /** In-memory store with the same rules (tests, and the fallback when IndexedDB is unavailable). */
 export function memoryStore(): LabStore {
-  const runs = new Map<string, FrozenRun>(), logs = new Map<string, CorrectionEvent[]>(), refs = new Map<string, RefEvent[]>();
+  const runs = new Map<string, FrozenRun>(), logs = new Map<string, CorrectionEvent[]>(), refs = new Map<string, RefEvent[]>(), defers = new Map<string, DeferEvent[]>();
   const key = (runId: string) => runId.split(":")[1];
   return {
     async putRun(run) {
@@ -43,10 +47,17 @@ export function memoryStore(): LabStore {
       refs.set(ev.drawing_sha256, [...log, ev]);
     },
     async getRefLog(sha) { return refs.get(sha) ?? []; },
+    async appendDeferEvent(ev) {
+      const k = key(ev.run_id), log = defers.get(k) ?? [];
+      const prev = log.length ? log[log.length - 1].hash : "0".repeat(64);
+      if (ev.seq !== log.length || ev.prev_hash !== prev) throw new Error("defer log is append-only: event does not extend the stored chain");
+      defers.set(k, [...log, ev]);
+    },
+    async getDeferLog(sha) { return defers.get(sha.slice(0, 12)) ?? []; },
   };
 }
 
-const DB = "cunstruct-measurement-lab", VERSION = 2;
+const DB = "cunstruct-measurement-lab", VERSION = 3; // v3 adds deferEvents; existing stores are untouched
 function open(): Promise<IDBDatabase> {
   return new Promise((res, rej) => {
     const r = indexedDB.open(DB, VERSION);
@@ -55,6 +66,7 @@ function open(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains("runs")) db.createObjectStore("runs", { keyPath: "run_id" }).createIndex("input", "input.sha256");
       if (!db.objectStoreNames.contains("events")) db.createObjectStore("events", { keyPath: ["drawing", "seq"] });
       if (!db.objectStoreNames.contains("refEvents")) db.createObjectStore("refEvents", { keyPath: ["drawing_sha256", "seq"] });
+      if (!db.objectStoreNames.contains("deferEvents")) db.createObjectStore("deferEvents", { keyPath: ["drawing", "seq"] });
     };
     r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);
@@ -110,21 +122,36 @@ export async function browserStore(): Promise<{ store: LabStore; persistent: boo
         if ((await verifyReferenceLog(log)) !== null) throw new Error("stored reference log failed its hash-chain check");
         return log;
       },
+      async appendDeferEvent(ev) {
+        const drawing = ev.run_id.split(":")[1];
+        const log = await tx<DeferEvent[]>(db, "deferEvents", "readonly", (s) => s.getAll(IDBKeyRange.bound([drawing, 0], [drawing, Infinity])));
+        const prev = log.length ? log[log.length - 1].hash : "0".repeat(64);
+        if (ev.seq !== log.length || ev.prev_hash !== prev) throw new Error("defer log is append-only: event does not extend the stored chain");
+        await tx(db, "deferEvents", "readwrite", (s) => s.add({ ...ev, drawing }));
+      },
+      async getDeferLog(sha) {
+        const log = await tx<(DeferEvent & { drawing: string })[]>(db, "deferEvents", "readonly", (s) => s.getAll(IDBKeyRange.bound([sha.slice(0, 12), 0], [sha.slice(0, 12), Infinity])));
+        const clean = log.map(({ drawing: _d, ...e }) => e as DeferEvent);
+        if ((await verifyDeferLog(clean)) !== null) throw new Error("stored defer log failed its hash-chain check");
+        return clean;
+      },
     },
   };
 }
 
 // ── export / import ─────────────────────────────────────────────────────────
-export const LAB_EXPORT_SCHEMA = "cunstruct.lab-export.v2";
-export interface LabExport { schema: typeof LAB_EXPORT_SCHEMA; drawing_sha256: string; exported_at: string; runs: FrozenRun[]; correction_log: CorrectionEvent[]; reference_log: RefEvent[] }
-export function exportLab(drawingSha: string, runs: FrozenRun[], log: readonly CorrectionEvent[], refLog: readonly RefEvent[], now = new Date()): LabExport {
-  return { schema: LAB_EXPORT_SCHEMA, drawing_sha256: drawingSha, exported_at: now.toISOString(), runs, correction_log: [...log], reference_log: [...refLog] };
+export const LAB_EXPORT_SCHEMA = "cunstruct.lab-export.v3";
+/** v3 adds `defer_log`. v2 files (no defer log) still import. */
+export const LAB_EXPORT_SCHEMAS_ACCEPTED = ["cunstruct.lab-export.v2", LAB_EXPORT_SCHEMA] as const;
+export interface LabExport { schema: (typeof LAB_EXPORT_SCHEMAS_ACCEPTED)[number]; drawing_sha256: string; exported_at: string; runs: FrozenRun[]; correction_log: CorrectionEvent[]; reference_log: RefEvent[]; defer_log?: DeferEvent[] }
+export function exportLab(drawingSha: string, runs: FrozenRun[], log: readonly CorrectionEvent[], refLog: readonly RefEvent[], deferLog: readonly DeferEvent[] = [], now = new Date()): LabExport {
+  return { schema: LAB_EXPORT_SCHEMA, drawing_sha256: drawingSha, exported_at: now.toISOString(), runs, correction_log: [...log], reference_log: [...refLog], defer_log: [...deferLog] };
 }
 /** Checks an export before anything is written: every run must match its hash, both logs must be
  *  intact chains, and everything must belong to the stated drawing. Returns the problems (empty = ok). */
 export async function checkImport(x: unknown): Promise<string[]> {
   const e = x as Partial<LabExport>, out: string[] = [];
-  if (!e || e.schema !== LAB_EXPORT_SCHEMA) return [`not a ${LAB_EXPORT_SCHEMA} file`];
+  if (!e || !(LAB_EXPORT_SCHEMAS_ACCEPTED as readonly string[]).includes(e.schema as string)) return [`not a ${LAB_EXPORT_SCHEMAS_ACCEPTED.join(" or ")} file`];
   for (const r of e.runs ?? []) {
     if (r.input?.sha256 !== e.drawing_sha256) out.push(`run ${r.run_id} belongs to another drawing`);
     if (!(await verifyRun(r))) out.push(`run ${r.run_id} does not match its output hash`);
@@ -133,14 +160,16 @@ export async function checkImport(x: unknown): Promise<string[]> {
   if ((await verifyReferenceLog(e.reference_log ?? [])) !== null) out.push("reference log hash chain is broken");
   if ((e.reference_log ?? []).some((v) => v.drawing_sha256 !== e.drawing_sha256)) out.push("reference log belongs to another drawing");
   if ((e.correction_log ?? []).some((v) => v.run_id.split(":")[1] !== e.drawing_sha256!.slice(0, 12))) out.push("correction log belongs to another drawing");
+  if ((await verifyDeferLog(e.defer_log ?? [])) !== null) out.push("defer log hash chain is broken");
+  if ((e.defer_log ?? []).some((v) => v.run_id.split(":")[1] !== e.drawing_sha256!.slice(0, 12))) out.push("defer log belongs to another drawing");
   return out;
 }
 /** Restores a checked export. Existing data is never overwritten: runs already present are kept, and
  *  log events are appended only where they extend what is stored (identical prefixes are skipped). */
-export async function importLab(store: LabStore, x: LabExport): Promise<{ runs: number; events: number; refEvents: number }> {
+export async function importLab(store: LabStore, x: LabExport): Promise<{ runs: number; events: number; refEvents: number; deferEvents: number }> {
   const problems = await checkImport(x);
   if (problems.length) throw new Error(`import refused: ${problems.join("; ")}`);
-  let runs = 0, events = 0, refEvents = 0;
+  let runs = 0, events = 0, refEvents = 0, deferEvents = 0;
   // count only what is actually added: a run already stored (same id and hash) is kept, not re-imported
   const stored = new Set((await store.getRuns(x.drawing_sha256)).map((r) => r.run_id));
   for (const r of x.runs) { await store.putRun(r); if (!stored.has(r.run_id)) { stored.add(r.run_id); runs++; } }
@@ -154,5 +183,10 @@ export async function importLab(store: LabStore, x: LabExport): Promise<{ runs: 
     if (i < haveRef.length) { if (haveRef[i].hash !== ev.hash) throw new Error("import refused: the stored reference log differs from the file's (no overwrite)"); continue; }
     await store.appendRefEvent(ev); refEvents++;
   }
-  return { runs, events, refEvents };
+  const haveDefer = await store.getDeferLog(x.drawing_sha256);
+  for (const [i, ev] of (x.defer_log ?? []).entries()) {
+    if (i < haveDefer.length) { if (haveDefer[i].hash !== ev.hash) throw new Error("import refused: the stored defer log differs from the file's (no overwrite)"); continue; }
+    await store.appendDeferEvent(ev); deferEvents++;
+  }
+  return { runs, events, refEvents, deferEvents };
 }

@@ -12,13 +12,13 @@ async function v(...xs: [string, "correct" | "incorrect" | "unclear"][]) {
 }
 const mem = () => { const d = new Map<string, string>(); return { getItem: (k: string) => d.get(k) ?? null, setItem: (k: string, x: string) => void d.set(k, x), d }; };
 const SHA = "b".repeat(64);
-const ui = (over: Partial<LabUiState> = {}): LabUiState => ({ v: 1, drawing: { name: "x.pdf", sha256: SHA, numPages: 3 }, context_path: "/ops/projects/p/boqs/b/review", mode: "blind", ref_scope: "blind", pages_text: "1,3", engine: "engine-9ac1f71", filter: "unresolved", selected: "D3", inspector_open: false, focus: true, shortcuts: true, last_reviewed: "D2", saved_at: "2026-11-01T10:00:00Z", ...over });
+const ui = (over: Partial<LabUiState> = {}): LabUiState => ({ v: 1, drawing: { name: "x.pdf", sha256: SHA, numPages: 3 }, context_path: "/ops/projects/p/boqs/b/review", mode: "blind", ref_scope: "blind", pages_text: "1,3", engine: "engine-9ac1f71", filter: "unresolved", selected: "D3", inspector_open: false, register_open: true, show_reviewed: false, focus: true, shortcuts: true, last_reviewed: "D2", saved_at: "2026-11-01T10:00:00Z", ...over });
 
 describe("review progress", () => {
   it("counts from verdicts only: opening or selecting never marks anything reviewed", async () => {
     expect(progressOf(ms, new Map())).toMatchObject({ total: 4, reviewed: 0, notReviewed: 4, unresolved: 4 });
     const vs = await v(["D1", "correct"], ["D2", "incorrect"], ["D3", "unclear"]);
-    expect(progressOf(ms, vs)).toEqual({ total: 4, reviewed: 3, notReviewed: 1, correct: 1, incorrect: 1, unclear: 1, unresolved: 2 });
+    expect(progressOf(ms, vs)).toEqual({ total: 4, reviewed: 3, notReviewed: 1, correct: 1, incorrect: 1, unclear: 1, unresolved: 2, deferred: 0 });
   });
   it("filters by review status or by the engine's own decision", async () => {
     const vs = await v(["D1", "correct"], ["D3", "unclear"]);
@@ -48,7 +48,7 @@ describe("saved place (resume)", () => {
     expect(loadUi("c".repeat(64), s)).toBeNull();
     expect(lastSession(s)).toMatchObject({ name: "x.pdf", sha256: SHA, context_path: "/ops/projects/p/boqs/b/review" });
     // the saved place holds no verdicts or drawing content
-    expect(Object.keys(JSON.parse(s.d.get(UI_KEY(SHA))!)).sort()).toEqual(["context_path", "drawing", "engine", "filter", "focus", "inspector_open", "last_reviewed", "mode", "pages_text", "ref_scope", "saved_at", "selected", "shortcuts", "v"]);
+    expect(Object.keys(JSON.parse(s.d.get(UI_KEY(SHA))!)).sort()).toEqual(["context_path", "drawing", "engine", "filter", "focus", "inspector_open", "last_reviewed", "mode", "pages_text", "ref_scope", "register_open", "saved_at", "selected", "shortcuts", "show_reviewed", "v"]);
   });
   it("ignores corrupt or tampered entries field by field, and survives storage that throws", () => {
     const s = mem();
@@ -68,7 +68,7 @@ describe("saved place (resume)", () => {
 describe("keyboard mapping", () => {
   it("maps the documented keys, ignores modified keys, and treats fields as typing", () => {
     const k = (key: string, mod = {}) => shortcutFor({ key, ctrlKey: false, metaKey: false, altKey: false, ...mod });
-    expect(["a", "R", "u", "n", "p", "f", "i", "?", "Escape"].map((x) => k(x))).toEqual(["accept", "incorrect", "unclear", "next-unresolved", "previous", "focus", "toggle-inspector", "help", "clear"]);
+    expect(["a", "R", "u", "d", "n", "p", "f", "i", "?", "Escape"].map((x) => k(x))).toEqual(["accept", "incorrect", "unclear", "defer", "next-unresolved", "previous", "focus", "toggle-inspector", "help", "clear"]);
     expect(k("a", { ctrlKey: true })).toBeNull();
     expect(k("r", { metaKey: true })).toBeNull();
     expect(k("v")).toBeNull();
